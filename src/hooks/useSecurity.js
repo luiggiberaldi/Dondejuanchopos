@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { storageService } from '../utils/storageService';
 import { supabase } from '../core/supabaseClient';
-import { encodeToken, decodeToken } from '../security/tokenCrypto';
+import { encodeToken, decodeToken, verifyLicenseToken } from '../security/tokenCrypto';
 import { generateFingerprint } from '../security/deviceFingerprint';
 import { useLicenseMonitoring } from './useLicenseMonitoring';
 import { useDemoCountdown } from './useDemoCountdown';
@@ -9,7 +9,7 @@ import { useDemoCountdown } from './useDemoCountdown';
 const APP_VERSION = '1.0.0';
 const PRODUCT_ID = 'bodega';
 
-const DEMO_DURATION_MS = 168 * 60 * 60 * 1000; // 168 horas (7 dias)
+const DEMO_DURATION_MS = 72 * 60 * 60 * 1000; // 72 horas (3 dias)
 
 export function useSecurity() {
     const [deviceId, setDeviceId] = useState('');
@@ -132,15 +132,26 @@ export function useSecurity() {
             // Verificar integridad del token almacenado
             if (raw) {
                 try {
-                    const token = decodeToken(raw);
-                    const obj = JSON.parse(token);
-                    // Si es demo y ya expiro
-                    if (obj?.type === 'demo7' && obj?.expires && Date.now() >= obj.expires) {
-                        localStorage.removeItem('pda_premium_token');
-                        setIsPremium(false);
-                        setIsDemo(false);
-                        setDemoExpiredMsg("Tu licencia temporal ha finalizado. Esperamos que hayas disfrutado la experiencia completa.");
-                        console.warn('[Security] Demo token expired during integrity check.');
+                    let obj = null;
+                    if (raw.includes('.')) {
+                        const { valid, payload } = await verifyLicenseToken(raw);
+                        if (valid) obj = payload;
+                    } else {
+                        const token = decodeToken(raw);
+                        obj = JSON.parse(token);
+                    }
+
+                    if (obj) {
+                        // Si es demo y ya expiro
+                        if ((obj.type === 'demo7' || obj.type === 'demo3') && obj.expires && Date.now() >= obj.expires) {
+                            localStorage.removeItem('pda_premium_token');
+                            setIsPremium(false);
+                            setIsDemo(false);
+                            setDemoExpiredMsg("Tu licencia temporal ha finalizado. Esperamos que hayas disfrutado la experiencia completa.");
+                            console.warn('[Security] Demo token expired during integrity check.');
+                        }
+                    } else {
+                        throw new Error('Invalid token structure');
                     }
                 } catch {
                     // Token corrupto -> verificar contra servidor
@@ -158,12 +169,25 @@ export function useSecurity() {
         return () => clearInterval(interval);
     }, [deviceId, isPremium]);
 
-    const checkLicense = async (currentDeviceId) => {
-        // FIX 2: Decodificar token ofuscado
+        const checkLicense = async (currentDeviceId) => {
         const rawStored = localStorage.getItem('pda_premium_token');
-        const storedToken = rawStored ? decodeToken(rawStored) : null;
+        let tokenObj = null;
 
-        if (!storedToken) {
+        if (rawStored) {
+            if (rawStored.includes('.')) {
+                // Formato criptográfico firmado
+                const { valid, payload } = await verifyLicenseToken(rawStored);
+                if (valid) tokenObj = payload;
+            } else {
+                // Formato legacy
+                const storedToken = decodeToken(rawStored);
+                try {
+                    tokenObj = JSON.parse(storedToken);
+                } catch { }
+            }
+        }
+
+        if (!tokenObj) {
             // Fallback: verificar si existe licencia activa en Supabase (ej: reactivada remotamente)
             try {
                 const { data: remoteLicense, error } = await supabase
@@ -174,12 +198,12 @@ export function useSecurity() {
                     .maybeSingle();
 
                 if (remoteLicense && remoteLicense.active === true) {
-                    const isTimeLimited = (remoteLicense.type === 'demo7');
+                    const isTimeLimited = (remoteLicense.type === 'demo7' || remoteLicense.type === 'demo3');
                     const expiresAt = remoteLicense.expires_at ? new Date(remoteLicense.expires_at).getTime() : null;
 
                     if (isTimeLimited && expiresAt) {
                         if (Date.now() < expiresAt) {
-                            const token = { deviceId: currentDeviceId, type: 'demo7', expires: expiresAt, isDemo: true };
+                            const token = { deviceId: currentDeviceId, type: remoteLicense.type, expires: expiresAt, isDemo: true };
                             localStorage.setItem('pda_premium_token', encodeToken(JSON.stringify(token)));
                             setIsPremium(true);
                             setIsDemo(true);
@@ -209,10 +233,9 @@ export function useSecurity() {
         let confirmedExpires = null;
 
         try {
-            const tokenObj = JSON.parse(storedToken);
             if (tokenObj && tokenObj.deviceId === currentDeviceId) {
                 // Token belongs to this device
-                const isTimeLimited = tokenObj.type === 'demo7' || tokenObj.isDemo; // retrocompatibilidad
+                const isTimeLimited = tokenObj.type === 'demo7' || tokenObj.type === 'demo3' || tokenObj.isDemo; // retrocompatibilidad
                 // Verificar estado remoto antes de confiar en el token local
                 let revokedRemotely = false;
                 try {
@@ -342,7 +365,7 @@ export function useSecurity() {
         const expires = Date.now() + DEMO_DURATION_MS;
         const demoToken = {
             deviceId: currentDeviceId,
-            type: 'demo7',
+            type: 'demo3',
             expires: expires,
         };
 
@@ -399,19 +422,19 @@ export function useSecurity() {
                 return { success: false, status: 'LICENSE_REVOKED' };
             }
 
-            const isTimeLimited = (type === 'demo7');
+            const isTimeLimited = (type === 'demo7' || type === 'demo3');
             let expiresAt = expires_at ? new Date(expires_at).getTime() : null;
 
             if (isTimeLimited) {
                 if (!expiresAt) {
-                    expiresAt = Date.now() + 168 * 60 * 60 * 1000;
+                    expiresAt = Date.now() + 72 * 60 * 60 * 1000;
                     try {
                         supabase.from('licenses').update({ expires_at: new Date(expiresAt).toISOString() })
                             .eq('device_id', deviceId).eq('product_id', PRODUCT_ID).then();
                     } catch (e) { }
                 }
 
-                const token = { deviceId, code: inputCode, type: 'demo7', expires: expiresAt };
+                const token = { deviceId, code: inputCode, type, expires: expiresAt };
                 localStorage.setItem('pda_premium_token', encodeToken(JSON.stringify(token)));
                 setIsPremium(true);
                 setIsDemo(true);

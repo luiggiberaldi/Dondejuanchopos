@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Modal } from './Modal';
 import { Copy, Share2, Check, Smartphone, Building2, Wallet } from 'lucide-react';
 import { formatBs, formatUsd, smartCashRounding } from '../utils/calculatorUtils';
+import CustomSelect from './CustomSelect';
 
 export const ProductShareModal = ({ isOpen, onClose, product, rates, accounts, streetRate }) => {
     const [selectedAccountId, setSelectedAccountId] = useState('');
@@ -176,18 +177,17 @@ export const ProductShareModal = ({ isOpen, onClose, product, rates, accounts, s
                             No tienes cuentas guardadas aún.
                         </div>
                     ) : (
-                        <select
+                        <CustomSelect
                             value={selectedAccountId}
-                            onChange={(e) => setSelectedAccountId(e.target.value)}
-                            className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl text-sm font-medium text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/50 border border-slate-200 dark:border-slate-700"
-                        >
-                            <option value="">-- Sin datos bancarios --</option>
-                            {accounts.map(acc => (
-                                <option key={acc.id} value={acc.id}>
-                                    {acc.type === 'pago_movil' ? '📱' : acc.type === 'binance' ? '🟡' : '🏦'} {acc.alias}
-                                </option>
-                            ))}
-                        </select>
+                            onChange={setSelectedAccountId}
+                            options={[
+                                { value: '', label: '-- Sin datos bancarios --' },
+                                ...accounts.map(acc => ({
+                                    value: acc.id,
+                                    label: `${acc.type === 'pago_movil' ? '📱' : acc.type === 'binance' ? '🟡' : '🏦'} ${acc.alias}`
+                                }))
+                            ]}
+                        />
                     )}
                 </div>
 

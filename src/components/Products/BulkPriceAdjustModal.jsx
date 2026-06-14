@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { X, TrendingUp, TrendingDown, Percent, Check, AlertTriangle } from 'lucide-react';
 import { logEvent } from '../../services/auditService';
 import { useAuthStore } from '../../hooks/store/useAuthStore';
+import CustomSelect from '../CustomSelect';
 
 export default function BulkPriceAdjustModal({
     isOpen,
@@ -27,6 +28,19 @@ export default function BulkPriceAdjustModal({
     useEffect(() => {
         return () => timeoutRefs.current.forEach(id => clearTimeout(id));
     }, []);
+
+    const categoryOptions = useMemo(() => {
+        return [
+            { value: 'todos', label: `Todos los productos (${products.length})` },
+            ...categories
+                .filter(c => c.id !== 'todos')
+                .map(cat => {
+                    const count = products.filter(p => p.category === cat.id).length;
+                    return count > 0 ? { value: cat.id, label: `${cat.label} (${count})` } : null;
+                })
+                .filter(Boolean)
+        ];
+    }, [products, categories]);
 
     const effectivePercent = direction === 'up' ? percent : -percent;
     const multiplier = 1 + effectivePercent / 100;
@@ -222,23 +236,11 @@ export default function BulkPriceAdjustModal({
                     {/* Category filter */}
                     <div>
                         <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 block">Aplicar a</label>
-                        <select
+                        <CustomSelect
                             value={selectedCategory}
-                            onChange={e => setSelectedCategory(e.target.value)}
-                            className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl py-2.5 px-4 text-sm font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/30 transition-all appearance-none cursor-pointer"
-                        >
-                            <option value="todos">Todos los productos ({products.length})</option>
-                            {categories
-                                .filter(c => c.id !== 'todos')
-                                .map(cat => {
-                                    const count = products.filter(p => p.category === cat.id).length;
-                                    return count > 0 ? (
-                                        <option key={cat.id} value={cat.id}>
-                                            {cat.label} ({count})
-                                        </option>
-                                    ) : null;
-                                })}
-                        </select>
+                            onChange={setSelectedCategory}
+                            options={categoryOptions}
+                        />
                     </div>
 
                     {/* Preview */}

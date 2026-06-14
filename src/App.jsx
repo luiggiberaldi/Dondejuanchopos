@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo, Suspense, lazy } from 'react';
 import { Home, ShoppingCart, Store, Users, Download, FlaskConical, Moon, Sun, BarChart3, WifiOff, X } from 'lucide-react';
 
-import SalesView from './views/SalesView';
 import DashboardView from './views/DashboardView';
-import { ProductsView } from './views/ProductsView';
-import SettingsView from './views/SettingsView';
-// ResetPasswordView removed - single-user app
 
-// Lazy-loaded views (no se usan al inicio)
+// Lazy-loaded views
+const SalesView = lazy(() => import('./views/SalesView'));
+const ProductsView = lazy(() => import('./views/ProductsView'));
+const SettingsView = lazy(() => import('./views/SettingsView'));
 const CustomersView = lazy(() => import('./views/CustomersView'));
 const ReportsView = lazy(() => import('./views/ReportsView'));
 const TesterView = lazy(() => import('./views/TesterView').then(m => ({ default: m.TesterView })));
@@ -255,7 +254,7 @@ export default function App() {
 
       <CartProvider>
       <ProductProvider rates={rates}>
-        <main className={`flex-1 min-h-0 w-full max-w-md md:max-w-2xl lg:max-w-5xl xl:max-w-7xl px-0 lg:px-6 xl:px-8 mx-auto relative ${isKeyboardOpen ? 'pb-4' : 'pb-24'} flex flex-col overflow-y-auto`}>
+        <main className={`flex-1 min-h-0 w-full max-w-full px-0 lg:px-6 xl:px-8 mx-auto relative ${isKeyboardOpen ? 'pb-4' : 'pb-24'} flex flex-col overflow-y-auto`}>
 
           {/* Hidden Admin Trigger Area */}
         <div
@@ -264,11 +263,15 @@ export default function App() {
           title="Ssshh..."
         ></div>
 
-        {/* Eager views — always mounted, visibility toggled via CSS */}
+        {/* Lazy views — mount on first access, then stay persistent (visibilidad controlada por CSS) */}
         <div className={`flex-1 min-h-0 flex flex-col ${activeTab === 'ventas' ? '' : 'hidden'}`}>
           <ErrorBoundary>
             <PremiumGuard featureName="Punto de Venta" isShop={true}>
-              <SalesView rates={rates} triggerHaptic={triggerHaptic} onNavigate={setActiveTab} isActive={activeTab === 'ventas'} />
+              {(activeTab === 'ventas' || mountedViews.ventas) && (
+                <Suspense fallback={<div className="flex-1 p-4 space-y-4"><div className="skeleton h-10 w-40" /><div className="skeleton h-32" /><div className="skeleton h-48" /></div>}>
+                  <SalesView rates={rates} triggerHaptic={triggerHaptic} onNavigate={setActiveTab} isActive={activeTab === 'ventas'} />
+                </Suspense>
+              )}
             </PremiumGuard>
           </ErrorBoundary>
         </div>
@@ -276,7 +279,11 @@ export default function App() {
         <div className={`flex-1 flex flex-col ${activeTab === 'catalogo' ? '' : 'hidden'}`}>
           <ErrorBoundary>
             <PremiumGuard featureName="Inventario de Productos">
-              <ProductsView rates={rates} triggerHaptic={triggerHaptic} />
+              {(activeTab === 'catalogo' || mountedViews.catalogo) && (
+                <Suspense fallback={<div className="flex-1 p-4 space-y-4"><div className="skeleton h-10 w-40" /><div className="skeleton h-32" /><div className="skeleton h-48" /></div>}>
+                  <ProductsView rates={rates} triggerHaptic={triggerHaptic} />
+                </Suspense>
+              )}
             </PremiumGuard>
           </ErrorBoundary>
         </div>
@@ -312,12 +319,14 @@ export default function App() {
 
       {/* Settings View Overlay — inside providers for context access */}
       {showSettings && (
-        <SettingsView
-          onClose={() => setShowSettings(false)}
-          theme={theme}
-          toggleTheme={toggleTheme}
-          triggerHaptic={triggerHaptic}
-        />
+        <Suspense fallback={<div className="fixed inset-0 z-[150] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center"><div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-xl w-80 flex flex-col items-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500 mb-2"></div><span className="text-xs text-slate-500">Cargando ajustes...</span></div></div>}>
+          <SettingsView
+            onClose={() => setShowSettings(false)}
+            theme={theme}
+            toggleTheme={toggleTheme}
+            triggerHaptic={triggerHaptic}
+          />
+        </Suspense>
       )}
 
       </ProductProvider>
@@ -332,7 +341,7 @@ export default function App() {
 
       {/* Bottom Nav — hidden in POS mode for full-screen selling */}
       {!isKeyboardOpen && (
-        <div className="fixed bottom-0 left-0 right-0 px-3 sm:px-6 pb-[env(safe-area-inset-bottom)] pt-0 mb-4 max-w-md md:max-w-2xl lg:max-w-5xl xl:max-w-7xl mx-auto z-30 pointer-events-none animate-in slide-in-from-bottom-4 duration-300">
+        <div className="fixed bottom-0 left-0 right-0 px-3 sm:px-6 pb-[env(safe-area-inset-bottom)] pt-0 mb-4 max-w-full mx-auto z-30 pointer-events-none animate-in slide-in-from-bottom-4 duration-300">
           <div className="bg-slate-900/95 dark:bg-slate-950/95 backdrop-blur-xl rounded-2xl p-1 flex justify-between items-center shadow-2xl shadow-slate-900/30 border border-white/10 ring-1 ring-black/5 pointer-events-auto">
             {TABS.map(tab => (
               <TabButton

@@ -2,9 +2,89 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { logEvent } from '../../services/auditService';
 
+// Pure JS SHA-256 implementation to guarantee it works in non-secure contexts and is synchronous
+function sha256(ascii) {
+    function rightRotate(value, amount) {
+        return (value >>> amount) | (value << (32 - amount));
+    }
+    
+    var mathPow = Math.pow;
+    var maxWord = mathPow(2, 32);
+    var lengthProperty = 'length';
+    var i, j; // Used as a loop counter.
+    var result = '';
+
+    var words = [];
+    var asciiLength = ascii[lengthProperty];
+    
+    var hash = sha256.h = sha256.h || [];
+    var k = sha256.k = sha256.k || [];
+    var primeCounter = k[lengthProperty];
+
+    var isPrime = {};
+    for (var candidate = 2; primeCounter < 64; candidate++) {
+        if (!isPrime[candidate]) {
+            for (i = 0; i < 313; i += candidate) {
+                isPrime[i] = 1;
+            }
+            hash[primeCounter] = (mathPow(candidate, .5)*maxWord)|0;
+            k[primeCounter++] = (mathPow(candidate, 1/3)*maxWord)|0;
+        }
+    }
+    
+    ascii += '\x80';
+    while (ascii[lengthProperty] % 64 - 56) ascii += '\x00';
+    for (i = 0; i < ascii[lengthProperty]; i++) {
+        j = ascii.charCodeAt(i);
+        if (j >> 8) return ''; // ASCII only
+        words[i >> 2] |= j << ((3 - i % 4) * 8);
+    }
+    words[words[lengthProperty]] = ((asciiLength * 8) / maxWord) | 0;
+    words[words[lengthProperty]] = (asciiLength * 8);
+    
+    var hashTemp = hash.slice(0);
+    // process each chunk
+    for (j = 0; j < words[lengthProperty]; ) {
+        var w = words.slice(j, j += 16); // The 512-bit block, split into 32-bit words
+        var oldHash = hashTemp.slice(0);
+        
+        for (i = 0; i < 64; i++) {
+            var w16 = w[i - 16], w15 = w[i - 15], w7 = w[i - 7], w2 = w[i - 2];
+            var a = hashTemp[0], e = hashTemp[4], g = hashTemp[6];
+            var temp1 = hashTemp[7]
+                + (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25)) // S1
+                + ((e & hashTemp[5]) ^ (~e & g)) // ch
+                + k[i]
+                + (w[i] = (i < 16) ? w[i] : (
+                        w[i - 16]
+                        + (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3)) // s0
+                        + w[i - 7]
+                        + (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10)) // s1
+                    ) | 0
+                );
+            var temp2 = (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22)) // S0
+                + ((a & hashTemp[1]) ^ (a & hashTemp[2]) ^ (hashTemp[1] & hashTemp[2])); // maj
+            
+            hashTemp = [(temp1 + temp2) | 0].concat(hashTemp); // new a
+            hashTemp[4] = (hashTemp[4] + temp1) | 0; // new e
+        }
+        
+        for (i = 0; i < 8; i++) {
+            hashTemp[i] = (hashTemp[i] + oldHash[i]) | 0;
+        }
+    }
+    
+    for (i = 0; i < 8; i++) {
+        var val = hashTemp[i];
+        if (val < 0) val += maxWord;
+        result += val.toString(16).padStart(8, '0');
+    }
+    return result;
+}
+
 const DEFAULT_USERS = [
-    { id: 1, nombre: 'Administrador', rol: 'ADMIN', pin: '123456' },
-    { id: 2, nombre: 'Cajero', rol: 'CAJERO', pin: '0000' }
+    { id: 1, nombre: 'Administrador', rol: 'ADMIN', pin: '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92' }, // 123456
+    { id: 2, nombre: 'Cajero', rol: 'CAJERO', pin: '9af15b336e6a9619928537df30b2e6a2376569fcf9d7e773eccede65606529a0' } // 0000
 ];
 
 export const useAuthStore = create(
@@ -21,7 +101,6 @@ export const useAuthStore = create(
             failedAttempts: 0,
             lockUntil: null,
 
-
             // ACCIONES
             login: async (pinInput, userId) => {
                 // Simular un pequeño retardo para feedback visual (UX)
@@ -35,13 +114,14 @@ export const useAuthStore = create(
                 }
 
                 const { usuarios } = get();
+                const hashedPin = sha256(pinInput || '');
                 
                 let userEncontrado;
                 
                 if (userId) {
-                    userEncontrado = usuarios.find(u => u.id === userId && u.pin === pinInput);
+                    userEncontrado = usuarios.find(u => u.id === userId && u.pin === hashedPin);
                 } else {
-                    userEncontrado = usuarios.find(u => u.pin === pinInput);
+                    userEncontrado = usuarios.find(u => u.pin === hashedPin);
                 }
 
                 if (userEncontrado) {
@@ -65,16 +145,17 @@ export const useAuthStore = create(
             },
 
             cambiarPin: (userId, nuevoPin) => {
+                const hashedPin = sha256(nuevoPin || '');
                 set((state) => ({
                     usuarios: state.usuarios.map(u => 
-                        u.id === userId ? { ...u, pin: nuevoPin } : u
+                        u.id === userId ? { ...u, pin: hashedPin } : u
                     )
                 }));
                 
                 // Si el usuario que cambió el PIN es el activo, actualizar su sesión local
                 const { usuarioActivo } = get();
                 if (usuarioActivo && usuarioActivo.id === userId) {
-                    const nuevoActivo = { ...usuarioActivo, pin: nuevoPin };
+                    const nuevoActivo = { ...usuarioActivo, pin: hashedPin };
                     set({ usuarioActivo: nuevoActivo });
                     localStorage.setItem('abasto-device-session', JSON.stringify(nuevoActivo));
                 }
@@ -83,10 +164,11 @@ export const useAuthStore = create(
             },
 
             agregarUsuario: (nombre, rol, pin) => {
+                const hashedPin = sha256(pin || '');
                 set((state) => {
                     const maxId = state.usuarios.reduce((max, u) => Math.max(max, u.id), 0);
                     return {
-                        usuarios: [...state.usuarios, { id: maxId + 1, nombre, rol, pin }]
+                        usuarios: [...state.usuarios, { id: maxId + 1, nombre, rol, pin: hashedPin }]
                     };
                 });
                 logEvent('USUARIO', 'USUARIO_CREADO', `Usuario "${nombre}" (${rol}) creado`, get().usuarioActivo);
@@ -107,14 +189,17 @@ export const useAuthStore = create(
             },
 
             editarUsuario: (userId, datos) => {
+                const nuevosDatos = { ...datos };
+                if (datos.pin) nuevosDatos.pin = sha256(datos.pin);
+
                 set((state) => ({
                     usuarios: state.usuarios.map(u => 
-                        u.id === userId ? { ...u, ...datos } : u
+                        u.id === userId ? { ...u, ...nuevosDatos } : u
                     )
                 }));
                 const { usuarioActivo } = get();
                 if (usuarioActivo && usuarioActivo.id === userId) {
-                    const nuevoActivo = { ...usuarioActivo, ...datos };
+                    const nuevoActivo = { ...usuarioActivo, ...nuevosDatos };
                     set({ usuarioActivo: nuevoActivo });
                     localStorage.setItem('abasto-device-session', JSON.stringify(nuevoActivo));
                 }
@@ -132,13 +217,18 @@ export const useAuthStore = create(
                 usuarios: state.usuarios,
                 requireLogin: state.requireLogin,
             }),
-            // Migrar PINs de 4 dígitos a 6 dígitos en usuarios por defecto
             onRehydrateStorage: () => (state) => {
                 if (!state) return;
                 const migrated = state.usuarios.map(u => {
-                    if (u.id === 1 && u.pin === '1234') return { ...u, pin: '123456' };
-                    if (u.id === 2 && u.pin === '000000') return { ...u, pin: '0000' };
-                    return u;
+                    let currentPin = u.pin;
+                    if (u.id === 1 && currentPin === '1234') currentPin = '123456';
+                    if (u.id === 2 && currentPin === '000000') currentPin = '0000';
+                    
+                    // Hashear si no es un hash SHA-256
+                    if (currentPin && currentPin.length !== 64) {
+                        return { ...u, pin: sha256(currentPin) };
+                    }
+                    return { ...u, pin: currentPin };
                 });
                 state.usuarios = migrated;
             },

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Truck, Save, Pencil, FileText, CreditCard, Clock, Phone, Trash2, ArrowUpRight, CheckCircle2 } from 'lucide-react';
 import { formatUsd, formatBs, formatCop } from '../../utils/calculatorUtils';
+import CustomSelect from '../CustomSelect';
 
 export function AddSupplierModal({ onClose, onSave, editingSupplier = null }) {
     const [name, setName] = useState(editingSupplier?.name || '');
@@ -195,12 +196,14 @@ export function PayInvoiceModal({ supplier, bcvRate, tasaCop, copEnabled, copPri
                         const filteredMethods = activePaymentMethods.filter(m => m.currency === currencyMode);
                         return (
                             <div>
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Método de Pago (Egreso)</label>
-                                <select value={filteredMethods.some(m => m.id === paymentMethod) ? paymentMethod : (filteredMethods[0]?.id || '')} onChange={(e) => setPaymentMethod(e.target.value)} className="w-full form-select border rounded-xl px-3 py-2 text-sm font-bold dark:bg-slate-950">
-                                    {filteredMethods.map(method => (
-                                        <option key={method.id} value={method.id}>{method.label}</option>
-                                    ))}
-                                </select>
+                                <CustomSelect
+                                    value={filteredMethods.some(m => m.id === paymentMethod) ? paymentMethod : (filteredMethods[0]?.id || '')}
+                                    onChange={setPaymentMethod}
+                                    options={filteredMethods.map(method => ({
+                                        value: method.id,
+                                        label: method.label
+                                    }))}
+                                />
                             </div>
                         );
                     })()}

@@ -107,7 +107,7 @@ export default function TermsOverlay() {
                         <li><strong>Premium:</strong> Inventario ilimitado, sistema de ventas POS, gestión de clientes, compartir inventario, reportes completos.</li>
                     </ul>
                     <p className="text-sm text-slate-700 leading-relaxed mb-4">
-                        El acceso Premium se otorga mediante código de activación único vinculado al dispositivo. La licencia es personal, intransferible y no reembolsable. Se ofrece un periodo de demostración de 7 días por dispositivo.
+                        El acceso Premium se otorga mediante código de activación único vinculado al dispositivo. La licencia es personal, intransferible y no reembolsable. Se ofrece un periodo de demostración de 3 días por dispositivo.
                     </p>
 
                     <h2 className="text-lg font-bold text-slate-900 mt-6 mb-3">5. Privacidad y Datos</h2>

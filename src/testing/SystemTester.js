@@ -7,20 +7,13 @@
 //         internos: dinero.js, FinancialEngine, procesarImpactoCliente.
 // ============================================================
 
-import Groq from 'groq-sdk';
 import { storageService } from '../utils/storageService';
 import { round2, round4, mulR, divR, subR, sumR } from '../utils/dinero';
 import { FinancialEngine } from '../core/FinancialEngine';
 import { procesarImpactoCliente } from '../utils/financialLogic';
 
-const GROQ_KEY  = import.meta.env.VITE_GROQ_API_KEY || '';
-const GROQ_KEY2 = import.meta.env.VITE_GROQ_API_KEY_SECONDARY || '';
-
 async function runGroqAnalysis(suites, elapsedSec) {
-    const key = GROQ_KEY || GROQ_KEY2;
-    if (!key) return null;
     try {
-        const groq = new Groq({ apiKey: key, dangerouslyAllowBrowser: true });
         const failed = suites.filter(s => s.status === 'failed');
         const passed = suites.filter(s => s.status === 'passed');
         const prompt = `Eres un auditor financiero experto en sistemas POS venezolanos (bodega/tienda). Analiza los resultados de esta auditoría y da un diagnóstico conciso en español (máximo 150 palabras):
@@ -31,15 +24,22 @@ Tiempo: ${elapsedSec}s
 
 Da tu veredicto y recomendaciones específicas si hay fallos. Sé directo y práctico.`;
 
-        const completion = await groq.chat.completions.create({
-            model: 'llama-3.3-70b-versatile',
-            messages: [{ role: 'user', content: prompt }],
-            max_tokens: 300,
-            temperature: 0.3,
+        const response = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ prompt })
         });
-        return completion.choices[0]?.message?.content || null;
+
+        if (!response.ok) {
+            throw new Error(`Server returned ${response.status}`);
+        }
+
+        const data = await response.json();
+        return data.analysis || null;
     } catch (e) {
-        console.warn('[Groq] Error en análisis:', e.message);
+        console.warn('[Audit AI] Error en análisis:', e.message);
         return null;
     }
 }

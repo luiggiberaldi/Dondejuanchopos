@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { Package, Calculator, ChevronDown } from 'lucide-react';
-import { BODEGA_CATEGORIES, CATEGORY_ICONS } from '../../config/categories';
+import { BODEGA_CATEGORIES, CATEGORY_ICONS, CATEGORY_COLORS } from '../../config/categories';
 import { formatCop, formatBs, getCop, getUsd } from '../../utils/calculatorUtils';
 
 const PAGE_SIZE = 30;
@@ -18,6 +18,7 @@ export default function CategoryBar({
     copPrimary,
     tasaCop,
     effectiveRate,
+    categories = [],
 }) {
     const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
@@ -30,41 +31,62 @@ export default function CategoryBar({
     const hasMore = filteredByCategory.length > visibleCount;
     const allowNegativeStock = localStorage.getItem('allow_negative_stock') === 'true';
 
+    // Fallback to static config if no categories passed from context
+    const categoryList = categories && categories.length > 0 ? categories : BODEGA_CATEGORIES;
+
+    // Filter categories that have at least one product
+    const activeCategories = categoryList.filter(cat => cat.id === 'todos' || products.some(p => p.category === cat.id));
+
     return (
         <div className={`relative ${searchTerm.length === 0 ? 'lg:flex-1 lg:overflow-hidden lg:flex lg:flex-col lg:min-h-0' : ''}`}>
             {/* Category Chips Container with Mask */}
-            <div className="relative horizontal-scroll-mask">
-                <div className="shrink-0 flex gap-1.5 overflow-x-auto pb-2 pt-1 pl-1 pr-12 scrollbar-hide">
-                    {/* Monto Libre Button */}
-                <button
-                    onClick={() => { triggerHaptic && triggerHaptic(); onOpenCustomAmount && onOpenCustomAmount(); }}
-                    className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-black transition-all active:scale-95 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 shadow-sm"
+            <div className="relative horizontal-scroll-mask mb-1">
+                <div 
+                    className="shrink-0 flex gap-1 overflow-x-auto pb-1.5 pt-1 pl-0.5 pr-12 scrollbar-hide"
+                    onWheel={(e) => {
+                        if (e.deltaY !== 0) {
+                            e.preventDefault();
+                            e.currentTarget.scrollLeft += e.deltaY;
+                        }
+                    }}
                 >
-                    <Calculator size={14} />
-                    Monto Libre
-                </button>
+                    {/* Monto Libre Button */}
+                    <button
+                        onClick={() => { triggerHaptic && triggerHaptic(); onOpenCustomAmount && onOpenCustomAmount(); }}
+                        className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-black transition-all active:scale-95 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 shadow-sm"
+                    >
+                        <Calculator size={11} />
+                        Monto Libre
+                    </button>
 
-                {/* Divider */}
-                <div className="w-px h-6 bg-slate-200 dark:bg-slate-700 my-auto mx-0.5 rounded-full shrink-0" />
+                    {/* Divider */}
+                    <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 my-auto mx-0.5 rounded-full shrink-0" />
 
-                {/* Only show categories that have at least one product */}
-                {BODEGA_CATEGORIES.filter(cat => cat.id === 'todos' || products.some(p => p.category === cat.id)).map(cat => {
-                    const isActive = selectedCategory === cat.id;
-                    const CatIcon = CATEGORY_ICONS[cat.id];
-                    return (
-                        <button
-                            key={cat.id}
-                            onClick={() => { triggerHaptic && triggerHaptic(); setSelectedCategory(isActive && cat.id !== 'todos' ? 'todos' : cat.id); }}
-                            className={`shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-full text-[11px] font-bold transition-all active:scale-95 ${isActive
-                                ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
-                                : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:border-emerald-300'
+                    {/* Show categories with products */}
+                    {activeCategories.map(cat => {
+                        const isActive = selectedCategory === cat.id;
+                        const count = products.filter(p => cat.id === 'todos' ? true : p.category === cat.id).length;
+                        const catColorClass = CATEGORY_COLORS[cat.color] || 'bg-emerald-500 text-white';
+
+                        return (
+                            <button
+                                key={cat.id}
+                                onClick={() => { triggerHaptic && triggerHaptic(); setSelectedCategory(isActive && cat.id !== 'todos' ? 'todos' : cat.id); }}
+                                className={`shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold transition-all active:scale-95 border ${
+                                    isActive
+                                        ? `${catColorClass} shadow-sm border-transparent`
+                                        : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:border-emerald-300'
                                 }`}
-                        >
-                            {CatIcon && <CatIcon size={12} />}
-                            {cat.label}
-                        </button>
-                    );
-                })}
+                            >
+                                {cat.label}
+                                <span className={`text-[8.5px] ${isActive ? 'opacity-90' : 'text-slate-400 dark:text-slate-500'}`}>
+                                    · {count}
+                                </span>
+                            </button>
+                        );
+                    })}
+                    {/* Spacer to prevent clipping on scroll */}
+                    <div className="shrink-0 w-10 h-px" />
                 </div>
             </div>
 

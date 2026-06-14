@@ -57,6 +57,19 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
     const touchStartY = useRef(0);
     const scrollRef = useRef(null);
 
+    // Reloj digital y fecha en tiempo real
+    const [currentTime, setCurrentTime] = useState(new Date());
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setCurrentTime(new Date());
+        }, 1000);
+        return () => clearInterval(timer);
+    }, []);
+
+    const timeString = currentTime.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit', hour12: true });
+    const dateString = currentTime.toLocaleDateString('es-VE', { weekday: 'long', day: 'numeric', month: 'long' });
+    const formattedDate = dateString.charAt(0).toUpperCase() + dateString.slice(1);
+
     // Metrics
     const {
         today, todaySales, todayCashFlow, todayApertura,
@@ -262,14 +275,20 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
             )}
 
             {/* Header */}
-            <div className="flex items-center justify-between mb-4 pt-2">
-                <div className="flex flex-col items-start gap-0.5">
-                    <img src={theme === 'dark' ? '/logodark.png' : '/logo.png'} alt="PreciosAlDía" className="h-14 sm:h-16 w-auto object-contain drop-shadow-sm" />
-                    <div className="flex items-center gap-1.5 pl-3">
-                        <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-[0.18em] leading-none">Bodegas</span>
-                    </div>
+            <div className="flex md:grid md:grid-cols-3 items-center justify-between mb-4 pt-2">
+                {/* Reloj y fecha en PC */}
+                <div className="hidden md:flex flex-col items-start gap-1">
+                    <span className="text-lg font-black text-slate-800 dark:text-white leading-none">
+                        {timeString}
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider leading-none">
+                        {formattedDate}
+                    </span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col items-start md:items-center justify-center gap-0.5">
+                    <img src={theme === 'dark' ? '/logodark.png' : '/logo.png'} alt="PreciosAlDía" className="h-14 md:h-[85px] w-auto object-contain drop-shadow-sm" />
+                </div>
+                <div className="flex items-center justify-end gap-2">
                     <SyncStatus />
                     {!isCajero && (
                     <button

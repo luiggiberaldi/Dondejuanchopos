@@ -30,7 +30,7 @@ function SalesChart({ weekData, onDayClick, selectedDate, copEnabled, copPrimary
                 {weekData.map((day, i) => {
                     const pct = maxVal > 0 ? (day.total / maxVal) * 100 : 0;
                     const isToday = i === weekData.length - 1;
-                    const dayName = DAYS[new Date(day.date).getDay()];
+                    const dayName = DAYS[new Date(day.date + 'T00:00:00').getDay()];
 
                     const isSelected = selectedDate === day.date;
 

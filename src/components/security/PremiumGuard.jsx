@@ -40,7 +40,7 @@ export default function PremiumGuard({ children, featureName = "Esta función", 
             setMessageModal({
                 open: true,
                 title: '🎉 ¡Demo Activada!',
-                content: 'Disfruta de todas las funciones premium durante 7 días. Aprovecha al máximo la herramienta.'
+                content: 'Disfruta de todas las funciones premium durante 3 días. Aprovecha al máximo la herramienta.'
             });
         } else if (result.status === 'DEMO_USED') {
             setMessageModal({
@@ -140,7 +140,7 @@ export default function PremiumGuard({ children, featureName = "Esta función", 
                     <span>Solicitar Licencia</span>
                 </button>
 
-                {/* CTA: Probar gratis 7 días */}
+                {/* CTA: Probar gratis 3 días */}
                 <button
                     onClick={handleActivateDemo}
                     disabled={demoUsed || demoLoading}
@@ -151,7 +151,7 @@ export default function PremiumGuard({ children, featureName = "Esta función", 
                         }`}
                 >
                     <Gift size={16} />
-                    <span>{demoUsed ? 'Demo ya utilizada' : demoLoading ? 'Activando...' : 'Probar gratis 7 días'}</span>
+                    <span>{demoUsed ? 'Demo ya utilizada' : demoLoading ? 'Activando...' : 'Probar gratis 3 días'}</span>
                 </button>
 
                 {/* Device ID */}

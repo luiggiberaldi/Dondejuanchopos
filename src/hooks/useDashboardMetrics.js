@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import { FinancialEngine } from '../core/FinancialEngine';
 import { sumR } from '../utils/dinero';
 import { getLocalISODate } from '../utils/dateHelpers';
@@ -6,37 +6,45 @@ import { getLocalISODate } from '../utils/dateHelpers';
 export function useDashboardMetrics(sales, customers, products, bcvRate) {
     const today = getLocalISODate();
 
+    // Memoize sales with pre-calculated local dates to avoid parsing new Date inside nested loops
+    const salesWithLocalDate = useMemo(() => {
+        return sales.map(s => {
+            const localDate = s.timestamp ? getLocalISODate(new Date(s.timestamp)) : today;
+            return {
+                ...s,
+                localDate
+            };
+        });
+    }, [sales, today]);
+
     const todaySales = useMemo(() =>
-        sales.filter(s => {
+        salesWithLocalDate.filter(s => {
             if (s.status === 'ANULADA') return false;
             if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA') return false;
             if (s.cajaCerrada === true) return false;
-            const saleLocalDay = s.timestamp ? getLocalISODate(new Date(s.timestamp)) : getLocalISODate(new Date());
-            return saleLocalDay === today;
+            return s.localDate === today;
         }),
-        [sales, today]
+        [salesWithLocalDate, today]
     );
 
     // Movimientos reales de caja para el cuadre (Ventas + Abonos + Egresos + Apertura)
     const todayCashFlow = useMemo(() =>
-        sales.filter(s => {
+        salesWithLocalDate.filter(s => {
             if (s.status === 'ANULADA') return false;
             if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'COBRO_DEUDA' && s.tipo !== 'PAGO_PROVEEDOR' && s.tipo !== 'APERTURA_CAJA') return false;
             if (s.cajaCerrada === true) return false;
-            const saleLocalDay = s.timestamp ? getLocalISODate(new Date(s.timestamp)) : getLocalISODate(new Date());
-            return saleLocalDay === today;
+            return s.localDate === today;
         }),
-        [sales, today]
+        [salesWithLocalDate, today]
     );
 
     // Detect if apertura was already registered today
     const todayApertura = useMemo(() => {
-        return sales.find(s => {
+        return salesWithLocalDate.find(s => {
             if (s.tipo !== 'APERTURA_CAJA' || s.cajaCerrada) return false;
-            const saleLocalDay = s.timestamp ? getLocalISODate(new Date(s.timestamp)) : today;
-            return saleLocalDay === today;
+            return s.localDate === today;
         });
-    }, [sales, today]);
+    }, [salesWithLocalDate, today]);
 
     const todayTotalBs = useMemo(() => sumR(todaySales.map(s => s.totalBs || 0)), [todaySales]);
     const todayTotalUsd = useMemo(() => sumR(todaySales.map(s => s.totalUsd || 0)), [todaySales]);
@@ -45,13 +53,12 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
 
     // Egresos del día (pagos a proveedores)
     const todayExpenses = useMemo(() => {
-        return sales.filter(s => {
+        return salesWithLocalDate.filter(s => {
             if (s.tipo !== 'PAGO_PROVEEDOR') return false;
             if (s.cajaCerrada === true) return false;
-            const saleLocalDay = s.timestamp ? getLocalISODate(new Date(s.timestamp)) : getLocalISODate(new Date());
-            return saleLocalDay === today;
+            return s.localDate === today;
         });
-    }, [sales, today]);
+    }, [salesWithLocalDate, today]);
     const todayExpensesUsd = useMemo(() => sumR(todayExpenses.map(s => Math.abs(s.totalUsd || 0))), [todayExpenses]);
 
     const todayProfit = useMemo(() =>
@@ -60,28 +67,25 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
     );
 
     // Últimas ventas (por defecto las últimas 7, o las del día seleccionado en la gráfica)
-    const getRecentSales = (selectedChartDate) => {
+    const getRecentSales = useCallback((selectedChartDate) => {
         if (selectedChartDate) {
-            return sales.filter(s => {
-                const saleLocalDay = s.timestamp ? getLocalISODate(new Date(s.timestamp)) : getLocalISODate(new Date());
-                return saleLocalDay === selectedChartDate;
-            });
+            return salesWithLocalDate.filter(s => s.localDate === selectedChartDate);
         }
-        return sales.slice(0, 7);
-    };
+        return salesWithLocalDate.slice(0, 7);
+    }, [salesWithLocalDate]);
 
     // Datos últimos 7 días (para gráfica)
     const weekData = useMemo(() => Array.from({ length: 7 }, (_, i) => {
         const d = new Date();
         d.setDate(d.getDate() - (6 - i));
         const dateStr = getLocalISODate(d);
-        const daySales = sales.filter(s => {
+        const daySales = salesWithLocalDate.filter(s => {
             if (s.tipo === 'COBRO_DEUDA' || s.tipo === 'AJUSTE_ENTRADA' || s.tipo === 'AJUSTE_SALIDA' || s.tipo === 'VENTA_FIADA' || s.status === 'ANULADA') return false;
-            const saleLocalDay = s.timestamp ? getLocalISODate(new Date(s.timestamp)) : getLocalISODate(new Date());
-            return saleLocalDay === dateStr;
+            return s.localDate === dateStr;
         });
+
         return { date: dateStr, total: daySales.reduce((sum, s) => sum + (s.totalUsd || 0), 0), count: daySales.length };
-    }), [sales, today]);
+    }), [salesWithLocalDate]);
 
     // Productos bajo stock
     const lowStockProducts = useMemo(() =>

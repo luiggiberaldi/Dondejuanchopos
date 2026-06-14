@@ -35,7 +35,7 @@ export function useLicenseMonitoring({
                     onRevoked("Tu licencia ha sido desactivada. Contacta al administrador.");
                 } else if (license && license.active === true) {
                     // Verificar si demo vencio por fecha
-                    if (license.type === 'demo7' && license.expires_at) {
+                    if ((license.type === 'demo7' || license.type === 'demo3') && license.expires_at) {
                         const expiresAt = new Date(license.expires_at).getTime();
                         if (Date.now() >= expiresAt && isPremium) {
                             localStorage.removeItem('pda_premium_token');
@@ -50,11 +50,11 @@ export function useLicenseMonitoring({
                         const token = { deviceId, type: 'permanent' };
                         localStorage.setItem('pda_premium_token', encodeToken(JSON.stringify(token)));
                         onPermanentActivated();
-                    } else if (license.type === 'demo7' && (!isPremium || !isDemo) && license.expires_at) {
+                    } else if ((license.type === 'demo7' || license.type === 'demo3') && (!isPremium || !isDemo) && license.expires_at) {
                         // Permanente (o Expirado) -> Demo: actualizar token y estado
                         const expiresAt = new Date(license.expires_at).getTime();
                         if (Date.now() < expiresAt) {
-                            const token = { deviceId, type: 'demo7', expires: expiresAt, isDemo: true };
+                            const token = { deviceId, type: license.type, expires: expiresAt, isDemo: true };
                             localStorage.setItem('pda_premium_token', encodeToken(JSON.stringify(token)));
                             onDemoActivated(expiresAt);
                         }

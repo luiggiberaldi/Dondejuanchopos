@@ -1,5 +1,6 @@
-import React from 'react';
-import { Store, Plus, Trash2, Pencil, Search, AlertTriangle, LayoutGrid, List, ArrowUpDown, Percent, CheckSquare } from 'lucide-react';
+import React, { useState } from 'react';
+import { Store, Plus, Trash2, Pencil, Search, LayoutGrid, List, Percent, CheckSquare } from 'lucide-react';
+import { CATEGORY_COLORS } from '../../config/categories';
 
 const ProductsToolbar = ({
     products,
@@ -23,104 +24,180 @@ const ProductsToolbar = ({
     triggerHaptic,
     onSelectAllToast,
 }) => {
+    const [showLeftFade, setShowLeftFade] = useState(false);
+
+    const handleScroll = (e) => {
+        setShowLeftFade(e.target.scrollLeft > 4);
+    };
+
+    // Helper to get count of products in a category
+    const getCategoryProductCount = (catId) => {
+        if (catId === 'todos') return products.length;
+        return products.filter(p => p.category === catId).length;
+    };
+
     return (
-        <div className="shrink-0 mb-3 space-y-2">
-            <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                    <Store size={22} className="text-brand shrink-0" />
-                    <h2 className="text-lg sm:text-2xl font-black text-slate-800 dark:text-white tracking-tight truncate">Inventario</h2>
+        <div className="shrink-0 mb-2.5 space-y-1.5">
+            {/* Row 1: Title & Stats + Search (desktop inline) + Actions & Toggle */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2">
+                {/* Title & Stats */}
+                <div className="flex items-center justify-between sm:justify-start gap-2 min-w-0">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                        <Store size={20} className="text-brand shrink-0" />
+                        <h2 className="text-base sm:text-lg font-black text-slate-800 dark:text-white tracking-tight truncate">
+                            Inventario
+                        </h2>
+                        <span className="text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded-full shrink-0">
+                            {products.length} uds
+                        </span>
+                    </div>
+
+                    {/* Mobile Only: Actions & Toggle inline to save vertical space */}
+                    <div className="flex items-center gap-1 sm:hidden">
+                        {products.length > 0 && !isCajero && (
+                            <>
+                                <button onClick={() => { triggerHaptic && triggerHaptic(); setIsBulkPriceOpen(true); }}
+                                    className="p-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-500 dark:text-blue-400 rounded-lg transition-all active:scale-95" title="Ajuste Masivo">
+                                    <Percent size={14} strokeWidth={2.5} />
+                                </button>
+                                <button onClick={() => { triggerHaptic && triggerHaptic(); setIsDeleteAllModalOpen(true); }}
+                                    className="p-1.5 bg-red-50 dark:bg-red-900/30 text-red-500 dark:text-red-400 rounded-lg transition-all active:scale-95" title="Borrar Todo">
+                                    <Trash2 size={14} strokeWidth={2.5} />
+                                </button>
+                            </>
+                        )}
+                        {!isCajero && (
+                            <button onClick={() => { triggerHaptic && triggerHaptic(); setIsModalOpen(true); }}
+                                className="flex items-center gap-1 px-2.5 py-1.5 bg-brand hover:bg-brand-dark text-white rounded-lg transition-all active:scale-95 font-bold text-xs" title="Agregar">
+                                <Plus size={14} strokeWidth={2.5} />
+                                <span>Nuevo</span>
+                            </button>
+                        )}
+                        <button
+                            onClick={toggleViewMode}
+                            className="p-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:text-brand hover:border-brand-light transition-all active:scale-95"
+                            title={viewMode === 'grid' ? 'Vista lista' : 'Vista cuadrícula'}
+                        >
+                            {viewMode === 'grid' ? <List size={14} /> : <LayoutGrid size={14} />}
+                        </button>
+                    </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
+
+                {/* Search Bar (Centered/flexible on desktop, full width on mobile) */}
+                <div className="relative flex-1 max-w-none sm:max-w-md md:max-w-lg">
+                    <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                        type="text"
+                        placeholder="Buscar producto..."
+                        value={searchTerm}
+                        onChange={(e) => handleSetSearchTerm(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg py-1.5 pl-8 pr-3 text-xs text-slate-700 dark:text-white outline-none focus:ring-1.5 focus:ring-brand/50 shadow-sm"
+                    />
+                </div>
+
+                {/* Desktop Only: Actions & Toggle */}
+                <div className="hidden sm:flex items-center gap-1 shrink-0">
                     {products.length > 0 && !isCajero && (
                         <>
                             <button onClick={() => { triggerHaptic && triggerHaptic(); setIsBulkPriceOpen(true); }}
-                                className="p-2 bg-blue-100 dark:bg-blue-900/30 text-blue-500 dark:text-blue-400 rounded-xl transition-all active:scale-95" title="Ajuste Masivo de Precios">
-                                <Percent size={16} strokeWidth={2.5} />
+                                className="p-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-500 dark:text-blue-400 rounded-lg transition-all active:scale-95" title="Ajuste Masivo de Precios">
+                                <Percent size={14} strokeWidth={2.5} />
                             </button>
                             <button onClick={() => { triggerHaptic && triggerHaptic(); setIsDeleteAllModalOpen(true); }}
-                                className="p-2 bg-red-100 dark:bg-red-900/30 text-red-500 dark:text-red-400 rounded-xl transition-all active:scale-95" title="Borrar Todo">
-                                <Trash2 size={16} strokeWidth={2.5} />
+                                className="p-1.5 bg-red-50 dark:bg-red-900/30 text-red-500 dark:text-red-400 rounded-lg transition-all active:scale-95" title="Borrar Todo">
+                                <Trash2 size={14} strokeWidth={2.5} />
                             </button>
                         </>
                     )}
                     {!isCajero && (
-                    <button onClick={() => { triggerHaptic && triggerHaptic(); setIsModalOpen(true); }}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-brand hover:bg-brand-dark text-white rounded-xl shadow-md shadow-brand/20 transition-all active:scale-95 font-bold text-sm" title="Agregar">
-                        <Plus size={16} strokeWidth={2.5} />
-                        <span className="hidden sm:inline">Nuevo</span>
-                    </button>
+                        <button onClick={() => { triggerHaptic && triggerHaptic(); setIsModalOpen(true); }}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-brand hover:bg-brand-dark text-white rounded-lg shadow-sm transition-all active:scale-95 font-bold text-xs" title="Agregar">
+                            <Plus size={14} strokeWidth={2.5} />
+                            <span>Nuevo</span>
+                        </button>
                     )}
+                    <button
+                        onClick={toggleViewMode}
+                        className="p-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:text-brand hover:border-brand-light transition-all active:scale-95"
+                        title={viewMode === 'grid' ? 'Cambiar a vista lista' : 'Cambiar a vista cuadrícula'}
+                    >
+                        {viewMode === 'grid' ? <List size={14} /> : <LayoutGrid size={14} />}
+                    </button>
                 </div>
             </div>
 
-            {/* Fila 2: Stats clicables + View Toggle */}
-            <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 px-2.5 py-1 rounded-full">
-                    {products.length} productos
-                </span>
-                <div className="w-px h-4 bg-slate-200 dark:bg-slate-700 hidden sm:block" />
+            {/* Row 2: Select All & Low Stock Toggles */}
+            <div className="flex items-center gap-1.5 flex-wrap shrink-0">
                 <button
                     onClick={() => { triggerHaptic && triggerHaptic(); setSelectedIds(new Set(products.map(p => p.id))); onSelectAllToast && onSelectAllToast(); }}
-                    className="text-[10px] font-bold bg-brand/10 text-brand px-2.5 py-1 rounded-full flex items-center gap-1 cursor-pointer hover:bg-brand/20 transition-colors active:scale-95"
+                    className="text-[9px] font-bold bg-brand/10 text-brand px-2 py-1 rounded-md flex items-center gap-1 cursor-pointer hover:bg-brand/20 transition-colors active:scale-95"
                 >
-                    <CheckSquare size={12} /> <span className="hidden sm:inline">Seleccionar todo</span><span className="sm:hidden">Todos</span>
+                    <CheckSquare size={10} /> <span>Seleccionar todo</span>
                 </button>
                 {lowStockCount > 0 && (
-                    <>
-                        <div className="w-px h-4 bg-slate-200 dark:bg-slate-700" />
-                        <button
-                            onClick={() => { handleSetActiveCategory('bajo-stock'); triggerHaptic && triggerHaptic(); }}
-                            className="text-[10px] font-bold bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 px-2.5 py-1 rounded-full flex items-center gap-1 cursor-pointer hover:bg-amber-200 dark:hover:bg-amber-900/50 transition-colors">
-                            ⚠️ {lowStockCount} bajo stock
-                        </button>
-                    </>
-                )}
-                <div className="ml-auto" />
-                <button
-                    onClick={toggleViewMode}
-                    className="p-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:text-brand hover:border-brand-light transition-all active:scale-95"
-                    title={viewMode === 'grid' ? 'Cambiar a vista lista' : 'Cambiar a vista cuadrícula'}
-                >
-                    {viewMode === 'grid' ? <List size={16} /> : <LayoutGrid size={16} />}
-                </button>
-            </div>
-
-            {/* Category Filter Pills — horizontal scroll with fade */}
-            <div className="relative">
-                <div ref={categoryScrollRef} className="flex gap-1.5 overflow-x-auto pb-1.5 scrollbar-hide scroll-smooth snap-x">
-                    {categories.map(cat => (
-                        <button
-                            key={cat.id}
-                            onClick={() => { handleSetActiveCategory(cat.id); triggerHaptic && triggerHaptic(); }}
-                            className={`shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all snap-start border ${activeCategory === cat.id
-                                ? 'bg-brand text-white shadow-sm shadow-brand/20 border-brand'
-                                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800 active:scale-95'
-                                }`}
-                        >
-                            {cat.label}
-                        </button>
-                    ))}
                     <button
-                        onClick={() => { triggerHaptic && triggerHaptic(); setIsCategoryManagerOpen(true); }}
-                        className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-transparent active:scale-95 flex items-center gap-1 snap-start"
-                    >
-                        <Pencil size={12} /> Editar
+                        onClick={() => { handleSetActiveCategory('bajo-stock'); triggerHaptic && triggerHaptic(); }}
+                        className="text-[9px] font-bold bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 px-2 py-1 rounded-md flex items-center gap-1 cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors">
+                        ⚠️ {lowStockCount} bajo stock
                     </button>
-                </div>
-                {/* Right fade indicator for scroll */}
-                <div className="pointer-events-none absolute right-0 top-0 bottom-1.5 w-8 bg-gradient-to-l from-slate-50 dark:from-slate-950 to-transparent sm:hidden" />
+                )}
             </div>
 
-            {/* Search Bar — slimmer on mobile */}
-            <div className="relative">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                    type="text"
-                    placeholder="Buscar producto..."
-                    value={searchTerm}
-                    onChange={(e) => handleSetSearchTerm(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl py-2.5 sm:py-3 pl-9 sm:pl-12 pr-4 text-sm text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/50 shadow-sm"
-                />
+            {/* Row 3: Category Filter Pills — horizontal scroll with left/right fade */}
+            <div className="relative w-full py-0.5 pr-8">
+                <div 
+                    ref={categoryScrollRef} 
+                    className="flex gap-1 overflow-x-auto py-1 pl-1 pr-10 scrollbar-hide scroll-smooth"
+                    onScroll={handleScroll}
+                    onWheel={(e) => {
+                        if (e.deltaY !== 0) {
+                            e.preventDefault();
+                            e.currentTarget.scrollLeft += e.deltaY;
+                        }
+                    }}
+                >
+                    {categories.map(cat => {
+                        const count = getCategoryProductCount(cat.id);
+                        const isActive = activeCategory === cat.id;
+                        const catColorClass = CATEGORY_COLORS[cat.color] || 'bg-brand text-white border-brand';
+                        
+                        return (
+                            <button
+                                key={cat.id}
+                                onClick={() => { handleSetActiveCategory(cat.id); triggerHaptic && triggerHaptic(); }}
+                                className={`shrink-0 px-2 py-1 rounded-md text-[10px] font-bold transition-all border ${
+                                    isActive
+                                        ? `${catColorClass} shadow-sm border-transparent`
+                                        : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 active:scale-95'
+                                }`}
+                            >
+                                {cat.label}
+                                <span className={`ml-1 text-[9px] ${isActive ? 'opacity-90' : 'text-slate-400 dark:text-slate-500'}`}>
+                                    · {count}
+                                </span>
+                            </button>
+                        );
+                    })}
+                    {/* Spacer to prevent clipping by the fade overlay and Pencil button */}
+                    <div className="shrink-0 w-10 h-px" />
+                </div>
+
+                {/* Edit Categories Icon Button */}
+                <button
+                    onClick={() => { triggerHaptic && triggerHaptic(); setIsCategoryManagerOpen(true); }}
+                    className="absolute right-0 top-1/2 -translate-y-1/2 p-1.5 rounded-md bg-slate-100 dark:bg-slate-850 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-all active:scale-95 flex items-center justify-center border border-transparent z-10 shadow-sm"
+                    title="Gestionar Categorías"
+                >
+                    <Pencil size={11} />
+                </button>
+
+                {/* Left fade indicator for scroll (appears only when scrolled to the right) */}
+                {showLeftFade && (
+                    <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-6 bg-gradient-to-r from-slate-50 dark:from-slate-950 to-transparent z-10 animate-in fade-in duration-200" />
+                )}
+
+                {/* Right fade indicator for scroll */}
+                <div className="pointer-events-none absolute right-7 top-0 bottom-0 w-6 bg-gradient-to-l from-slate-50 dark:from-slate-950 to-transparent z-10" />
             </div>
         </div>
     );

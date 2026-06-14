@@ -2,6 +2,7 @@ import React from 'react';
 import { X, ArrowDownRight, ArrowUpRight, CheckCircle2, Save } from 'lucide-react';
 import { procesarImpactoCliente } from '../../utils/financialLogic';
 import { formatUsd, formatBs, formatCop } from '../../utils/calculatorUtils';
+import CustomSelect from '../CustomSelect';
 
 export default function TransactionModal({
     transactionModal,
@@ -200,20 +201,17 @@ export default function TransactionModal({
                         return (
                         <div>
                             <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Metodo de Pago</label>
-                            <select
+                            <CustomSelect
                                 value={filteredMethods.some(m => m.id === paymentMethod) ? paymentMethod : (filteredMethods[0]?.id || '')}
-                                onChange={(e) => setPaymentMethod(e.target.value)}
-                                className="w-full form-select bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-blue-500/50 transition-all"
-                            >
-                                {filteredMethods.map(method => {
+                                onChange={setPaymentMethod}
+                                options={filteredMethods.map(method => {
                                     const emoji = typeof method.icon === 'string' && method.icon.length <= 2 ? method.icon : '';
-                                    return (
-                                    <option key={method.id} value={method.id}>
-                                        {emoji ? `${emoji} ${method.label}` : method.label}
-                                    </option>
-                                    );
+                                    return {
+                                        value: method.id,
+                                        label: emoji ? `${emoji} ${method.label}` : method.label
+                                    };
                                 })}
-                            </select>
+                            />
                         </div>
                         );
                     })()}
