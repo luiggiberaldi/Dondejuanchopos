@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { storageService } from '../utils/storageService';
 import localforage from 'localforage';
 import { showToast } from '../components/Toast';
+import { IDB_KEYS, LS_KEYS, PROTECTED_KEYS } from '../config/backupKeys';
 
 /**
  * Hook that encapsulates JSON import/export and delete-all-data logic.
@@ -26,30 +27,15 @@ export function useDataImportExport({
             setImportStatus('loading');
             setStatusMessage('Generando backup completo...');
 
-            const idbKeys = [
-                'bodega_products_v1', 'my_categories_v1',
-                'bodega_sales_v1', 'bodega_customers_v1',
-                'bodega_suppliers_v1', 'bodega_supplier_invoices_v1',
-                'bodega_accounts_v2', 'bodega_pending_cart_v1',
-                'payment_methods_v1', 'payment_methods_v2',
-                'abasto_audit_log_v1'
-            ];
+            // HOOK-041: usa las listas canónicas de backupKeys.js.
             const idbData = {};
-            for (const key of idbKeys) {
+            for (const key of IDB_KEYS) {
                 const data = await storageService.getItem(key, null);
                 if (data !== null) idbData[key] = data;
             }
 
-            const lsKeys = [
-                'premium_token', 'street_rate_bs', 'catalog_use_auto_usdt',
-                'catalog_custom_usdt_price', 'catalog_show_cash_price',
-                'monitor_rates_v12', 'business_name', 'business_rif',
-                'printer_paper_width', 'allow_negative_stock', 'cop_enabled',
-                'auto_cop_enabled', 'tasa_cop', 'bodega_use_auto_rate',
-                'bodega_custom_rate', 'bodega_inventory_view'
-            ];
             const lsData = {};
-            for (const key of lsKeys) {
+            for (const key of LS_KEYS) {
                 const val = localStorage.getItem(key);
                 if (val !== null) lsData[key] = val;
             }
@@ -95,22 +81,23 @@ export function useDataImportExport({
 
                 if (!json.data) throw new Error('Formato invalido: falta campo "data".');
 
-                // ── FASE 1: LIMPIEZA TOTAL ──────────────────────────────────────────
-                // Escribimos directo a localforage (sin pasar por storageService)
-                // para evitar que el evento app_storage_update active el auto-save
-                // del ProductContext y sobreescriba las categorías recién importadas.
+                // ── FASE 1: LIMPIEZA SELECTIVA (HOOK-025) ─────────────────────────
+                // HOOK-025: NO usar `localforage.clear()` — borraría flags críticos
+                // como `pda_demo_flag_v1` y `bodega_autobackup_v1`. Borramos solo
+                // las claves explícitas del catálogo canónico (IDB_KEYS / LS_KEYS),
+                // preservando las que estén en PROTECTED_KEYS.
                 setStatusMessage('Limpiando datos del dispositivo...');
-                await localforage.clear();
+                for (const key of IDB_KEYS) {
+                    if (PROTECTED_KEYS.includes(key)) continue;
+                    try { await localforage.removeItem(key); } catch (_) { /* noop */ }
+                }
 
-                // Limpiar localStorage de la app (preservar sesión de Supabase sb-*)
-                const appLsKeys = [
-                    'street_rate_bs', 'catalog_use_auto_usdt', 'catalog_custom_usdt_price',
-                    'catalog_show_cash_price', 'monitor_rates_v12', 'business_name', 'business_rif',
-                    'printer_paper_width', 'allow_negative_stock', 'cop_enabled', 'auto_cop_enabled',
-                    'tasa_cop', 'bodega_use_auto_rate', 'bodega_custom_rate', 'bodega_inventory_view',
-                    'premium_token', 'abasto-auth-storage',
-                ];
-                appLsKeys.forEach(k => localStorage.removeItem(k));
+                // Limpiar localStorage de la app (preservando sesión de Supabase sb-*)
+                // y PROTECTED_KEYS (HOOK-025).
+                for (const key of LS_KEYS) {
+                    if (PROTECTED_KEYS.includes(key)) continue;
+                    localStorage.removeItem(key);
+                }
 
                 // ── FASE 2: RESTAURACIÓN (directo a localforage, sin eventos) ───────
                 setStatusMessage('Restaurando backup...');

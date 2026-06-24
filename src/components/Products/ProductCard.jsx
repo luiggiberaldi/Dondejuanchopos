@@ -65,7 +65,7 @@ export default function ProductCard({
 
                 {/* Units per package info */}
                 {p.unit === 'paquete' && p.unitsPerPackage && (
-                    <div className="flex items-center gap-1 text-[10px] font-bold text-indigo-500 dark:text-indigo-400 mb-2 mt-[-4px]">
+                    <div className="flex items-center gap-1 text-[10px] font-bold text-brand dark:text-brand mb-2 mt-[-4px]">
                         <Package size={11} /> Lote · {p.unitsPerPackage} uds
                     </div>
                 )}
@@ -80,7 +80,7 @@ export default function ProductCard({
                                     </p>
                                     <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                                         <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-1.5 py-0.5 rounded">{formatUsd(effectiveUsd)} USD</span>
-                                        <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-1.5 py-0.5 rounded">{formatBs(valBs)} Bs</span>
+                                        <span className="text-[10px] font-bold text-brand-dark dark:text-brand bg-brand-light dark:bg-surface-800/20 px-1.5 py-0.5 rounded">{formatBs(valBs)} Bs</span>
                                     </div>
                                 </>
                             ) : (
@@ -90,7 +90,7 @@ export default function ProductCard({
                                     </p>
                                     <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                                         <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded">{formatCop(valCop)} COP</span>
-                                        <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-1.5 py-0.5 rounded">{formatBs(valBs)} Bs</span>
+                                        <span className="text-[10px] font-bold text-brand-dark dark:text-brand bg-brand-light dark:bg-surface-800/20 px-1.5 py-0.5 rounded">{formatBs(valBs)} Bs</span>
                                     </div>
                                 </>
                             )
@@ -103,7 +103,7 @@ export default function ProductCard({
                             </>
                         )}
                         {p.unit === 'paquete' && p.sellByUnit && (
-                            <p className="text-[10px] font-bold text-indigo-500 dark:text-indigo-400 mt-0.5 flex items-center gap-0.5">
+                            <p className="text-[10px] font-bold text-brand dark:text-brand mt-0.5 flex items-center gap-0.5">
                                 <Layers size={10} />
                                 {copEnabled && tasaCop > 0
                                     ? copPrimary
@@ -152,7 +152,7 @@ export default function ProductCard({
                                 ? 'bg-red-50 dark:bg-red-900/20 text-red-500'
                                 : daysRemaining <= 7
                                     ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-500'
-                                    : 'bg-blue-50 dark:bg-blue-900/20 text-blue-500'
+                                    : 'bg-brand-light dark:bg-surface-800/20 text-brand'
                         }`}>
                             <Clock size={10} />
                             {daysRemaining <= 3

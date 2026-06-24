@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+// v1.2.0: useReveal hook para animaciones reveal-on-scroll (design system "Precios al Día")
+import { useReveal } from '../hooks/useReveal';
 import { storageService } from '../utils/storageService';
 import { showToast } from '../components/Toast';
 import { Package, Plus, Trash2, X, Store, Tag, Pencil, Banknote, Search, ChevronLeft, ChevronRight, AlertTriangle, Box, LayoutGrid, List, Minus, ArrowUpDown, Clock, Percent, Printer, CheckSquare } from 'lucide-react';
@@ -30,6 +32,9 @@ import { buildProductPayload } from '../utils/productProcessor';
 import { useAudit } from '../hooks/useAudit';
 
 export const ProductsView = ({ rates, triggerHaptic }) => {
+    // v1.2.0: reveal-on-scroll para banners y secciones de cabecera (NO en grid paginado para evitar re-trigger).
+    const revealRef = useReveal();
+
     // ─── STATE DEL HOOK ─────────────────────────────────────
     const {
         products, setProducts,
@@ -495,7 +500,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
     // ─── RENDER ─────────────────────────────────────────────
 
     return (
-        <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 p-3 sm:p-6 overflow-y-auto">
+        <div ref={revealRef} className="flex flex-col h-full bg-surface-50 dark:bg-surface-950 p-3 sm:p-6 overflow-y-auto">
 
             {/* Header — Toolbar */}
             <ProductsToolbar
@@ -522,9 +527,10 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
 
             {/* ─── COP PRICE CORRECTION BANNER ─── */}
             {copEnabled && suspectCopProducts.length > 0 && !copCorrectionDismissed && (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/30 p-3 rounded-xl mb-3 shrink-0 animate-in slide-in-from-top-2">
+                // v1.2.0: reveal-on-scroll + bg-surface (warm) en vez de slate cool.
+                <div className="reveal bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/30 p-3 rounded-xl mb-3 shrink-0 animate-in slide-in-from-top-2">
                     <div className="flex items-start gap-2">
-                        <AlertTriangle size={20} className="text-red-500 shrink-0 mt-0.5" />
+                        <AlertTriangle size={20} className="text-red-500 shrink-0 mt-0.5" aria-hidden="true" />
                         <div className="flex-1 min-w-0">
                             <p className="text-sm font-bold text-red-700 dark:text-red-400">
                                 {suspectCopProducts.length} producto{suspectCopProducts.length > 1 ? 's' : ''} con precios que parecen ser pesos colombianos
@@ -534,15 +540,16 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                                 {suspectCopProducts.length > 2 ? ` y ${suspectCopProducts.length - 2} más` : ''}
                             </p>
                             <div className="flex gap-2 mt-2">
+                                {/* v1.2.0: touch targets ≥ 48px (a11y WCAG AA) */}
                                 <button
                                     onClick={handleFixCopPrices}
-                                    className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg shadow-sm transition-all"
+                                    className="px-4 py-2.5 min-h-[48px] flex items-center bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg shadow-sm transition-all"
                                 >
                                     Corregir: convertir de COP a USD (tasa: {tasaCop?.toLocaleString()})
                                 </button>
                                 <button
                                     onClick={() => setCopCorrectionDismissed(true)}
-                                    className="px-3 py-1.5 text-xs font-bold text-red-500 hover:text-red-700 dark:text-red-400"
+                                    className="px-3 py-2.5 min-h-[48px] flex items-center text-xs font-bold text-red-500 hover:text-red-700 dark:text-red-400"
                                 >
                                     Ignorar
                                 </button>
@@ -554,16 +561,18 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
 
             {/* --- ACTION BAR SELECCION --- */}
             {selectedIds.size > 0 && (
-                <div className="flex items-center justify-between gap-2 p-2 px-3 bg-brand/10 border border-brand/20 rounded-xl mb-3 shrink-0 animate-in slide-in-from-top-2">
+                // v1.2.0: reveal-on-scroll aplicado a action bar (sección de cabecera).
+                <div className="reveal flex items-center justify-between gap-2 p-2 px-3 bg-brand/10 border border-brand/20 rounded-xl mb-3 shrink-0 animate-in slide-in-from-top-2">
                     <span className="text-sm font-bold text-brand flex items-center gap-1">
-                        <CheckSquare size={16} /> {selectedIds.size} seleccionados
+                        <CheckSquare size={16} aria-hidden="true" /> {selectedIds.size} seleccionados
                     </span>
                     <div className="flex gap-2">
-                        <button onClick={() => setSelectedIds(new Set())} className="text-xs font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300">
+                        {/* v1.2.0: touch targets ≥ 48px (a11y WCAG AA) */}
+                        <button onClick={() => setSelectedIds(new Set())} className="px-3 py-2.5 min-h-[48px] flex items-center text-xs font-bold text-surface-500 hover:text-surface-700 dark:text-surface-400 dark:hover:text-surface-300">
                             Cancelar
                         </button>
-                        <button onClick={handlePrintSelected} className="px-3 py-1.5 bg-brand text-white text-xs font-bold rounded-lg shadow-sm hover:bg-brand-dark transition-all flex items-center gap-1">
-                            <Printer size={14} /> <span className="hidden sm:inline">Imprimir Etiquetas</span><span className="sm:hidden">Imprimir</span>
+                        <button onClick={handlePrintSelected} className="px-4 py-2.5 min-h-[48px] flex items-center bg-brand text-white text-xs font-bold rounded-lg shadow-sm hover:bg-brand-dark transition-all gap-1">
+                            <Printer size={14} aria-hidden="true" /> <span className="hidden sm:inline">Imprimir Etiquetas</span><span className="sm:hidden">Imprimir</span>
                         </button>
                     </div>
                 </div>
@@ -574,7 +583,8 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 <div className="flex-1 overflow-y-auto pb-4 scrollbar-hide">
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
                         {[1,2,3,4,5,6,7,8,9,10].map(i => (
-                            <div key={i} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-3 h-56 flex flex-col justify-between">
+                            // v1.2.0: skeleton cards usan surface tokens (warm cream) en vez de white/slate.
+                            <div key={i} className="bg-surface dark:bg-surface-900 rounded-2xl border border-surface-200 dark:border-surface-800 p-3 h-56 flex flex-col justify-between">
                                 <div>
                                     <Skeleton className="w-12 h-12 rounded-xl mb-3" />
                                     <Skeleton className="w-3/4 h-4 rounded mb-2" />
@@ -615,9 +625,11 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 <>
                     {/* Bajo stock banner */}
                     {activeCategory === 'bajo-stock' && (
-                        <div className="flex items-center justify-between bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/30 px-3 py-2 rounded-xl mb-3 shrink-0">
+                        // v1.2.0: reveal-on-scroll + border-surface-300 (warm border).
+                        <div className="reveal flex items-center justify-between bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/30 px-3 py-2 rounded-xl mb-3 shrink-0">
                             <span className="text-xs font-bold text-amber-600 dark:text-amber-400">Mostrando productos con stock bajo</span>
-                            <button onClick={() => handleSetActiveCategory('todos')} className="text-xs font-bold text-amber-500 hover:text-amber-700 transition-colors flex items-center gap-1">
+                            {/* v1.2.0: touch target ≥ 48px (a11y WCAG AA) */}
+                            <button onClick={() => handleSetActiveCategory('todos')} className="px-3 py-2 min-h-[40px] flex items-center text-xs font-bold text-amber-500 hover:text-amber-700 transition-colors gap-1">
                                 × Ver todos
                             </button>
                         </div>
@@ -626,8 +638,9 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                         {viewMode === 'grid' ? (
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
                             {paginatedProducts.map(p => (
+                                // v1.2.0: hover lift wrapper para ProductCard (design system hover state).
+                                <div key={p.id} className="transition-transform duration-200 hover:-translate-y-1">
                                 <SwipeableItem
-                                    key={p.id}
                                     onEdit={isCajero ? undefined : () => handleEdit(p)}
                                     onDelete={isCajero ? undefined : () => handleDelete(p.id)}
                                     triggerHaptic={triggerHaptic}
@@ -655,11 +668,13 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                                         onPrint={() => handlePrintSingle(p)}
                                     />
                                 </SwipeableItem>
+                                </div>
                             ))}
                         </div>
                         ) : (
                         /* ── LIST VIEW ── */
-                        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">
+                        // v1.2.0: surface tokens + border-surface-300 (warm border) para la lista.
+                        <div className="reveal bg-surface dark:bg-surface-900 rounded-2xl border border-surface-200 dark:border-surface-800 shadow-tone-sm overflow-hidden">
                             {/* Table Header — desktop */}
                             <div className="hidden sm:grid sm:grid-cols-[40px_1fr_100px_100px_70px_80px_110px] gap-2 px-4 py-2.5 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                                 <div className="flex items-center justify-center">
@@ -713,17 +728,18 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                                             </div>
 
                                             {/* Mobile: compact actions */}
+                                            {/* v1.2.0: aria-label + aria-hidden en icon-only buttons (a11y). */}
                                             <div className="flex items-center gap-1.5 sm:hidden">
-                                                <button onClick={() => handlePrintSingle(p)} className="p-1.5 text-slate-300 hover:text-brand transition-colors"><Printer size={14} /></button>
+                                                <button onClick={() => handlePrintSingle(p)} aria-label={`Imprimir etiqueta de ${p.name}`} className="p-2 min-h-[40px] min-w-[40px] flex items-center justify-center text-surface-300 hover:text-brand transition-colors"><Printer size={14} aria-hidden="true" /></button>
                                                 {!isCajero && (
-                                                <div className="flex items-center bg-slate-50 dark:bg-slate-800 rounded-lg">
-                                                    <button onClick={() => adjustStock(p.id, -1)} className="p-1.5 text-slate-400 hover:text-red-500 transition-colors"><Minus size={14} /></button>
-                                                    <span className={`text-xs font-black min-w-[28px] text-center ${isLowStock ? 'text-amber-500' : 'text-slate-700 dark:text-slate-200'}`}>{p.stock ?? 0}</span>
-                                                    <button onClick={() => adjustStock(p.id, 1)} className="p-1.5 text-slate-400 hover:text-emerald-500 transition-colors"><Plus size={14} /></button>
+                                                <div className="flex items-center bg-surface-50 dark:bg-surface-800 rounded-lg">
+                                                    <button onClick={() => adjustStock(p.id, -1)} aria-label={`Restar 1 unidad de ${p.name}`} className="p-2 min-h-[40px] min-w-[40px] flex items-center justify-center text-surface-400 hover:text-red-500 transition-colors"><Minus size={14} aria-hidden="true" /></button>
+                                                    <span className={`text-xs font-black min-w-[28px] text-center ${isLowStock ? 'text-amber-500' : 'text-surface-700 dark:text-surface-200'}`}>{p.stock ?? 0}</span>
+                                                    <button onClick={() => adjustStock(p.id, 1)} aria-label={`Sumar 1 unidad de ${p.name}`} className="p-2 min-h-[40px] min-w-[40px] flex items-center justify-center text-surface-400 hover:text-emerald-500 transition-colors"><Plus size={14} aria-hidden="true" /></button>
                                                 </div>
                                                 )}
-                                                {isCajero && <span className={`text-xs font-black ${isLowStock ? 'text-amber-500' : 'text-slate-700 dark:text-slate-200'}`}>{p.stock ?? 0}</span>}
-                                                {!isCajero && <button onClick={() => handleEdit(p)} className="p-1.5 text-slate-300 hover:text-amber-500 transition-colors"><Pencil size={14} /></button>}
+                                                {isCajero && <span className={`text-xs font-black ${isLowStock ? 'text-amber-500' : 'text-surface-700 dark:text-surface-200'}`}>{p.stock ?? 0}</span>}
+                                                {!isCajero && <button onClick={() => handleEdit(p)} aria-label={`Editar ${p.name}`} className="p-2 min-h-[40px] min-w-[40px] flex items-center justify-center text-surface-300 hover:text-amber-500 transition-colors"><Pencil size={14} aria-hidden="true" /></button>}
                                             </div>
 
                                             {/* Desktop columns */}
@@ -758,14 +774,14 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                                                 ) : <span className="text-[10px] text-slate-300">-</span>) : <span className="text-[10px] text-slate-300">-</span>}
                                             </div>
                                             <div className="hidden sm:flex items-center gap-1">
-                                                {!isCajero && <button onClick={() => adjustStock(p.id, -1)} className="w-7 h-7 rounded-lg bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-red-500 transition-colors active:scale-90"><Minus size={14} /></button>}
-                                                <span className={`text-sm font-black min-w-[32px] text-center ${isLowStock ? 'text-amber-500' : 'text-slate-700 dark:text-slate-200'}`}>{p.stock ?? 0}</span>
-                                                {!isCajero && <button onClick={() => adjustStock(p.id, 1)} className="w-7 h-7 rounded-lg bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-emerald-500 transition-colors active:scale-90"><Plus size={14} /></button>}
+                                                {!isCajero && <button onClick={() => adjustStock(p.id, -1)} aria-label={`Restar 1 unidad de ${p.name}`} className="w-9 h-9 rounded-lg bg-surface-50 dark:bg-surface-800 flex items-center justify-center text-surface-400 hover:text-red-500 transition-colors active:scale-90"><Minus size={14} aria-hidden="true" /></button>}
+                                                <span className={`text-sm font-black min-w-[32px] text-center ${isLowStock ? 'text-amber-500' : 'text-surface-700 dark:text-surface-200'}`}>{p.stock ?? 0}</span>
+                                                {!isCajero && <button onClick={() => adjustStock(p.id, 1)} aria-label={`Sumar 1 unidad de ${p.name}`} className="w-9 h-9 rounded-lg bg-surface-50 dark:bg-surface-800 flex items-center justify-center text-surface-400 hover:text-emerald-500 transition-colors active:scale-90"><Plus size={14} aria-hidden="true" /></button>}
                                             </div>
                                             <div className="hidden sm:flex items-center justify-end gap-1">
-                                                <button onClick={() => handlePrintSingle(p)} className="p-1.5 rounded-lg text-slate-300 hover:text-brand hover:bg-brand/10 transition-all" title="Imprimir Etiqueta"><Printer size={14} /></button>
-                                                {!isCajero && <button onClick={() => handleEdit(p)} className="p-1.5 rounded-lg text-slate-300 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-all"><Pencil size={14} /></button>}
-                                                {!isCajero && <button onClick={() => handleDelete(p.id)} className="p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"><Trash2 size={14} /></button>}
+                                                <button onClick={() => handlePrintSingle(p)} aria-label={`Imprimir etiqueta de ${p.name}`} className="p-2 min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-surface-300 hover:text-brand hover:bg-brand/10 transition-all" title="Imprimir Etiqueta"><Printer size={14} aria-hidden="true" /></button>
+                                                {!isCajero && <button onClick={() => handleEdit(p)} aria-label={`Editar ${p.name}`} className="p-2 min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-surface-300 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-all"><Pencil size={14} aria-hidden="true" /></button>}
+                                                {!isCajero && <button onClick={() => handleDelete(p.id)} aria-label={`Eliminar ${p.name}`} className="p-2 min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-surface-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"><Trash2 size={14} aria-hidden="true" /></button>}
                                             </div>
                                         </div>
                                     );
@@ -777,14 +793,15 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                         {/* Pagination */}
                         {totalPages > 1 && (
                             <div className="flex justify-center items-center gap-4 py-4 shrink-0">
+                                {/* v1.2.0: touch targets ≥ 48px (a11y WCAG AA) + surface tokens */}
                                 <button onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1}
-                                    className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 disabled:opacity-50 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-                                    <ChevronLeft size={20} className="text-slate-600 dark:text-slate-400" />
+                                    className="p-2.5 min-h-[48px] min-w-[48px] flex items-center justify-center rounded-xl bg-surface dark:bg-surface-900 border border-surface-200 dark:border-surface-800 disabled:opacity-50 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors">
+                                    <ChevronLeft size={20} className="text-surface-600 dark:text-surface-400" aria-hidden="true" />
                                 </button>
-                                <span className="text-sm font-bold text-slate-500 dark:text-slate-400">Página {currentPage} de {totalPages}</span>
+                                <span className="text-sm font-bold text-surface-500 dark:text-surface-400">Página {currentPage} de {totalPages}</span>
                                 <button onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} disabled={currentPage === totalPages}
-                                    className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 disabled:opacity-50 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-                                    <ChevronRight size={20} className="text-slate-600 dark:text-slate-400" />
+                                    className="p-2.5 min-h-[48px] min-w-[48px] flex items-center justify-center rounded-xl bg-surface dark:bg-surface-900 border border-surface-200 dark:border-surface-800 disabled:opacity-50 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors">
+                                    <ChevronRight size={20} className="text-surface-600 dark:text-surface-400" aria-hidden="true" />
                                 </button>
                             </div>
                         )}
@@ -829,26 +846,28 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
 
             {/* Confirmación precio alto */}
             {highPriceConfirm && (
+                // v1.2.0: surface tokens + shadow-tone-lg (warm shadow).
                 <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+                    <div className="bg-surface dark:bg-surface-900 rounded-2xl p-6 max-w-sm w-full shadow-tone-lg">
                         <div className="flex flex-col items-center text-center space-y-3">
                             <div className="w-14 h-14 bg-amber-50 dark:bg-amber-900/20 rounded-full flex items-center justify-center">
-                                <AlertTriangle size={28} className="text-amber-500" />
+                                <AlertTriangle size={28} className="text-amber-500" aria-hidden="true" />
                             </div>
-                            <h4 className="text-base font-black text-slate-800 dark:text-white">Precio inusualmente alto</h4>
-                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                            <h4 className="text-base font-black text-surface-700 dark:text-white">Precio inusualmente alto</h4>
+                            <p className="text-sm text-surface-500 dark:text-surface-400">
                                 El precio <span className="font-black text-amber-600">${highPriceConfirm.price.toLocaleString('es-VE', { minimumFractionDigits: 2 })}</span> parece muy elevado. ¿Es correcto o fue un error de tipeo?
                             </p>
                             <div className="flex gap-2 w-full pt-1">
+                                {/* v1.2.0: touch targets ≥ 48px */}
                                 <button
                                     onClick={() => setHighPriceConfirm(null)}
-                                    className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                                    className="flex-1 py-2.5 min-h-[48px] rounded-xl border border-surface-200 dark:border-surface-700 text-sm font-bold text-surface-600 dark:text-surface-300 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
                                 >
                                     Corregir
                                 </button>
                                 <button
                                     onClick={() => _commitSave(highPriceConfirm.pendingData)}
-                                    className="flex-1 py-2.5 rounded-xl bg-amber-500 text-white text-sm font-bold hover:bg-amber-600 transition-colors"
+                                    className="flex-1 py-2.5 min-h-[48px] rounded-xl bg-amber-500 text-white text-sm font-bold hover:bg-amber-600 transition-colors"
                                 >
                                     Sí, es correcto
                                 </button>
@@ -869,15 +888,17 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
             <Modal isOpen={!!deleteId} onClose={() => setDeleteId(null)} title="Eliminar Producto">
                 <div className="flex flex-col items-center text-center space-y-4 py-4">
                     <div className="w-16 h-16 bg-red-50 dark:bg-red-900/20 rounded-full flex items-center justify-center mb-2">
-                        <Trash2 size={32} className="text-red-500" />
+                        <Trash2 size={32} className="text-red-500" aria-hidden="true" />
                     </div>
                     <div>
-                        <h4 className="text-lg font-bold text-slate-800 dark:text-white">¿Estás seguro?</h4>
-                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 px-4">Esta acción eliminará el producto permanentemente.</p>
+                        {/* v1.2.0: text tokens surface-* en vez de slate-* */}
+                        <h4 className="text-lg font-bold text-surface-700 dark:text-white">¿Estás seguro?</h4>
+                        <p className="text-sm text-surface-500 dark:text-surface-400 mt-1 px-4">Esta acción eliminará el producto permanentemente.</p>
                     </div>
                     <div className="flex gap-3 w-full pt-2">
-                        <button onClick={() => setDeleteId(null)} className="flex-1 py-3 text-sm font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors">Cancelar</button>
-                        <button onClick={confirmDelete} className="flex-1 py-3 text-sm font-bold text-white bg-red-500 hover:bg-red-600 rounded-xl shadow-lg shadow-red-500/30 active:scale-95 transition-all">¡Sí, eliminar!</button>
+                        {/* v1.2.0: touch targets ≥ 48px (a11y WCAG AA) */}
+                        <button onClick={() => setDeleteId(null)} className="flex-1 py-3 min-h-[48px] text-sm font-bold text-surface-500 hover:bg-surface-100 dark:hover:bg-surface-800 rounded-xl transition-colors">Cancelar</button>
+                        <button onClick={confirmDelete} className="flex-1 py-3 min-h-[48px] text-sm font-bold text-white bg-red-500 hover:bg-red-600 rounded-xl shadow-lg shadow-red-500/30 active:scale-95 transition-all">¡Sí, eliminar!</button>
                     </div>
                 </div>
             </Modal>
@@ -886,31 +907,33 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
             <Modal isOpen={isDeleteAllModalOpen} onClose={() => { setIsDeleteAllModalOpen(false); setDeleteAllConfirmText(''); }} title="⚠️ Borrado de Inventario">
                 <div className="p-4 flex flex-col items-center text-center">
                     <div className="w-16 h-16 bg-red-100 dark:bg-red-900/40 text-red-500 rounded-full flex items-center justify-center mb-4">
-                        <Trash2 size={32} />
+                        <Trash2 size={32} aria-hidden="true" />
                     </div>
-                    <h3 className="text-xl font-black text-slate-800 dark:text-white mb-2">¿Estás absolutamente seguro?</h3>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mb-4 px-2">
+                    {/* v1.2.0: text tokens surface-* en vez de slate-* */}
+                    <h3 className="text-xl font-black text-surface-700 dark:text-white mb-2">¿Estás absolutamente seguro?</h3>
+                    <p className="text-sm text-surface-500 dark:text-surface-400 mb-4 px-2">
                         Esta acción borrará <strong className="text-red-500">{products.length} productos</strong> y no se puede deshacer. (No afectará tu historial de ventas).
                     </p>
-                    <div className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 mb-6">
-                        <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 uppercase tracking-wide">Para confirmar, escribe "BORRAR":</p>
+                    <div className="w-full bg-surface-100 dark:bg-surface-800 p-4 rounded-xl border border-surface-200 dark:border-surface-700 mb-6">
+                        <p className="text-xs font-bold text-surface-700 dark:text-surface-300 mb-2 uppercase tracking-wide">Para confirmar, escribe "BORRAR":</p>
                         <input
                             type="text"
                             value={deleteAllConfirmText}
                             onChange={(e) => setDeleteAllConfirmText(e.target.value)}
                             placeholder="BORRAR"
-                            className="w-full form-input bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-3 text-center font-black text-red-500 uppercase tracking-widest focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none"
+                            className="w-full form-input bg-surface dark:bg-surface-900 border border-surface-300 dark:border-surface-600 rounded-xl px-4 py-3 min-h-[48px] text-center font-black text-red-500 uppercase tracking-widest focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none"
                         />
                     </div>
                 </div>
-                <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex gap-3">
+                <div className="p-4 border-t border-surface-100 dark:border-surface-800 bg-surface-100 dark:bg-surface-800/50 flex gap-3">
+                    {/* v1.2.0: touch targets ≥ 48px + surface tokens */}
                     <button
                         onClick={() => {
                             triggerHaptic && triggerHaptic();
                             setIsDeleteAllModalOpen(false);
                             setDeleteAllConfirmText('');
                         }}
-                        className="flex-1 py-3.5 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-white font-bold rounded-xl active:scale-[0.98] transition-all"
+                        className="flex-1 py-3.5 min-h-[48px] bg-surface dark:bg-surface-800 border-2 border-surface-200 dark:border-surface-700 text-surface-700 dark:text-white font-bold rounded-xl active:scale-[0.98] transition-all"
                     >
                         Cancelar
                     </button>
@@ -925,9 +948,9 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                             }
                         }}
                         disabled={deleteAllConfirmText.trim().toUpperCase() !== 'BORRAR'}
-                        className="flex-1 py-3.5 bg-red-500 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white font-bold rounded-xl active:scale-[0.98] transition-all flex justify-center items-center gap-2"
+                        className="flex-1 py-3.5 min-h-[48px] bg-red-500 disabled:bg-surface-300 dark:disabled:bg-surface-700 text-white font-bold rounded-xl active:scale-[0.98] transition-all flex justify-center items-center gap-2"
                     >
-                        <Trash2 size={18} /> Borrar Todo
+                        <Trash2 size={18} aria-hidden="true" /> Borrar Todo
                     </button>
                 </div>
             </Modal>

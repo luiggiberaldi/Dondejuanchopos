@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import { formatBs, formatCop } from './calculatorUtils';
+import { formatBs, formatCop, formatUsd } from './calculatorUtils';
 import {
     INK, BODY, MUTED, GREEN, RULE, RED,
     PDF_WIDTH, PDF_MARGIN, PDF_CENTER_X, PDF_RIGHT,
@@ -7,6 +7,8 @@ import {
 } from './ticketConstants';
 import { buildTicketHtml } from './ticketHtmlTemplate';
 import { openPrintWindow } from './printerUtils';
+// FIN-024: reemplazar `* rate` raw y `.toFixed(2)` con mulR + formatUsd (sin Math.round/toFixed).
+import { mulR } from './dinero';
 
 // Re-export generarEtiquetas so existing imports keep working
 export { generarEtiquetas } from './labelGenerator';
@@ -23,7 +25,8 @@ export async function generateTicketPDF(sale, bcvRate) {
 
     const rate = sale.rate || bcvRate || 1;
     const isCop = sale.copEnabled && sale.tasaCop > 0;
-    const fmtUsd = (v) => isCop ? `USD ${parseFloat(v).toFixed(2)}` : `$${parseFloat(v).toFixed(2)}`;
+    // FIN-024: fmtUsd usa formatUsd (Intl.NumberFormat) — sin parseFloat/toFixed.
+    const fmtUsd = (v) => isCop ? `USD ${formatUsd(v)}` : `$${formatUsd(v)}`;
     const itemCount = sale.items?.length || 0;
     const paymentCount = sale.payments?.length || 0;
     const hasFiado = sale.fiadoUsd > 0;
@@ -116,10 +119,12 @@ export async function generateTicketPDF(sale, bcvRate) {
     // ════════════════════════════════════
     if (sale.items && sale.items.length > 0) {
         sale.items.forEach(item => {
-            const qty = item.isWeight ? item.qty.toFixed(2) : String(item.qty);
+            // FIN-024: formatUsd para cantidades peso (2 decimales), sin toFixed.
+            const qty = item.isWeight ? formatUsd(item.qty) : String(item.qty);
             const unit = item.isWeight ? 'Kg' : 'u';
-            const sub = item.priceUsd * item.qty;
-            const subBs = sub * rate;
+            // FIN-024: mulR en vez de multiplicación raw.
+            const sub = mulR(item.priceUsd, item.qty);
+            const subBs = mulR(sub, rate);
             const name = item.name.length > 20 ? item.name.substring(0, 20) + '…' : item.name;
 
             doc.setFont('helvetica', 'normal');
@@ -128,17 +133,18 @@ export async function generateTicketPDF(sale, bcvRate) {
             doc.text(`${qty}${unit}`, M, y);
             doc.text(name, M + 10, y);
             doc.setFont('helvetica', 'bold');
-            doc.text(isCop ? 'USD ' + sub.toFixed(2) : '$' + sub.toFixed(2), RIGHT, y, { align: 'right' });
+            doc.text(fmtUsd(sub), RIGHT, y, { align: 'right' });
             y += 4;
 
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(6);
             doc.setTextColor(...MUTED);
+            // FIN-024: mulR para conversiones (priceCop*qty, sub*tasaCop, etc.).
             let detailLine = isCop
-                ? 'USD ' + item.priceUsd.toFixed(2) + ' c/u  ·  ' + formatCop(item.priceCop ? item.priceCop * item.qty : sub * sale.tasaCop) + ' COP  ·  Bs ' + formatBs(subBs)
-                : '$' + item.priceUsd.toFixed(2) + ' c/u  ·  Bs ' + formatBs(subBs);
+                ? 'USD ' + formatUsd(item.priceUsd) + ' c/u  ·  ' + formatCop(item.priceCop ? mulR(item.priceCop, item.qty) : mulR(sub, sale.tasaCop)) + ' COP  ·  Bs ' + formatBs(subBs)
+                : '$' + formatUsd(item.priceUsd) + ' c/u  ·  Bs ' + formatBs(subBs);
             if (!isCop && sale.tasaCop > 0) {
-                const copUnit = (item.priceCop || Math.round(item.priceUsd * sale.tasaCop)).toLocaleString('es-CO', { maximumFractionDigits: 0 });
+                const copUnit = (item.priceCop || mulR(item.priceUsd, sale.tasaCop)).toLocaleString('es-CO', { maximumFractionDigits: 0 });
                 detailLine += '  ·  ' + copUnit + ' COP';
             }
             doc.text(detailLine, M + 10, y);
@@ -188,9 +194,10 @@ export async function generateTicketPDF(sale, bcvRate) {
     // Monto USD — GRANDE (siempre primario)
     doc.setFontSize(20);
     doc.setTextColor(...GREEN);
+    // FIN-024: formatUsd en vez de parseFloat(v).toFixed(2).
     const totalUsdStr = isCop
-        ? 'USD ' + parseFloat(sale.totalUsd || 0).toFixed(2)
-        : '$' + parseFloat(sale.totalUsd || 0).toFixed(2);
+        ? 'USD ' + formatUsd(sale.totalUsd || 0)
+        : '$' + formatUsd(sale.totalUsd || 0);
     doc.text(totalUsdStr, CX, y, { align: 'center' });
     y += 8;
 
@@ -198,7 +205,8 @@ export async function generateTicketPDF(sale, bcvRate) {
     if (isCop) {
         doc.setFontSize(10);
         doc.setTextColor(...BODY);
-        const totalCopStr = 'COP ' + formatCop(sale.totalCop || (sale.totalUsd * sale.tasaCop));
+        // FIN-024: mulR para fallback `sale.totalUsd * sale.tasaCop`.
+        const totalCopStr = 'COP ' + formatCop(sale.totalCop || mulR(sale.totalUsd, sale.tasaCop));
         doc.text(totalCopStr, CX, y, { align: 'center' });
         y += 6;
     }
@@ -213,7 +221,8 @@ export async function generateTicketPDF(sale, bcvRate) {
     if (!isCop && sale.copEnabled && sale.tasaCop > 0) {
         doc.setFontSize(10);
         doc.setTextColor(...BODY);
-        const totalCopStr2 = 'COP ' + (sale.totalCop || (sale.totalUsd * sale.tasaCop)).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        // FIN-024: mulR en vez de multiplicación raw.
+        const totalCopStr2 = 'COP ' + (sale.totalCop || mulR(sale.totalUsd, sale.tasaCop)).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         doc.text(totalCopStr2, CX, y, { align: 'center' });
         y += 8;
     } else {
@@ -237,11 +246,12 @@ export async function generateTicketPDF(sale, bcvRate) {
             sale.payments.forEach(p => {
                 const pIsCop = p.currency === 'COP';
                 const isBs = !pIsCop && (p.currency ? p.currency !== 'USD' : (p.methodId.includes('_bs') || p.methodId === 'pago_movil'));
+                // FIN-024: mulR para conversiones raw.
                 const val = pIsCop
-                    ? 'COP ' + (p.amountInput || (p.amountUsd * (sale.tasaCop || 1))).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                    ? 'COP ' + (p.amountInput || mulR(p.amountUsd, (sale.tasaCop || 1))).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                     : isBs
-                    ? 'Bs ' + formatBs(p.amountBs || (p.amountUsd * rate))
-                    : 'USD ' + (p.amountUsd || 0).toFixed(2);
+                    ? 'Bs ' + formatBs(p.amountBs || mulR(p.amountUsd, rate))
+                    : fmtUsd(p.amountUsd || 0);
 
                 doc.setFont('helvetica', 'normal');
                 doc.setFontSize(7.5);
@@ -265,7 +275,8 @@ export async function generateTicketPDF(sale, bcvRate) {
             y += 4;
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(6.5);
-            doc.text('Bs ' + formatBs(sale.fiadoUsd * fiadoRate) + ' (tasa actual)', RIGHT, y, { align: 'right' });
+            // FIN-024: mulR en vez de multiplicación raw.
+            doc.text('Bs ' + formatBs(mulR(sale.fiadoUsd, fiadoRate)) + ' (tasa actual)', RIGHT, y, { align: 'right' });
             y += 6;
         }
 

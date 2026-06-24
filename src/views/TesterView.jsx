@@ -163,7 +163,7 @@ export const TesterView = ({ onBack }) => {
         error:   'text-rose-400',
         warn:    'text-amber-400',
         info:    'text-slate-400',
-        section: 'text-indigo-400 font-bold',
+        section: 'text-brand font-bold',
     };
 
     const totalSuites  = summary?.suites?.length || 0;
@@ -179,59 +179,63 @@ export const TesterView = ({ onBack }) => {
     const findings = summary?.suites?.filter(s => s.status === 'failed') || [];
 
     return (
-        <div className="min-h-screen bg-slate-950 text-white p-3 sm:p-6 space-y-3 sm:space-y-4">
+        // v1.2.0: bg-surface-950 reapunta a warm carbón (H=85). Dev-only view.
+        <div className="min-h-screen bg-surface-950 text-white p-3 sm:p-6 space-y-3 sm:space-y-4">
 
             {/* ── Header ── */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 sm:gap-3">
-                    <button onClick={onBack}
-                        className="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl transition-all active:scale-95">
-                        <ChevronLeft size={18} />
+                    {/* v1.2.0: touch target ≥ 40px + aria-label */}
+                    <button onClick={onBack} aria-label="Volver"
+                        className="p-2 min-h-[40px] min-w-[40px] flex items-center justify-center bg-surface-800 hover:bg-surface-700 rounded-xl transition-all active:scale-95">
+                        <ChevronLeft size={18} aria-hidden="true" />
                     </button>
                     <div className="w-9 h-9 sm:w-10 sm:h-10 bg-gradient-to-br from-rose-600 to-orange-500 rounded-xl flex items-center justify-center shadow-lg shadow-rose-600/30">
-                        <ShieldCheck size={18} />
+                        <ShieldCheck size={18} aria-hidden="true" />
                     </div>
                     <div>
                         <h1 className="text-sm sm:text-lg font-black tracking-tight">Auditor Financiero <span className="text-rose-400">v6.1</span></h1>
-                        <p className="text-[8px] sm:text-[10px] text-slate-500 uppercase tracking-widest font-bold">23 Suites • Determinista • Datos Reales • Groq AI</p>
+                        <p className="text-[8px] sm:text-[10px] text-surface-500 uppercase tracking-widest font-bold">23 Suites • Determinista • Datos Reales • Groq AI</p>
                     </div>
                 </div>
 
                 <div className="flex items-center gap-1.5 sm:gap-2">
                     {logs.length > 0 && !isRunning && (
                         <button onClick={handleCopyAll}
-                            className={`flex items-center gap-1 px-2 sm:px-3 py-2 rounded-xl text-[10px] sm:text-xs font-bold transition-all ${
-                                copied ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                            className={`flex items-center gap-1 px-2 sm:px-3 py-2 min-h-[40px] rounded-xl text-[10px] sm:text-xs font-bold transition-all ${
+                                copied ? 'bg-emerald-600 text-white' : 'bg-surface-800 text-surface-300 hover:bg-surface-700 border border-surface-700'
                             }`}>
-                            {copied ? <CheckCircle2 size={12} /> : <Copy size={12} />}
+                            {copied ? <CheckCircle2 size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
                             <span className="hidden sm:inline">{copied ? '¡Copiado!' : 'Copiar'}</span>
                         </button>
                     )}
 
                     {isRunning ? (
                         <button onClick={handleStop}
-                            className="flex items-center gap-1.5 px-3 py-2 bg-rose-600 hover:bg-rose-500 rounded-xl text-xs sm:text-sm font-bold transition-all shadow-lg shadow-rose-600/30 active:scale-95">
-                            <Square size={14} /> <span className="hidden sm:inline">Detener</span>
+                            className="flex items-center gap-1.5 px-3 py-2 min-h-[40px] bg-rose-600 hover:bg-rose-500 rounded-xl text-xs sm:text-sm font-bold transition-all shadow-lg shadow-rose-600/30 active:scale-95">
+                            <Square size={14} aria-hidden="true" /> <span className="hidden sm:inline">Detener</span>
                         </button>
                     ) : (
                         <button onClick={handleRunAll}
-                            className="flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-rose-600 hover:bg-rose-500 rounded-xl text-xs sm:text-sm font-bold transition-all shadow-lg shadow-rose-600/30 active:scale-95">
-                            <ShieldCheck size={14} /> Auditar Ahora
+                            className="flex items-center gap-1.5 px-3 sm:px-4 py-2 min-h-[40px] bg-rose-600 hover:bg-rose-500 rounded-xl text-xs sm:text-sm font-bold transition-all shadow-lg shadow-rose-600/30 active:scale-95">
+                            <ShieldCheck size={14} aria-hidden="true" /> Auditar Ahora
                         </button>
                     )}
                 </div>
             </div>
 
             {/* ── Suite Buttons ── */}
+            {/* v1.2.0: touch target ≥ 32px (dev tool, denso) + surface tokens + aria-label. */}
             <div className="flex flex-wrap gap-1 sm:gap-1.5">
                 {suites.map(s => (
                     <button
                         key={s.key}
                         onClick={() => handleRunSuite(s.key)}
                         disabled={isRunning}
-                        className="flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-[10px] sm:text-xs font-bold transition-all border active:scale-95 bg-slate-800 hover:bg-slate-700 border-slate-700 hover:border-slate-500"
+                        aria-label={`Ejecutar suite ${s.name}`}
+                        className="flex items-center gap-1 px-2 sm:px-3 py-1.5 min-h-[32px] disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-[10px] sm:text-xs font-bold transition-all border active:scale-95 bg-surface-800 hover:bg-surface-700 border-surface-700 hover:border-surface-500"
                     >
-                        <span>{SUITE_ICONS[s.key]}</span>
+                        <span aria-hidden="true">{SUITE_ICONS[s.key]}</span>
                         <span className="hidden sm:inline">{s.name.replace(/^[^\s]+\s/, '')}</span>
                         <span className="sm:hidden">{s.key.slice(0, 5)}</span>
                     </button>
@@ -354,12 +358,13 @@ export const TesterView = ({ onBack }) => {
                         <div className="flex gap-1">
                             {['all', 'error', 'warn'].map(f => (
                                 <button key={f} onClick={() => setLogFilter(f)}
-                                    className={`px-2 py-1 rounded-lg text-[8px] sm:text-[9px] font-black uppercase transition-all ${
+                                    aria-label={`Filtrar por ${f}`}
+                                    className={`px-2 py-1 min-h-[28px] rounded-lg text-[8px] sm:text-[9px] font-black uppercase transition-all ${
                                         logFilter === f
                                             ? f === 'error' ? 'bg-rose-600 text-white'
                                               : f === 'warn' ? 'bg-amber-500 text-white'
-                                              : 'bg-indigo-600 text-white'
-                                            : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+                                              : 'bg-brand-dark text-white'
+                                            : 'bg-surface-700 text-surface-400 hover:bg-surface-600'
                                     }`}>
                                     {f === 'all'
                                         ? `Todo (${logs.length})`
@@ -369,9 +374,10 @@ export const TesterView = ({ onBack }) => {
                                 </button>
                             ))}
                         </div>
-                        <button onClick={handleClear} disabled={isRunning || logs.length === 0}
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-700 transition-all disabled:opacity-30" title="Limpiar">
-                            <Trash2 size={13} />
+                        {/* v1.2.0: aria-label + min-h[32px] en icon buttons (dev tool, denso) */}
+                        <button onClick={handleClear} disabled={isRunning || logs.length === 0} aria-label="Limpiar log"
+                            className="p-1.5 min-h-[32px] min-w-[32px] flex items-center justify-center rounded-lg text-surface-500 hover:text-surface-300 hover:bg-surface-700 transition-all disabled:opacity-30" title="Limpiar">
+                            <Trash2 size={13} aria-hidden="true" />
                         </button>
                         <button
                             onClick={() => {
@@ -383,8 +389,9 @@ export const TesterView = ({ onBack }) => {
                                 URL.revokeObjectURL(url);
                             }}
                             disabled={logs.length === 0}
-                            className="flex items-center gap-1 px-2 py-1 rounded-xl text-[10px] sm:text-xs font-bold bg-slate-800 text-slate-300 hover:bg-violet-700 hover:text-white border border-slate-700 transition-all disabled:opacity-30">
-                            <Download size={12} />
+                            aria-label="Descargar log como JSON"
+                            className="flex items-center gap-1 px-2 py-1 min-h-[32px] rounded-xl text-[10px] sm:text-xs font-bold bg-surface-800 text-surface-300 hover:bg-brand-dark hover:text-white border border-surface-700 transition-all disabled:opacity-30">
+                            <Download size={12} aria-hidden="true" />
                             <span className="hidden sm:inline">JSON</span>
                         </button>
                     </div>

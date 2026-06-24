@@ -193,9 +193,9 @@ export default function WalletView({ rates }) {
 
     const getColor = (type) => {
         switch (type) {
-            case 'zelle': return 'bg-purple-50 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400';
+            case 'zelle': return 'bg-brand-dark text-brand dark:bg-brand-dark/20 dark:text-brand';
             case 'binance': return 'bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400';
-            case 'transferencia': return 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300';
+            case 'transferencia': return 'bg-brand-light text-brand-dark dark:bg-surface-800/30 dark:text-brand';
             default: return 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400';
         }
     };

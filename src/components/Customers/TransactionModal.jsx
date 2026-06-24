@@ -93,7 +93,7 @@ export default function TransactionModal({
                         <button
                             type="button"
                             onClick={() => { setCurrencyMode('BS'); setTransactionAmount(''); setPaymentMethod('efectivo_bs'); }}
-                            className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${currencyMode === 'BS' ? 'bg-white dark:bg-slate-900 shadow-sm text-blue-500' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+                            className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${currencyMode === 'BS' ? 'bg-white dark:bg-slate-900 shadow-sm text-brand' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                         >
                             Bs
                         </button>
@@ -118,7 +118,7 @@ export default function TransactionModal({
                     {/* Input de monto */}
                     <div>
                         <div className="relative">
-                            <span className={`absolute left-4 top-1/2 -translate-y-1/2 font-black text-lg ${currencyMode === 'BS' ? 'text-blue-500' : 'text-emerald-500'}`}>
+                            <span className={`absolute left-4 top-1/2 -translate-y-1/2 font-black text-lg ${currencyMode === 'BS' ? 'text-brand' : 'text-emerald-500'}`}>
                                 {currencyMode === 'BS' ? 'Bs' : '$'}
                             </span>
                             <input
@@ -126,7 +126,7 @@ export default function TransactionModal({
                                 value={transactionAmount}
                                 onChange={(e) => setTransactionAmount(e.target.value)}
                                 placeholder="0.00"
-                                className={`w-full form-input bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-4 ${currencyMode === 'BS' ? 'pl-12' : 'pl-10'} text-2xl font-black text-slate-800 dark:text-white focus:ring-2 focus:ring-blue-500/50 transition-all`}
+                                className={`w-full form-input bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-4 ${currencyMode === 'BS' ? 'pl-12' : 'pl-10'} text-2xl font-black text-slate-800 dark:text-white focus:ring-2 focus:ring-brand/50 transition-all`}
                                 autoFocus
                             />
                         </div>
@@ -157,9 +157,9 @@ export default function TransactionModal({
                         )}
                         {/* Conversion info */}
                         {currencyMode === 'BS' && transactionAmount && bcvRate > 0 && (
-                            <div className="bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-lg p-2 mt-3 flex items-center justify-between">
+                            <div className="bg-brand-light/50 dark:bg-surface-800/10 border border-surface-200 dark:border-surface-800/30 rounded-lg p-2 mt-3 flex items-center justify-between">
                                 <span className="text-xs font-bold text-slate-500">Equivale a:</span>
-                                <span className="text-sm font-black text-blue-600 dark:text-blue-400">
+                                <span className="text-sm font-black text-brand-dark dark:text-brand">
                                     ${(parseFloat(transactionAmount) / bcvRate).toFixed(2)} USD
                                 </span>
                             </div>
@@ -183,7 +183,7 @@ export default function TransactionModal({
                                 </div>
                                 <div className="flex items-center justify-between">
                                     <span className="text-[10px] font-bold text-slate-500">Ref local:</span>
-                                    <span className="text-xs font-black text-blue-600 dark:text-blue-400">
+                                    <span className="text-xs font-black text-brand-dark dark:text-brand">
                                         {formatBs((parseFloat(transactionAmount) / tasaCop) * bcvRate)} Bs
                                     </span>
                                 </div>

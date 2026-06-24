@@ -49,8 +49,9 @@ export default function LockScreen() {
 
       {/* Footer */}
       <div className="relative z-10 pb-6 text-center flex flex-col items-center gap-3">
+        {/* SEC-017: todos los roles usan 6 dígitos (PIN_POLICY.MIN_LENGTH). */}
         <p className="text-[10px] text-slate-400 font-medium tracking-wider">
-          Admin: 6 dígitos · Cajero: 4 dígitos
+          PIN de 6 dígitos para todos los usuarios
         </p>
         <button
           onClick={() => window.location.reload()}

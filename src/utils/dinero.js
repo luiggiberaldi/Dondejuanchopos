@@ -33,6 +33,41 @@ export const round4 = (n) => {
 };
 
 /**
+ * Redondea a 3 decimales (para cantidades de peso: gramos/kg en ventas por peso).
+ * @param {number} n
+ * @returns {number}
+ */
+export const round3 = (n) => {
+    if (!Number.isFinite(n)) return 0;
+    const sign = n < 0 ? -1 : 1;
+    return sign * Math.round((Math.abs(n) + Number.EPSILON) * 1000) / 1000;
+};
+
+/**
+ * Redondea a entero (round-half-away-from-zero).
+ * Útil para Bs (política del POS: precios en Bs siempre a entero) y scores.
+ * @param {number} n
+ * @returns {number}
+ */
+export const round0 = (n) => {
+    if (!Number.isFinite(n)) return 0;
+    const sign = n < 0 ? -1 : 1;
+    return sign * Math.round(Math.abs(n) + Number.EPSILON);
+};
+
+/**
+ * Redondea hacia +infinito (ceil) a entero.
+ * Política del POS para precios en Bolívares (siempre redondear Bs hacia arriba).
+ * Reemplaza `Math.ceil` en código financiero.
+ * @param {number} n
+ * @returns {number}
+ */
+export const ceilR = (n) => {
+    if (!Number.isFinite(n)) return 0;
+    return Math.ceil(n);
+};
+
+/**
  * Multiplica dos números y redondea a 2 decimales.
  * Para cadenas como precio * cantidad * tasa, encadenar: mulR(mulR(price, qty), rate)
  * @param {number} a

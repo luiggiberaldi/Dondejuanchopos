@@ -1,168 +1,64 @@
+/**
+ * index.css — Entry point de estilos.
+ *
+ * v1.2.0: Design system "Precios al Día" (OKLCH + Instrument Serif/Work Sans).
+ *
+ * Orden de imports:
+ *   1. tokens.css       — vars OKLCH + RGB derivados + tipografía fluida + radii + shadows
+ *   2. animations.css   — reveal, skeleton, scrollbar, utilidades
+ *   3. components.css   — .btn, .card, .input, .badge, .display
+ *   4. Tailwind layers  — base/components/utilities (usa las vars de tokens.css)
+ *
+ * Las vars antiguas (azul/slate-cool) del v1.1.0 fueron reemplazadas por
+ * las OKLCH de tokens.css. Los 2000+ clases slate-* existentes ahora
+ * renderizan la paleta warm cream/cian automáticamente.
+ */
+
+@import './styles/tokens.css';
+@import './styles/animations.css';
+@import './styles/components.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ── Base styles ── */
 @layer base {
-  :root {
-    /* ── DESIGN TOKENS (PALETA MAESTRA) ── */
-    /* Primary (Usado para reemplazar blue, purple, indigo unificando la marca) */
-    --color-primary-50: 239 246 255;   /* blue-50 */
-    --color-primary-100: 219 234 254;  /* blue-100 */
-    --color-primary-200: 191 219 254;  /* blue-200 */
-    --color-primary-300: 147 197 253;  /* blue-300 */
-    --color-primary-400: 96 165 250;   /* blue-400 */
-    --color-primary-500: 59 130 246;   /* blue-500 */
-    --color-primary-600: 37 99 235;    /* blue-600 */
-    --color-primary-700: 29 78 216;    /* blue-700 */
-    --color-primary-800: 30 64 175;    /* blue-800 */
-    --color-primary-900: 30 58 138;    /* blue-900 */
-    --color-primary-950: 23 37 84;     /* blue-950 */
-
-    /* Surface (Neutros para fondos y bordes, reemplaza a slate) */
-    --color-surface-50: 248 250 252;   /* slate-50 */
-    --color-surface-100: 241 245 249;  /* slate-100 */
-    --color-surface-200: 226 232 240;  /* slate-200 */
-    --color-surface-300: 203 213 225;  /* slate-300 */
-    --color-surface-400: 148 163 184;  /* slate-400 */
-    --color-surface-500: 100 116 139;  /* slate-500 */
-    --color-surface-600: 71 85 105;    /* slate-600 */
-    --color-surface-700: 51 65 85;     /* slate-700 */
-    --color-surface-800: 30 41 59;     /* slate-800 */
-    --color-surface-900: 15 23 42;     /* slate-900 */
-    --color-surface-950: 2 6 23;       /* slate-950 */
-
-    /* Semantic Colors */
-    /* Success (Reemplaza emerald) */
-    --color-success-50: 236 253 245;
-    --color-success-100: 209 250 229;
-    --color-success-400: 52 211 153;
-    --color-success-500: 16 185 129;
-    --color-success-600: 5 150 105;
-    --color-success-900: 6 78 59;
-
-    /* Danger (Reemplaza red) */
-    --color-danger-50: 254 242 242;
-    --color-danger-100: 254 226 226;
-    --color-danger-400: 248 113 113;
-    --color-danger-500: 239 68 68;
-    --color-danger-600: 220 38 38;
-    --color-danger-900: 127 29 29;
-
-    /* Warning (Reemplaza amber) */
-    --color-warning-50: 255 251 235;
-    --color-warning-100: 254 243 199;
-    --color-warning-400: 251 191 36;
-    --color-warning-500: 245 158 11;
-    --color-warning-600: 217 119 6;
-    --color-warning-900: 120 53 15;
-
-    /* Brand Legacy (Mantener por compatibilidad) */
-    --color-brand: var(--color-primary-500);
-    --color-brand-dark: var(--color-primary-700);
-
-    /* Main Backgrounds */
-    --color-bg-light: var(--color-surface-50);
-    --color-bg-dark: var(--color-surface-900);
-  }
-}
-
-html,
-body {
-  background-color: rgb(var(--color-bg-light));
-  color: #1e293b;
-  font-family: 'Inter', system-ui, sans-serif;
-  color-scheme: light;
-}
-
-html.dark,
-html.dark body {
-  background-color: rgb(var(--color-bg-dark));
-  color: #f8fafc;
-  color-scheme: dark;
-}
-
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 10px;
-}
-
-.dark ::-webkit-scrollbar-thumb {
-  background: #334155;
-}
-
-/* ── Tab Transition ── */
-/* ── Skeleton Loading ── */
-@keyframes shimmer {
-  0% {
-    background-position: -200% 0;
+  html,
+  body {
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    color-scheme: light;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
-  100% {
-    background-position: 200% 0;
+  [data-theme='dark'] html,
+  [data-theme='dark'] body,
+  .dark body {
+    background-color: var(--bg);
+    color: var(--text);
+    color-scheme: dark;
   }
-}
 
-.skeleton {
-  background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-  border-radius: 0.75rem;
-}
-
-.dark .skeleton {
-  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
-  background-size: 200% 100%;
-}
-
-/* ── Cart Scroll Gradient ── */
-.cart-scroll-shadow {
-  mask-image: linear-gradient(to bottom, black calc(100% - 24px), transparent);
-  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 24px), transparent);
-}
-
-.horizontal-scroll-mask {
-  mask-image: linear-gradient(to right, black calc(100% - 32px), transparent);
-  -webkit-mask-image: linear-gradient(to right, black calc(100% - 32px), transparent);
-}
-
-/* ── Pull to Refresh ── */
-@keyframes spin-slow {
-  to {
-    transform: rotate(360deg);
+  /* Headings usan font-display (Instrument Serif) por defecto en landing/login */
+  h1.display-heading,
+  h2.display-heading {
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: -0.01em;
   }
-}
 
-.animate-spin-slow {
-  animation: spin-slow 1s linear infinite;
-}
+  /* Focus visible global para A11y */
+  *:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
 
-/* ── Scrollbar Hide ── */
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
-}
-
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-@keyframes shake {
-  10%, 90% { transform: translate3d(-1px, 0, 0); }
-  20%, 80% { transform: translate3d(2px, 0, 0); }
-  30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
-  40%, 60% { transform: translate3d(4px, 0, 0); }
-}
-
-.animate-shake {
-  animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+  /* Selection color */
+  ::selection {
+    background: var(--primary-soft);
+    color: var(--primary);
+  }
 }

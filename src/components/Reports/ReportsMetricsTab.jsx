@@ -18,8 +18,8 @@ function SaleMethodIcon({ iconId }) {
 function StatCard({ icon: Icon, label, value, sub, color }) {
     const colors = {
         emerald: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400',
-        blue: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
-        indigo: 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400',
+        blue: 'bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand',
+        indigo: 'bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand',
         amber: 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400',
     };
     return (
@@ -172,7 +172,7 @@ function TransactionRow({ sale: s, bcvRate, isExpanded, onToggle, onVoidSale, on
                         </button>
                         <button
                             onClick={handlePDF}
-                            className="py-2 px-3 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 hover:bg-blue-200 font-bold rounded-lg transition-colors flex justify-center items-center gap-1.5 text-xs shadow-sm active:scale-95"
+                            className="py-2 px-3 bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand hover:bg-brand-light font-bold rounded-lg transition-colors flex justify-center items-center gap-1.5 text-xs shadow-sm active:scale-95"
                         >
                             PDF
                         </button>
@@ -192,7 +192,7 @@ function TransactionRow({ sale: s, bcvRate, isExpanded, onToggle, onVoidSale, on
                         {onRecycleSale && s.items && s.items.length > 0 && (
                             <button
                                 onClick={(e) => { e.stopPropagation(); onRecycleSale(s); }}
-                                className="py-2 px-3 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-200 hover:dark:bg-indigo-900/50 font-bold rounded-lg transition-colors flex justify-center items-center gap-1.5 text-xs shadow-sm active:scale-95"
+                                className="py-2 px-3 bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand hover:bg-brand-light hover:dark:bg-surface-800/50 font-bold rounded-lg transition-colors flex justify-center items-center gap-1.5 text-xs shadow-sm active:scale-95"
                             >
                                 <Recycle size={14} />
                             </button>
@@ -264,7 +264,7 @@ export default function ReportsMetricsTab({
                                     <span className="text-[8px] font-bold text-slate-400">{copEnabled && copPrimary && tasaCop > 0 ? `${Math.round(day.total * tasaCop / 1000)}k` : `$${day.total.toFixed(0)}`}</span>
                                     <div className="w-full flex justify-center">
                                         <div
-                                            className="w-full max-w-[24px] rounded-t-md bg-gradient-to-t from-indigo-500 to-indigo-400 transition-all duration-500"
+                                            className="w-full max-w-[24px] rounded-t-md bg-gradient-to-t from-brand to-brand-dark transition-all duration-500"
                                             style={{ height: `${Math.max(pct, 6)}%`, minHeight: '3px' }}
                                         />
                                     </div>
@@ -334,7 +334,7 @@ export default function ReportsMetricsTab({
                             </div>
                             {data.currency !== 'FIADO' && (
                                 <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                                    <div className="h-full bg-gradient-to-r from-blue-400 via-cyan-400 to-teal-400 rounded-full transition-all" style={{ width: `${Math.min(pct, 100)}%` }} />
+                                    <div className="h-full bg-gradient-to-r from-brand via-cyan-400 to-teal-400 rounded-full transition-all" style={{ width: `${Math.min(pct, 100)}%` }} />
                                 </div>
                             )}
                         </div>
@@ -382,8 +382,8 @@ export default function ReportsMetricsTab({
                     {(bsMethods.length > 0 || vueltoBs.length > 0) && (
                         <div className="mb-5">
                             <div className="flex items-center justify-between mb-3">
-                                <span className="text-[11px] font-bold text-blue-500 uppercase tracking-wider">Bolívares</span>
-                                <span className={`text-xs font-black ${totalVueltoBs > 0 ? 'text-cyan-500 dark:text-cyan-400' : 'text-blue-600 dark:text-blue-400'}`}>
+                                <span className="text-[11px] font-bold text-brand uppercase tracking-wider">Bolívares</span>
+                                <span className={`text-xs font-black ${totalVueltoBs > 0 ? 'text-cyan-500 dark:text-cyan-400' : 'text-brand-dark dark:text-brand'}`}>
                                     {totalVueltoBs > 0
                                         ? `${netoBs < 0 ? '−' : ''}${formatBs(Math.abs(netoBs))} Bs neto`
                                         : `${formatBs(subtotalBs)} Bs`}
@@ -439,13 +439,13 @@ export default function ReportsMetricsTab({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {topProducts.map((p, i) => (
                             <div key={p.name} className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800 rounded-xl p-2.5">
-                                <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black ${i < 3 ? 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400' : 'bg-slate-100 dark:bg-slate-700 text-slate-400'
+                                <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black ${i < 3 ? 'bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand' : 'bg-slate-100 dark:bg-slate-700 text-slate-400'
                                     }`}>{i + 1}</span>
                                 <div className="flex-1 min-w-0">
                                     <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">{p.name}</p>
                                     <p className="text-[10px] text-slate-400">{p.qty} vendidos</p>
                                 </div>
-                                <span className="text-xs font-black text-indigo-600 dark:text-indigo-400">{copEnabled && copPrimary && tasaCop > 0 ? `${formatCop(p.revenue * tasaCop)} COP` : `$${p.revenue.toFixed(2)}`}</span>
+                                <span className="text-xs font-black text-brand-dark dark:text-brand">{copEnabled && copPrimary && tasaCop > 0 ? `${formatCop(p.revenue * tasaCop)} COP` : `$${p.revenue.toFixed(2)}`}</span>
                             </div>
                         ))}
                     </div>
@@ -477,8 +477,8 @@ export default function ReportsMetricsTab({
                             className="w-full flex items-center justify-between bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 shadow-sm active:scale-[0.99] transition-all"
                         >
                             <div className="flex items-center gap-2">
-                                <div className="w-8 h-8 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg flex items-center justify-center">
-                                    <Clock size={16} className="text-indigo-600 dark:text-indigo-400" />
+                                <div className="w-8 h-8 bg-brand-light dark:bg-surface-800/30 rounded-lg flex items-center justify-center">
+                                    <Clock size={16} className="text-brand-dark dark:text-brand" />
                                 </div>
                                 <div className="text-left">
                                     <p className="text-xs font-bold text-slate-700 dark:text-white">Listado de Transacciones</p>
@@ -499,7 +499,7 @@ export default function ReportsMetricsTab({
                                             value={historySearch}
                                             onChange={e => { setHistorySearch(e.target.value); setVisibleCount(30); }}
                                             placeholder="Buscar por cliente, producto u orden..."
-                                            className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg py-2 pl-9 pr-8 text-xs font-medium text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
+                                            className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg py-2 pl-9 pr-8 text-xs font-medium text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/30 transition-all"
                                         />
                                         {historySearch && (
                                             <button onClick={() => setHistorySearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
@@ -513,7 +513,7 @@ export default function ReportsMetricsTab({
                                                 key={f.id}
                                                 onClick={() => { setHistoryFilter(f.id); setVisibleCount(30); }}
                                                 className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${historyFilter === f.id
-                                                    ? 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                                                    ? 'bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand shadow-sm'
                                                     : 'bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-slate-600'}`}
                                             >{f.label}</button>
                                         ))}
@@ -560,7 +560,7 @@ export default function ReportsMetricsTab({
                                 {visibleCount < searchedSales.length && (
                                     <button
                                         onClick={() => setVisibleCount(c => c + 30)}
-                                        className="w-full py-3 text-xs font-bold text-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition-colors active:scale-[0.98]"
+                                        className="w-full py-3 text-xs font-bold text-brand bg-brand-light dark:bg-surface-800/20 rounded-xl hover:bg-brand-light dark:hover:bg-surface-800/30 transition-colors active:scale-[0.98]"
                                     >
                                         Mostrar mas ({searchedSales.length - visibleCount} restantes)
                                     </button>

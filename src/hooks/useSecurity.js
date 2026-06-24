@@ -1,15 +1,21 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { storageService } from '../utils/storageService';
 import { supabase } from '../core/supabaseClient';
-import { encodeToken, decodeToken, verifyLicenseToken } from '../security/tokenCrypto';
-import { generateFingerprint } from '../security/deviceFingerprint';
+import { verifyLicenseToken } from '../security/tokenCrypto';
+import { generateFingerprint, verifyStoredFingerprint } from '../security/deviceFingerprint';
 import { useLicenseMonitoring } from './useLicenseMonitoring';
 import { useDemoCountdown } from './useDemoCountdown';
+import { LICENSE_POLICY } from '../utils/securityConstants';
 
 const APP_VERSION = '1.0.0';
 const PRODUCT_ID = 'bodega';
 
 const DEMO_DURATION_MS = 72 * 60 * 60 * 1000; // 72 horas (3 dias)
+
+// SEC-022 / INFRA-011: Security headers (CSP, X-Frame-Options, X-Content-Type-Options,
+// Referrer-Policy) deben configurarse en el servidor que sirve el build (Cloudflare
+// Worker, Vercel o index.html <meta http-equiv>). No se pueden aplicar correctamente
+// desde el bundle. Ver ISSUES.md SEC-022 / INFRA-011 — pendiente para Agente D.
 
 export function useSecurity() {
     const [deviceId, setDeviceId] = useState('');
@@ -60,137 +66,33 @@ export function useSecurity() {
         },
     });
 
-    useEffect(() => {
-        const initDeviceId = async () => {
-            let storedId = localStorage.getItem('pda_device_id');
-            if (!storedId) {
-                storedId = await generateFingerprint();
-                localStorage.setItem('pda_device_id', storedId);
-            }
-            setDeviceId(storedId);
-
-            // Auto-registro: registrar dispositivo si no existe (sin importar licencia)
-            try {
-                if (import.meta.env.VITE_SUPABASE_URL) {
-                    const clientName = localStorage.getItem('business_name') || localStorage.getItem('restaurant_name') || '';
-                    await supabase.rpc('auto_register_device', { p_device_id: storedId, p_product_id: PRODUCT_ID, p_client_name: clientName });
-                }
-            } catch (e) { /* silencioso */ }
-
-            checkLicense(storedId);
-        };
-
-        initDeviceId();
-
-        // FIX 3: Leer demo flag desde IndexedDB
-        storageService.getItem('pda_demo_flag_v1', null).then(r => {
-            if (r?.used) setDemoUsed(true);
-        });
-    }, []);
-
-    // FIX 4: Integrity check periodico cada 30 minutos
-    useEffect(() => {
-        if (!deviceId) return;
-        const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes cooldown between checks
-
-        const interval = setInterval(async () => {
-            // Cooldown: skip if less than 5 minutes since last check
-            const now = Date.now();
-            if (now - lastIntegrityCheckRef.current < COOLDOWN_MS) return;
-            lastIntegrityCheckRef.current = now;
-
-            const raw = localStorage.getItem('pda_premium_token');
-
-            // Si localStorage fue borrado, intentar restaurar desde servidor
-            if (!raw) {
-                try {
-                    const { data: remoteLicense } = await supabase
-                        .from('licenses')
-                        .select('type, active, expires_at')
-                        .eq('device_id', deviceId)
-                        .eq('product_id', PRODUCT_ID)
-                        .maybeSingle();
-
-                    if (remoteLicense?.active === true) {
-                        // Restaurar desde servidor — re-run license check instead of reload
-                        console.warn('[Security] Token missing but license active on server. Re-checking license.');
-                        setIntegrityWarning(true);
-                        checkLicense(deviceId);
-                        return;
-                    }
-                } catch { }
-                // Si no hay licencia activa en servidor y estaba premium -> revocar
-                if (isPremium) {
-                    console.warn('[Security] Token missing and no active server license. Revoking premium.');
-                    setIsPremium(false);
-                    setIsDemo(false);
-                    setIntegrityWarning(true);
-                }
-                return;
-            }
-
-            // Verificar integridad del token almacenado
-            if (raw) {
-                try {
-                    let obj = null;
-                    if (raw.includes('.')) {
-                        const { valid, payload } = await verifyLicenseToken(raw);
-                        if (valid) obj = payload;
-                    } else {
-                        const token = decodeToken(raw);
-                        obj = JSON.parse(token);
-                    }
-
-                    if (obj) {
-                        // Si es demo y ya expiro
-                        if ((obj.type === 'demo7' || obj.type === 'demo3') && obj.expires && Date.now() >= obj.expires) {
-                            localStorage.removeItem('pda_premium_token');
-                            setIsPremium(false);
-                            setIsDemo(false);
-                            setDemoExpiredMsg("Tu licencia temporal ha finalizado. Esperamos que hayas disfrutado la experiencia completa.");
-                            console.warn('[Security] Demo token expired during integrity check.');
-                        }
-                    } else {
-                        throw new Error('Invalid token structure');
-                    }
-                } catch {
-                    // Token corrupto -> verificar contra servidor
-                    if (isPremium) {
-                        localStorage.removeItem('pda_premium_token');
-                        setIsPremium(false);
-                        setIsDemo(false);
-                        setIntegrityWarning(true);
-                        console.warn('[Security] Corrupt token detected. Revoking premium state.');
-                    }
-                }
-            }
-        }, 30 * 60 * 1000); // 30 minutos
-
-        return () => clearInterval(interval);
-    }, [deviceId, isPremium]);
-
-        const checkLicense = async (currentDeviceId) => {
+    // HOOK-040: checkLicense memoizado para evitar recreate en cada render.
+    // SEC-001/SEC-007: Solo aceptar tokens con firma RSA válida.
+    const checkLicense = useCallback(async (currentDeviceId) => {
+        // SEC-001/SEC-007: Solo aceptar tokens con firma RSA válida.
+        // Si el token almacenado es legacy (XOR, sin '.') se elimina y se cae
+        // al flujo de validación contra el servidor.
         const rawStored = localStorage.getItem('pda_premium_token');
         let tokenObj = null;
 
         if (rawStored) {
             if (rawStored.includes('.')) {
-                // Formato criptográfico firmado
                 const { valid, payload } = await verifyLicenseToken(rawStored);
                 if (valid) tokenObj = payload;
             } else {
-                // Formato legacy
-                const storedToken = decodeToken(rawStored);
-                try {
-                    tokenObj = JSON.parse(storedToken);
-                } catch { }
+                // SEC-001: Token legacy XOR — rechazar y limpiar.
+                if (import.meta.env?.DEV) {
+                    console.warn('[Security] Token legacy XOR detectado y rechazado (SEC-001).');
+                }
+                localStorage.removeItem('pda_premium_token');
             }
         }
 
         if (!tokenObj) {
-            // Fallback: verificar si existe licencia activa en Supabase (ej: reactivada remotamente)
+            // Fallback: verificar si existe licencia activa en Supabase (ej: reactivada remotamente).
+            // Aquí confiamos en la fila del servidor, no en un token local minteado.
             try {
-                const { data: remoteLicense, error } = await supabase
+                const { data: remoteLicense } = await supabase
                     .from('licenses')
                     .select('type, active, expires_at, code')
                     .eq('device_id', currentDeviceId)
@@ -203,16 +105,12 @@ export function useSecurity() {
 
                     if (isTimeLimited && expiresAt) {
                         if (Date.now() < expiresAt) {
-                            const token = { deviceId: currentDeviceId, type: remoteLicense.type, expires: expiresAt, isDemo: true };
-                            localStorage.setItem('pda_premium_token', encodeToken(JSON.stringify(token)));
+                            // SEC-001: NO minteamos un token legacy. Solo actualizamos estado en memoria.
                             setIsPremium(true);
                             setIsDemo(true);
                             setDemoExpires(expiresAt);
                         }
                     } else if (remoteLicense.type === 'permanent') {
-                        // Permanente — restaurar token con datos del servidor
-                        const token = { deviceId: currentDeviceId, type: 'permanent', code: remoteLicense.code };
-                        localStorage.setItem('pda_premium_token', encodeToken(JSON.stringify(token)));
                         setIsPremium(true);
                         setIsDemo(false);
                     }
@@ -220,7 +118,10 @@ export function useSecurity() {
                     return;
                 }
             } catch (e) {
-                // Sin red — no se puede restaurar
+                // HOOK-022: Sin red — no se puede restaurar; loguear en dev.
+                if (import.meta.env?.DEV) {
+                    console.warn('[Security] Sin red al validar licencia remota:', e?.message ?? e);
+                }
             }
 
             setIsPremium(false);
@@ -229,14 +130,11 @@ export function useSecurity() {
         }
 
         let isPremiumConfirmed = false;
-        let confirmedDemo = false;
-        let confirmedExpires = null;
 
         try {
             if (tokenObj && tokenObj.deviceId === currentDeviceId) {
-                // Token belongs to this device
-                const isTimeLimited = tokenObj.type === 'demo7' || tokenObj.type === 'demo3' || tokenObj.isDemo; // retrocompatibilidad
-                // Verificar estado remoto antes de confiar en el token local
+                const isTimeLimited = tokenObj.type === 'demo7' || tokenObj.type === 'demo3' || tokenObj.isDemo;
+                // Verificar estado remoto antes de confiar en el token local.
                 let revokedRemotely = false;
                 try {
                     const { data: remoteLicense } = await supabase
@@ -249,7 +147,11 @@ export function useSecurity() {
                     if (remoteLicense && remoteLicense.active === false) {
                         revokedRemotely = true;
                     }
-                } catch (e) { /* Sin red -> confiar en token local */ }
+                } catch (e) {
+                    if (import.meta.env?.DEV) {
+                        console.warn('[Security] Sin red al verificar revocación:', e?.message ?? e);
+                    }
+                }
 
                 if (revokedRemotely) {
                     localStorage.removeItem('pda_premium_token');
@@ -266,17 +168,14 @@ export function useSecurity() {
                         setIsDemo(true);
                         setDemoExpires(tokenObj.expires);
                         isPremiumConfirmed = true;
-                        confirmedDemo = true;
-                        confirmedExpires = tokenObj.expires;
                     } else {
-                        console.warn("Demo Expirada");
+                        if (import.meta.env?.DEV) console.warn('[Security] Demo expirada.');
                         localStorage.removeItem('pda_premium_token');
                         setIsPremium(false);
                         setIsDemo(false);
                         setDemoExpiredMsg("Tu licencia temporal ha finalizado. Esperamos que hayas disfrutado la experiencia completa.");
                     }
                 } else {
-                    // Permanente
                     setIsPremium(true);
                     setIsDemo(false);
                     isPremiumConfirmed = true;
@@ -285,54 +184,203 @@ export function useSecurity() {
                 setIsPremium(false);
             }
         } catch (e) {
-            // Unparseable token or old string format (Lifetime License legacy)
+            if (import.meta.env?.DEV) {
+                console.warn('[Security] Token no parseable:', e?.message ?? e);
+            }
             setIsPremium(false);
         }
 
-        // FIX 5: Guardar backup en sessionStorage si licencia valida
+        // FIX 5: Guardar backup en sessionStorage si licencia valida.
+        // SEC-007: ya no usamos XOR para ofuscar; almacenamos un flag simple.
         if (isPremiumConfirmed) {
             try {
                 sessionStorage.setItem(
                     '_pda_s',
-                    encodeToken('VALID_SESSION:' + currentDeviceId)
+                    JSON.stringify({ v: 1, deviceId: currentDeviceId, ts: Date.now() })
                 );
             } catch { }
         }
 
-        // Migracion silenciosa: asegurar registro en Supabase via RPC seguro
+        // Migracion silenciosa: asegurar registro en Supabase via RPC seguro.
         if (isPremiumConfirmed) {
             const migrateToSupabase = async () => {
                 try {
-                    // Registrar dispositivo si no existe (RPC seguro, no INSERT directo)
                     const clientName = localStorage.getItem('business_name') || localStorage.getItem('restaurant_name') || '';
                     await supabase.rpc('auto_register_device', {
                         p_device_id: currentDeviceId,
                         p_product_id: PRODUCT_ID,
                         p_client_name: clientName
                     });
-                    // Enviar heartbeat para actualizar last_seen
                     await supabase.rpc('heartbeat_device', {
                         p_device_id: currentDeviceId,
                         p_product_id: PRODUCT_ID,
                         p_client_name: clientName
                     });
                 } catch (e) {
-                    // Silencioso — nunca afecta la app
+                    if (import.meta.env?.DEV) {
+                        console.warn('[Security] Migración silenciosa falló:', e?.message ?? e);
+                    }
                 }
-            }
+            };
 
-            migrateToSupabase()  // llamar sin await para no bloquear
+            migrateToSupabase();
         }
 
         setLoading(false);
-    };
+    }, [setDemoExpiredMsg]);
+
+    useEffect(() => {
+        const initDeviceId = async () => {
+            // SEC-008: Re-verificar fingerprint. Si el dispositivo cambió (o si alguien
+            // inyectó un pda_device_id arbitrario), invalidamos la sesión premium.
+            let storedId = localStorage.getItem('pda_device_id');
+            const currentFp = await generateFingerprint();
+            if (storedId) {
+                const matches = await verifyStoredFingerprint(storedId, currentFp);
+                if (!matches) {
+                    // Fingerprint manipulado o cambiado → revocar premium y re-fijar deviceId.
+                    if (import.meta.env?.DEV) {
+                        console.warn('[Security] Fingerprint mismatch detectado (SEC-008). Revocando sesión.');
+                    }
+                    localStorage.removeItem('pda_premium_token');
+                    setIntegrityWarning(true);
+                    storedId = currentFp;
+                    localStorage.setItem('pda_device_id', storedId);
+                }
+            } else {
+                storedId = currentFp;
+                localStorage.setItem('pda_device_id', storedId);
+            }
+            setDeviceId(storedId);
+
+            // Auto-registro: registrar dispositivo si no existe (sin importar licencia)
+            try {
+                if (import.meta.env.VITE_SUPABASE_URL) {
+                    const clientName = localStorage.getItem('business_name') || localStorage.getItem('restaurant_name') || '';
+                    await supabase.rpc('auto_register_device', { p_device_id: storedId, p_product_id: PRODUCT_ID, p_client_name: clientName });
+                }
+            } catch (e) {
+                if (import.meta.env?.DEV) console.warn('[Security] auto_register_device falló:', e?.message ?? e);
+            }
+
+            checkLicense(storedId);
+        };
+
+        initDeviceId();
+
+        // FIX 3: Leer demo flag desde IndexedDB
+        storageService.getItem('pda_demo_flag_v1', null).then(r => {
+            if (r?.used) setDemoUsed(true);
+        });
+    }, [checkLicense]);
+
+    // FIX 4: Integrity check periodico cada 30 minutos
+    useEffect(() => {
+        if (!deviceId) return;
+        const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes cooldown between checks
+
+        const interval = setInterval(async () => {
+            const now = Date.now();
+            if (now - lastIntegrityCheckRef.current < COOLDOWN_MS) return;
+            lastIntegrityCheckRef.current = now;
+
+            // SEC-008: Re-verificar fingerprint periódicamente.
+            try {
+                const currentFp = await generateFingerprint();
+                const matches = await verifyStoredFingerprint(deviceId, currentFp);
+                if (!matches) {
+                    console.warn('[Security] Fingerprint cambió durante integrity check (SEC-008).');
+                    setIntegrityWarning(true);
+                    setIsPremium(false);
+                    setIsDemo(false);
+                    localStorage.removeItem('pda_premium_token');
+                    return;
+                }
+            } catch (e) {
+                if (import.meta.env?.DEV) {
+                    console.warn('[Security] Re-verificación de fingerprint falló:', e?.message ?? e);
+                }
+            }
+
+            const raw = localStorage.getItem('pda_premium_token');
+
+            // Si localStorage fue borrado, intentar restaurar desde servidor
+            if (!raw) {
+                try {
+                    const { data: remoteLicense } = await supabase
+                        .from('licenses')
+                        .select('type, active, expires_at')
+                        .eq('device_id', deviceId)
+                        .eq('product_id', PRODUCT_ID)
+                        .maybeSingle();
+
+                    if (remoteLicense?.active === true) {
+                        console.warn('[Security] Token missing but license active on server. Re-checking license.');
+                        setIntegrityWarning(true);
+                        checkLicense(deviceId);
+                        return;
+                    }
+                } catch (e) {
+                    if (import.meta.env?.DEV) {
+                        console.warn('[Security] Sin red en integrity check:', e?.message ?? e);
+                    }
+                }
+                if (isPremium) {
+                    console.warn('[Security] Token missing and no active server license. Revoking premium.');
+                    setIsPremium(false);
+                    setIsDemo(false);
+                    setIntegrityWarning(true);
+                }
+                return;
+            }
+
+            // Verificar integridad del token almacenado (SOLO RSA-signed).
+            if (raw) {
+                try {
+                    let obj = null;
+                    if (raw.includes('.')) {
+                        const { valid, payload } = await verifyLicenseToken(raw);
+                        if (valid) obj = payload;
+                    } else {
+                        // SEC-001: Token legacy XOR → eliminar.
+                        throw new Error('Legacy XOR token rejected');
+                    }
+
+                    if (obj) {
+                        if ((obj.type === 'demo7' || obj.type === 'demo3') && obj.expires && Date.now() >= obj.expires) {
+                            localStorage.removeItem('pda_premium_token');
+                            setIsPremium(false);
+                            setIsDemo(false);
+                            setDemoExpiredMsg("Tu licencia temporal ha finalizado. Esperamos que hayas disfrutado la experiencia completa.");
+                            console.warn('[Security] Demo token expired during integrity check.');
+                        }
+                    } else {
+                        throw new Error('Invalid token structure');
+                    }
+                } catch {
+                    if (isPremium) {
+                        localStorage.removeItem('pda_premium_token');
+                        setIsPremium(false);
+                        setIsDemo(false);
+                        setIntegrityWarning(true);
+                        console.warn('[Security] Corrupt or legacy token detected. Revoking premium state.');
+                    }
+                }
+            }
+        }, LICENSE_POLICY.HEARTBEAT_MS);
+
+        return () => clearInterval(interval);
+    }, [deviceId, isPremium, checkLicense]);
 
     /**
-     * Activa la demo de 7 dias sin necesidad de codigo.
+     * Activa la demo de 3 dias sin necesidad de codigo.
      * Solo puede usarse UNA VEZ por dispositivo.
+     *
+     * SEC-001: La activación local NO crea un token firmado (imposible sin clave privada).
+     * Se apoya en la fila `licenses` del servidor con `active=true` como fuente de verdad.
+     * El estado `isPremium/isDemo` se mantiene en memoria hasta que el backend confirme.
      */
     const activateDemo = async () => {
-        // FIX 3: Verificar demo en IndexedDB (local)
         const demoRecord = await storageService.getItem('pda_demo_flag_v1', null);
         if (demoRecord?.used) {
             return { success: false, status: 'DEMO_USED' };
@@ -340,7 +388,6 @@ export function useSecurity() {
 
         const currentDeviceId = deviceId || localStorage.getItem('pda_device_id');
 
-        // Verificar en servidor (por si borraron IndexedDB)
         try {
             const { data: existingDemo } = await supabase
                 .from('licenses')
@@ -359,20 +406,15 @@ export function useSecurity() {
                 return { success: false, status: 'DEMO_USED' };
             }
         } catch (e) {
-            // Sin red -> solo validar local
+            if (import.meta.env?.DEV) {
+                console.warn('[Security] Sin red al verificar demo existente:', e?.message ?? e);
+            }
         }
 
         const expires = Date.now() + DEMO_DURATION_MS;
-        const demoToken = {
-            deviceId: currentDeviceId,
-            type: 'demo3',
-            expires: expires,
-        };
 
-        // FIX 2: Guardar token ofuscado
-        localStorage.setItem('pda_premium_token', encodeToken(JSON.stringify(demoToken)));
-
-        // FIX 3: Guardar flag en IndexedDB
+        // SEC-001: No minteamos token local; el backend debe crear la fila en `licenses`.
+        // Optimisticamente activamos el estado en memoria.
         await storageService.setItem('pda_demo_flag_v1', {
             used: true,
             ts: Date.now(),
@@ -384,14 +426,15 @@ export function useSecurity() {
         setDemoExpires(expires);
         setDemoUsed(true);
 
-        // Reportar demo a Supabase via RPC seguro (silencioso)
         try {
             await supabase.rpc('activate_demo_secure', {
                 p_device_id: currentDeviceId,
                 p_product_id: PRODUCT_ID
             });
         } catch (e) {
-            // Nunca bloquear si falla la red
+            if (import.meta.env?.DEV) {
+                console.warn('[Security] activate_demo_secure falló (estado local ya activado):', e?.message ?? e);
+            }
         }
 
         return { success: true, status: 'DEMO_ACTIVATED' };
@@ -399,12 +442,15 @@ export function useSecurity() {
 
     /**
      * Desbloquea con codigo de activacion.
-     * Consulta Supabase para determinar si es permanente o temporal (7/30 dias).
+     * Consulta Supabase para determinar si es permanente o temporal.
+     *
+     * SEC-001: La fuente de verdad es la fila en `licenses` del servidor; ya NO
+     * se crea un token legacy XOR local. El estado en memoria queda activo hasta
+     * la próxima verificación periódica.
      */
     const unlockApp = async (inputCode) => {
         try {
             const cleanCode = (inputCode || "").trim().toUpperCase().replace(/O/g, '0');
-            // FIX: Validar el codigo directamente contra la base de datos para ignorar fallos de Edge Functions
             const { data: license, error } = await supabase
                 .from('licenses')
                 .select('type, active, expires_at, code')
@@ -431,11 +477,13 @@ export function useSecurity() {
                     try {
                         supabase.from('licenses').update({ expires_at: new Date(expiresAt).toISOString() })
                             .eq('device_id', deviceId).eq('product_id', PRODUCT_ID).then();
-                    } catch (e) { }
+                    } catch (e) {
+                        if (import.meta.env?.DEV) {
+                            console.warn('[Security] update expires_at falló:', e?.message ?? e);
+                        }
+                    }
                 }
 
-                const token = { deviceId, code: inputCode, type, expires: expiresAt };
-                localStorage.setItem('pda_premium_token', encodeToken(JSON.stringify(token)));
                 setIsPremium(true);
                 setIsDemo(true);
                 setDemoExpires(expiresAt);
@@ -443,8 +491,6 @@ export function useSecurity() {
             }
 
             // Permanente
-            const token = { deviceId, code: inputCode, type: 'permanent' };
-            localStorage.setItem('pda_premium_token', encodeToken(JSON.stringify(token)));
             setIsPremium(true);
             setIsDemo(false);
             return { success: true, status: 'PREMIUM_ACTIVATED' };
@@ -485,7 +531,6 @@ export function useSecurity() {
         demoTimeLeft,
         demoExpiredMsg,
         dismissExpiredMsg: () => setDemoExpiredMsg(''),
-        // FIX 3: demoUsed desde estado (IndexedDB)
         demoUsed,
         forceHeartbeat,
         integrityWarning,

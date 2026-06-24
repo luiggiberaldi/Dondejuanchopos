@@ -1,10 +1,15 @@
 import { jsPDF } from 'jspdf';
-import { formatBs, formatCop } from './calculatorUtils';
+import { formatBs, formatCop, formatUsd } from './calculatorUtils';
 import { getPaymentLabel, toTitleCase } from '../config/paymentMethods';
+// FIN-025: copEnabled/tasaCop se reciben como parámetros; localStorage solo como fallback.
+import { round2, mulR, divR } from './dinero';
 
 /**
  * Genera un PDF de Cierre del Día con reporte detallado.
  * Formato: 80mm ancho (estilo recibo) para compartir fácilmente por WhatsApp.
+ *
+ * FIN-025: `copEnabled` y `tasaCop` ahora se reciben como parámetros opcionales.
+ *   Si NO se pasan, se cae al localStorage con `console.warn` (legacy behavior).
  */
 export async function generateDailyClosePDF({
     sales,           // Ventas del día (netas, sin anuladas)
@@ -18,6 +23,10 @@ export async function generateDailyClosePDF({
     todayItemsSold,
     reconData, // Datos del cuadre físico
     apertura,  // Registro de apertura de caja: { openingUsd, openingBs, sellerName }
+    // FIN-025: preferir pasar copEnabled/tasaCop explícitamente desde el caller
+    // (DashboardView ya los tiene en scope). Fallback a localStorage solo si no se pasan.
+    copEnabled: copEnabledParam,
+    tasaCop: tasaCopParam,
 }) {
     const WIDTH = 80;
     const M = 5;
@@ -36,10 +45,26 @@ export async function generateDailyClosePDF({
 
     const doc = new jsPDF({ unit: 'mm', format: [WIDTH, H] });
 
-    // COP mode detection
-    const isCop = localStorage.getItem('cop_enabled') === 'true' && parseFloat(localStorage.getItem('tasa_cop') || '0') > 0;
-    const tasaCop = parseFloat(localStorage.getItem('tasa_cop') || '0');
-    const fmtUsd = (v) => `$${parseFloat(v).toFixed(2)}`;
+    // FIN-025: COP mode detection — preferir parámetros explícitos del caller.
+    // Fallback a localStorage con warning (legacy path).
+    let isCop;
+    let tasaCop;
+    if (copEnabledParam != null) {
+        isCop = !!copEnabledParam && (tasaCopParam != null ? tasaCopParam > 0 : false);
+        tasaCop = tasaCopParam != null ? tasaCopParam : 0;
+    } else {
+        if (import.meta.env?.DEV) {
+            console.warn('[dailyCloseGenerator] copEnabled/tasaCop NO pasados como parámetros; cayendo a localStorage (deprecado, FIN-025).');
+        }
+        // FIN-025: fallback a localStorage (legacy). Number() en vez de parseFloat.
+        const copFlag = localStorage.getItem('cop_enabled');
+        const tasaCopRaw = localStorage.getItem('tasa_cop') || '0';
+        const tasaCopParsed = Number(tasaCopRaw) || 0;
+        isCop = copFlag === 'true' && tasaCopParsed > 0;
+        tasaCop = tasaCopParsed;
+    }
+    // FIN-016-pattern: formatUsd en vez de parseFloat(v).toFixed(2).
+    const fmtUsd = (v) => `$${formatUsd(v)}`;
 
     // ── Paleta ──
     const INK = [33, 37, 41];
@@ -116,14 +141,16 @@ export async function generateDailyClosePDF({
         ['Artículos vendidos', `${todayItemsSold}`],
         [`Ingresos brutos (${usdLabel})`, fmtUsd(todayTotalUsd)],
         ['Ingresos brutos (Bs)', `Bs ${formatBs(todayTotalBs)}`],
-        [`Ganancia estimada (${usdLabel})`, fmtUsd(bcvRate > 0 ? (todayProfit / bcvRate) : 0)],
+        // FIN-024-pattern: divR en vez de raw division.
+        [`Ganancia estimada (${usdLabel})`, fmtUsd(bcvRate > 0 ? divR(todayProfit, bcvRate) : 0)],
         ['Ganancia estimada (Bs)', `Bs ${formatBs(todayProfit)}`],
         ['Tasa BCV', `Bs ${formatBs(bcvRate)} / $1`],
     ];
 
     if (isCop && tasaCop > 0) {
         statsRows.push(['Tasa COP', `${tasaCop.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / $1`]);
-        statsRows.splice(3, 0, ['Ingresos brutos (COP)', `${formatCop(todayTotalUsd * tasaCop)} COP`]);
+        // FIN-024-pattern: mulR en vez de raw multiplication.
+        statsRows.splice(3, 0, ['Ingresos brutos (COP)', `${formatCop(mulR(todayTotalUsd, tasaCop))} COP`]);
     }
 
     statsRows.forEach(([label, value]) => {
@@ -182,12 +209,13 @@ export async function generateDailyClosePDF({
         ];
 
         // Add COP rows if COP data exists
+        // FIN-024-pattern: COP es entero por convención → parseInt(round2(...), 10) en vez de Math.round.
         if (reconData.declaredCop != null && (reconData.declaredCop > 0 || reconData.diffCop !== 0)) {
-            reconRows.push(['Declarado (COP)', `COP ${Math.round(reconData.declaredCop).toLocaleString('es-CO')}`]);
-            reconRows.push(['Diferencia COP', `COP ${Math.round(reconData.diffCop).toLocaleString('es-CO')}`]);
+            reconRows.push(['Declarado (COP)', `COP ${parseInt(round2(reconData.declaredCop), 10).toLocaleString('es-CO')}`]);
+            reconRows.push(['Diferencia COP', `COP ${parseInt(round2(reconData.diffCop), 10).toLocaleString('es-CO')}`]);
         }
 
-        reconRows.forEach(([label, value], i) => {
+        reconRows.forEach(([label, value], _i) => {
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(7);
             doc.setTextColor(...BODY);
@@ -258,7 +286,8 @@ export async function generateDailyClosePDF({
 
             doc.setFontSize(6);
             doc.setTextColor(...MUTED);
-            doc.text(`${p.qty} vendidos · ${fmtUsd(p.revenue)} · Bs ${formatBs(p.revenue * bcvRate)}`, M + 5, y);
+            // FIN-024-pattern: mulR en vez de raw multiplication.
+            doc.text(`${p.qty} vendidos · ${fmtUsd(p.revenue)} · Bs ${formatBs(mulR(p.revenue, bcvRate))}`, M + 5, y);
             y += 5;
         });
 
@@ -296,13 +325,15 @@ export async function generateDailyClosePDF({
         // Items resumidos
         if (s.items && s.items.length > 0 && !isCanceled) {
             s.items.forEach(item => {
-                const qty = item.isWeight ? `${item.qty.toFixed(2)}kg` : `${item.qty}u`;
+                // FIN-024-pattern: formatUsd en vez de toFixed(2).
+                const qty = item.isWeight ? `${formatUsd(item.qty)}kg` : `${item.qty}u`;
                 const name = item.name.length > 22 ? item.name.substring(0, 22) + '…' : item.name;
                 doc.setFont('helvetica', 'normal');
                 doc.setFontSize(6);
                 doc.setTextColor(...MUTED);
                 doc.text(`  ${qty} ${name}`, M, y);
-                doc.text(fmtUsd(item.priceUsd * item.qty), RIGHT, y, { align: 'right' });
+                // FIN-024-pattern: mulR en vez de raw multiplication.
+                doc.text(fmtUsd(mulR(item.priceUsd, item.qty)), RIGHT, y, { align: 'right' });
                 y += 3.5;
             });
 

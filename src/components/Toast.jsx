@@ -3,7 +3,7 @@
 // Replaces native alert() with styled toast notifications
 // ============================================================
 
-import React, { useState, useEffect, useCallback, createContext, useContext } from 'react';
+import React, { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react';
 import { CheckCircle2, XCircle, AlertTriangle, Info, X } from 'lucide-react';
 
 const ToastContext = createContext(null);
@@ -33,8 +33,8 @@ const COLORS = {
     },
     info: {
         bg: 'bg-slate-800/90 border-slate-600/40',
-        icon: 'text-blue-400',
-        bar: 'bg-blue-500',
+        icon: 'text-brand',
+        bar: 'bg-brand',
     },
 };
 
@@ -47,16 +47,32 @@ export function showToast(message, type = 'info', duration = 3000) {
 
 export function ToastProvider({ children }) {
     const [toasts, setToasts] = useState([]);
+    // HOOK-032: Track de timeout IDs para limpiarlos en unmount y evitar
+    // setStates después del unmount (warning React) y memory leaks.
+    const timeoutsRef = useRef([]);
 
     const addToast = useCallback((message, type = 'info', duration = 3000) => {
         const id = Date.now() + Math.random();
         setToasts(prev => [...prev.slice(-4), { id, message, type, duration }]);
 
         if (duration > 0) {
-            setTimeout(() => {
+            const tid = setTimeout(() => {
                 setToasts(prev => prev.filter(t => t.id !== id));
+                // Auto-remove del registro.
+                timeoutsRef.current = timeoutsRef.current.filter((x) => x !== tid);
             }, duration);
+            timeoutsRef.current.push(tid);
         }
+    }, []);
+
+    // HOOK-032: cleanup de todos los timeouts pendientes al desmontar el provider.
+    useEffect(() => {
+        return () => {
+            for (const id of timeoutsRef.current) {
+                clearTimeout(id);
+            }
+            timeoutsRef.current = [];
+        };
     }, []);
 
     useEffect(() => {

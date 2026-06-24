@@ -1,33 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { storageService } from '../utils/storageService';
 import { supabaseCloud } from '../config/supabaseCloud';
+import { IDB_KEYS, LS_KEYS } from '../config/backupKeys';
 
 // ─── Configuración optimizada ───────────────────────────────────────────────
 const BACKUP_INTERVAL_MS = 30 * 60 * 1000; // 30 minutos
 const BACKUP_KEY = 'bodega_autobackup_v1';
 const LAST_UPLOAD_HASH_KEY = 'bodega_last_upload_hash';
-
-const IDB_KEYS = [
-    'bodega_products_v1',
-    'my_categories_v1',
-    'bodega_sales_v1',
-    'bodega_customers_v1',
-    'bodega_suppliers_v1',
-    'bodega_supplier_invoices_v1',
-    'bodega_accounts_v2',
-    'bodega_pending_cart_v1',
-    'bodega_payment_methods_v1',
-    'abasto_audit_log_v1',
-];
-
-const LS_KEYS = [
-    'premium_token', 'street_rate_bs', 'catalog_use_auto_usdt',
-    'catalog_custom_usdt_price', 'catalog_show_cash_price',
-    'monitor_rates_v12', 'business_name', 'business_rif',
-    'printer_paper_width', 'allow_negative_stock', 'cop_enabled',
-    'auto_cop_enabled', 'tasa_cop', 'bodega_use_auto_rate',
-    'bodega_custom_rate', 'bodega_inventory_view', 'abasto-auth-storage',
-];
 
 /** Hash ligero para detectar cambios sin comparar objetos enteros */
 function quickHash(obj) {
@@ -41,13 +20,25 @@ function quickHash(obj) {
 
 export function useAutoBackup(isPremium, isDemo, deviceId) {
     const intervalRef = useRef(null);
+    const initialTimerRef = useRef(null);
     // Ref para que el handler de Realtime pueda llamar a performBackup
     const performBackupRef = useRef(null);
 
+    // HOOK-043: Separar la config (isPremium/isDemo/deviceId) en un ref para que
+    // el `useEffect` del intervalo NO se re-cree en cada cambio de isPremium/isDemo
+    // (lo que reseteaba el contador del intervalo y disparaba un backup inicial
+    // nuevo cada vez, gastando cuota de Supabase). El intervalo vive una sola vez
+    // por sesión de la app; los valores actualizados se leen vía ref.
+    const configRef = useRef({ isPremium, isDemo, deviceId });
+    useEffect(() => {
+        configRef.current = { isPremium, isDemo, deviceId };
+    }, [isPremium, isDemo, deviceId]);
+
     useEffect(() => {
         const performBackup = async (forceUpload = false) => {
+            const { isPremium: premium, isDemo: demo, deviceId: devId } = configRef.current;
             try {
-                // ── Recolectar IndexedDB ───────────────────────────────────
+                // ── Recolectar IndexedDB ────────────────────────────────
                 const idbData = {};
                 let hasData = false;
                 for (const key of IDB_KEYS) {
@@ -57,14 +48,14 @@ export function useAutoBackup(isPremium, isDemo, deviceId) {
 
                 if (!hasData) return;
 
-                // ── Recolectar localStorage ────────────────────────────────
+                // ── Recolectar localStorage ────────────────────────────
                 const lsData = {};
                 for (const key of LS_KEYS) {
                     const val = localStorage.getItem(key);
                     if (val !== null) lsData[key] = val;
                 }
 
-                // ── Backup completo (formato v2.0) ─────────────────────────
+                // ── Backup completo (formato v2.0) ────────────────────
                 const fullBackup = {
                     timestamp: new Date().toISOString(),
                     version: '2.0',
@@ -76,8 +67,8 @@ export function useAutoBackup(isPremium, isDemo, deviceId) {
                 // Guardar copia local
                 await storageService.setItem(BACKUP_KEY, fullBackup);
 
-                // Subir a la nube
-                if (isPremium && !isDemo && deviceId && supabaseCloud) {
+                // Subir a la nube (usar configRef, no props directas — HOOK-043)
+                if (premium && !demo && devId && supabaseCloud) {
                     const currentHash = quickHash(idbData);
                     const lastHash = localStorage.getItem(LAST_UPLOAD_HASH_KEY);
 
@@ -85,7 +76,7 @@ export function useAutoBackup(isPremium, isDemo, deviceId) {
                     if (!forceUpload && currentHash === lastHash) return;
 
                     await supabaseCloud.from('cloud_backups').upsert({
-                        device_id: deviceId,
+                        device_id: devId,
                         backup_data: fullBackup,
                         updated_at: new Date().toISOString()
                     }, { onConflict: 'device_id' });
@@ -101,16 +92,18 @@ export function useAutoBackup(isPremium, isDemo, deviceId) {
         performBackupRef.current = performBackup;
 
         // Primer backup 30s después del arranque
-        const initialTimer = setTimeout(performBackup, 30000);
+        initialTimerRef.current = setTimeout(performBackup, 30000);
 
-        // Backup cada 30 minutos
+        // Backup cada 30 minutos — intervalo estable, no se re-crea por cambios de config.
         intervalRef.current = setInterval(performBackup, BACKUP_INTERVAL_MS);
 
         return () => {
-            clearTimeout(initialTimer);
+            if (initialTimerRef.current) clearTimeout(initialTimerRef.current);
             if (intervalRef.current) clearInterval(intervalRef.current);
         };
-    }, [isPremium, isDemo, deviceId]);
+        // HOOK-043: deps vacíos — el intervalo se monta una sola vez por app lifetime.
+        // `configRef` mantiene los valores actuales sin re-crear el effect.
+    }, []);
 
     // ── Suscripción a solicitudes de backup en tiempo real ─────────────────
     useEffect(() => {

@@ -14,13 +14,13 @@ const SECTION_STYLES = {
         btnBg: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 active:bg-emerald-300',
     },
     BS: {
-        bg: 'bg-blue-50/50 dark:bg-blue-950/20',
-        border: 'border-blue-100 dark:border-blue-900/50',
-        title: 'text-blue-800 dark:text-blue-300',
-        titleBg: 'bg-blue-100 dark:bg-blue-900/50',
-        inputBorder: 'border-blue-200 dark:border-blue-800 focus:border-blue-500 focus:ring-blue-500/20',
-        inputActive: 'border-blue-400 dark:border-blue-600 bg-blue-50 dark:bg-blue-950/30',
-        btnBg: 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 active:bg-blue-300',
+        bg: 'bg-brand-light/50 dark:bg-surface-950/20',
+        border: 'border-surface-200 dark:border-surface-800/50',
+        title: 'text-surface-800 dark:text-brand',
+        titleBg: 'bg-brand-light dark:bg-surface-800/50',
+        inputBorder: 'border-surface-300 dark:border-surface-700 focus:border-brand focus:ring-brand/20',
+        inputActive: 'border-brand dark:border-brand-dark bg-brand-light dark:bg-surface-950/30',
+        btnBg: 'bg-brand-light dark:bg-surface-800/40 text-brand-dark dark:text-brand hover:bg-brand-light active:bg-brand-light',
     },
     COP: {
         bg: 'bg-amber-50/50 dark:bg-amber-950/20',
@@ -80,7 +80,7 @@ function PaymentBar({ method, styles, barValues, effectiveRate, tasaCop, onBarCh
                 </button>
             </div>
             {equivUsd && (
-                <p className="text-[11px] font-bold text-blue-500 dark:text-blue-400 mt-1 ml-1">
+                <p className="text-[11px] font-bold text-brand dark:text-brand mt-1 ml-1">
                     ≈ USD {equivUsd}
                 </p>
             )}

@@ -1,3 +1,4 @@
+// v1.2.0: Rebrand al design system "Precios al Día" — shadow-tone-sm en cards, font-display en totales, text-accent para Bs (BCV-derived), reveal-on-scroll.
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { processVoidSale } from '../utils/voidSaleProcessor';
 import { storageService } from '../utils/storageService';
@@ -25,6 +26,7 @@ import Skeleton from '../components/Skeleton';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { useDashboardMetrics } from '../hooks/useDashboardMetrics';
 import { TicketClientModal, DeleteHistoryModal, RecycleOfferModal } from '../components/Dashboard/DashboardModals';
+import { useReveal } from '../hooks/useReveal';
 
 const SALES_KEY = 'bodega_sales_v1';
 export default function DashboardView({ rates, triggerHaptic, onNavigate, theme, toggleTheme, isActive, isDemo, demoTimeLeft }) {
@@ -56,6 +58,13 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
     const [showTopDeudas, setShowTopDeudas] = useState(false);
     const touchStartY = useRef(0);
     const scrollRef = useRef(null);
+    // v1.2.0: reveal-on-scroll para cards de stats y secciones principales.
+    const revealRef = useReveal();
+    // Combina scrollRef (pull-to-refresh) + revealRef (IntersectionObserver) en un solo nodo.
+    const setRootRef = (node) => {
+        scrollRef.current = node;
+        revealRef.current = node;
+    };
 
     // Reloj digital y fecha en tiempo real
     const [currentTime, setCurrentTime] = useState(new Date());
@@ -259,8 +268,8 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
 
     return (
         <div
-            ref={scrollRef}
-            className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 p-3 sm:p-5 lg:p-6 xl:p-8 overflow-y-auto scrollbar-hide"
+            ref={setRootRef}
+            className="flex flex-col h-full bg-surface-50 dark:bg-surface-950 p-3 sm:p-5 lg:p-6 xl:p-8 overflow-y-auto scrollbar-hide"
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
@@ -290,52 +299,43 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
                 </div>
                 <div className="flex items-center justify-end gap-2">
                     <SyncStatus />
-                    {!isCajero && (
-                    <button
-                        onClick={() => { triggerHaptic(); onNavigate('ajustes'); }}
-                        className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-300 rounded-full shadow-sm hover:shadow active:scale-95 transition-all outline-none"
-                        title="Configuracion"
-                    >
-                        <Settings size={22} className="text-slate-700 dark:text-slate-200" />
-                    </button>
-                    )}
                 </div>
             </div>
 
-            {/* Acciones Rápidas */}
-            <div className="grid grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
-                <button onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('ventas'); } }} className="bg-brand hover:bg-brand-dark text-white rounded-2xl p-3 flex flex-col items-center justify-center gap-2 shadow-sm shadow-brand/20 hover:scale-[1.02] active:scale-95 transition-all">
+            {/* Acciones Rápidas — v1.2.0: reveal + shadow-tone-sm tone-matched */}
+            <div className="reveal grid grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+                <button onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('ventas'); } }} className="bg-brand hover:bg-brand-dark text-white rounded-2xl p-3 flex flex-col items-center justify-center gap-2 shadow-tone-sm hover:shadow-primary-tone hover:scale-[1.02] active:scale-95 transition-all">
                     <ShoppingCart size={22} />
                     <span className="text-xs font-bold">Vender</span>
                 </button>
-                <button onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('catalogo'); } }} className="bg-indigo-500 text-white rounded-2xl p-3 flex flex-col items-center justify-center gap-2 shadow-sm hover:scale-[1.02] active:scale-95 transition-all">
+                <button onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('catalogo'); } }} className="bg-brand text-white rounded-2xl p-3 flex flex-col items-center justify-center gap-2 shadow-tone-sm hover:scale-[1.02] active:scale-95 transition-all">
                     <Store size={22} />
                     <span className="text-xs font-bold">Inventario</span>
                 </button>
-                <button onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('clientes'); } }} className="bg-blue-500 text-white rounded-2xl p-3 flex flex-col items-center justify-center gap-2 shadow-sm hover:scale-[1.02] active:scale-95 transition-all">
+                <button onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('clientes'); } }} className="bg-brand text-white rounded-2xl p-3 flex flex-col items-center justify-center gap-2 shadow-tone-sm hover:scale-[1.02] active:scale-95 transition-all">
                     <Users size={22} />
                     <span className="text-xs font-bold">Clientes</span>
                 </button>
             </div>
 
-            {/* ── CAJERO: vista simplificada ── */}
+            {/* ── CAJERO: vista simplificada — v1.2.0: reveal + shadow-tone-sm + font-display en totales ── */}
             {isCajero ? (
                 <div className="grid grid-cols-2 gap-3 mb-5">
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 shadow-sm relative overflow-hidden">
-                        <div className="absolute -right-4 -top-4 w-16 h-16 bg-indigo-50 dark:bg-indigo-900/10 rounded-full blur-2xl" />
-                        <div className="w-9 h-9 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl flex items-center justify-center mb-2">
-                            <ShoppingCart size={18} className="text-indigo-500" />
+                    <div className="reveal card !p-4 !rounded-2xl relative overflow-hidden">
+                        <div className="absolute -right-4 -top-4 w-16 h-16 bg-brand-light dark:bg-surface-800/10 rounded-full blur-2xl" />
+                        <div className="w-9 h-9 bg-brand-light dark:bg-surface-800/30 rounded-xl flex items-center justify-center mb-2">
+                            <ShoppingCart size={18} className="text-brand" />
                         </div>
-                        <p className="text-2xl font-black text-slate-800 dark:text-white leading-none">{todaySales.length}</p>
-                        <p className="text-[11px] text-slate-400 mt-1">{todaySales.length === 1 ? 'venta hoy' : 'ventas hoy'}</p>
+                        <p className="font-display text-3xl text-surface-700 dark:text-surface-100 leading-none">{todaySales.length}</p>
+                        <p className="text-[11px] text-surface-400 mt-1">{todaySales.length === 1 ? 'venta hoy' : 'ventas hoy'}</p>
                     </div>
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 shadow-sm relative overflow-hidden">
+                    <div className="reveal card !p-4 !rounded-2xl relative overflow-hidden">
                         <div className="absolute -right-4 -top-4 w-16 h-16 bg-emerald-50 dark:bg-emerald-900/10 rounded-full blur-2xl" />
                         <div className="w-9 h-9 bg-emerald-100 dark:bg-emerald-900/30 rounded-xl flex items-center justify-center mb-2">
                             <Package size={18} className="text-emerald-500" />
                         </div>
-                        <p className="text-2xl font-black text-slate-800 dark:text-white leading-none">{todayItemsSold}</p>
-                        <p className="text-[11px] text-slate-400 mt-1">{todayItemsSold === 1 ? 'artículo vendido' : 'artículos vendidos'}</p>
+                        <p className="font-display text-3xl text-surface-700 dark:text-surface-100 leading-none">{todayItemsSold}</p>
+                        <p className="text-[11px] text-surface-400 mt-1">{todayItemsSold === 1 ? 'artículo vendido' : 'artículos vendidos'}</p>
                     </div>
                 </div>
             ) : (
@@ -400,9 +400,9 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
 
             {/* RIGHT: Low stock + Top products */}
             <div>
-            {/* Bajo Stock */}
+            {/* Bajo Stock — v1.2.0: reveal + shadow-tone-sm */}
             {lowStockProducts.length > 0 && (
-                <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-amber-200 dark:border-amber-800/30 shadow-sm mb-5">
+                <div className="reveal bg-surface dark:bg-surface-100 rounded-2xl p-4 border border-amber-200 dark:border-amber-800/30 shadow-tone-sm mb-5">
                     <h3 className="text-xs font-bold text-amber-500 uppercase mb-3 flex items-center gap-1">
                         <AlertTriangle size={12} /> Bajo Stock ({lowStockProducts.length})
                     </h3>
@@ -425,9 +425,9 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
                 </div>
             )}
 
-            {/* Top Productos */}
+            {/* Top Productos — v1.2.0: reveal + shadow-tone-sm, text-accent para Bs (BCV-derived) */}
             {topProducts.length > 0 && (
-                <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 shadow-sm mb-5">
+                <div className="reveal bg-surface dark:bg-surface-100 rounded-2xl p-4 border border-surface-200 dark:border-surface-700 shadow-tone-sm mb-5">
                     <h3 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-1">
                         <TrendingUp size={12} /> Más Vendidos
                     </h3>
@@ -446,13 +446,14 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
                                             ? `${formatCop(p.revenue * tasaCop)} COP`
                                             : `$${p.revenue.toFixed(2)}`}
                                     </p>
+                                    {/* v1.2.0: Bs (BCV-derived) destacado con text-accent-600 */}
                                     {copEnabled && tasaCop > 0
-                                        ? <p className="text-[10px] text-slate-400">
+                                        ? <p className="text-[10px] text-accent-600 dark:text-accent-400">
                                             {copPrimary
                                                 ? `$${p.revenue.toFixed(2)} · ${formatBs(p.revenue * bcvRate)} Bs`
                                                 : `${formatCop(p.revenue * tasaCop)} COP · ${formatBs(p.revenue * bcvRate)} Bs`}
                                           </p>
-                                        : <p className="text-[10px] text-slate-400">{formatBs(p.revenue * bcvRate)} Bs</p>
+                                        : <p className="text-[10px] text-accent-600 dark:text-accent-400">{formatBs(p.revenue * bcvRate)} Bs</p>
                                     }
                                 </div>
                             </div>

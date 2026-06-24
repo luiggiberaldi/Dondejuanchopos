@@ -63,6 +63,9 @@ class PrinterSerial {
     constructor() {
         this._port = null;
         this._writer = null;
+        // HOOK-010: Callback de desconexión y listener registrado para cleanup.
+        this.onDisconnect = null;
+        this._disconnectBound = null;
     }
 
     isSupported() {
@@ -71,6 +74,33 @@ class PrinterSerial {
 
     isConnected() {
         return this._port !== null && this._writer !== null;
+    }
+
+    /**
+     * HOOK-010: Handler interno para `navigator.serial` 'disconnect'.
+     * Limpia `_port`/`_writer` y notifica al caller vía `onDisconnect`.
+     * @param {SerialConnectionEvent} e
+     */
+    _handleSerialDisconnect(e) {
+        const disconnectedPort = e?.target || e?.port;
+        if (disconnectedPort && this._port !== disconnectedPort) {
+            // Otra impresora se desconectó; no afecta a la nuestra.
+            return;
+        }
+        try {
+            if (this._writer) {
+                // releaseLock es síncrono y seguro llamarlo múltiples veces.
+                this._writer.releaseLock?.();
+            }
+        } catch (_) { /* ya liberado */ }
+        this._writer = null;
+        this._port = null;
+        console.warn('[PrinterSerial] Impresora desconectada (evento navigator.serial.disconnect).');
+        try {
+            if (typeof this.onDisconnect === 'function') this.onDisconnect();
+        } catch (cbErr) {
+            console.warn('[PrinterSerial] onDisconnect callback lanzó:', cbErr);
+        }
     }
 
     async connect() {
@@ -82,6 +112,17 @@ class PrinterSerial {
             await port.open({ baudRate: 9600 });
             this._port = port;
             this._writer = port.writable.getWriter();
+
+            // HOOK-010: Registrar listener de desconexión global (idempotente).
+            if (!this._disconnectBound) {
+                this._disconnectBound = this._handleSerialDisconnect.bind(this);
+                try {
+                    navigator.serial.addEventListener('disconnect', this._disconnectBound);
+                } catch (e) {
+                    console.warn('[PrinterSerial] No se pudo registrar listener disconnect:', e);
+                }
+            }
+
             return true;
         } catch (e) {
             if (e.name === 'NotFoundError') return false; // User cancelled
@@ -99,15 +140,59 @@ class PrinterSerial {
                 await this._port.close();
                 this._port = null;
             }
-        } catch (e) {
+        } catch (_e) {
             this._port = null;
             this._writer = null;
         }
+        // HOOK-010: Quitar el listener global al desconectar manualmente.
+        this._unregisterDisconnectListener();
     }
 
-    async _write(data) {
+    /**
+     * HOOK-010: Quita el listener global de desconexión. Seguro llamar múltiples veces.
+     */
+    _unregisterDisconnectListener() {
+        if (this._disconnectBound) {
+            try {
+                navigator.serial.removeEventListener('disconnect', this._disconnectBound);
+            } catch (_) { /* noop */ }
+            this._disconnectBound = null;
+        }
+    }
+
+    /**
+     * HOOK-010: Escribe al writer con timeout de 5s (Promise.race).
+     * Si el buffer se llena o la impresora se colgó, no colgamos el flujo.
+     * @param {Uint8Array} data
+     * @param {number} [timeoutMs=5000]
+     */
+    async _write(data, timeoutMs = 5000) {
         if (!this._writer) throw new Error('Impresora no conectada');
-        await this._writer.write(data);
+
+        const writePromise = this._writer.write(data);
+
+        // Si writePromise no resuelve en timeoutMs, rechazamos.
+        let timer;
+        const timeoutPromise = new Promise((_, reject) => {
+            timer = setTimeout(() => {
+                reject(new Error(`[PrinterSerial] Timeout de escritura (${timeoutMs}ms). La impresora puede estar desconectada o con buffer lleno.`));
+            }, timeoutMs);
+        });
+
+        try {
+            await Promise.race([writePromise, timeoutPromise]);
+        } catch (err) {
+            // Si fue timeout o error de writer, asumir desconexión y limpiar estado.
+            try { this._writer.releaseLock?.(); } catch (_) {}
+            this._writer = null;
+            this._port = null;
+            try {
+                if (typeof this.onDisconnect === 'function') this.onDisconnect();
+            } catch (_) {}
+            throw err;
+        } finally {
+            clearTimeout(timer);
+        }
     }
 
     _getWidth() {

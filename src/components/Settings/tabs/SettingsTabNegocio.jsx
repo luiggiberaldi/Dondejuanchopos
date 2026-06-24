@@ -63,7 +63,7 @@ export default function SettingsTabNegocio({
     return (
         <>
             {/* Mi Negocio */}
-            <SectionCard icon={Store} title="Mi Negocio" subtitle="Datos que aparecen en tickets" iconColor="text-indigo-500">
+            <SectionCard icon={Store} title="Mi Negocio" subtitle="Datos que aparecen en tickets" iconColor="text-brand">
                 <div>
                     <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1.5">Nombre del Negocio</label>
                     <input
@@ -71,7 +71,7 @@ export default function SettingsTabNegocio({
                         placeholder="Ej: Mi Bodega C.A."
                         value={businessName}
                         onChange={e => setBusinessName(e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
+                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand/30 transition-all"
                     />
                 </div>
                 <div>
@@ -81,19 +81,19 @@ export default function SettingsTabNegocio({
                         placeholder="Ej: J-12345678"
                         value={businessRif}
                         onChange={e => setBusinessRif(e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
+                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand/30 transition-all"
                     />
                 </div>
                 <button
                     onClick={handleSaveBusinessData}
-                    className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 font-bold text-xs uppercase tracking-wider rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors active:scale-[0.98]"
+                    className="w-full flex items-center justify-center gap-2 py-3 bg-brand-light dark:bg-surface-800/20 text-brand-dark dark:text-brand font-bold text-xs uppercase tracking-wider rounded-xl hover:bg-brand-light dark:hover:bg-surface-800/40 transition-colors active:scale-[0.98]"
                 >
                     <Check size={16} /> Guardar
                 </button>
             </SectionCard>
 
             {/* Impresora */}
-            <SectionCard icon={Printer} title="Impresora Térmica" subtitle="Conexión directa vía USB/Serial" iconColor="text-violet-500">
+            <SectionCard icon={Printer} title="Impresora Térmica" subtitle="Conexión directa vía USB/Serial" iconColor="text-brand">
                 {/* Compatibilidad */}
                 {!printerSerial.isSupported() && (
                     <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-xl p-3 mb-3">
@@ -124,7 +124,7 @@ export default function SettingsTabNegocio({
                             <button
                                 onClick={handleConnectPrinter}
                                 disabled={printerLoading}
-                                className="text-xs font-bold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/20 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                                className="text-xs font-bold text-brand dark:text-brand bg-brand-dark dark:bg-brand-dark/20 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50"
                             >
                                 <PlugZap size={13} /> {printerLoading ? 'Conectando...' : 'Conectar'}
                             </button>
@@ -140,7 +140,7 @@ export default function SettingsTabNegocio({
                             key={opt.val}
                             onClick={() => { setPaperWidth(opt.val); localStorage.setItem('printer_paper_width', opt.val); triggerHaptic?.(); }}
                             className={`py-2.5 px-3 text-xs font-bold rounded-xl transition-all border ${paperWidth === opt.val
-                                ? 'bg-violet-50 dark:bg-violet-900/20 border-violet-400 text-violet-700 dark:text-violet-300 shadow-sm'
+                                ? 'bg-brand-dark dark:bg-brand-dark/20 border-brand text-brand dark:text-brand shadow-sm'
                                 : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'
                             }`}
                         >

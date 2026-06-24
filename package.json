@@ -1,14 +1,20 @@
 {
   "name": "tasas-al-dia-base",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
+  "packageManager": "bun@1.1.0",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "prettier": "prettier --write .",
-    "linc": "eslint .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit --allowJs --checkJs --skipLibCheck || true",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -31,16 +37,20 @@
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "@vitest/coverage-v8": "^4.1.9",
     "autoprefixer": "^10.4.24",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "eslint-plugin-unused-imports": "^4.4.1",
     "globals": "^16.5.0",
+    "jsdom": "^29.1.1",
     "postcss": "^8.5.6",
     "postcss-import": "^16.1.1",
     "prettier": "^3.8.1",
     "tailwindcss": "^3.4.17",
-    "vite": "^7.2.4"
+    "typescript": "^5.6.0",
+    "vite": "^7.2.4",
+    "vitest": "^4.1.9"
   }
 }

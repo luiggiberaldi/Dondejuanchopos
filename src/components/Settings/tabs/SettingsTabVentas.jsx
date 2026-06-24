@@ -29,7 +29,7 @@ export default function SettingsTabVentas({
                 </div>
             </SectionCard>
 
-            <SectionCard icon={CreditCard} title="Metodos de Pago" subtitle="Configura como te pagan" iconColor="text-blue-500">
+            <SectionCard icon={CreditCard} title="Metodos de Pago" subtitle="Configura como te pagan" iconColor="text-brand">
                 <PaymentMethodsManager triggerHaptic={triggerHaptic} />
             </SectionCard>
         </>

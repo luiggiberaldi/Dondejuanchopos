@@ -22,7 +22,7 @@ export default function KeyboardHelpModal({ isOpen, onClose }) {
                 {/* Header */}
                 <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
                     <h3 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
-                        <div className="bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 p-1.5 rounded-lg">
+                        <div className="bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand p-1.5 rounded-lg">
                             <Keyboard size={20} />
                         </div>
                         Atajos de Teclado (PC)
@@ -68,7 +68,7 @@ export default function KeyboardHelpModal({ isOpen, onClose }) {
                 <div className="px-5 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 text-right">
                     <button 
                         onClick={onClose}
-                        className="px-5 py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-500/10 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-bold rounded-xl transition-colors"
+                        className="px-5 py-2 bg-brand-light hover:bg-brand-light dark:bg-brand/10 dark:hover:bg-brand/20 text-brand-dark dark:text-brand font-bold rounded-xl transition-colors"
                     >
                         Entendido
                     </button>

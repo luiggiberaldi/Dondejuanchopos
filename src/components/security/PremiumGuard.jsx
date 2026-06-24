@@ -72,12 +72,12 @@ export default function PremiumGuard({ children, featureName = "Esta función", 
         title = <span>PreciosAlDía <span className="text-amber-500">Business</span> 👑</span>;
         message = "Desbloquea el potencial completo para tu bodega.";
         Icon = Store;
-        iconColor = "text-indigo-600 dark:text-indigo-400 animate-pulse";
+        iconColor = "text-brand-dark dark:text-brand animate-pulse";
         benefits = (
             <>
-                <BenefitItem icon={<Store size={15} className="text-indigo-500" />} text="Inventario ilimitado de productos" />
-                <BenefitItem icon={<CreditCard size={15} className="text-blue-500" />} text="Sistema de Ventas y POS completo" />
-                <BenefitItem icon={<BarChart3 size={15} className="text-purple-500" />} text="Reportes históricos con PDF" />
+                <BenefitItem icon={<Store size={15} className="text-brand" />} text="Inventario ilimitado de productos" />
+                <BenefitItem icon={<CreditCard size={15} className="text-brand" />} text="Sistema de Ventas y POS completo" />
+                <BenefitItem icon={<BarChart3 size={15} className="text-brand" />} text="Reportes históricos con PDF" />
                 <BenefitItem icon={<Bell size={15} className="text-amber-500" />} text="Notificaciones inteligentes" />
                 <BenefitItem icon={<Search size={15} className="text-emerald-500" />} text="Categorías y búsqueda por voz" />
                 <BenefitItem icon={<Volume2 size={15} className="text-rose-500" />} text="Sonidos inmersivos" />
@@ -90,9 +90,9 @@ export default function PremiumGuard({ children, featureName = "Esta función", 
         iconColor = "text-amber-500";
         benefits = (
             <>
-                <BenefitItem icon={<Sparkles size={15} className="text-purple-600 dark:text-purple-400" />} text="Gestión completa de inventario" />
+                <BenefitItem icon={<Sparkles size={15} className="text-brand dark:text-brand" />} text="Gestión completa de inventario" />
                 <BenefitItem icon={<Star size={15} className="text-amber-500" />} text="Punto de Venta integrado" />
-                <BenefitItem icon={<BarChart3 size={15} className="text-indigo-500" />} text="Reportes con descarga PDF" />
+                <BenefitItem icon={<BarChart3 size={15} className="text-brand" />} text="Reportes con descarga PDF" />
                 <BenefitItem icon={<Bell size={15} className="text-rose-500" />} text="Alertas de stock y cierre de caja" />
                 <BenefitItem icon={<Check size={15} className="text-green-600 dark:text-green-500" />} text="Soporte Prioritario" />
             </>
@@ -111,7 +111,7 @@ export default function PremiumGuard({ children, featureName = "Esta función", 
 
                 {/* Decorative Background */}
                 <div className="absolute top-0 right-0 -mr-16 -mt-16 w-32 h-32 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-                <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-32 h-32 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
+                <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-32 h-32 bg-brand/5 rounded-full blur-3xl pointer-events-none" />
 
                 {/* Icon & Title */}
                 <div className="mb-2 relative z-10">

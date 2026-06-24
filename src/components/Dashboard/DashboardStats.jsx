@@ -77,8 +77,8 @@ export default function DashboardStats({
             {/* Transacciones */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 shadow-sm">
                 <div className="flex items-center justify-between mb-2">
-                    <div className="w-9 h-9 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl flex items-center justify-center">
-                        <ShoppingBag size={18} className="text-indigo-500" />
+                    <div className="w-9 h-9 bg-brand-light dark:bg-surface-800/30 rounded-xl flex items-center justify-center">
+                        <ShoppingBag size={18} className="text-brand" />
                     </div>
                 </div>
                 <p className="text-xl font-black text-slate-800 dark:text-white leading-none"><AnimatedCounter value={todaySales.length} /> <span className="text-xs font-bold text-slate-400">{todaySales.length === 1 ? 'venta' : 'ventas'}</span></p>
@@ -160,8 +160,8 @@ export default function DashboardStats({
             {/* Tasas */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 shadow-sm">
                 <div className="flex items-center justify-between mb-2">
-                    <div className="w-9 h-9 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
-                        <ArrowUpRight size={18} className="text-blue-500" />
+                    <div className="w-9 h-9 bg-brand-light dark:bg-surface-800/30 rounded-xl flex items-center justify-center">
+                        <ArrowUpRight size={18} className="text-brand" />
                     </div>
                 </div>
                 <p className="text-xl font-black text-slate-800 dark:text-white leading-none">{formatBs(bcvRate)} <span className="text-xs font-bold text-slate-400">Bs/$</span></p>

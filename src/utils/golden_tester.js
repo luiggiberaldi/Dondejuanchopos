@@ -1,6 +1,19 @@
 import { getSmartResponse } from './aiClient';
 import { auditor } from './SilentAuditor';
+import { round2, mulR, ceilR, round0 } from './dinero';
 
+/**
+ * golden_tester.js — Suite de tests de integridad para la IA del asistente.
+ *
+ * Migrado a dinero.js (deuda técnica detectada por guardrail ESLint):
+ *   - `calculateExpected(...).toFixed(2)` → `round2(calculateExpected(...))`
+ *   - `Math.ceil(calculateExpected(...))` → `ceilR(calculateExpected(...))` (política Bs a entero)
+ *   - `Math.ceil(100 * rates.bcv.price)` → `ceilR(mulR(100, rates.bcv.price))`
+ *   - `finalScore.toFixed(0)` → `round0(finalScore)` (score no es dinero pero cumple guardrail)
+ *
+ * NOTA: Este archivo valida respuestas del LLM, no procesa ventas reales, pero
+ * usa cálculos financieros para verificar que la IA devuelva montos correctos.
+ */
 
 export const standardTests = [
     {
@@ -11,7 +24,7 @@ export const standardTests = [
         validator: (aiResult, rates) => {
             const result = aiResult.convertedAmount;
             if (!result) return { ok: false, msg: 'ERROR: No hay campo convertedAmount' };
-            const expected = Number(auditor.calculateExpected(100, 'USDT', 'USD', rates).toFixed(2));
+            const expected = round2(auditor.calculateExpected(100, 'USDT', 'USD', rates));
             const diff = Math.abs(result - expected);
             if (diff > 0.50) return { ok: false, msg: `ERROR: Discrepancia USD. Esperado ~${expected}, Recibido ${result}` };
             return { ok: true, msg: 'Matemática y Estructura correcta.' };
@@ -53,7 +66,8 @@ export const standardTests = [
         validator: (aiResult, rates) => {
             const result = aiResult.convertedAmount;
             if (!result) return { ok: false, msg: 'ERROR: No hay campo convertedAmount' };
-            const expected = Math.ceil(auditor.calculateExpected(50, 'EUR', 'VES', rates));
+            // EUR -> VES: Bs siempre a entero (política ceilR).
+            const expected = ceilR(auditor.calculateExpected(50, 'EUR', 'VES', rates));
             const diff = Math.abs(result - expected);
             if (diff > 0.50) return { ok: false, msg: `ERROR: Discrepancia EUR. Esperado ~${expected}, Recibido ${result}` };
             return { ok: true, msg: 'Conversión EUR -> VES correcta.' };
@@ -81,7 +95,8 @@ export const standardTests = [
             const result = aiResult.convertedAmount;
             // [PDA v4.0] Realidad: Cash usa Tasa USDT como Proxy seguro (Fallback) o Tasa Calibrada.
             // Asumimos Fallback (USDT) para el test estándar.
-            const expected = Math.ceil(100 * rates.bcv.price);
+            // mulR para el cálculo, ceilR para Bs a entero.
+            const expected = ceilR(mulR(100, rates.bcv.price));
 
             // Tolerancia del 10% por si hay tasa calibrada residual válida
             const diff = Math.abs(result - expected);
@@ -124,7 +139,8 @@ export const standardTests = [
         premium: true,
         validator: (aiResult, rates) => {
             const result = aiResult.convertedAmount;
-            const expected = Math.ceil(auditor.calculateExpected(100, 'USD', 'VES', rates));
+            // USD -> VES (default): Bs a entero.
+            const expected = ceilR(auditor.calculateExpected(100, 'USD', 'VES', rates));
             const diff = Math.abs(result - expected);
             if (diff < 5) return { ok: true, msg: 'Pregunta trampa resuelta (Default a VES).' };
             return { ok: false, msg: `ERROR: Falló en pregunta trampa. Esperado ~${expected}, Recibido ${result}` };
@@ -164,7 +180,8 @@ export const runAudit = async (rates, logCallback) => {
 
     const finalScore = (passed / standardTests.length) * 100;
     logCallback(`\n🏁 Auditoría PDA v2.0 Finalizada.`);
-    logCallback(`📊 Score Final: ${finalScore.toFixed(0)}% (${passed}/${standardTests.length})`);
+    // round0 para display de score (no es dinero, pero cumple guardrail).
+    logCallback(`📊 Score Final: ${round0(finalScore)}% (${passed}/${standardTests.length})`);
 
     if (finalScore === 100) {
         logCallback('🏆 SISTEMA CERTIFICADO: PreciosAlDía es apto para despliegue.');

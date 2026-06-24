@@ -24,30 +24,44 @@ dist-ssr
 *.sln
 *.sw?
 
-# ✅ SEGURIDAD: Bloquear archivos de entorno
+# ── SEGURIDAD: Variables de entorno (NUNCA commitear secretos) ──
 .env
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*.local
+.env.development
+.env.production
+.env.staging
 
-# API serverless (deploy via Vercel, no subir keys en código, usar vars de entorno)
-!api/
-api/*.js
+# ── API serverless ──
+# Las funciones serverless van en /api pero NO se commitean con claves;
+# las claves se inyectan vía variables de entorno del platform (Vercel/Cloudflare).
+api/*.local.js
+api/secrets.*
 
-# Archivos innecesarios
+# ── Archivos de datos sensibles y binarios (INFRA-023) ──
+# Nunca commitear backups, inventarios reales, PDFs de cierres, videos, etc.
 backup_*.json
+*.xls
+*.xlsx
+*.pdf
+*.mp4
+*.mov
+*.avi
 capturas_manual/
-directivas/
-server/
-scripts/
-*.cjs
-*.ico
-*.html
-!index.html
+frames/
+verify_financials.py
+inventario*.xls
+cierre_*.pdf
+cierre_*.txt
+
+# ── Assets con nombres problemáticos ──
+logo*.png
+logodark*.png
 "logo .png"
 "Manual Completo de Usuario*"
 Manual_Usuario_*.md
+
+# ── Docs internos y artefactos de auditoría ──
 PERFORMANCE_AUDIT.md
 EXPLICACION_ERRORES.md
 TASASALDIA_MANUAL_TEXTO.md
@@ -55,4 +69,12 @@ TASASALDIA_MANUAL_TEXTO.md
 .agent/
 CONTEXT.md
 .vercel
-.env*.local
+.wrangler/
+
+# ── OS y temporales ──
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.tmp
+*.bak

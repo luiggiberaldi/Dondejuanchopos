@@ -1,9 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Delete, Loader2 } from 'lucide-react';
 import LoginAvatar from './LoginAvatar';
+import { PIN_POLICY } from '../../utils/securityConstants';
 
 export default function LoginPinModal({ isOpen, onClose, user, onSubmit }) {
-  const pinLength = user?.rol === 'ADMIN' ? 6 : 4;
+  // SEC-017: Todos los roles requieren PIN de MIN_LENGTH (6) dígitos.
+  // Antes el cajero usaba 4 dígitos, lo que reducía el espacio de claves a 10^4
+  // (trivialmente brute-forceable con el rate-limiting por defecto).
+  const pinLength = PIN_POLICY.MIN_LENGTH;
   const [pin, setPin] = useState('');
   const [error, setError] = useState(false);
   const [lockoutMsg, setLockoutMsg] = useState('');

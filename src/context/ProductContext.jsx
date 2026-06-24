@@ -1,6 +1,10 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { storageService } from '../utils/storageService';
 import { BODEGA_CATEGORIES } from '../config/categories';
+// HOOK-011: Tras la eliminación del monkeypatch global de localStorage por el Agente B
+// (SEC-009), los callers que escriben claves `LOCAL_KEYS` deben invocar `pushLocalSync`
+// explícitamente para que el cambio se propague a `sync_documents` (colección 'local').
+import { pushLocalSync } from '../hooks/useCloudSync';
 
 const ProductContext = createContext();
 
@@ -100,25 +104,36 @@ export function ProductProvider({ children, rates }) {
     }, [rates.bcv?.price, streetRate]);
 
     // Auto-save products and categories with Debounce (Performance Fix)
+    // HOOK-018: Setear `savingRef.current = true` ANTES del setTimeout para que
+    // el handler de `app_storage_update` (disparado por el setItem dentro del
+    // callback, o por un push cloud que llega entre el schedule y el fire) vea
+    // el flag activo y NO dispare un re-fetch que pisaría el save en curso.
     useEffect(() => {
-        if (!isLoadingProducts) {
-            savingRef.current = true;
-            const timer = setTimeout(() => {
-                const savePromises = [];
-                if (products.length > 0) {
-                    savePromises.push(storageService.setItem('bodega_products_v1', products));
-                } else {
-                    savePromises.push(storageService.removeItem('bodega_products_v1'));
-                }
-                savePromises.push(storageService.setItem('my_categories_v1', categories));
-                Promise.all(savePromises).finally(() => {
-                    // Reset guard after microtask queue flushes
-                    setTimeout(() => { savingRef.current = false; }, 50);
-                });
-            }, 1000); // 1 segundo de debounce
+        if (isLoadingProducts) return;
 
-            return () => clearTimeout(timer);
-        }
+        // Setear el guard ANTES de agendar el timeout (HOOK-018).
+        savingRef.current = true;
+
+        const timer = setTimeout(() => {
+            const savePromises = [];
+            if (products.length > 0) {
+                savePromises.push(storageService.setItem('bodega_products_v1', products));
+            } else {
+                savePromises.push(storageService.removeItem('bodega_products_v1'));
+            }
+            savePromises.push(storageService.setItem('my_categories_v1', categories));
+            Promise.all(savePromises).finally(() => {
+                // Reset guard after microtask queue flushes
+                setTimeout(() => { savingRef.current = false; }, 50);
+            });
+        }, 1000); // 1 segundo de debounce
+
+        return () => {
+            clearTimeout(timer);
+            // Si el efecto se re-corre antes del fire (cambio rápido de products),
+            // dejamos el guard en true — el siguiente run lo reseteará al final.
+            // No tocamos savingRef aquí: lo gestiona el callback del setTimeout.
+        };
     }, [products, categories, isLoadingProducts]);
 
     useEffect(() => {
@@ -126,8 +141,13 @@ export function ProductProvider({ children, rates }) {
     }, [streetRate]);
 
     useEffect(() => {
+        // HOOK-011: pushLocalSync explícito para claves en LOCAL_KEYS.
         localStorage.setItem('bodega_use_auto_rate', JSON.stringify(useAutoRate));
-        if (customRate) localStorage.setItem('bodega_custom_rate', customRate.toString());
+        pushLocalSync('bodega_use_auto_rate', useAutoRate);
+        if (customRate) {
+            localStorage.setItem('bodega_custom_rate', customRate.toString());
+            pushLocalSync('bodega_custom_rate', parseFloat(customRate));
+        }
     }, [useAutoRate, customRate]);
 
     // Listener para actualizar si cambia en otra pestaña/componente
@@ -137,7 +157,9 @@ export function ProductProvider({ children, rates }) {
                 if (e.newValue && parseFloat(e.newValue) > 0) setCustomRate(e.newValue);
             }
             if (e.key === 'bodega_use_auto_rate') {
-                try { setUseAutoRate(!!JSON.parse(e.newValue)); } catch (_) {}
+                // HOOK-022: antes catch silencioso; loguear en dev para detectar corrupción.
+                try { setUseAutoRate(!!JSON.parse(e.newValue)); }
+                catch (err) { console.warn('[ProductContext] storage bodega_use_auto_rate parse error:', err); }
             }
             if (e.key === 'cop_enabled') {
                 setCopEnabled(e.newValue === 'true');
@@ -183,7 +205,9 @@ export function ProductProvider({ children, rates }) {
         };
     }, []);
 
-    const adjustStock = (productId, delta) => {
+    // HOOK-005: Memoizar adjustStock para que el objeto `value` del Provider
+    // sea estable entre renders cuando los productos no cambian.
+    const adjustStock = useCallback((productId, delta) => {
         setProducts(prevProducts => prevProducts.map(p => {
             if (p.id === productId) {
                 const allowNeg = localStorage.getItem('allow_negative_stock') === 'true';
@@ -192,33 +216,52 @@ export function ProductProvider({ children, rates }) {
             }
             return p;
         }));
-    };
+    }, []);
+
+    // HOOK-005: Envolver `value` en useMemo con deps correctas para evitar que
+    // TODOS los consumidores se re-rendericen en cada render del Provider.
+    // Las setters de useState son estables y no necesitan estar en deps.
+    const value = useMemo(() => ({
+        products,
+        setProducts,
+        categories,
+        setCategories,
+        isLoadingProducts,
+        streetRate,
+        setStreetRate,
+        useAutoRate,
+        setUseAutoRate,
+        customRate,
+        setCustomRate,
+        effectiveRate,
+        copEnabled,
+        setCopEnabled,
+        autoCopEnabled,
+        setAutoCopEnabled,
+        tasaCopManual,
+        setTasaCopManual,
+        copPrimary,
+        setCopPrimary,
+        tasaCop,
+        adjustStock
+    }), [
+        products,
+        categories,
+        isLoadingProducts,
+        streetRate,
+        useAutoRate,
+        customRate,
+        effectiveRate,
+        copEnabled,
+        autoCopEnabled,
+        tasaCopManual,
+        copPrimary,
+        tasaCop,
+        adjustStock,
+    ]);
 
     return (
-        <ProductContext.Provider value={{
-            products,
-            setProducts,
-            categories,
-            setCategories,
-            isLoadingProducts,
-            streetRate,
-            setStreetRate,
-            useAutoRate,
-            setUseAutoRate,
-            customRate,
-            setCustomRate,
-            effectiveRate,
-            copEnabled,
-            setCopEnabled,
-            autoCopEnabled,
-            setAutoCopEnabled,
-            tasaCopManual,
-            setTasaCopManual,
-            copPrimary,
-            setCopPrimary,
-            tasaCop,
-            adjustStock
-        }}>
+        <ProductContext.Provider value={value}>
             {children}
         </ProductContext.Provider>
     );

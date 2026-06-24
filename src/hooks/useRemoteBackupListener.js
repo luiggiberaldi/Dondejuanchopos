@@ -1,25 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { storageService } from '../utils/storageService';
-
-const IDB_KEYS = [
-    'bodega_products_v1', 'my_categories_v1',
-    'bodega_sales_v1', 'bodega_customers_v1',
-    'bodega_suppliers_v1', 'bodega_supplier_invoices_v1',
-    'bodega_accounts_v2', 'bodega_pending_cart_v1',
-    'bodega_payment_methods_v1', 'abasto_audit_log_v1'
-];
-const LS_KEYS = [
-    'premium_token', 'street_rate_bs', 'catalog_use_auto_usdt',
-    'catalog_custom_usdt_price', 'catalog_show_cash_price',
-    'monitor_rates_v12', 'business_name', 'business_rif',
-    'printer_paper_width', 'allow_negative_stock', 'cop_enabled',
-    'auto_cop_enabled', 'tasa_cop', 'bodega_use_auto_rate',
-    'bodega_custom_rate', 'bodega_inventory_view', 'abasto-auth-storage'
-];
+import { IDB_KEYS, LS_KEYS } from '../config/backupKeys';
 
 async function collectAndUpload(deviceId) {
     // Recolectar datos locales
+    // HOOK-041: usa las listas canónicas de backupKeys.js.
     const idbData = {};
     for (const key of IDB_KEYS) {
         const data = await storageService.getItem(key, null);

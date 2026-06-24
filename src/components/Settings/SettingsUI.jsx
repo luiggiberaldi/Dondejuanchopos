@@ -5,7 +5,7 @@ export function Toggle({ enabled, onChange, color = 'emerald' }) {
     const colors = {
         emerald: enabled ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600',
         amber: enabled ? 'bg-amber-500' : 'bg-slate-300 dark:bg-slate-600',
-        indigo: enabled ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-slate-600',
+        indigo: enabled ? 'bg-brand' : 'bg-slate-300 dark:bg-slate-600',
         rose: enabled ? 'bg-rose-500' : 'bg-slate-300 dark:bg-slate-600',
     };
     return (

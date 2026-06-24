@@ -177,7 +177,7 @@ export default function ProductFormWizard({
             {wizardStep === 2 && (
                 <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-200">
                     <div className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-center">
-                        <span className="text-xs font-black text-indigo-500 uppercase tracking-widest block mb-1">Paso 2 de 4</span>
+                        <span className="text-xs font-black text-brand uppercase tracking-widest block mb-1">Paso 2 de 4</span>
                         <h4 className="text-sm font-black text-slate-800 dark:text-white">Empaque y Logística</h4>
                         <p className="text-[10px] text-slate-400 mt-0.5">Define cómo se distribuye y cuál es el inventario inicial.</p>
                     </div>
@@ -190,12 +190,12 @@ export default function ProductFormWizard({
                                 const selected = packagingType === pt.id;
                                 const colorMap = {
                                     emerald: selected ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20' : '',
-                                    indigo: selected ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20' : '',
+                                    indigo: selected ? 'border-brand bg-brand-light dark:bg-surface-800/20' : '',
                                     amber: selected ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20' : '',
                                 };
                                 const textColor = {
                                     emerald: 'text-emerald-700 dark:text-emerald-400',
-                                    indigo: 'text-indigo-700 dark:text-indigo-400',
+                                    indigo: 'text-brand-dark dark:text-brand',
                                     amber: 'text-amber-700 dark:text-amber-400',
                                 };
                                 return (
@@ -232,23 +232,23 @@ export default function ProductFormWizard({
 
                     {/* Lote Details */}
                     {isLote && (
-                        <div className="bg-indigo-50 dark:bg-indigo-900/10 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800/30 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                        <div className="bg-brand-light dark:bg-surface-800/10 p-4 rounded-xl border border-surface-200 dark:border-surface-800/30 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
                             <div>
-                                <label className="text-xs font-bold text-indigo-700 dark:text-indigo-400 ml-1 mb-1 block uppercase">¿Cuántas unidades trae el lote?</label>
+                                <label className="text-xs font-bold text-brand-dark dark:text-brand ml-1 mb-1 block uppercase">¿Cuántas unidades trae el lote?</label>
                                 <input type="number" inputMode="numeric" value={unitsPerPackage} onChange={e => setUnitsPerPackage(e.target.value)} placeholder="Ej: 24"
-                                    className="w-full bg-white dark:bg-slate-800 p-3 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/50 text-sm" />
+                                    className="w-full bg-white dark:bg-slate-800 p-3 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/50 text-sm" />
                             </div>
 
                             {/* sellByUnit toggle */}
                             {parsedUnits > 1 && (
-                                <label className="flex items-center gap-3 cursor-pointer select-none p-1 rounded-lg hover:bg-indigo-100/50 dark:hover:bg-indigo-900/20 transition-colors">
-                                    <div className={`w-11 h-6 rounded-full relative transition-colors duration-200 shrink-0 ${sellByUnit ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                <label className="flex items-center gap-3 cursor-pointer select-none p-1 rounded-lg hover:bg-brand-light/50 dark:hover:bg-surface-800/20 transition-colors">
+                                    <div className={`w-11 h-6 rounded-full relative transition-colors duration-200 shrink-0 ${sellByUnit ? 'bg-brand' : 'bg-slate-300 dark:bg-slate-600'}`}
                                         onClick={() => setSellByUnit(!sellByUnit)}>
                                         <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-md transition-transform duration-200 ${sellByUnit ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
                                     </div>
                                     <div onClick={() => setSellByUnit(!sellByUnit)}>
-                                        <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300">Venta detallada suelta</span>
-                                        <p className="text-[9px] text-indigo-500/70 dark:text-indigo-400/50 mt-0.5">Permite vender unidades sueltas además de lotes enteros.</p>
+                                        <span className="text-xs font-bold text-brand-dark dark:text-brand">Venta detallada suelta</span>
+                                        <p className="text-[9px] text-brand/70 dark:text-brand/50 mt-0.5">Permite vender unidades sueltas además de lotes enteros.</p>
                                     </div>
                                 </label>
                             )}
@@ -264,7 +264,7 @@ export default function ProductFormWizard({
                                     <input type="number" inputMode="numeric" value={stockInLotes} onChange={e => setStockInLotes(e.target.value)} placeholder="0"
                                         className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/50 text-sm" />
                                     {parsedStockLotes > 0 && parsedUnits > 0 && (
-                                        <p className="text-[9px] text-indigo-500 font-bold mt-1 ml-1">= {stockUnitsCalc} unidades</p>
+                                        <p className="text-[9px] text-brand font-bold mt-1 ml-1">= {stockUnitsCalc} unidades</p>
                                     )}
                                 </>
                             ) : (
@@ -362,13 +362,13 @@ export default function ProductFormWizard({
                             )}
                         </div>
                         <div className="relative">
-                            <label className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 ml-1 mb-1 block uppercase tracking-wider">
+                            <label className="text-[10px] font-bold text-brand-dark dark:text-brand ml-1 mb-1 block uppercase tracking-wider">
                                 Precio Venta (Bs){priceSuffix}
                             </label>
                             <input type="number" inputMode="decimal" value={priceBs} onChange={e => handlePriceBsChange(e.target.value)} placeholder="0.00"
-                                className="w-full bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30 p-3 pr-10 rounded-xl font-black text-indigo-800 dark:text-indigo-400 outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all text-sm" />
+                                className="w-full bg-brand-light dark:bg-surface-800/20 border border-surface-200 dark:border-surface-800/30 p-3 pr-10 rounded-xl font-black text-surface-800 dark:text-brand outline-none focus:ring-2 focus:ring-brand/50 transition-all text-sm" />
                             {parseFloat(priceBs) > 0 && (
-                                <CheckCircle size={16} className="absolute right-3 top-[32px] text-indigo-500" />
+                                <CheckCircle size={16} className="absolute right-3 top-[32px] text-brand" />
                             )}
                         </div>
                     </div>
@@ -399,8 +399,8 @@ export default function ProductFormWizard({
 
                     {/* sellByUnit price fields */}
                     {isLote && sellByUnit && parsedUnits > 1 && (
-                        <div className="bg-white dark:bg-slate-800/80 p-3 rounded-xl border border-indigo-200 dark:border-indigo-800/40 space-y-2">
-                            <label className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider block">Precio por Unidad Suelta</label>
+                        <div className="bg-white dark:bg-slate-800/80 p-3 rounded-xl border border-surface-300 dark:border-surface-800/40 space-y-2">
+                            <label className="text-[10px] font-bold text-brand-dark dark:text-brand uppercase tracking-wider block">Precio por Unidad Suelta</label>
                             {copEnabled ? (
                                 <div className="space-y-2">
                                     <div>
@@ -426,8 +426,8 @@ export default function ProductFormWizard({
                                             </div>
                                         </div>
                                         <div>
-                                            <label className="text-[8px] font-bold text-blue-500 ml-0.5 block">Bs</label>
-                                            <div className="w-full bg-blue-50/50 dark:bg-slate-900 border border-blue-100 dark:border-blue-900/30 p-2 rounded-lg font-black text-blue-700 dark:text-amber-400 flex items-center justify-between">
+                                            <label className="text-[8px] font-bold text-brand ml-0.5 block">Bs</label>
+                                            <div className="w-full bg-brand-light/50 dark:bg-slate-900 border border-surface-200 dark:border-surface-800/30 p-2 rounded-lg font-black text-brand-dark dark:text-amber-400 flex items-center justify-between">
                                                 {effectiveRate > 0 && effectiveUnitPrice > 0
                                                     ? (effectiveUnitPrice * effectiveRate).toFixed(2)
                                                     : '—'}
@@ -442,11 +442,11 @@ export default function ProductFormWizard({
                                         <input type="number" inputMode="decimal" value={unitPriceUsd}
                                             onChange={e => setUnitPriceUsd(e.target.value)}
                                             placeholder={parsedPrice > 0 && parsedUnits > 0 ? (parsedPrice / parsedUnits).toFixed(2) : '0.00'}
-                                            className="w-full bg-indigo-50/50 dark:bg-slate-900 border border-indigo-100 dark:border-indigo-900/30 p-2 rounded-lg font-black text-indigo-700 dark:text-indigo-400 outline-none text-xs" />
+                                            className="w-full bg-brand-light/50 dark:bg-slate-900 border border-surface-200 dark:border-surface-700/30 p-2 rounded-lg font-black text-brand-dark dark:text-brand outline-none text-xs" />
                                     </div>
                                     <div>
-                                        <label className="text-[8px] font-bold text-blue-500 ml-0.5 block">Bs</label>
-                                        <div className="w-full bg-blue-50/50 dark:bg-slate-900 border border-blue-100 dark:border-blue-900/30 p-2 rounded-lg font-black text-blue-700 dark:text-blue-400 flex items-center justify-between">
+                                        <label className="text-[8px] font-bold text-brand ml-0.5 block">Bs</label>
+                                        <div className="w-full bg-brand-light/50 dark:bg-slate-900 border border-surface-200 dark:border-surface-800/30 p-2 rounded-lg font-black text-brand-dark dark:text-brand flex items-center justify-between">
                                             {effectiveRate > 0 ? (effectiveUnitPrice * effectiveRate).toFixed(2) : '—'}
                                         </div>
                                     </div>
@@ -559,7 +559,7 @@ export default function ProductFormWizard({
                         {isLote && sellByUnit && parsedUnits > 1 && (
                             <div className="flex justify-between items-center border-t border-slate-100 dark:border-slate-800/60 pt-2 mt-1">
                                 <span className="text-slate-400 font-medium">Unidad suelta:</span>
-                                <span className="font-bold text-indigo-500">
+                                <span className="font-bold text-brand">
                                     {copEnabled && tasaCop > 0 ? `${Math.round(effectiveUnitPrice * tasaCop).toLocaleString('es-CO')} COP` : `$${effectiveUnitPrice.toFixed(2)}`}
                                 </span>
                             </div>

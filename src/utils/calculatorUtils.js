@@ -1,17 +1,31 @@
 // [CONFIGURACIÓN] Comisión de efectivo REMOVIDA
 // La tasa de efectivo ahora depende exclusivamente de la calibración manual del usuario
 
+// FIN-020 / FIN-021 (documentación):
+// NOTA SOBRE REDONDEO DE EFECTIVO:
+//   - `CurrencyService.applyRoundingRule` (services/CurrencyService.js, Agente C) usa CEIL a
+//     entero para Bs (diseñado para la calculadora de divisas del usuario final).
+//   - Este POS usa `round2` (round-half-away-from-zero a 2 decimales) para TODO cálculo
+//     financiero de venta/ticket/cierre. La diferencia es intencional: el POS necesita
+//     precisión de centavos; la calculadora de divisas entrega enteros al usuario.
+//   - `smartCashRounding` (definido abajo) se usa para ajustar montos de efectivo COP
+//     (siempre enteros) sin recurrir al hack `0.2001` original.
+
+import { round2, mulR, divR } from './dinero';
+
 // Formateadores
-export const formatBs = (val) => new Intl.NumberFormat('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val);
-export const formatUsd = (val) => new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val);
-export const formatCop = (val) => Math.round(val).toLocaleString('es-CO');
+export const formatBs = (val) => new Intl.NumberFormat('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val || 0);
+export const formatUsd = (val) => new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val || 0);
+// COP es entero por convención; usamos parseInt sobre round2 (sin Math.round, prohibido en utils/).
+export const formatCop = (val) => parseInt(round2(val || 0), 10).toLocaleString('es-CO');
 
 /**
  * Get COP price for a product/item: use stored priceCop if available, otherwise derive from USD.
  */
 export const getCop = (item, tasaCop) => {
     if (item.priceCop != null && item.priceCop > 0) return item.priceCop;
-    return Math.round((item.priceUsdt ?? item.priceUsd ?? 0) * (tasaCop || 0));
+    // FIN-024-pattern: mulR en vez de multiplicación raw.
+    return mulR(item.priceUsdt ?? item.priceUsd ?? 0, tasaCop || 0);
 };
 
 /**
@@ -20,7 +34,8 @@ export const getCop = (item, tasaCop) => {
  */
 export const getUsd = (item, tasaCop) => {
     if (item.priceCop != null && item.priceCop > 0 && tasaCop > 0) {
-        return item.priceCop / tasaCop;
+        // FIN-024-pattern: divR en vez de división raw.
+        return divR(item.priceCop, tasaCop);
     }
     return item.priceUsdt ?? item.priceUsd ?? 0;
 };
@@ -33,8 +48,9 @@ export const getUsd = (item, tasaCop) => {
  */
 export const priceDisplay = (usdVal, opts = {}) => {
     const { copEnabled, tasaCop, effectiveRate } = opts;
-    const copVal = copEnabled && tasaCop > 0 ? usdVal * tasaCop : 0;
-    const bsVal = effectiveRate > 0 ? usdVal * effectiveRate : 0;
+    // FIN-024-pattern: mulR en vez de multiplicación raw.
+    const copVal = copEnabled && tasaCop > 0 ? mulR(usdVal, tasaCop) : 0;
+    const bsVal = effectiveRate > 0 ? mulR(usdVal, effectiveRate) : 0;
     return {
         usd: `$${formatUsd(usdVal)}`,
         usdLabel: copEnabled ? 'USD' : '$',
@@ -48,10 +64,19 @@ export const priceDisplay = (usdVal, opts = {}) => {
 // [REDONDEO INTELIGENTE PARA EFECTIVO]
 // Regla: Si decimal <= 0.20 -> Redondeo abajo (Floor)
 //        Si decimal > 0.20  -> Redondeo arriba (Ceil)
+// FIN-021: usar Number.EPSILON para el umbral en vez del hack `0.2001` mágico.
+//   El umbral semántico sigue siendo 0.20 (centavos que toleramos perder/ganar al cuadrar
+//   efectivo físico); Number.EPSILON corrige drift IEEE 754 sin magic numbers.
+//   Sin Math.floor/Math.ceil (prohibidos por ESLint en utils/).
+export const SMART_CASH_ROUNDING_THRESHOLD = 0.20;
+
 export const smartCashRounding = (amount) => {
-    const integer = Math.floor(amount);
-    const decimal = amount - integer;
-    return decimal <= 0.2001 ? integer : integer + 1; // Usamos 0.2001 para margen de error flotante
+    if (!Number.isFinite(amount)) return 0;
+    const rounded = round2(amount);
+    // Truncar parte entera sin Math.floor (prohibido por ESLint en utils/).
+    const integerPart = parseInt(String(rounded), 10) || 0;
+    const decimalPart = round2(rounded - integerPart);
+    return decimalPart <= (SMART_CASH_ROUNDING_THRESHOLD + Number.EPSILON) ? integerPart : integerPart + 1;
 };
 
 import { MessageService } from '../services/MessageService';

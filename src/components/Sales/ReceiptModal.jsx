@@ -76,14 +76,14 @@ export default function ReceiptModal({ receipt, onClose, onShareWhatsApp, curren
                                                 <>
                                                     <span className="text-xs text-slate-400">{item.isWeight ? `${item.qty.toFixed(3)} Kg` : `${item.qty} u`} × {formatCop(item.priceCop || Math.round(item.priceUsd * receipt.tasaCop))} COP</span>
                                                     <span className="text-xs text-slate-400 block">
-                                                        <span className="text-emerald-600">${item.priceUsd.toFixed(2)} USD</span> · <span className="text-blue-500">{formatBs(item.priceUsd * (receipt.rate || 0))} Bs</span> c/u
+                                                        <span className="text-emerald-600">${item.priceUsd.toFixed(2)} USD</span> · <span className="text-brand">{formatBs(item.priceUsd * (receipt.rate || 0))} Bs</span> c/u
                                                     </span>
                                                 </>
                                             ) : (
                                                 <>
                                                     <span className="text-xs text-slate-400">{item.isWeight ? `${item.qty.toFixed(3)} Kg` : `${item.qty} u`} × ${item.priceUsd.toFixed(2)}</span>
                                                     <span className="text-xs text-slate-400 block">
-                                                        <span className="text-amber-600">{formatCop(item.priceCop || Math.round(item.priceUsd * receipt.tasaCop))} COP</span> · <span className="text-blue-500">{formatBs(item.priceUsd * (receipt.rate || 0))} Bs</span> c/u
+                                                        <span className="text-amber-600">{formatCop(item.priceCop || Math.round(item.priceUsd * receipt.tasaCop))} COP</span> · <span className="text-brand">{formatBs(item.priceUsd * (receipt.rate || 0))} Bs</span> c/u
                                                     </span>
                                                 </>
                                             )
@@ -97,13 +97,13 @@ export default function ReceiptModal({ receipt, onClose, onShareWhatsApp, curren
                                                 <>
                                                     <span className="font-black text-amber-600 dark:text-amber-400 block">{formatCop((item.priceCop || Math.round(item.priceUsd * receipt.tasaCop)) * item.qty)} COP</span>
                                                     <span className="text-xs text-emerald-600">${(item.priceUsd * item.qty).toFixed(2)}</span>
-                                                    <span className="text-xs text-blue-500 block">{formatBs(item.priceUsd * item.qty * (receipt.rate || 0))} Bs</span>
+                                                    <span className="text-xs text-brand block">{formatBs(item.priceUsd * item.qty * (receipt.rate || 0))} Bs</span>
                                                 </>
                                             ) : (
                                                 <>
                                                     <span className="font-black text-slate-900 block">${(item.priceUsd * item.qty).toFixed(2)}</span>
                                                     <span className="text-xs text-amber-600">{formatCop((item.priceCop || Math.round(item.priceUsd * receipt.tasaCop)) * item.qty)} COP</span>
-                                                    <span className="text-xs text-blue-500 block">{formatBs(item.priceUsd * item.qty * (receipt.rate || 0))} Bs</span>
+                                                    <span className="text-xs text-brand block">{formatBs(item.priceUsd * item.qty * (receipt.rate || 0))} Bs</span>
                                                 </>
                                             )
                                         ) : (
@@ -182,7 +182,7 @@ export default function ReceiptModal({ receipt, onClose, onShareWhatsApp, curren
 
                     {/* Nueva Venta — Primary CTA */}
                     <button onClick={onClose}
-                        className="flex-[1.3] py-3.5 bg-gradient-to-b from-blue-500 to-blue-600 text-white font-extrabold rounded-2xl hover:from-blue-400 hover:to-blue-500 transition-all shadow-lg shadow-blue-500/25 hover:shadow-xl hover:shadow-blue-500/35 text-sm flex items-center justify-center gap-2 focus:outline-none active:scale-[0.97] hover:-translate-y-0.5 ring-2 ring-blue-400/30 ring-offset-2 ring-offset-white">
+                        className="flex-[1.3] py-3.5 bg-gradient-to-b from-brand to-brand-dark text-white font-extrabold rounded-2xl hover:from-brand hover:to-brand-dark transition-all shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/35 text-sm flex items-center justify-center gap-2 focus:outline-none active:scale-[0.97] hover:-translate-y-0.5 ring-2 ring-brand/30 ring-offset-2 ring-offset-white">
                         Nueva Venta
                     </button>
                 </div>

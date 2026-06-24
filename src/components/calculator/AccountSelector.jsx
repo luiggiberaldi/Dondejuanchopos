@@ -5,15 +5,15 @@ export const AccountSelector = ({ accounts, onSelect }) => {
     const getIcon = (t) => { 
         if(t === 'pago_movil') return <Smartphone size={18} className="text-emerald-500"/>; 
         if(t === 'binance') return <Bitcoin size={18} className="text-amber-500"/>; 
-        if(t === 'zelle') return <DollarSign size={18} className="text-purple-500"/>; 
-        return <Building2 size={18} className="text-blue-500"/>; 
+        if(t === 'zelle') return <DollarSign size={18} className="text-brand"/>; 
+        return <Building2 size={18} className="text-brand"/>; 
     };
     
     const getBg = (t) => { 
         if(t === 'pago_movil') return 'bg-emerald-100'; 
         if(t === 'binance') return 'bg-amber-100'; 
-        if(t === 'zelle') return 'bg-purple-100'; 
-        return 'bg-blue-100'; 
+        if(t === 'zelle') return 'bg-brand-dark'; 
+        return 'bg-brand-light'; 
     };
 
     if (accounts.length === 0) return (

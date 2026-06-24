@@ -9,13 +9,13 @@ import {
 } from 'lucide-react';
 
 const CAT_CONFIG = {
-    AUTH:       { label: 'Autenticacion', icon: Shield,       color: 'text-violet-500',  bg: 'bg-violet-50 dark:bg-violet-900/20' },
-    VENTA:      { label: 'Ventas',        icon: ShoppingCart,  color: 'text-blue-500',    bg: 'bg-blue-50 dark:bg-blue-900/20' },
+    AUTH:       { label: 'Autenticacion', icon: Shield,       color: 'text-brand',  bg: 'bg-brand-dark dark:bg-brand-dark/20' },
+    VENTA:      { label: 'Ventas',        icon: ShoppingCart,  color: 'text-brand',    bg: 'bg-brand-light dark:bg-surface-800/20' },
     INVENTARIO: { label: 'Inventario',    icon: Package,       color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
     CLIENTE:    { label: 'Clientes',      icon: Users,         color: 'text-sky-500',     bg: 'bg-sky-50 dark:bg-sky-900/20' },
-    PROVEEDOR:  { label: 'Proveedores',   icon: Users,         color: 'text-purple-500',  bg: 'bg-purple-50 dark:bg-purple-900/20' },
+    PROVEEDOR:  { label: 'Proveedores',   icon: Users,         color: 'text-brand',  bg: 'bg-brand-dark dark:bg-brand-dark/20' },
     CONFIG:     { label: 'Configuracion', icon: Settings,      color: 'text-amber-500',   bg: 'bg-amber-50 dark:bg-amber-900/20' },
-    USUARIO:    { label: 'Usuarios',      icon: Shield,        color: 'text-indigo-500',  bg: 'bg-indigo-50 dark:bg-indigo-900/20' },
+    USUARIO:    { label: 'Usuarios',      icon: Shield,        color: 'text-brand',  bg: 'bg-brand-light dark:bg-surface-800/20' },
     SISTEMA:    { label: 'Sistema',       icon: Database,      color: 'text-red-500',     bg: 'bg-red-50 dark:bg-red-900/20' },
 };
 
@@ -253,14 +253,14 @@ export default function AuditLogViewer({ triggerHaptic }) {
                 <div className="flex items-center gap-1">
                     <button
                         onClick={() => { setShowFilters(!showFilters); triggerHaptic?.(); }}
-                        className={`p-2 rounded-lg transition-all ${showFilters ? 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-500' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                        className={`p-2 rounded-lg transition-all ${showFilters ? 'bg-brand-light dark:bg-surface-800/30 text-brand' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
                         title="Filtrar por categoria"
                     >
                         <Filter size={14} />
                     </button>
                     <button
                         onClick={() => { setShowDateExport(!showDateExport); triggerHaptic?.(); }}
-                        className={`p-2 rounded-lg transition-all ${showDateExport ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-500' : 'text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20'}`}
+                        className={`p-2 rounded-lg transition-all ${showDateExport ? 'bg-brand-light dark:bg-surface-800/30 text-brand' : 'text-slate-400 hover:text-brand hover:bg-brand-light dark:hover:bg-surface-800/20'}`}
                         title="Descargar PDF por fechas"
                     >
                         <FileDown size={14} />
@@ -276,8 +276,8 @@ export default function AuditLogViewer({ triggerHaptic }) {
 
             {/* Date Export Panel */}
             {showDateExport && (
-                <div className="p-3 bg-blue-50 dark:bg-blue-950/50 rounded-xl border border-blue-100 dark:border-blue-800/30 space-y-3 animate-in slide-in-from-top-1 duration-200">
-                    <p className="text-[10px] font-bold text-blue-500 uppercase tracking-wider flex items-center gap-1.5">
+                <div className="p-3 bg-brand-light dark:bg-surface-950/50 rounded-xl border border-surface-200 dark:border-surface-700/30 space-y-3 animate-in slide-in-from-top-1 duration-200">
+                    <p className="text-[10px] font-bold text-brand uppercase tracking-wider flex items-center gap-1.5">
                         <Calendar size={11} /> Descargar PDF por rango de fechas
                     </p>
                     <div className="grid grid-cols-2 gap-2">
@@ -288,7 +288,7 @@ export default function AuditLogViewer({ triggerHaptic }) {
                                 value={pdfFrom}
                                 onChange={e => setPdfFrom(e.target.value)}
                                 max={pdfTo}
-                                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg py-2 px-2.5 text-xs font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/30"
+                                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg py-2 px-2.5 text-xs font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/30"
                             />
                         </div>
                         <div>
@@ -299,14 +299,14 @@ export default function AuditLogViewer({ triggerHaptic }) {
                                 onChange={e => setPdfTo(e.target.value)}
                                 min={pdfFrom}
                                 max={getLocalISODate()}
-                                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg py-2 px-2.5 text-xs font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/30"
+                                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg py-2 px-2.5 text-xs font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/30"
                             />
                         </div>
                     </div>
                     <button
                         onClick={handleExportPDF}
                         disabled={isGenerating}
-                        className="w-full py-2.5 bg-blue-500 text-white font-bold text-xs rounded-xl hover:bg-blue-600 active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                        className="w-full py-2.5 bg-brand text-white font-bold text-xs rounded-xl hover:bg-brand-dark active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                     >
                         {isGenerating ? (
                             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -324,7 +324,7 @@ export default function AuditLogViewer({ triggerHaptic }) {
                 <div className="flex flex-wrap gap-1.5 p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-800 animate-in slide-in-from-top-1 duration-200">
                     <button
                         onClick={() => { setCatFilter(null); triggerHaptic?.(); }}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${!catFilter ? 'bg-indigo-500 text-white' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700'}`}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${!catFilter ? 'bg-brand text-white' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700'}`}
                     >
                         Todos
                     </button>
@@ -332,7 +332,7 @@ export default function AuditLogViewer({ triggerHaptic }) {
                         <button
                             key={key}
                             onClick={() => { setCatFilter(key); triggerHaptic?.(); }}
-                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${catFilter === key ? 'bg-indigo-500 text-white' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700'}`}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${catFilter === key ? 'bg-brand text-white' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700'}`}
                         >
                             {conf.label}
                         </button>
@@ -386,7 +386,7 @@ export default function AuditLogViewer({ triggerHaptic }) {
             {entries.length >= visibleCount && (
                 <button
                     onClick={() => { setVisibleCount(v => v + 50); triggerHaptic?.(); }}
-                    className="w-full py-2 text-[10px] font-bold text-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors flex items-center justify-center gap-1"
+                    className="w-full py-2 text-[10px] font-bold text-brand bg-brand-light dark:bg-surface-800/20 rounded-xl hover:bg-brand-light dark:hover:bg-surface-800/40 transition-colors flex items-center justify-center gap-1"
                 >
                     <ChevronDown size={12} /> Cargar mas
                 </button>

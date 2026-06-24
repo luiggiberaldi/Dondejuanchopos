@@ -47,7 +47,7 @@ export default function SettingsTabSistema({
 
                 <div className="space-y-2">
                     <button onClick={handleExport} className="w-full flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group active:scale-[0.98]">
-                        <div className="p-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg"><Download size={18} className="text-blue-500" /></div>
+                        <div className="p-2 bg-brand-light dark:bg-surface-800/30 rounded-lg"><Download size={18} className="text-brand" /></div>
                         <div className="text-left flex-1">
                             <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Exportar Backup</p>
                             <p className="text-[10px] text-slate-400">Descargar archivo .json</p>
@@ -65,7 +65,7 @@ export default function SettingsTabSistema({
                     </button>
 
                     <button onClick={() => setIsShareOpen(true)} className="w-full flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group active:scale-[0.98]">
-                        <div className="p-2 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg"><Share2 size={18} className="text-indigo-500" /></div>
+                        <div className="p-2 bg-brand-light dark:bg-surface-800/30 rounded-lg"><Share2 size={18} className="text-brand" /></div>
                         <div className="text-left flex-1">
                             <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Compartir Inventario</p>
                             <p className="text-[10px] text-slate-400">Codigo de 6 digitos, 24h</p>
@@ -86,7 +86,7 @@ export default function SettingsTabSistema({
             <SectionCard icon={Palette} title="Apariencia" subtitle="Estilo visual de la app" iconColor="text-pink-500">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        {theme === 'dark' ? <Moon size={18} className="text-indigo-400" /> : <Sun size={18} className="text-amber-500" />}
+                        {theme === 'dark' ? <Moon size={18} className="text-brand" /> : <Sun size={18} className="text-amber-500" />}
                         <div>
                             <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{theme === 'dark' ? 'Modo Oscuro' : 'Modo Claro'}</p>
                             <p className="text-[10px] text-slate-400 mt-0.5">Toca para cambiar</p>
@@ -102,7 +102,7 @@ export default function SettingsTabSistema({
                 {/* Zoom / Escala de pantalla */}
                 <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
                     <div className="flex items-center gap-3 mb-3">
-                        <ZoomIn size={18} className="text-blue-500" />
+                        <ZoomIn size={18} className="text-brand" />
                         <div>
                             <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Tamaño de Pantalla</p>
                             <p className="text-[10px] text-slate-400 mt-0.5">Ajusta si la interfaz se ve muy grande o muy pequeña</p>
@@ -112,7 +112,7 @@ export default function SettingsTabSistema({
                         <button
                             onClick={() => adjustScale(-5)}
                             disabled={uiScale <= 60}
-                            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 dark:hover:text-blue-400 transition-all active:scale-90 disabled:opacity-30 disabled:cursor-not-allowed"
+                            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-brand-light hover:text-brand-dark dark:hover:bg-surface-800/20 dark:hover:text-brand transition-all active:scale-90 disabled:opacity-30 disabled:cursor-not-allowed"
                         >
                             <ZoomOut size={16} />
                         </button>
@@ -124,7 +124,7 @@ export default function SettingsTabSistema({
                                 step="5"
                                 value={uiScale}
                                 onChange={e => { setUiScale(parseInt(e.target.value)); triggerHaptic?.(); }}
-                                className="w-full h-2 rounded-full appearance-none cursor-pointer bg-slate-200 dark:bg-slate-700 accent-blue-500"
+                                className="w-full h-2 rounded-full appearance-none cursor-pointer bg-slate-200 dark:bg-slate-700 accent-brand"
                             />
                             <div className="flex justify-between mt-1 px-0.5">
                                 <span className="text-[8px] text-slate-400">60%</span>
@@ -135,17 +135,17 @@ export default function SettingsTabSistema({
                         <button
                             onClick={() => adjustScale(5)}
                             disabled={uiScale >= 140}
-                            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 dark:hover:text-blue-400 transition-all active:scale-90 disabled:opacity-30 disabled:cursor-not-allowed"
+                            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-brand-light hover:text-brand-dark dark:hover:bg-surface-800/20 dark:hover:text-brand transition-all active:scale-90 disabled:opacity-30 disabled:cursor-not-allowed"
                         >
                             <ZoomIn size={16} />
                         </button>
                     </div>
                     <div className="flex items-center justify-between mt-2">
-                        <span className="text-xs font-black text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-2.5 py-1 rounded-lg">{uiScale}%</span>
+                        <span className="text-xs font-black text-brand-dark dark:text-brand bg-brand-light dark:bg-surface-800/20 px-2.5 py-1 rounded-lg">{uiScale}%</span>
                         {uiScale !== 100 && (
                             <button
                                 onClick={() => { setUiScale(100); triggerHaptic?.(); }}
-                                className="text-[10px] font-bold text-slate-400 hover:text-blue-500 flex items-center gap-1 transition-colors"
+                                className="text-[10px] font-bold text-slate-400 hover:text-brand flex items-center gap-1 transition-colors"
                             >
                                 <RotateCcw size={12} /> Restablecer
                             </button>

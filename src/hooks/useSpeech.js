@@ -6,9 +6,15 @@ export const useSpeech = () => {
     const voicesLoaded = useRef(false);
 
     // Cargar voces dinámicamente (Chrome/Android a veces tardan)
+    // HOOK-027: usar addEventListener/removeEventListener en vez del handler
+    // directo `onvoiceschanged` que está deprecado y era limpiado a `null`
+    // (no removía el listener real en algunos navegadores).
     useEffect(() => {
+        const synth = window.speechSynthesis;
+        if (!synth) return;
+
         const loadVoices = () => {
-            const availVoices = window.speechSynthesis.getVoices();
+            const availVoices = synth.getVoices();
             if (availVoices.length > 0) {
                 setVoices(availVoices);
                 voicesLoaded.current = true;
@@ -16,8 +22,10 @@ export const useSpeech = () => {
         };
 
         loadVoices();
-        window.speechSynthesis.onvoiceschanged = loadVoices;
-        return () => { window.speechSynthesis.onvoiceschanged = null; };
+        synth.addEventListener('voiceschanged', loadVoices);
+        return () => {
+            synth.removeEventListener('voiceschanged', loadVoices);
+        };
     }, []);
 
     const speak = useCallback((text) => {

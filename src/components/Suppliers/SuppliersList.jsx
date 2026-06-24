@@ -32,13 +32,13 @@ export default function SuppliersList({
         <div className="flex flex-col h-full overflow-y-auto scrollbar-hide">
             {/* Banner de Cuentas por Pagar (Premium) */}
             <div className="px-3 sm:px-6 pt-3 shrink-0">
-                <div className="bg-gradient-to-br from-purple-500 to-indigo-600 rounded-3xl p-5 text-white shadow-xl shadow-purple-500/20 relative overflow-hidden group">
+                <div className="bg-gradient-to-br from-brand to-brand-dark rounded-3xl p-5 text-white shadow-xl shadow-primary/20 relative overflow-hidden group">
                     <div className="absolute -top-10 -right-10 opacity-10 group-hover:scale-110 transition-transform duration-700">
                         <Truck size={160} />
                     </div>
                     <div className="relative z-10 flex justify-between items-start">
                         <div>
-                            <p className="text-sm font-medium text-purple-100 flex items-center gap-1.5 mb-1">
+                            <p className="text-sm font-medium text-brand flex items-center gap-1.5 mb-1">
                                 Cuentas por Pagar
                             </p>
                             <h3 className="text-4xl font-black tracking-tight">
@@ -47,9 +47,9 @@ export default function SuppliersList({
                                     : `USD ${formatUsd(totalDebtUsd)}`}
                             </h3>
                             <div className="flex flex-col mt-1">
-                                {copEnabled && copPrimary && tasaCop > 0 && <p className="text-sm font-bold text-purple-200">USD {formatUsd(totalDebtUsd)}</p>}
-                                {copEnabled && !copPrimary && tasaCop > 0 && <p className="text-sm font-bold text-purple-200">{formatCop(totalDebtUsd * tasaCop)} COP</p>}
-                                {bcvRate > 0 && <p className="text-sm font-bold text-purple-200">{formatBs(totalDebtUsd * bcvRate)} Bs</p>}
+                                {copEnabled && copPrimary && tasaCop > 0 && <p className="text-sm font-bold text-brand">USD {formatUsd(totalDebtUsd)}</p>}
+                                {copEnabled && !copPrimary && tasaCop > 0 && <p className="text-sm font-bold text-brand">{formatCop(totalDebtUsd * tasaCop)} COP</p>}
+                                {bcvRate > 0 && <p className="text-sm font-bold text-brand">{formatBs(totalDebtUsd * bcvRate)} Bs</p>}
                             </div>
                         </div>
                         {isAdmin && (
@@ -73,14 +73,14 @@ export default function SuppliersList({
                         placeholder="Buscar proveedor..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl py-3.5 pl-11 pr-4 text-slate-800 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 shadow-sm"
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl py-3.5 pl-11 pr-4 text-slate-800 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand/50 shadow-sm"
                     />
                 </div>
                 {/* Filtros tipo Chips */}
                 <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1">
                     <button 
                         onClick={() => { setFilterType('all'); triggerHaptic && triggerHaptic(); }}
-                        className={`px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap transition-colors ${filterType === 'all' ? 'bg-purple-500 text-white shadow-sm shadow-purple-500/30' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800'}`}
+                        className={`px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap transition-colors ${filterType === 'all' ? 'bg-brand-dark text-white shadow-sm shadow-primary/30' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800'}`}
                     >
                         Todos
                     </button>
@@ -123,8 +123,8 @@ export default function SuppliersList({
                                 onClick={() => { triggerHaptic && triggerHaptic(); onSelectSupplier(supplier); }}
                                 className="bg-white dark:bg-slate-900 rounded-2xl px-4 py-3.5 border border-slate-100 dark:border-slate-800 shadow-sm transition-all active:scale-[0.98] flex items-center gap-3 relative cursor-pointer hover:border-purple-200 dark:hover:border-purple-800/50 group"
                             >
-                                <div className="w-12 h-12 rounded-full bg-purple-50 dark:bg-purple-900/20 group-hover:bg-purple-100 dark:group-hover:bg-purple-900/40 flex items-center justify-center shrink-0 border border-purple-100 dark:border-purple-800/20 transition-colors">
-                                    <span className="text-xl font-black text-purple-600 dark:text-purple-400">
+                                <div className="w-12 h-12 rounded-full bg-brand-dark dark:bg-brand-dark/20 group-hover:bg-brand-dark dark:group-hover:bg-brand-dark/40 flex items-center justify-center shrink-0 border border-surface-200 dark:border-surface-700 transition-colors">
+                                    <span className="text-xl font-black text-brand dark:text-brand">
                                         {supplier.name.charAt(0).toUpperCase()}
                                     </span>
                                 </div>

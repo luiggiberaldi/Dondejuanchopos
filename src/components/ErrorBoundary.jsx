@@ -1,9 +1,23 @@
 import React from 'react';
 
+/**
+ * HOOK-026: ErrorBoundary con recuperación efectiva.
+ *
+ * Antes: el botón "Reintentar" solo reseteaba `hasError=false` sin recargar la
+ * app, lo que dejaba estado inconsistente (el error podía venir de un módulo
+ * ya cargado corrupto). El botón "Limpiar y Recargar" borraba `calc_history`
+ * —raramente la causa del crash— sin ofrecer borrar datos críticos sospechosos.
+ *
+ * Ahora:
+ *  - "Reintentar" → `window.location.reload()` (estado limpio desde cero).
+ *  - "Limpiar datos críticos" → ofrece borrar específicamente `bodega_products_v1`
+ *    y `bodega_sales_v1` (los dos grandes sospechosos de OOM/parse errors).
+ *    Pide confirmación porque es destructivo.
+ */
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, clearing: false, clearMsg: '' };
   }
 
   static getDerivedStateFromError(error) {
@@ -14,33 +28,75 @@ class ErrorBoundary extends React.Component {
     console.error('🔴 App Error:', error, errorInfo);
   }
 
+  _handleRetry = () => {
+    // HOOK-026: reload garantiza estado limpio. Antes solo reseteabamos el flag
+    // y el error reaparecía en el siguiente render.
+    window.location.reload();
+  };
+
+  _handleClearCriticalData = async () => {
+    // HOOK-026: borrar solo las claves que típicamente causan crashes de parseo
+    // o OOM. NO tocar auth, ni flags de migración, ni settings.
+    const confirm = typeof window !== 'undefined' && window.confirm
+      ? window.confirm(
+          'Esto borrará SOLO los productos (bodega_products_v1) y el historial de ventas (bodega_sales_v1) ' +
+          'para intentar recuperar la app. NO se tocará la sesión, configuración ni otros datos. ¿Continuar?'
+        )
+      : true;
+    if (!confirm) return;
+
+    this.setState({ clearing: true, clearMsg: 'Borrando datos críticos...' });
+    try {
+      // localforage dinámico para no acoplar el boundary al servicio (que podría estar roto).
+      const { default: localforage } = await import('localforage');
+      localforage.config({ name: 'BodegaApp', storeName: 'bodega_app_data' });
+      await localforage.removeItem('bodega_products_v1');
+      await localforage.removeItem('bodega_sales_v1');
+      // También purgar de localStorage por si estaban ahí como fallback.
+      localStorage.removeItem('bodega_products_v1');
+      localStorage.removeItem('bodega_sales_v1');
+      this.setState({ clearMsg: 'Datos borrados. Recargando...' });
+      setTimeout(() => window.location.reload(), 600);
+    } catch (e) {
+      console.error('[ErrorBoundary] Fallo limpiando datos críticos:', e);
+      this.setState({
+        clearing: false,
+        clearMsg: 'No se pudo limpiar automáticamente. Usa la consola: localforage.removeItem("bodega_products_v1")',
+      });
+    }
+  };
+
   render() {
     if (this.state.hasError) {
+      const errMsg = this.state.error?.message || 'Error desconocido';
       return (
         <div className="flex items-center justify-center h-full bg-slate-50 dark:bg-slate-950 p-6">
           <div className="text-center max-w-sm">
             <div className="text-6xl mb-4">⚠️</div>
             <h2 className="text-xl font-bold text-red-500 mb-2">Error de Carga</h2>
-            <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
               La aplicación no pudo cargar correctamente. Esto puede deberse a datos corruptos o problemas de compatibilidad.
             </p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mb-4 font-mono break-all">
+              {errMsg}
+            </p>
             <button
-              onClick={() => {
-                this.setState({ hasError: false });
-              }}
-              className="px-6 py-3 bg-brand text-slate-900 rounded-xl font-bold hover:brightness-110 transition-all mb-3"
+              onClick={this._handleRetry}
+              disabled={this.state.clearing}
+              className="px-6 py-3 bg-brand text-slate-900 rounded-xl font-bold hover:brightness-110 transition-all mb-3 disabled:opacity-50"
             >
-              Reintentar
+              Reintentar (recargar)
             </button>
             <button
-              onClick={() => {
-                localStorage.removeItem('calc_history');
-                window.location.reload();
-              }}
-              className="px-6 py-3 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold hover:brightness-110 transition-all"
+              onClick={this._handleClearCriticalData}
+              disabled={this.state.clearing}
+              className="px-6 py-3 bg-rose-600 text-white rounded-xl font-bold hover:brightness-110 transition-all block w-full disabled:opacity-50"
             >
-              Limpiar y Recargar
+              {this.state.clearing ? (this.state.clearMsg || 'Limpiando...') : 'Borrar productos y ventas (recuperación)'}
             </button>
+            {this.state.clearMsg && !this.state.clearing && (
+              <p className="text-xs text-amber-500 mt-2">{this.state.clearMsg}</p>
+            )}
           </div>
         </div>
       );

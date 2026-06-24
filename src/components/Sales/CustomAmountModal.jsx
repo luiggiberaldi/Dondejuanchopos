@@ -80,7 +80,7 @@ export default function CustomAmountModal({
                             <button
                                 onClick={() => { setCurrency('BS'); inputRef.current?.focus(); }}
                                 className={`flex-1 py-2 text-sm font-black rounded-lg transition-all ${
-                                    currency === 'BS' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                                    currency === 'BS' ? 'bg-brand-dark text-white shadow-md' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
                                 }`}
                             >
                                 Bs
@@ -117,7 +117,7 @@ export default function CustomAmountModal({
                                 className="w-full py-4 px-4 pr-16 text-center text-4xl font-black bg-slate-50 dark:bg-slate-950 border-2 border-slate-200 dark:border-slate-800 rounded-2xl text-slate-800 dark:text-white placeholder:text-slate-300 dark:placeholder:text-slate-800 outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/20 transition-all"
                             />
                             <span className={`absolute right-4 top-1/2 -translate-y-1/2 text-sm font-black px-2 py-1 rounded-lg ${
-                                currency === 'BS' ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/40' :
+                                currency === 'BS' ? 'text-brand-dark bg-brand-light dark:bg-surface-800/40' :
                                 currency === 'USD' ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/40' :
                                 'text-amber-600 bg-amber-50 dark:bg-amber-900/40'
                             }`}>
@@ -133,7 +133,7 @@ export default function CustomAmountModal({
                         )}
                         {parsedValue > 0 && currency === 'USD' && (
                             <div className="mt-3 text-center animate-in fade-in slide-in-from-top-1">
-                                <span className="text-sm font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-3 py-1.5 rounded-xl border border-blue-100 dark:border-blue-800">
+                                <span className="text-sm font-bold text-brand-dark dark:text-brand bg-brand-light dark:bg-surface-800/30 px-3 py-1.5 rounded-xl border border-surface-200 dark:border-surface-700">
                                     ≈ {formatBs(parsedValue * effectiveRate)} Bs
                                 </span>
                             </div>
@@ -148,7 +148,7 @@ export default function CustomAmountModal({
                         disabled={!isValid}
                         className={`w-full py-4 rounded-xl font-black text-base flex items-center justify-center gap-2 transition-all ${
                             isValid 
-                            ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 active:scale-[0.98]' 
+                            ? 'bg-brand-dark hover:bg-brand-dark text-white shadow-lg shadow-primary/30 active:scale-[0.98]' 
                             : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
                         }`}
                     >

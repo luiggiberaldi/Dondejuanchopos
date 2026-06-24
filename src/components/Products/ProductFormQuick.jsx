@@ -177,12 +177,12 @@ export default function ProductFormQuick({
                             const selected = packagingType === pt.id;
                             const colorMap = {
                                 emerald: selected ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20' : '',
-                                indigo: selected ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20' : '',
+                                indigo: selected ? 'border-brand bg-brand-light dark:bg-surface-800/20' : '',
                                 amber: selected ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20' : '',
                             };
                             const textColor = {
                                 emerald: 'text-emerald-700 dark:text-emerald-400',
-                                indigo: 'text-indigo-700 dark:text-indigo-400',
+                                indigo: 'text-brand-dark dark:text-brand',
                                 amber: 'text-amber-700 dark:text-amber-400',
                             };
                             return (
@@ -219,23 +219,23 @@ export default function ProductFormQuick({
 
                 {/* ─── LOTE: Units per package ─── */}
                 {isLote && (
-                    <div className="bg-indigo-50 dark:bg-indigo-900/10 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800/30 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                    <div className="bg-brand-light dark:bg-surface-800/10 p-4 rounded-xl border border-surface-200 dark:border-surface-800/30 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
                         <div>
-                            <label className="text-xs font-bold text-indigo-700 dark:text-indigo-400 ml-1 mb-1 block uppercase">¿Cuántas unidades trae el lote?</label>
+                            <label className="text-xs font-bold text-brand-dark dark:text-brand ml-1 mb-1 block uppercase">¿Cuántas unidades trae el lote?</label>
                             <input type="number" inputMode="numeric" value={unitsPerPackage} onChange={e => setUnitsPerPackage(e.target.value)} placeholder="Ej: 24"
-                                className="w-full bg-white dark:bg-slate-800 p-3.5 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/50 text-sm" />
+                                className="w-full bg-white dark:bg-slate-800 p-3.5 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/50 text-sm" />
                         </div>
 
                         {/* Toggle: sell by unit */}
                         {parsedUnits > 1 && (
-                            <label className="flex items-center gap-3 cursor-pointer select-none p-2 rounded-lg hover:bg-indigo-100/50 dark:hover:bg-indigo-900/20 transition-colors">
-                                <div className={`w-11 h-6 rounded-full relative transition-colors duration-200 shrink-0 ${sellByUnit ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+                            <label className="flex items-center gap-3 cursor-pointer select-none p-2 rounded-lg hover:bg-brand-light/50 dark:hover:bg-surface-800/20 transition-colors">
+                                <div className={`w-11 h-6 rounded-full relative transition-colors duration-200 shrink-0 ${sellByUnit ? 'bg-brand' : 'bg-slate-300 dark:bg-slate-600'}`}
                                     onClick={() => setSellByUnit(!sellByUnit)}>
                                     <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-md transition-transform duration-200 ${sellByUnit ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
                                 </div>
                                 <div onClick={() => setSellByUnit(!sellByUnit)}>
-                                    <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300">¿También vender por unidad suelta?</span>
-                                    <p className="text-[10px] text-indigo-500/70 dark:text-indigo-400/50 mt-0.5">Permite vender unidades individuales del lote</p>
+                                    <span className="text-xs font-bold text-brand-dark dark:text-brand">¿También vender por unidad suelta?</span>
+                                    <p className="text-[10px] text-brand/70 dark:text-brand/50 mt-0.5">Permite vender unidades individuales del lote</p>
                                 </div>
                             </label>
                         )}
@@ -271,7 +271,7 @@ export default function ProductFormQuick({
                         <span className="text-slate-500 font-medium">Costo por unidad:</span>
                         <span className="font-bold text-slate-700 dark:text-white flex items-center gap-1.5">
                             {copEnabled && copPrimary && tasaCop > 0 ? `${Math.round((parsedCost / parsedUnits) * tasaCop).toLocaleString('es-CO')} COP` : `$${(parsedCost / parsedUnits).toFixed(2)}`}
-                            <span className="text-[8px] bg-indigo-100 dark:bg-indigo-900/30 text-indigo-500 px-1.5 py-0.5 rounded font-black">AUTO</span>
+                            <span className="text-[8px] bg-brand-light dark:bg-surface-800/30 text-brand px-1.5 py-0.5 rounded font-black">AUTO</span>
                         </span>
                     </div>
                 )}
@@ -310,13 +310,13 @@ export default function ProductFormQuick({
                         )}
                     </div>
                     <div className="relative">
-                        <label className="text-[10px] sm:text-xs font-bold text-indigo-600 dark:text-indigo-400 ml-1 mb-1 block uppercase tracking-wider">
+                        <label className="text-[10px] sm:text-xs font-bold text-brand-dark dark:text-brand ml-1 mb-1 block uppercase tracking-wider">
                             Precio de Venta (Bs){priceSuffix}
                         </label>
                         <input type="number" inputMode="decimal" value={priceBs} onChange={e => handlePriceBsChange(e.target.value)} placeholder="0.00"
-                            className="w-full bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30 p-3.5 pr-10 sm:p-4 sm:pr-10 rounded-xl font-black text-indigo-800 dark:text-indigo-400 outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all text-sm sm:text-base" />
+                            className="w-full bg-brand-light dark:bg-surface-800/20 border border-surface-200 dark:border-surface-800/30 p-3.5 pr-10 sm:p-4 sm:pr-10 rounded-xl font-black text-surface-800 dark:text-brand outline-none focus:ring-2 focus:ring-brand/50 transition-all text-sm sm:text-base" />
                         {parseFloat(priceBs) > 0 && (
-                            <CheckCircle size={18} className="absolute right-3 top-[38px] sm:top-[42px] text-indigo-500 transition-all duration-300" />
+                            <CheckCircle size={18} className="absolute right-3 top-[38px] sm:top-[42px] text-brand transition-all duration-300" />
                         )}
                     </div>
                 </div>
@@ -353,9 +353,9 @@ export default function ProductFormQuick({
 
                 {/* ─── LOTE: Unit Price (Bimoneda) ─── */}
                 {isLote && sellByUnit && parsedUnits > 1 && (
-                    <div className="bg-white dark:bg-slate-800/80 p-3 rounded-xl border border-indigo-200 dark:border-indigo-800/40 space-y-2 animate-in fade-in slide-in-from-top-1">
+                    <div className="bg-white dark:bg-slate-800/80 p-3 rounded-xl border border-surface-300 dark:border-surface-800/40 space-y-2 animate-in fade-in slide-in-from-top-1">
                         <div className="flex justify-between items-center">
-                            <label className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Precio por Unidad Suelta</label>
+                            <label className="text-[10px] font-bold text-brand-dark dark:text-brand uppercase tracking-wider">Precio por Unidad Suelta</label>
                             {parsedPrice > 0 && parsedUnits > 0 && (
                                 <span className="text-[9px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-md">
                                     Auto: {copEnabled && tasaCop > 0
@@ -390,12 +390,12 @@ export default function ProductFormQuick({
                                         </div>
                                     </div>
                                     <div>
-                                        <label className="text-[9px] font-bold text-blue-500 ml-0.5 mb-0.5 block">Bolívares (Bs)</label>
-                                        <div className="w-full bg-blue-50/50 dark:bg-slate-900 border border-blue-100 dark:border-blue-900/30 p-3 rounded-xl font-black text-blue-700 dark:text-blue-400 text-sm flex items-center justify-between">
+                                        <label className="text-[9px] font-bold text-brand ml-0.5 mb-0.5 block">Bolívares (Bs)</label>
+                                        <div className="w-full bg-brand-light/50 dark:bg-slate-900 border border-surface-200 dark:border-surface-800/30 p-3 rounded-xl font-black text-brand-dark dark:text-brand text-sm flex items-center justify-between">
                                             {effectiveRate > 0 && effectiveUnitPrice > 0
                                                 ? (effectiveUnitPrice * effectiveRate).toFixed(2)
                                                 : '—'}
-                                            <span className="text-[8px] bg-blue-100 dark:bg-blue-900/30 text-blue-500 px-1.5 py-0.5 rounded font-black">Bs</span>
+                                            <span className="text-[8px] bg-brand-light dark:bg-surface-800/30 text-brand px-1.5 py-0.5 rounded font-black">Bs</span>
                                         </div>
                                     </div>
                                 </div>
@@ -408,15 +408,15 @@ export default function ProductFormQuick({
                                     <input type="number" inputMode="decimal" value={unitPriceUsd}
                                         onChange={e => setUnitPriceUsd(e.target.value)}
                                         placeholder={parsedPrice > 0 && parsedUnits > 0 ? (parsedPrice / parsedUnits).toFixed(2) : '0.00'}
-                                        className="w-full bg-indigo-50/50 dark:bg-slate-900 border border-indigo-100 dark:border-indigo-900/30 p-3 rounded-xl font-black text-indigo-700 dark:text-indigo-400 outline-none focus:ring-2 focus:ring-indigo-500/50 text-sm" />
+                                        className="w-full bg-brand-light/50 dark:bg-slate-900 border border-surface-200 dark:border-surface-700/30 p-3 rounded-xl font-black text-brand-dark dark:text-brand outline-none focus:ring-2 focus:ring-brand/50 text-sm" />
                                 </div>
                                 <div>
-                                    <label className="text-[9px] font-bold text-blue-500 ml-0.5 mb-0.5 block">Bolívares (Bs)</label>
-                                    <div className="w-full bg-blue-50/50 dark:bg-slate-900 border border-blue-100 dark:border-blue-900/30 p-3 rounded-xl font-black text-blue-700 dark:text-blue-400 text-sm flex items-center justify-between">
+                                    <label className="text-[9px] font-bold text-brand ml-0.5 mb-0.5 block">Bolívares (Bs)</label>
+                                    <div className="w-full bg-brand-light/50 dark:bg-slate-900 border border-surface-200 dark:border-surface-800/30 p-3 rounded-xl font-black text-brand-dark dark:text-brand text-sm flex items-center justify-between">
                                         {effectiveRate > 0
                                             ? (effectiveUnitPrice * effectiveRate).toFixed(2)
                                             : '—'}
-                                        <span className="text-[8px] bg-blue-100 dark:bg-blue-900/30 text-blue-500 px-1.5 py-0.5 rounded font-black">Bs</span>
+                                        <span className="text-[8px] bg-brand-light dark:bg-surface-800/30 text-brand px-1.5 py-0.5 rounded font-black">Bs</span>
                                     </div>
                                 </div>
                             </div>
@@ -488,7 +488,7 @@ export default function ProductFormQuick({
                                 <input type="number" inputMode="numeric" value={stockInLotes} onChange={e => setStockInLotes(e.target.value)} placeholder="0"
                                     className="w-full bg-slate-50 dark:bg-slate-800 p-3.5 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/50 text-sm" />
                                 {parsedStockLotes > 0 && parsedUnits > 0 && (
-                                    <p className="text-[10px] text-indigo-500 font-bold mt-1 ml-1">= {stockUnitsCalc} unidades</p>
+                                    <p className="text-[10px] text-brand font-bold mt-1 ml-1">= {stockUnitsCalc} unidades</p>
                                 )}
                             </>
                         ) : (
@@ -529,8 +529,8 @@ export default function ProductFormQuick({
                                 {copEnabled && tasaCop > 0 && <div className="flex justify-between"><span className="text-amber-500/80">Precio COP:</span><span className="font-bold text-amber-600">{(priceCop && parseFloat(priceCop) > 0 ? Math.round(parseFloat(priceCop)) : Math.round(parsedPrice * tasaCop)).toLocaleString('es-CO')} COP{priceSuffix}</span></div>}
                                 {parsedCost > 0 && <div className="flex justify-between"><span className="text-slate-400">Costo:</span><span className="font-bold text-slate-600">${parsedCost.toFixed(2)}{priceSuffix}</span></div>}
                                 {mainMarginPct !== null && <div className="flex justify-between"><span className="text-slate-400">Margen:</span><span className={`font-black ${mainMarginPct >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>{mainMarginPct.toFixed(1)}%</span></div>}
-                                {isLote && <div className="flex justify-between"><span className="text-slate-400">Uds/Lote:</span><span className="font-bold text-indigo-500">{parsedUnits}</span></div>}
-                                {isLote && sellByUnit && <div className="flex justify-between"><span className="text-slate-400">Venta suelta:</span><span className="font-bold text-indigo-500">Sí — ${effectiveUnitPrice.toFixed(2)}/ud</span></div>}
+                                {isLote && <div className="flex justify-between"><span className="text-slate-400">Uds/Lote:</span><span className="font-bold text-brand">{parsedUnits}</span></div>}
+                                {isLote && sellByUnit && <div className="flex justify-between"><span className="text-slate-400">Venta suelta:</span><span className="font-bold text-brand">Sí — ${effectiveUnitPrice.toFixed(2)}/ud</span></div>}
                                 <div className="flex justify-between"><span className="text-slate-400">Stock:</span><span className="font-bold text-slate-700 dark:text-white">{isLote ? `${parsedStockLotes} lotes (${stockUnitsCalc} uds)` : `${stock || 0}`}</span></div>
                                 {barcode && <div className="flex justify-between"><span className="text-slate-400">Código:</span><span className="font-bold text-slate-700 dark:text-white">{barcode}</span></div>}
                             </div>

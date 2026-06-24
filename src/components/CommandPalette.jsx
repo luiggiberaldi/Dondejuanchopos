@@ -11,6 +11,7 @@ export default function CommandPalette({ isOpen, onClose, onToggle, navigateTo }
         { id: 'nav-customers', title: 'Ir a Clientes', icon: Users, action: () => navigateTo('clientes') },
         { id: 'nav-reports', title: 'Ir a Reportes', icon: FileText, action: () => navigateTo('reportes') },
         { id: 'nav-dashboard', title: 'Ir a Inicio', icon: Package, action: () => navigateTo('inicio') },
+        { id: 'nav-settings', title: 'Ir a Ajustes', icon: Settings, action: () => navigateTo('ajustes') },
     ];
 
     const filteredCommands = commands.filter(c => c.title.toLowerCase().includes(query.toLowerCase()));

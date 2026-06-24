@@ -187,10 +187,10 @@ export default function ProductFormModal({
                             className="w-full flex items-center justify-between px-3 py-2.5 bg-slate-50 dark:bg-slate-800/50 text-xs font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
                         >
                             <span className="flex items-center gap-1.5">
-                                <Clock size={13} className="text-blue-500" />
+                                <Clock size={13} className="text-brand" />
                                 Movimientos Recientes
                                 {productMovements.length > 0 && (
-                                    <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-[9px] font-black px-1.5 py-0.5 rounded-full">{productMovements.length}</span>
+                                    <span className="bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand text-[9px] font-black px-1.5 py-0.5 rounded-full">{productMovements.length}</span>
                                 )}
                             </span>
                             {showMovements ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
@@ -216,12 +216,12 @@ export default function ProductFormModal({
                                                     : isSalida ? 'bg-rose-100 dark:bg-rose-900/30'
                                                     : isCobro ? 'bg-emerald-100 dark:bg-emerald-900/30' 
                                                     : isFiada ? 'bg-amber-100 dark:bg-amber-900/30' 
-                                                    : 'bg-blue-100 dark:bg-blue-900/30'}`}>
+                                                    : 'bg-brand-light dark:bg-surface-800/30'}`}>
                                                     {isEntrada ? <Plus size={12} className="text-emerald-500" />
                                                     : isSalida ? <Minus size={12} className="text-rose-500" />
                                                     : isCobro ? <ArrowUpRight size={12} className="text-emerald-500" /> 
                                                     : isFiada ? <CreditCard size={12} className="text-amber-500" /> 
-                                                    : <ShoppingBag size={12} className="text-blue-500" />}
+                                                    : <ShoppingBag size={12} className="text-brand" />}
                                                 </div>
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex justify-between items-center">

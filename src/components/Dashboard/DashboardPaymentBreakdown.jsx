@@ -123,14 +123,14 @@ export default function DashboardPaymentBreakdown({
             {(bsMethods.length > 0 || vueltoBs.length > 0) && (
                 <div className="mb-3">
                     <div className="flex items-center justify-between mb-2">
-                        <span className="text-[10px] font-bold text-blue-500 uppercase tracking-wider">Bolívares</span>
-                        <span className={`text-xs font-black ${totalVueltoBs > 0 ? 'text-cyan-500 dark:text-cyan-400' : 'text-blue-600 dark:text-blue-400'}`}>
+                        <span className="text-[10px] font-bold text-brand uppercase tracking-wider">Bolívares</span>
+                        <span className={`text-xs font-black ${totalVueltoBs > 0 ? 'text-cyan-500 dark:text-cyan-400' : 'text-brand-dark dark:text-brand'}`}>
                                 {totalVueltoBs > 0
                                     ? `${netoBs < 0 ? '−' : ''}${formatBs(Math.abs(netoBs))} Bs neto`
                                     : `${formatBs(subtotalBs)} Bs`}
                             </span>
                     </div>
-                    <div className="space-y-3 pl-1 border-l-2 border-blue-200 dark:border-blue-800/40">
+                    <div className="space-y-3 pl-1 border-l-2 border-surface-300 dark:border-surface-700/40">
                         <div className="pl-3 space-y-3">
                             {bsMethods.map(e => renderMethod(e))}
                             {vueltoBs.map(renderVuelto)}

@@ -1,7 +1,15 @@
 /**
  * GENERADOR DE ETIQUETAS "ONE-CLICK"
  * Genera el documento PDF 58mm y dispara la impresion termica directa.
+ *
+ * Migrado a dinero.js (deuda técnica detectada por guardrail ESLint):
+ *   - `Math.round(priceUsdRaw * tasaCop)` → `round2(mulR(priceUsdRaw, tasaCop))` (COP entero via toLocaleString)
+ *   - `priceUsdRaw.toFixed(2)` → `round2(priceUsdRaw)` + template
+ *   - `priceUsdRaw * effectiveRate` → `mulR(priceUsdRaw, effectiveRate)`
+ *   - `Math.ceil(priceBsRaw)` → `ceilR(priceBsRaw)` (política Bs a entero)
  */
+import { round2, mulR, ceilR } from './dinero';
+
 export const generarEtiquetas = async (productos, effectiveRate, copEnabled, tasaCop) => {
     // Dynamic import for lazy loading jsPDF (no penaliza tiempo de carga inicial)
     const { default: jsPDF } = await import('jspdf');
@@ -46,9 +54,11 @@ export const generarEtiquetas = async (productos, effectiveRate, copEnabled, tas
         doc.setFontSize(26);
 
         const priceUsdRaw = p.priceUsdt || 0;
+        // COP: mulR para conversión, round2 para precisión. toLocaleString formatea sin decimales.
+        // USD: round2 + template (no toFixed).
         const textUsd = copEnabled && tasaCop > 0
-            ? `${(p.priceCop || Math.round(priceUsdRaw * tasaCop)).toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} COP`
-            : `$${priceUsdRaw.toFixed(2)}`;
+            ? `${(p.priceCop || round2(mulR(priceUsdRaw, tasaCop))).toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} COP`
+            : `$${round2(priceUsdRaw)}`;
 
         doc.text(textUsd, centerX, safeY, { align: "center", baseline: "top" });
         safeY += (26 * 0.3527 * 0.8) + 2;
@@ -57,16 +67,16 @@ export const generarEtiquetas = async (productos, effectiveRate, copEnabled, tas
         doc.setFont("helvetica", "normal");
         doc.setFontSize(12);
 
-        const priceBsRaw = priceUsdRaw * effectiveRate;
-        // Redondeo inteligente de Bs hacia arriba como en Listo POS si se quiere, o exacto.
-        const textBs = `Bs ${Math.ceil(priceBsRaw).toLocaleString('es-VE')}`;
+        // Bs: mulR para conversión, ceilR para entero (política del POS).
+        const priceBsRaw = mulR(priceUsdRaw, effectiveRate);
+        const textBs = `Bs ${ceilR(priceBsRaw).toLocaleString('es-VE')}`;
 
         doc.text(textBs, centerX, safeY, { align: "center", baseline: "top" });
         safeY += (12 * 0.3527 * 0.8) + 1;
 
         if (copEnabled && tasaCop > 0) {
             doc.setFontSize(10);
-            const textSecondary = `USD ${priceUsdRaw.toFixed(2)}`;
+            const textSecondary = `USD ${round2(priceUsdRaw)}`;
             doc.text(textSecondary, centerX, safeY, { align: "center", baseline: "top" });
         }
 
@@ -98,6 +108,9 @@ export const generarEtiquetas = async (productos, effectiveRate, copEnabled, tas
             console.error("Error printing from iframe:", e);
             window.open(blobUrl, '_blank');
         }
-        setTimeout(() => { try { document.body.removeChild(iframe); } catch(e) {} }, 5000);
+        setTimeout(() => {
+            try { document.body.removeChild(iframe); }
+            catch (_e) { /* iframe ya removido — no-op */ }
+        }, 5000);
     };
 };

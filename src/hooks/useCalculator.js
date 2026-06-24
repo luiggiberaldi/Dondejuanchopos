@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 
 import { CurrencyService } from '../services/CurrencyService'; // [NEW]
+import { round2 } from '../utils/dinero'; // FIN-034: round2 consistente.
 
 export function useCalculator(rates) {
   const [amountTop, setAmountTop] = useState('');
@@ -58,11 +59,13 @@ export function useCalculator(rates) {
     setLastEdited('top');
   };
 
+  // FIN-034: handleQuickAdd usaba Math.ceil/toFixed(0) inconsistentes.
+  //   Ahora usamos round2 (consistente con dinero.js y POS). Para VES que exige
+  //   enteros, parseInt sobre round2 trunca a entero sin magic Math.ceil.
   const handleQuickAdd = (val) => {
     const current = CurrencyService.safeParse(amountTop);
     const newVal = current + val;
-    // Aplicar redondeo si la moneda origen es VES
-    const finalVal = from === 'VES' ? Math.ceil(newVal).toString() : newVal.toFixed(0);
+    const finalVal = from === 'VES' ? String(parseInt(round2(newVal), 10)) : String(round2(newVal));
     setAmountTop(finalVal);
     setLastEdited('top');
   };

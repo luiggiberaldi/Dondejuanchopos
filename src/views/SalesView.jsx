@@ -1,3 +1,5 @@
+// v1.2.0: Rebrand al design system "Precios al Día" — colores warm cream + brand cian en elementos inline.
+// Nota: SalesHeader.jsx y CartPanel.jsx son subcomponentes fuera de scope; se migran en P2-P4.
 import { useState, useEffect, useCallback, useRef, useMemo, useDeferredValue } from 'react';
 import { FinancialEngine } from '../core/FinancialEngine';
 import { storageService } from '../utils/storageService';
@@ -555,16 +557,16 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 />
             ) : (
                 <>
-                    {/* ── APERTURA DE CAJA BANNER ── */}
+                    {/* ── APERTURA DE CAJA BANNER — v1.2.0: brand cian en vez de emerald ── */}
                     <div className="shrink-0 mb-3">
-                        <div className="w-full bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-200 dark:border-emerald-800/30 rounded-2xl sm:rounded-3xl p-3 sm:p-4 flex items-center justify-between">
+                        <div className="w-full bg-brand-light dark:bg-surface-700/40 border border-brand/30 dark:border-brand/40 rounded-2xl sm:rounded-3xl p-3 sm:p-4 flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 sm:w-10 sm:h-10 bg-emerald-100 dark:bg-emerald-900/30 rounded-xl flex items-center justify-center">
-                                    <CheckCircle2 size={18} className="text-emerald-500" />
+                                <div className="w-9 h-9 sm:w-10 sm:h-10 bg-brand/20 dark:bg-brand/30 rounded-xl flex items-center justify-center">
+                                    <CheckCircle2 size={18} className="text-brand" />
                                 </div>
                                 <div>
-                                    <p className="text-xs sm:text-sm font-bold text-emerald-700 dark:text-emerald-400">Apertura Registrada</p>
-                                    <p className="text-[10px] sm:text-xs text-emerald-500/70">${todayAperturaData.openingUsd?.toFixed(2)} · Bs {formatBs(todayAperturaData.openingBs || 0)}</p>
+                                    <p className="text-xs sm:text-sm font-bold text-brand-dark dark:text-brand">Apertura Registrada</p>
+                                    <p className="text-[10px] sm:text-xs text-brand/70 dark:text-brand/60">${todayAperturaData.openingUsd?.toFixed(2)} · Bs {formatBs(todayAperturaData.openingBs || 0)}</p>
                                 </div>
                             </div>
                         </div>
@@ -635,18 +637,18 @@ export default function SalesView({ triggerHaptic, isActive }) {
 
             {/* ── Mobile Cart FAB & Bottom Sheet (lg:hidden) ── */}
             <div className="lg:hidden">
-                {/* Floating Action Button */}
+                {/* Floating Action Button — v1.2.0: bg-brand (cian) en vez de emerald */}
                 {cart.length > 0 && !isCartSheetOpen && !showCheckout && !showReceipt && (
                     <button
                         onClick={() => { triggerHaptic && triggerHaptic(); setIsCartSheetOpen(true); }}
-                        className="fixed bottom-[max(5rem,env(safe-area-inset-bottom)+4.5rem)] left-4 right-4 bg-emerald-500 hover:bg-emerald-600 text-white p-4 rounded-2xl shadow-xl shadow-emerald-500/30 flex items-center justify-between z-40 active:scale-95 transition-all animate-in slide-in-from-bottom"
+                        className="fixed bottom-[max(5rem,env(safe-area-inset-bottom)+4.5rem)] left-4 right-4 bg-brand hover:bg-brand-dark text-white p-4 rounded-2xl shadow-primary-tone flex items-center justify-between z-40 active:scale-95 transition-all animate-in slide-in-from-bottom"
                     >
                         <div className="flex items-center gap-3">
                             <div className="bg-white/20 p-2 rounded-xl">
                                 <ShoppingCart size={20} />
                             </div>
                             <div className="text-left">
-                                <div className="text-xs font-bold text-emerald-100 uppercase tracking-wider">Ver Cesta</div>
+                                <div className="text-xs font-bold text-white/80 uppercase tracking-wider">Ver Cesta</div>
                                 <div className="font-black leading-none">{cartItemCount} artículo{cartItemCount !== 1 && 's'}</div>
                             </div>
                         </div>
@@ -656,25 +658,25 @@ export default function SalesView({ triggerHaptic, isActive }) {
                                     ? `${new Intl.NumberFormat('es-CO').format(Math.round(cartTotalCop))} COP`
                                     : `$${cartTotalUsd.toFixed(2)}`}
                             </div>
-                            <div className="text-xs font-bold text-emerald-100 mt-1">Bs {formatBs(cartTotalBs)}</div>
+                            <div className="text-xs font-bold text-white/80 mt-1">Bs {formatBs(cartTotalBs)}</div>
                         </div>
                     </button>
                 )}
 
-                {/* Bottom Sheet Overlay */}
+                {/* Bottom Sheet Overlay — v1.2.0: cart panel con bg-surface-2 */}
                 {isCartSheetOpen && !showCheckout && !showReceipt && (
-                    <div className="fixed inset-0 z-50 flex flex-col justify-end bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200 pb-[max(0px,env(safe-area-inset-bottom))]"
+                    <div className="fixed inset-0 z-50 flex flex-col justify-end bg-surface-950/60 backdrop-blur-sm animate-in fade-in duration-200 pb-[max(0px,env(safe-area-inset-bottom))]"
                          onClick={() => setIsCartSheetOpen(false)}>
-                        <div className="bg-slate-50 dark:bg-slate-950 w-full rounded-t-3xl shadow-2xl flex flex-col max-h-[85vh] animate-in slide-in-from-bottom-full duration-300"
+                        <div className="bg-surface-2 dark:bg-surface-950 w-full rounded-t-3xl shadow-tone-lg flex flex-col max-h-[85vh] animate-in slide-in-from-bottom-full duration-300"
                              onClick={e => e.stopPropagation()}>
                             <div className="shrink-0 flex justify-center pt-3 pb-2" onClick={() => setIsCartSheetOpen(false)}>
-                                <div className="w-12 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full cursor-pointer" />
+                                <div className="w-12 h-1.5 bg-surface-300 dark:bg-surface-700 rounded-full cursor-pointer" />
                             </div>
-                            <div className="shrink-0 px-4 pb-3 flex items-center justify-between border-b border-slate-200 dark:border-slate-800">
-                                <h3 className="font-black text-slate-800 dark:text-white text-lg flex items-center gap-2">
-                                    <ShoppingCart size={20} className="text-emerald-500" /> Cesta Actual
+                            <div className="shrink-0 px-4 pb-3 flex items-center justify-between border-b border-surface-200 dark:border-surface-700">
+                                <h3 className="font-black text-surface-700 dark:text-surface-100 text-lg flex items-center gap-2">
+                                    <ShoppingCart size={20} className="text-brand" /> Cesta Actual
                                 </h3>
-                                <button onClick={() => setIsCartSheetOpen(false)} className="p-2 -mr-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors">
+                                <button onClick={() => setIsCartSheetOpen(false)} className="p-2 -mr-2 text-surface-400 hover:text-surface-600 dark:hover:text-surface-200 transition-colors">
                                     <X size={20} />
                                 </button>
                             </div>

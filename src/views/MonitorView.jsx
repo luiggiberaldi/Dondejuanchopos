@@ -20,8 +20,13 @@ export default function MonitorView({ rates, loading, isOffline, onRefresh, togg
         return diff > 4 * 60 * 60 * 1000; // 4 Hours
     })();
 
-    // Truco para ver logs (7 clics en el logo)
+    // SEC-023: el "debug secreto" (7 clics en el logo para copiar logs) solo
+    // está disponible en desarrollo. En producción el handler se vuelve no-op
+    // para evitar que cualquier usuario final (o atacante con acceso físico)
+    // acceda a logs internos o datos de diagnóstico.
     const handleSecretDebug = () => {
+        // Si no estamos en dev, ignorar completamente los clics.
+        if (!import.meta.env.DEV) return;
         triggerHaptic && triggerHaptic();
         const newCount = secretCount + 1;
         setSecretCount(newCount);
@@ -197,7 +202,7 @@ export default function MonitorView({ rates, loading, isOffline, onRefresh, togg
             <header className="flex items-center justify-between pt-[env(safe-area-inset-top)] pb-2 px-3 sm:px-4 shrink-0" style={{ paddingTop: 'max(env(safe-area-inset-top), 8px)' }}>
                 <div className="flex flex-col items-start gap-0.5">
                     <button onClick={handleSecretDebug} className="active:scale-95 transition-transform outline-none">
-                        <img src={theme === 'dark' ? '/logodark.png' : '/logoprincipal.png'} alt="PreciosAlDía" className="h-14 sm:h-16 w-auto object-contain drop-shadow-sm" />
+                        <img src={theme === 'dark' ? '/logodark.png' : '/logo.png'} alt="PreciosAlDía" className="h-14 sm:h-16 w-auto object-contain drop-shadow-sm" />
                     </button>
                     <div className="flex items-center gap-1.5 pl-3">
                         <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-[0.18em] leading-none">Bodegas</span>
@@ -241,7 +246,7 @@ export default function MonitorView({ rates, loading, isOffline, onRefresh, togg
 
                 {/* Tarjeta Principal BCV */}
                 <div className="relative group shrink-0">
-                    <div className="absolute -inset-0.5 bg-gradient-to-r from-brand/30 to-purple-500/30 rounded-[2.2rem] blur opacity-20 group-hover:opacity-40 transition duration-500"></div>
+                    <div className="absolute -inset-0.5 bg-gradient-to-r from-brand/30 to-brand-dark/30 rounded-[2.2rem] blur opacity-20 group-hover:opacity-40 transition duration-500"></div>
                     <div className="relative bg-white dark:bg-slate-900 rounded-[2rem] p-6 shadow-2xl shadow-slate-200/50 dark:shadow-none border border-slate-100 dark:border-slate-800 overflow-hidden">
                         <div className="absolute top-0 right-0 p-8 opacity-[0.03] dark:opacity-[0.02] transform rotate-12 pointer-events-none"><TrendingUp size={140} /></div>
 

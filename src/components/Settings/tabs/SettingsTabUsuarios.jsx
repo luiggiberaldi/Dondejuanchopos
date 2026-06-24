@@ -11,7 +11,7 @@ export default function SettingsTabUsuarios({
 }) {
     return (
         <div>
-            <SectionCard icon={Users} title="Usuarios y Roles" subtitle="Gestiona quien opera la app" iconColor="text-indigo-500">
+            <SectionCard icon={Users} title="Usuarios y Roles" subtitle="Gestiona quien opera la app" iconColor="text-brand">
                 <UsersManager triggerHaptic={triggerHaptic} />
             </SectionCard>
 

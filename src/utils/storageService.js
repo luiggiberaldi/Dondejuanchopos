@@ -7,8 +7,40 @@ localforage.config({
 });
 
 /**
+ * Cola de reintentos para operaciones que fallaron por QuotaExceededError.
+ * Se procesa cuando el dispositivo recupera espacio (ej: tras clearAllData)
+ * o mediante un flush manual del caller.
+ * @type {Array<{ key: string, value: any, attempts: number }>}
+ */
+const _retryQueue = [];
+
+const QUOTA_RETRY_MAX = 3;
+
+/**
  * Servicio de almacenamiento que previene el límite de 5MB de localStorage
  * Migrando los datos pesados a IndexedDB a través de localforage.
+ *
+ * ── HOOK-004 (lock para writes críticos) ─────────────────────────────────
+ * IMPORTANTE: los callers que realicen read-modify-write sobre claves críticas
+ * (ventas, audit log, cuentas, stock) DEBEN envolver la operación completa en
+ * `withLock` para evitar race conditions entre tabs y entre ráfagas de writes.
+ * Ejemplo:
+ *
+ *   import { withLock } from '../utils/withLock';
+ *   await withLock('pos_write_lock', async () => {
+ *       const sales = await storageService.getItem(SALES_KEY, []);
+ *       sales.push(newSale);
+ *       await storageService.setItem(SALES_KEY, sales);
+ *   });
+ *
+ * `storageService.setItem` por sí solo NO toma el lock — solo garantiza la
+ * escritura atómica en IndexedDB/localStorage, no la coherencia read-write con
+ * otros writers concurrentes.
+ *
+ * ── HOOK-007 (QuotaExceededError) ─────────────────────────────────────────
+ * Cuando IndexedDB y localStorage están llenos, disparamos el evento global
+ * `quota_exceeded` para que la UI avise al usuario y ofrezca limpieza. La
+ * operación fallida se encola para reintento automático cuando haya espacio.
  */
 export const storageService = {
     /**
@@ -88,6 +120,8 @@ export const storageService = {
 
     /**
      * Guarda un item directamente en IndexedDB
+     *
+     * HOOK-007: detecta QuotaExceededError y dispara evento global.
      */
     async setItem(key, value) {
         try {
@@ -100,6 +134,25 @@ export const storageService = {
             // Emitir a la nube silenciosamente de fondo
             pushCloudSync(key, value);
         } catch (error) {
+            if (_isQuotaError(error)) {
+                // HOOK-007: IndexedDB lleno. Avisar a la UI y encolar para reintento.
+                _dispatchQuotaExceeded(key, value, error);
+                // Última esperanza: intentar localStorage (puede que IDB esté lleno pero LS no).
+                try {
+                    localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+                    if (typeof window !== "undefined") {
+                        window.dispatchEvent(new CustomEvent("app_storage_update", { detail: { key } }));
+                    }
+                    console.warn(`[Storage] Quota IndexedDB llena para ${key}, salvado en localStorage como contingencia.`);
+                    return;
+                } catch (lsErr) {
+                    if (_isQuotaError(lsErr)) {
+                        _dispatchQuotaExceeded(key, value, lsErr);
+                    }
+                    console.error(`[Storage CRÍTICO] Ni IndexedDB ni LocalStorage aceptan ${key}. Operación encolada para reintento.`, lsErr);
+                    return;
+                }
+            }
             console.error(`[Storage Error] Guardando ${key}:`, error);
             // Fallback de emergencia a localStorage si falla algo catastrófico
             try {
@@ -148,9 +201,83 @@ export const storageService = {
                 localStorage.removeItem(key);
             }
             console.log('[clearAllData] LocalStorage de la app limpiado.');
+
+            // HOOK-007: tras limpiar, flush de la cola de reintentos por si había ops pendientes.
+            _flushRetryQueue();
         } catch (error) {
             console.error('[Storage Error] Limpiando todo:', error);
             throw error; // Propagar para que el importador aborte si falla la limpieza
         }
-    }
+    },
+
+    /**
+     * Devuelve (copia) el estado actual de la cola de reintentos por QuotaExceeded.
+     * Útil para diagnóstico en UI.
+     * @returns {Array<{ key: string, attempts: number }>}
+     */
+    getPendingRetries() {
+        return _retryQueue.map(({ key, attempts }) => ({ key, attempts }));
+    },
+
+    /**
+     * Reintenta manualmente todas las operaciones encoladas. Devuelve el número
+     * de ops que se lograron persistir.
+     */
+    async flushRetries() {
+        return _flushRetryQueue();
+    },
 };
+
+// ─── Helpers internos (HOOK-007) ─────────────────────────────────────────
+
+function _isQuotaError(err) {
+    if (!err) return false;
+    if (err.name === 'QuotaExceededError') return true;
+    if (err.name === 'NS_ERROR_DOM_QUOTA_REACHED') return true; // Firefox
+    if (err.code === 22 || err.code === 1014) return true; // Legacy codes
+    if (typeof err.message === 'string' && /quota/i.test(err.message)) return true;
+    return false;
+}
+
+function _dispatchQuotaExceeded(key, value, originalError) {
+    // Encolar para reintento
+    _retryQueue.push({ key, value, attempts: 0 });
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('quota_exceeded', {
+            detail: {
+                key,
+                queueLength: _retryQueue.length,
+                message: originalError?.message || 'QuotaExceededError',
+            },
+        }));
+    }
+}
+
+async function _flushRetryQueue() {
+    let flushed = 0;
+    while (_retryQueue.length > 0) {
+        const op = _retryQueue[0];
+        if (op.attempts >= QUOTA_RETRY_MAX) {
+            _retryQueue.shift();
+            console.warn(`[Storage] Descartando op encolada para ${op.key} tras ${QUOTA_RETRY_MAX} intentos.`);
+            continue;
+        }
+        op.attempts++;
+        try {
+            await localforage.setItem(op.key, op.value);
+            _retryQueue.shift();
+            flushed++;
+        } catch (err) {
+            if (_isQuotaError(err)) {
+                // Aún sin espacio; dejar en cola y parar el flush.
+                break;
+            }
+            // Error no relacionado con cuota: descartar para no reintentar indefinidamente.
+            _retryQueue.shift();
+            console.error(`[Storage] Error no-cuota reintentando ${op.key}:`, err);
+        }
+    }
+    return flushed;
+}
+
+export default storageService;

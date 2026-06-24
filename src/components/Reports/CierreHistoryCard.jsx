@@ -124,7 +124,7 @@ export default function CierreHistoryCard({ cierre, bcvRate, products, copEnable
                     <div className="pt-3 mt-1 flex gap-2">
                         <button 
                             onClick={handlePrintPDF}
-                            className="flex-1 py-2.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors active:scale-95"
+                            className="flex-1 py-2.5 bg-brand-light dark:bg-surface-800/20 text-brand-dark dark:text-brand hover:bg-brand-light font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors active:scale-95"
                         >
                             <Printer size={16} /> Re-imprimir PDF
                         </button>

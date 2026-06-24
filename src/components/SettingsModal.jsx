@@ -183,7 +183,7 @@ export default function SettingsModal({ isOpen, onClose, products, onImport, tri
                                 placeholder="Ej: Mi Bodega C.A." 
                                 value={businessName}
                                 onChange={handleNameChange}
-                                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand/50"
                             />
                         </div>
 
@@ -194,7 +194,7 @@ export default function SettingsModal({ isOpen, onClose, products, onImport, tri
                                 placeholder="Ej: J-12345678" 
                                 value={businessRif}
                                 onChange={handleRifChange}
-                                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand/50"
                             />
                         </div>
 
@@ -203,13 +203,13 @@ export default function SettingsModal({ isOpen, onClose, products, onImport, tri
                             <div className="grid grid-cols-2 gap-2">
                                 <button
                                     onClick={() => setPaperWidth('58')}
-                                    className={`py-2 px-3 text-xs font-bold rounded-lg transition-colors border ${paperWidth === '58' ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-500 text-indigo-700 dark:text-indigo-300' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                                    className={`py-2 px-3 text-xs font-bold rounded-lg transition-colors border ${paperWidth === '58' ? 'bg-brand-light dark:bg-surface-800/30 border-brand text-brand-dark dark:text-brand' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
                                 >
                                     58 mm (Pequeña)
                                 </button>
                                 <button
                                     onClick={() => setPaperWidth('80')}
-                                    className={`py-2 px-3 text-xs font-bold rounded-lg transition-colors border ${paperWidth === '80' ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-500 text-indigo-700 dark:text-indigo-300' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                                    className={`py-2 px-3 text-xs font-bold rounded-lg transition-colors border ${paperWidth === '80' ? 'bg-brand-light dark:bg-surface-800/30 border-brand text-brand-dark dark:text-brand' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
                                 >
                                     80 mm (Estándar)
                                 </button>
@@ -332,8 +332,8 @@ export default function SettingsModal({ isOpen, onClose, products, onImport, tri
                             onClick={() => { onClose(); setTimeout(() => onImport(), 100); }}
                             className="w-full flex items-center gap-3 p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group"
                         >
-                            <div className="p-2 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg group-hover:bg-indigo-100 dark:group-hover:bg-indigo-900/50 transition-colors">
-                                <Share2 size={20} className="text-indigo-500 dark:text-indigo-400" />
+                            <div className="p-2 bg-brand-light dark:bg-surface-800/30 rounded-lg group-hover:bg-brand-light dark:group-hover:bg-surface-800/50 transition-colors">
+                                <Share2 size={20} className="text-brand dark:text-brand" />
                             </div>
                             <div className="text-left flex-1">
                                 <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Compartir Inventario</p>
@@ -354,8 +354,8 @@ export default function SettingsModal({ isOpen, onClose, products, onImport, tri
                             onClick={handleExport}
                             className="w-full flex items-center gap-3 p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group"
                         >
-                            <div className="p-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg group-hover:bg-blue-100 dark:group-hover:bg-blue-900/50 transition-colors">
-                                <Download size={20} className="text-blue-500 dark:text-blue-400" />
+                            <div className="p-2 bg-brand-light dark:bg-surface-800/30 rounded-lg group-hover:bg-brand-light dark:group-hover:bg-surface-800/50 transition-colors">
+                                <Download size={20} className="text-brand dark:text-brand" />
                             </div>
                             <div className="text-left flex-1">
                                 <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Exportar Backup</p>

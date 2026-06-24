@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, Suspense, lazy } from 'react';
-import { Home, ShoppingCart, Store, Users, Download, FlaskConical, Moon, Sun, BarChart3, WifiOff, X } from 'lucide-react';
+import { Home, ShoppingCart, Store, Users, Download, FlaskConical, Moon, Sun, BarChart3, WifiOff, X, Settings } from 'lucide-react';
 
 import DashboardView from './views/DashboardView';
 
@@ -70,7 +70,7 @@ export default function App() {
   const [adminClicks, setAdminClicks] = useState(0);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showTester, setShowTester] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
+
   
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
@@ -110,8 +110,15 @@ export default function App() {
 
   useEffect(() => {
     const root = window.document.documentElement;
-    if (theme === 'dark') root.classList.add('dark');
-    else root.classList.remove('dark');
+    // v1.2.0: actualizar AMBOS class (.dark) y data-theme attribute para compat
+    // con Tailwind darkMode y con CSS del styleguide ([data-theme="dark"]).
+    if (theme === 'dark') {
+      root.classList.add('dark');
+      root.setAttribute('data-theme', 'dark');
+    } else {
+      root.classList.remove('dark');
+      root.setAttribute('data-theme', 'light');
+    }
     localStorage.setItem('theme', theme);
 
     // Apply saved UI scale
@@ -120,9 +127,9 @@ export default function App() {
       root.style.zoom = `${savedScale}%`;
     }
 
-    // Update theme-color meta for mobile browsers
+    // Update theme-color meta: cian #01696f (light) / carbón #1a1917 (dark)
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', theme === 'dark' ? '#0f172a' : '#f8fafc');
+    if (meta) meta.setAttribute('content', theme === 'dark' ? '#1a1917' : '#01696f');
   }, [theme]);
 
   const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');
@@ -185,6 +192,7 @@ export default function App() {
     { id: 'catalogo', label: 'Inventario', icon: Store, premiumOnly: true },
     { id: 'clientes', label: 'Contactos', icon: Users },
     { id: 'reportes', label: 'Reportes', icon: BarChart3, adminOnly: true },
+    { id: 'ajustes', label: 'Ajustes', icon: Settings, adminOnly: true },
   ];
   const TABS = ALL_TABS.filter(tab =>
     (!tab.premiumOnly || isPremium) && (!tab.adminOnly || !isCajero)
@@ -290,7 +298,7 @@ export default function App() {
 
         <div className={`flex-1 flex flex-col ${activeTab === 'inicio' ? '' : 'hidden'}`}>
           <ErrorBoundary>
-            <DashboardView rates={rates} triggerHaptic={triggerHaptic} onNavigate={(tab) => { if (tab === 'ajustes') { if (!isCajero) setShowSettings(true); } else { setActiveTab(tab); } }} theme={theme} toggleTheme={toggleTheme} isActive={activeTab === 'inicio'} isDemo={isDemo} demoTimeLeft={demoTimeLeft} />
+            <DashboardView rates={rates} triggerHaptic={triggerHaptic} onNavigate={(tab) => { if (tab === 'ajustes') { if (!isCajero) setActiveTab('ajustes'); } else { setActiveTab(tab); } }} theme={theme} toggleTheme={toggleTheme} isActive={activeTab === 'inicio'} isDemo={isDemo} demoTimeLeft={demoTimeLeft} />
           </ErrorBoundary>
         </div>
 
@@ -314,20 +322,20 @@ export default function App() {
               </ErrorBoundary>
             </div>
           )}
+          {(activeTab === 'ajustes' || mountedViews.ajustes) && (
+            <div data-view="ajustes" className={`flex-1 flex flex-col ${activeTab === 'ajustes' ? '' : 'hidden'}`}>
+              <ErrorBoundary>
+                <SettingsView
+                  theme={theme}
+                  toggleTheme={toggleTheme}
+                  triggerHaptic={triggerHaptic}
+                  isTab={true}
+                />
+              </ErrorBoundary>
+            </div>
+          )}
         </Suspense>
       </main>
-
-      {/* Settings View Overlay — inside providers for context access */}
-      {showSettings && (
-        <Suspense fallback={<div className="fixed inset-0 z-[150] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center"><div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-xl w-80 flex flex-col items-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500 mb-2"></div><span className="text-xs text-slate-500">Cargando ajustes...</span></div></div>}>
-          <SettingsView
-            onClose={() => setShowSettings(false)}
-            theme={theme}
-            toggleTheme={toggleTheme}
-            triggerHaptic={triggerHaptic}
-          />
-        </Suspense>
-      )}
 
       </ProductProvider>
       </CartProvider>
@@ -396,11 +404,11 @@ export default function App() {
             </div>
             <div className="space-y-4">
               <div className="flex items-start gap-3">
-                <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center shrink-0 text-blue-600 font-bold text-sm">1</div>
+                <div className="w-8 h-8 bg-brand-light dark:bg-surface-800/30 rounded-full flex items-center justify-center shrink-0 text-brand-dark font-bold text-sm">1</div>
                 <p className="text-sm text-slate-600 dark:text-slate-300">Toca el botón <strong>Compartir</strong> <span className="inline-block w-5 h-5 align-middle">⬆️</span> en la barra de Safari</p>
               </div>
               <div className="flex items-start gap-3">
-                <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center shrink-0 text-blue-600 font-bold text-sm">2</div>
+                <div className="w-8 h-8 bg-brand-light dark:bg-surface-800/30 rounded-full flex items-center justify-center shrink-0 text-brand-dark font-bold text-sm">2</div>
                 <p className="text-sm text-slate-600 dark:text-slate-300">Busca y toca <strong>"Agregar a la pantalla de inicio"</strong></p>
               </div>
               <div className="flex items-start gap-3">
@@ -421,14 +429,14 @@ export default function App() {
           <div className="bg-slate-900 border border-slate-700 w-full max-w-sm rounded-2xl p-6 shadow-2xl">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                <FlaskConical className="text-indigo-400" /> Panel Dev
+                <FlaskConical className="text-brand" /> Panel Dev
               </h2>
               <button onClick={() => setShowAdminPanel(false)} className="text-slate-400 hover:text-white">✕</button>
             </div>
 
             <button
               onClick={() => { triggerHaptic(); setShowTester(true); setShowAdminPanel(false); }}
-              className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-lg text-sm uppercase tracking-wider transition-colors"
+              className="w-full bg-brand-dark hover:bg-brand text-white font-bold py-3 rounded-lg text-sm uppercase tracking-wider transition-colors"
             >
               🚀 Abrir Tester
             </button>

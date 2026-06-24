@@ -33,6 +33,10 @@ export function useRates() {
     const [logs, setLogs] = useState([]);
 
     const ratesRef = useRef(rates);
+    // HOOK-016: Ref para isOffline, evita stale-closure dentro de updateData
+    // (que tiene useCallback con deps mínimas para no re-crear el interval).
+    const isOfflineRef = useRef(isOffline);
+    useEffect(() => { isOfflineRef.current = isOffline; }, [isOffline]);
 
     useEffect(() => {
         ratesRef.current = rates;
@@ -88,6 +92,34 @@ export function useRates() {
                     if (i < retries) { await new Promise(r => setTimeout(r, 1000)); continue; }
                     return null;
                 }
+            }
+            return null;
+        };
+
+        // HOOK-015: Fetch con backoff exponencial (1s, 2s, 4s) + jitter.
+        // Máximo 3 reintentos. Usa AbortController con timeout de 8s por intento.
+        const fetchWithBackoff = async (url, maxRetries = 3) => {
+            for (let attempt = 0; attempt <= maxRetries; attempt++) {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000);
+                try {
+                    const res = await fetch(url, { signal: controller.signal });
+                    clearTimeout(timeoutId);
+                    if (!res.ok) {
+                        // 4xx/5xx: si es el último intento, salir; si no, backoff.
+                        if (attempt >= maxRetries) return null;
+                    } else {
+                        return await res.json();
+                    }
+                } catch (e) {
+                    clearTimeout(timeoutId);
+                    if (attempt >= maxRetries) return null;
+                    // Errores de red / abort: backoff y reintento.
+                }
+                // Backoff exponencial: 1s, 2s, 4s + jitter (0-300ms).
+                const baseDelay = Math.pow(2, attempt) * 1000; // 1000, 2000, 4000
+                const jitter = Math.floor(Math.random() * 300);
+                await new Promise((r) => setTimeout(r, baseDelay + jitter));
             }
             return null;
         };
@@ -176,19 +208,30 @@ export function useRates() {
                 let apiEuroChange = typeof rawEuro === 'object' ? rawEuro.change : null;
 
                 // Validación de magnitud: si el precio es irrazonablemente bajo o alto, corregir
-                const validateMagnitude = (val) => {
+                // HOOK-017: Pasar rango esperado como parámetro para no corromper COP u otras
+                // tasas con rangos muy distintos al BCV (que está entre 10 y 200).
+                const validateMagnitude = (val, min = 10, max = 200) => {
                     if (!val || val <= 0) return val;
-                    // Las tasas BCV venezolanas están típicamente entre 10 y 200
-                    if (val < 1) {
-                        while (val < 10) val *= 10;
-                    } else if (val > 1000) {
-                        while (val > 200) val /= 10;
+                    // Si el valor está por debajo del mínimo esperado, multiplicar por 10 hasta entrar.
+                    if (val < min) {
+                        let v = val;
+                        // Salvaguarda: máximo 6 iteraciones para no loopear infinito si el dato es basura.
+                        let guard = 0;
+                        while (v < min && guard < 6) { v *= 10; guard++; }
+                        return v;
+                    }
+                    // Si está por encima del máximo esperado, dividir por 10 hasta entrar.
+                    if (val > max) {
+                        let v = val;
+                        let guard = 0;
+                        while (v > max && guard < 6) { v /= 10; guard++; }
+                        return v;
                     }
                     return val;
                 };
 
-                newBcvPrice = validateMagnitude(bcvP);
-                newEuroPrice = validateMagnitude(euroP);
+                newBcvPrice = validateMagnitude(bcvP, 10, 200);
+                newEuroPrice = validateMagnitude(euroP, 10, 250);
 
                 if (newBcvPrice > 0) {
                     const meta = getMeta(newBcvPrice, newRates.bcv.price, newRates.bcv.change, apiBcvChange);
@@ -232,6 +275,16 @@ export function useRates() {
             newRates.lastUpdate = new Date();
             setRates(newRates);
             if (!isAutoUpdate) addLog("Actualización completada", 'success');
+
+            // HOOK-016: Si después de todo el flujo el BCV sigue siendo 0 o inválido,
+            // marcar offline para que la UI muestre indicador de modo degradado.
+            if (!(newRates.bcv?.price > 0)) {
+                setIsOffline(true);
+                if (!isAutoUpdate) addLog("Sin tasa BCV válida, modo offline", 'warning');
+            } else if (isOfflineRef.current) {
+                // Recuperamos tasa válida → salir de modo offline.
+                setIsOffline(false);
+            }
 
         } catch (e) {
             console.error(e);

@@ -3,8 +3,8 @@ import { ChevronDown, UserPlus, Check, Search, X, User } from 'lucide-react';
 import { formatBs } from '../../utils/calculatorUtils';
 
 const AVATAR_COLORS = [
-    'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
-    'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300',
+    'bg-brand-light text-brand-dark dark:bg-surface-800/40 dark:text-brand',
+    'bg-brand-dark text-brand dark:bg-brand-dark/40 dark:text-brand',
     'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
     'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300',
     'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',
@@ -191,7 +191,7 @@ export default function CheckoutCustomerPicker({
                                         Teléfono
                                     </label>
                                     <div className="w-full flex items-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus-within:ring-2 focus-within:ring-emerald-500/50 transition-all overflow-hidden">
-                                        <span className="px-2 py-2.5 text-[10px] font-black text-blue-500 border-r border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 shrink-0 select-none">+58</span>
+                                        <span className="px-2 py-2.5 text-[10px] font-black text-brand border-r border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 shrink-0 select-none">+58</span>
                                         <input
                                             type="tel"
                                             placeholder="0412…"

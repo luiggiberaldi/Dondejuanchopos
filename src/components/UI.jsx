@@ -11,7 +11,7 @@ export const Badge = ({ children, color = "slate", className = "" }) => {
   const colors = {
     slate: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
     emerald: "bg-emerald-50 text-emerald-600 border border-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800",
-    indigo: "bg-indigo-50 text-indigo-600 border border-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800",
+    indigo: "bg-brand-light text-brand-dark border border-surface-200 dark:bg-surface-800/30 dark:text-brand dark:border-surface-800",
     amber: "bg-amber-50 text-amber-600 border border-amber-100 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800",
   };
   return (

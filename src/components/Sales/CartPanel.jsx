@@ -103,13 +103,13 @@ export default function CartPanel({
                                                         <>
                                                             <p className="text-[10px] sm:text-[11px] font-black text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1 sm:px-1.5 rounded">{formatCop(item.priceCop || Math.round(item.priceUsd * tasaCop))} COP</p>
                                                             <p className="text-[10px] sm:text-[11px] font-bold text-emerald-600">${item.priceUsd.toFixed(2)}</p>
-                                                            <p className="text-[10px] sm:text-[11px] font-bold text-blue-500 dark:text-blue-400">{item.exactBs != null ? formatBs(item.exactBs) : formatBs(mulR(item.priceUsd, effectiveRate))} Bs</p>
+                                                            <p className="text-[10px] sm:text-[11px] font-bold text-brand dark:text-brand">{item.exactBs != null ? formatBs(item.exactBs) : formatBs(mulR(item.priceUsd, effectiveRate))} Bs</p>
                                                         </>
                                                     ) : (
                                                         <>
                                                             <p className="text-[10px] sm:text-[11px] font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 px-1 sm:px-1.5 rounded">${item.priceUsd.toFixed(2)}</p>
                                                             <p className="text-[10px] sm:text-[11px] font-bold text-amber-600 dark:text-amber-400">{formatCop(item.priceCop || Math.round(item.priceUsd * tasaCop))} COP</p>
-                                                            <p className="text-[10px] sm:text-[11px] font-bold text-blue-500 dark:text-blue-400">{item.exactBs != null ? formatBs(item.exactBs) : formatBs(mulR(item.priceUsd, effectiveRate))} Bs</p>
+                                                            <p className="text-[10px] sm:text-[11px] font-bold text-brand dark:text-brand">{item.exactBs != null ? formatBs(item.exactBs) : formatBs(mulR(item.priceUsd, effectiveRate))} Bs</p>
                                                         </>
                                                     )
                                                 ) : (
@@ -132,7 +132,7 @@ export default function CartPanel({
                                                 <p className="text-[10px] font-medium text-right leading-tight">
                                                     <span className="text-emerald-600 dark:text-emerald-400 font-bold">${mulR(item.priceUsd, item.qty).toFixed(2)}</span>
                                                     <span className="text-slate-300 mx-0.5">|</span>
-                                                    <span className="text-blue-500 dark:text-blue-400 font-bold">{formatBs(mulR(item.priceUsd, item.qty) * effectiveRate)} Bs</span>
+                                                    <span className="text-brand dark:text-brand font-bold">{formatBs(mulR(item.priceUsd, item.qty) * effectiveRate)} Bs</span>
                                                 </p>
                                             </>
                                         ) : (
@@ -144,7 +144,7 @@ export default function CartPanel({
                                                     <p className="text-[10px] font-medium text-right leading-tight">
                                                         <span className="text-amber-600 dark:text-amber-400 font-bold">{formatCop((item.priceCop || Math.round(item.priceUsd * tasaCop)) * item.qty)} COP</span>
                                                         <span className="text-slate-300 mx-0.5">|</span>
-                                                        <span className="text-blue-500 dark:text-blue-400 font-bold">{formatBs(mulR(item.priceUsd, item.qty) * effectiveRate)} Bs</span>
+                                                        <span className="text-brand dark:text-brand font-bold">{formatBs(mulR(item.priceUsd, item.qty) * effectiveRate)} Bs</span>
                                                     </p>
                                                 )}
                                             </>
@@ -250,7 +250,7 @@ export default function CartPanel({
                                 <p className="text-[11px] font-bold text-right sm:text-right">
                                     <span className="text-emerald-600 dark:text-emerald-400">${cartTotalUsd.toFixed(2)}</span>
                                     <span className="text-slate-300 mx-1">|</span>
-                                    <span className="text-blue-500 dark:text-blue-400">{formatBs(cartTotalBs)} Bs</span>
+                                    <span className="text-brand dark:text-brand">{formatBs(cartTotalBs)} Bs</span>
                                 </p>
                             </>
                         ) : (
@@ -262,7 +262,7 @@ export default function CartPanel({
                                     <p className="text-[11px] font-bold text-right sm:text-right">
                                         <span className="text-amber-600 dark:text-amber-400">{formatCop(cartTotalCop || Math.round(cartTotalUsd * tasaCop))} COP</span>
                                         <span className="text-slate-300 mx-1">|</span>
-                                        <span className="text-blue-500 dark:text-blue-400">{formatBs(cartTotalBs)} Bs</span>
+                                        <span className="text-brand dark:text-brand">{formatBs(cartTotalBs)} Bs</span>
                                     </p>
                                 )}
                             </>

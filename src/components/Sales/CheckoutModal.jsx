@@ -265,11 +265,11 @@ export default function CheckoutModal({
                                             setChangeBsGiven(v);
                                             setChangeUsdGiven(Math.max(0, subR(changeUsd, divR(bs, effectiveRate))).toFixed(2));
                                         }}
-                                        className="w-full py-1.5 pl-2.5 pr-14 rounded-lg border border-blue-200 dark:border-blue-700 bg-white dark:bg-slate-900 font-bold text-xs text-slate-800 dark:text-white outline-none focus:ring-1 focus:ring-blue-500"
+                                        className="w-full py-1.5 pl-2.5 pr-14 rounded-lg border border-surface-300 dark:border-surface-700 bg-white dark:bg-slate-900 font-bold text-xs text-slate-800 dark:text-white outline-none focus:ring-1 focus:ring-brand"
                                     />
                                     <button
                                         onClick={() => { setChangeUsdGiven('0'); setChangeBsGiven(mulR(changeUsd, effectiveRate).toFixed(0)); }}
-                                        className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] font-black bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded hover:bg-blue-200 active:scale-95 transition-all"
+                                        className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] font-black bg-brand-light dark:bg-surface-800/40 text-brand-dark dark:text-brand px-1.5 py-0.5 rounded hover:bg-brand-light active:scale-95 transition-all"
                                     >
                                         Todo Bs
                                     </button>

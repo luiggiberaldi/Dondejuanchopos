@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+// v1.2.0: useReveal hook para animaciones reveal-on-scroll (design system "Precios al Día")
+import { useReveal } from '../hooks/useReveal';
 import { Users, Plus, Search, User, X, Trash2, Pencil, Phone, RefreshCw, Save, ArrowDownRight, ArrowUpRight, Clock, CheckCircle2, CreditCard, ShoppingBag, Truck } from 'lucide-react';
 import { storageService } from '../utils/storageService';
 import { showToast } from '../components/Toast';
@@ -21,6 +23,8 @@ import { AddSupplierModal, AddInvoiceModal, PayInvoiceModal, SupplierDetailsShee
 import { getActivePaymentMethods } from '../config/paymentMethods';
 
 export default function CustomersView({ triggerHaptic, rates, isActive }) {
+    // v1.2.0: reveal-on-scroll para header, filtros y lista de tarjetas.
+    const revealRef = useReveal();
     const [customers, setCustomers] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterType, setFilterType] = useState('all'); // 'all' | 'deuda' | 'favor'
@@ -171,22 +175,23 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
 
     if (activeTab === 'proveedores') {
         return (
-            <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 overflow-hidden relative">
+            // v1.2.0: revealRef reutilizado + surface tokens (warm cream).
+            <div ref={revealRef} className="flex flex-col h-full bg-surface-50 dark:bg-surface-950 overflow-hidden relative">
                 {/* Segmented Control Premium */}
-                <div className="px-3 sm:px-6 pt-3 sm:pt-6 shrink-0 z-10 bg-slate-50/80 dark:bg-slate-950/80 backdrop-blur-xl">
-                    <div className="flex bg-slate-200/50 dark:bg-slate-800/80 p-1.5 rounded-2xl shadow-inner">
+                <div className="px-3 sm:px-6 pt-3 sm:pt-6 shrink-0 z-10 bg-surface-50/80 dark:bg-surface-950/80 backdrop-blur-xl">
+                    <div className="flex bg-surface-200/50 dark:bg-surface-800/80 p-1.5 rounded-2xl shadow-inner">
                         <button
                             onClick={() => { setActiveTab('clientes'); triggerHaptic && triggerHaptic(); }}
-                            className={`flex flex-1 items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'clientes' ? 'bg-white dark:bg-slate-900 shadow-sm text-blue-600 dark:text-blue-400 scale-100' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 scale-95 hover:scale-100'}`}
+                            className={`flex flex-1 items-center justify-center gap-2 py-2.5 min-h-[40px] text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'clientes' ? 'bg-surface dark:bg-surface-900 shadow-tone-sm text-brand-dark dark:text-brand scale-100' : 'text-surface-500 hover:text-surface-700 dark:hover:text-surface-300 scale-95 hover:scale-100'}`}
                         >
-                            <Users size={18} /> Clientes
+                            <Users size={18} aria-hidden="true" /> Clientes
                         </button>
                         {!isCajero && (
                             <button
                                 onClick={() => { setActiveTab('proveedores'); triggerHaptic && triggerHaptic(); }}
-                                className={`flex flex-1 items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'proveedores' ? 'bg-white dark:bg-slate-900 shadow-sm text-purple-600 dark:text-purple-400 scale-100 ring-1 ring-slate-900/5 dark:ring-white/10' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 scale-95 hover:scale-100'}`}
+                                className={`flex flex-1 items-center justify-center gap-2 py-2.5 min-h-[40px] text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'proveedores' ? 'bg-surface dark:bg-surface-900 shadow-tone-sm text-brand dark:text-brand scale-100 ring-1 ring-surface-900/5 dark:ring-white/10' : 'text-surface-500 hover:text-surface-700 dark:hover:text-surface-300 scale-95 hover:scale-100'}`}
                             >
-                                <Truck size={18} /> Proveedores
+                                <Truck size={18} aria-hidden="true" /> Proveedores
                             </button>
                         )}
                     </div>
@@ -263,22 +268,23 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
     }
 
     return (
-        <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 overflow-hidden relative">
+        // v1.2.0: revealRef + surface tokens (warm cream).
+        <div ref={revealRef} className="flex flex-col h-full bg-surface-50 dark:bg-surface-950 overflow-hidden relative">
             {/* Segmented Control Premium */}
-            <div className="px-3 sm:px-6 pt-3 sm:pt-6 shrink-0 z-10 bg-slate-50/80 dark:bg-slate-950/80 backdrop-blur-xl">
-                <div className="flex bg-slate-200/50 dark:bg-slate-800/80 p-1.5 rounded-2xl shadow-inner">
+            <div className="px-3 sm:px-6 pt-3 sm:pt-6 shrink-0 z-10 bg-surface-50/80 dark:bg-surface-950/80 backdrop-blur-xl">
+                <div className="flex bg-surface-200/50 dark:bg-surface-800/80 p-1.5 rounded-2xl shadow-inner">
                     <button
                         onClick={() => { setActiveTab('clientes'); triggerHaptic && triggerHaptic(); }}
-                        className={`flex flex-1 items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'clientes' ? 'bg-white dark:bg-slate-900 shadow-sm text-blue-600 dark:text-blue-400 scale-100 ring-1 ring-slate-900/5 dark:ring-white/10' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 scale-95 hover:scale-100'}`}
+                        className={`flex flex-1 items-center justify-center gap-2 py-2.5 min-h-[40px] text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'clientes' ? 'bg-surface dark:bg-surface-900 shadow-tone-sm text-brand-dark dark:text-brand scale-100 ring-1 ring-surface-900/5 dark:ring-white/10' : 'text-surface-500 hover:text-surface-700 dark:hover:text-surface-300 scale-95 hover:scale-100'}`}
                     >
-                        <Users size={18} /> Clientes
+                        <Users size={18} aria-hidden="true" /> Clientes
                     </button>
                     {!isCajero && (
                         <button
                             onClick={() => { setActiveTab('proveedores'); triggerHaptic && triggerHaptic(); }}
-                            className={`flex flex-1 items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'proveedores' ? 'bg-white dark:bg-slate-900 shadow-sm text-purple-600 dark:text-purple-400 scale-100' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 scale-95 hover:scale-100'}`}
+                            className={`flex flex-1 items-center justify-center gap-2 py-2.5 min-h-[40px] text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'proveedores' ? 'bg-surface dark:bg-surface-900 shadow-tone-sm text-brand dark:text-brand scale-100' : 'text-surface-500 hover:text-surface-700 dark:hover:text-surface-300 scale-95 hover:scale-100'}`}
                         >
-                            <Truck size={18} /> Proveedores
+                            <Truck size={18} aria-hidden="true" /> Proveedores
                         </button>
                     )}
                 </div>
@@ -286,54 +292,57 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
 
             <div className="flex-1 overflow-y-auto scrollbar-hide p-3 sm:p-6 pb-20">
                 {/* Header Clientes */}
-            <div className="shrink-0 mb-5 flex justify-between items-start">
+            <div className="reveal shrink-0 mb-5 flex justify-between items-start">
                 <div>
-                    <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
-                        <Users size={26} className="text-blue-500" /> Contactos
+                    {/* v1.2.0: text-surface-700 en vez de slate-700 (warm tone) */}
+                    <h2 className="text-2xl font-black text-surface-700 dark:text-white tracking-tight flex items-center gap-2">
+                        <Users size={26} className="text-brand" aria-hidden="true" /> Contactos
                     </h2>
-                    <p className="text-sm text-slate-400 font-medium ml-1">
+                    <p className="text-sm text-surface-400 font-medium ml-1">
                         Deudas y Saldos a Favor
                     </p>
                 </div>
+                {/* v1.2.0: touch target ≥ 48px + shadow-primary-tone */}
                 <button
                     onClick={() => { triggerHaptic(); setIsAddModalOpen(true); }}
-                    className="p-3 bg-blue-500 text-white rounded-2xl shadow-sm hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
+                    className="p-3 min-h-[48px] bg-brand text-white rounded-2xl shadow-primary-tone hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
                 >
-                    <Plus size={20} className="shrink-0" />
+                    <Plus size={20} className="shrink-0" aria-hidden="true" />
                     <span className="text-sm font-bold hidden sm:inline">Nuevo Contacto</span>
                 </button>
             </div>
 
             {/* Búsqueda y Filtros */}
-            <div className="mb-5 shrink-0 flex flex-col gap-3">
+            <div className="reveal mb-5 shrink-0 flex flex-col gap-3">
                 <div className="relative">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-surface-400" size={20} aria-hidden="true" />
                     <input
                         type="text"
                         placeholder="Buscar cliente..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl py-3.5 pl-11 pr-4 text-slate-800 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 shadow-sm"
+                        className="input w-full bg-surface dark:bg-surface-900 border border-surface-200 dark:border-surface-800 rounded-2xl pl-11 pr-4 text-surface-700 dark:text-white placeholder:text-surface-400 focus:ring-2 focus:ring-brand/50 shadow-tone-sm"
                     />
                 </div>
                 {/* Filtros tipo Chips */}
+                {/* v1.2.0: chips con min-h-[40px] (a11y) + surface tokens + .badge classes opcional. */}
                 <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1">
-                    <button 
+                    <button
                         onClick={() => { setFilterType('all'); triggerHaptic && triggerHaptic(); }}
-                        className={`px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap transition-colors ${filterType === 'all' ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/30' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800'}`}
+                        className={`px-4 py-2 min-h-[40px] rounded-full text-sm font-bold whitespace-nowrap transition-colors ${filterType === 'all' ? 'bg-brand text-white shadow-primary-tone' : 'bg-surface dark:bg-surface-900 text-surface-600 dark:text-surface-400 border border-surface-200 dark:border-surface-800'}`}
                     >
                         Todos
                     </button>
-                    <button 
+                    <button
                         onClick={() => { setFilterType('deuda'); triggerHaptic && triggerHaptic(); }}
-                        className={`px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap transition-colors flex items-center gap-1.5 ${filterType === 'deuda' ? 'bg-red-500 text-white shadow-sm shadow-red-500/30' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800'}`}
+                        className={`px-4 py-2 min-h-[40px] rounded-full text-sm font-bold whitespace-nowrap transition-colors flex items-center gap-1.5 ${filterType === 'deuda' ? 'bg-red-500 text-white shadow-tone-sm' : 'bg-surface dark:bg-surface-900 text-surface-600 dark:text-surface-400 border border-surface-200 dark:border-surface-800'}`}
                     >
                         <div className={`w-2 h-2 rounded-full ${filterType === 'deuda' ? 'bg-white' : 'bg-red-500'}`}></div>
                         Con Deuda
                     </button>
-                    <button 
+                    <button
                         onClick={() => { setFilterType('favor'); triggerHaptic && triggerHaptic(); }}
-                        className={`px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap transition-colors flex items-center gap-1.5 ${filterType === 'favor' ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800'}`}
+                        className={`px-4 py-2 min-h-[40px] rounded-full text-sm font-bold whitespace-nowrap transition-colors flex items-center gap-1.5 ${filterType === 'favor' ? 'bg-emerald-500 text-white shadow-tone-sm' : 'bg-surface dark:bg-surface-900 text-surface-600 dark:text-surface-400 border border-surface-200 dark:border-surface-800'}`}
                     >
                         <div className={`w-2 h-2 rounded-full ${filterType === 'favor' ? 'bg-white' : 'bg-emerald-500'}`}></div>
                         Saldo a Favor
@@ -508,27 +517,29 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
 // ─── Sub-componente: Tarjeta Compacta ───────────────────────
 function CustomerCard({ customer, bcvRate, tasaCop, copEnabled, copPrimary, onClick, onDelete }) {
     return (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl px-4 py-3 border border-slate-100 dark:border-slate-800 shadow-sm transition-all active:scale-[0.98] flex items-center gap-2 relative">
-            <div 
+        // v1.2.0: surface tokens + shadow-tone-sm (warm shadow) en vez de shadow-sm.
+        <article className="reveal bg-surface dark:bg-surface-900 rounded-2xl px-4 py-3 border border-surface-200 dark:border-surface-800 shadow-tone-sm transition-all active:scale-[0.98] flex items-center gap-2 relative">
+            <div
                 onClick={onClick}
                 className="flex-1 min-w-0 flex items-center gap-3 cursor-pointer"
             >
-                <div className="w-11 h-11 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
-                    <span className="text-lg font-black text-blue-600 dark:text-blue-400">
+                <div className="w-11 h-11 rounded-full bg-brand-light dark:bg-surface-800/30 flex items-center justify-center shrink-0">
+                    <span className="text-lg font-black text-brand-dark dark:text-brand">
                         {customer.name.charAt(0).toUpperCase()}
                     </span>
                 </div>
                 <div className="flex-1 min-w-0">
-                    <h3 className="font-bold text-slate-800 dark:text-white text-sm truncate">{customer.name}</h3>
+                    <h3 className="font-bold text-surface-700 dark:text-white text-sm truncate">{customer.name}</h3>
                     <div className="flex items-center gap-2 mt-0.5">
                         {customer.documentId && (
-                            <p className="text-[10px] font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                            // v1.2.0: .badge class (design system) en vez de clases Tailwind ad-hoc.
+                            <p className="badge !text-[10px] !py-0.5 !px-1.5">
                                 {customer.documentId}
                             </p>
                         )}
                         {customer.phone && (
-                            <p className="text-[10px] text-slate-400 flex items-center gap-1">
-                                <Phone size={10} /> {customer.phone}
+                            <p className="text-[10px] text-surface-400 flex items-center gap-1">
+                                <Phone size={10} aria-hidden="true" /> {customer.phone}
                             </p>
                         )}
                     </div>
@@ -557,24 +568,27 @@ function CustomerCard({ customer, bcvRate, tasaCop, copEnabled, copPrimary, onCl
                             {copEnabled && !copPrimary && tasaCop > 0 && <p className="text-[10px] font-bold text-emerald-400/90">+{formatCop(customer.favor * tasaCop)} COP</p>}
                         </>
                     ) : (
-                        <p className="text-xs font-bold text-slate-400 flex items-center gap-1">
-                            <CheckCircle2 size={12} className="text-emerald-400" /> Al día
-                        </p>
+                        // v1.2.0: badge-success class para "Al día".
+                        <span className="badge badge-success !text-xs">
+                            <CheckCircle2 size={12} aria-hidden="true" /> Al día
+                        </span>
                     )}
                 </div>
             </div>
             {onDelete && (
+                // v1.2.0: touch target ≥ 48px (a11y WCAG AA).
                 <button
                     onClick={(e) => {
                         e.stopPropagation();
                         onDelete();
                     }}
-                    className="p-2 shrink-0 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors active:scale-95 z-10"
+                    aria-label="Eliminar contacto"
+                    className="p-2 min-h-[48px] min-w-[48px] flex items-center justify-center shrink-0 text-surface-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors active:scale-95 z-10"
                 >
-                    <Trash2 size={16} />
+                    <Trash2 size={16} aria-hidden="true" />
                 </button>
             )}
-        </div>
+        </article>
     );
 }
 
@@ -587,49 +601,54 @@ function CustomerDetailSheet({ customer, isOpen, isAdmin, onClose, onAjustar, on
         : null;
 
     return (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
+        // v1.2.0: surface tokens + shadow-tone-lg en el bottom sheet.
+        <div className="fixed inset-0 z-50 bg-surface-900/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
             <div
-                className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white dark:bg-slate-900 rounded-t-3xl max-h-[85vh] overflow-y-auto animate-in slide-in-from-bottom duration-300 shadow-2xl"
+                className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-surface dark:bg-surface-900 rounded-t-3xl max-h-[85vh] overflow-y-auto animate-in slide-in-from-bottom duration-300 shadow-tone-lg"
                 onClick={e => e.stopPropagation()}
             >
                 {/* Close + Drag Handle */}
                 <div className="flex items-center justify-between px-4 pt-3 pb-2">
                     <div className="w-8" />
-                    <div className="w-8 h-1 bg-slate-300 dark:bg-slate-700 rounded-full" />
-                    <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
-                        <X size={18} />
+                    <div className="w-8 h-1 bg-surface-300 dark:bg-surface-700 rounded-full" />
+                    {/* v1.2.0: touch target ≥ 48px + aria-label */}
+                    <button onClick={onClose} aria-label="Cerrar" className="p-2 min-h-[48px] min-w-[48px] flex items-center justify-center text-surface-400 hover:text-surface-600 dark:hover:text-surface-200 hover:bg-surface-100 dark:hover:bg-surface-800 rounded-full transition-colors">
+                        <X size={18} aria-hidden="true" />
                     </button>
                 </div>
 
                 <div className="px-5 pb-6 space-y-5">
                     {/* Header */}
                     <div className="flex items-center gap-4">
-                        <div className="w-14 h-14 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
-                            <span className="text-2xl font-black text-blue-600 dark:text-blue-400">
+                        <div className="w-14 h-14 rounded-full bg-brand-light dark:bg-surface-800/30 flex items-center justify-center shrink-0">
+                            <span className="text-2xl font-black text-brand-dark dark:text-brand">
                                 {customer.name.charAt(0).toUpperCase()}
                             </span>
                         </div>
                         <div>
-                            <h3 className="text-lg font-black text-slate-800 dark:text-white">{customer.name}</h3>
+                            {/* v1.2.0: text-surface-700 en vez de slate-700 */}
+                            <h3 className="text-lg font-black text-surface-700 dark:text-white">{customer.name}</h3>
                             <div className="flex items-center gap-2 mt-0.5">
                                 {customer.documentId && (
-                                    <p className="text-xs font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
+                                    // v1.2.0: .badge class (design system).
+                                    <p className="badge !text-xs !px-2 !py-0.5">
                                         {customer.documentId}
                                     </p>
                                 )}
                                 {customer.phone && (
-                                    <p className="text-xs text-slate-400 flex items-center gap-1">
-                                        <Phone size={12} /> {customer.phone}
+                                    <p className="text-xs text-surface-400 flex items-center gap-1">
+                                        <Phone size={12} aria-hidden="true" /> {customer.phone}
                                     </p>
                                 )}
                             </div>
                             {createdDate && (
-                                <p className="text-[10px] text-slate-400 mt-1">Cliente desde {createdDate}</p>
+                                <p className="text-[10px] text-surface-400 mt-1">Cliente desde {createdDate}</p>
                             )}
                         </div>
                     </div>
 
                     {/* Saldo */}
+                    {/* v1.2.0: .badge-warning/.badge-success/.badge-danger opcional (mantenemos cards visuales para saldo compuesto). */}
                     <div className="flex gap-2">
                         {customer.deuda > 0 ? (
                             <div className="flex-1 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/30 rounded-xl px-3 py-2.5 text-center">
@@ -656,29 +675,31 @@ function CustomerDetailSheet({ customer, isOpen, isAdmin, onClose, onAjustar, on
                                 {copEnabled && !copPrimary && tasaCop > 0 && <p className="text-[10px] font-bold text-emerald-500/90">+{formatCop(customer.favor * tasaCop)} COP</p>}
                             </div>
                         ) : (
-                            <div className="flex-1 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-center">
-                                <p className="text-sm font-black text-slate-400 flex items-center justify-center gap-1">
-                                    <CheckCircle2 size={14} className="text-emerald-400" /> Al día
+                            <div className="flex-1 bg-surface-100 dark:bg-surface-800/50 border border-surface-200 dark:border-surface-700 rounded-xl px-3 py-2.5 text-center">
+                                {/* v1.2.0: badge-success para estado "Al día" */}
+                                <p className="text-sm font-black text-surface-400 flex items-center justify-center gap-1">
+                                    <CheckCircle2 size={14} className="text-emerald-400" aria-hidden="true" /> Al día
                                 </p>
                             </div>
                         )}
                     </div>
 
                     {/* Acciones */}
+                    {/* v1.2.0: touch targets ≥ 48px + surface tokens */}
                     <div className="grid grid-cols-2 gap-2">
                         <button
                             onClick={onAjustar}
-                            className="flex flex-col items-center gap-1.5 py-3 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-xl text-xs font-bold hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors active:scale-95 col-span-1"
+                            className="flex flex-col items-center gap-1.5 py-3 min-h-[80px] bg-brand-light dark:bg-surface-800/20 text-brand-dark dark:text-brand rounded-xl text-xs font-bold hover:bg-brand-light dark:hover:bg-surface-800/40 transition-colors active:scale-95 col-span-1"
                         >
-                            <CreditCard size={18} />
+                            <CreditCard size={18} aria-hidden="true" />
                             <span>Ajustar Cuenta</span>
                         </button>
                         {(customer.deuda !== 0 || customer.favor !== 0) && isAdmin && (
                             <button
                                 onClick={onReset}
-                                className="flex flex-col items-center gap-1.5 py-3 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-xl text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors active:scale-95"
+                                className="flex flex-col items-center gap-1.5 py-3 min-h-[80px] bg-surface-100 dark:bg-surface-800 text-surface-500 dark:text-surface-400 rounded-xl text-xs font-bold hover:bg-surface-200 dark:hover:bg-surface-700 transition-colors active:scale-95"
                             >
-                                <RefreshCw size={18} />
+                                <RefreshCw size={18} aria-hidden="true" />
                                 <span>Poner en 0</span>
                             </button>
                         )}
@@ -702,8 +723,8 @@ function CustomerDetailSheet({ customer, isOpen, isAdmin, onClose, onAjustar, on
                                     const isAnulada = sale.status === 'ANULADA';
                                     return (
                                         <div key={sale.id} className={`flex items-start gap-2.5 py-2 px-2 bg-slate-50 dark:bg-slate-950 rounded-xl ${isAnulada ? 'opacity-50 grayscale' : ''}`}>
-                                            <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${isAnulada ? 'bg-slate-200 dark:bg-slate-800' : isCobro ? 'bg-emerald-100 dark:bg-emerald-900/30' : isFiada ? 'bg-amber-100 dark:bg-amber-900/30' : 'bg-blue-100 dark:bg-blue-900/30'}`}>
-                                                {isCobro ? <ArrowUpRight size={14} className={isAnulada ? "text-slate-500" : "text-emerald-500"} /> : isFiada ? <CreditCard size={14} className={isAnulada ? "text-slate-500" : "text-amber-500"} /> : <ShoppingBag size={14} className={isAnulada ? "text-slate-500" : "text-blue-500"} />}
+                                            <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${isAnulada ? 'bg-slate-200 dark:bg-slate-800' : isCobro ? 'bg-emerald-100 dark:bg-emerald-900/30' : isFiada ? 'bg-amber-100 dark:bg-amber-900/30' : 'bg-brand-light dark:bg-surface-800/30'}`}>
+                                                {isCobro ? <ArrowUpRight size={14} className={isAnulada ? "text-slate-500" : "text-emerald-500"} /> : isFiada ? <CreditCard size={14} className={isAnulada ? "text-slate-500" : "text-amber-500"} /> : <ShoppingBag size={14} className={isAnulada ? "text-slate-500" : "text-brand"} />}
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex justify-between items-start">
@@ -742,19 +763,21 @@ function CustomerDetailSheet({ customer, isOpen, isAdmin, onClose, onAjustar, on
                     </div>
 
                     {/* Editar / Eliminar */}
-                    <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    {/* v1.2.0: touch targets ≥ 48px + surface tokens */}
+                    <div className="flex gap-2 pt-2 border-t border-surface-100 dark:border-surface-800">
                         <button
                             onClick={onEdit}
-                            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors active:scale-95"
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 min-h-[48px] bg-surface-100 dark:bg-surface-800 text-surface-600 dark:text-surface-300 rounded-xl text-xs font-bold hover:bg-surface-200 dark:hover:bg-surface-700 transition-colors active:scale-95"
                         >
-                            <Pencil size={14} /> Editar
+                            <Pencil size={14} aria-hidden="true" /> Editar
                         </button>
                         {isAdmin && (
                             <button
                                 onClick={onDelete}
-                                className="flex items-center justify-center gap-1.5 py-2.5 px-4 bg-red-50 dark:bg-red-900/20 text-red-500 rounded-xl text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors active:scale-95"
+                                aria-label="Eliminar cliente"
+                                className="flex items-center justify-center gap-1.5 py-2.5 min-h-[48px] px-4 bg-red-50 dark:bg-red-900/20 text-red-500 rounded-xl text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors active:scale-95"
                             >
-                                <Trash2 size={14} />
+                                <Trash2 size={14} aria-hidden="true" />
                             </button>
                         )}
                     </div>
@@ -777,42 +800,44 @@ function EditCustomerModal({ customer, onClose, onSave }) {
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-t-3xl sm:rounded-3xl shadow-xl overflow-hidden animate-in slide-in-from-bottom-10 sm:zoom-in-95 duration-200">
-                <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
-                    <h3 className="text-xl font-black text-slate-800 dark:text-white flex items-center gap-2">
-                        <Pencil size={20} className="text-blue-500" /> Editar Cliente
+        // v1.2.0: surface tokens + shadow-tone-lg en modal de editar.
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-surface-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-surface dark:bg-surface-900 w-full max-w-sm rounded-t-3xl sm:rounded-3xl shadow-tone-lg overflow-hidden animate-in slide-in-from-bottom-10 sm:zoom-in-95 duration-200">
+                <div className="p-5 border-b border-surface-100 dark:border-surface-800 flex justify-between items-center bg-surface-100 dark:bg-surface-800/50">
+                    <h3 className="text-xl font-black text-surface-700 dark:text-white flex items-center gap-2">
+                        <Pencil size={20} className="text-brand" aria-hidden="true" /> Editar Cliente
                     </h3>
-                    <button onClick={onClose} className="p-2 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors">
-                        <X size={20} />
+                    {/* v1.2.0: touch target ≥ 48px + aria-label */}
+                    <button onClick={onClose} aria-label="Cerrar" className="p-2 min-h-[48px] min-w-[48px] flex items-center justify-center text-surface-400 hover:bg-surface-200 dark:hover:bg-surface-700 rounded-full transition-colors">
+                        <X size={20} aria-hidden="true" />
                     </button>
                 </div>
                 <form onSubmit={handleSubmit} className="p-5 space-y-4">
                     <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Nombre *</label>
+                        <label className="block text-xs font-bold text-surface-400 uppercase mb-2">Nombre *</label>
                         <input
                             type="text"
                             required
                             value={name}
                             onChange={(e) => setName(e.target.value)}
-                            className="w-full form-input bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-slate-800 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500/50 transition-all font-medium"
+                            className="input w-full bg-surface-100 dark:bg-surface-950 border border-surface-200 dark:border-surface-800 rounded-xl px-4 py-3 text-surface-700 dark:text-white placeholder:text-surface-400 focus:ring-2 focus:ring-brand/50 transition-all font-medium"
                             autoFocus
                         />
                     </div>
                     <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Cédula / RIF (Opcional)</label>
+                        <label className="block text-xs font-bold text-surface-400 uppercase mb-2">Cédula / RIF (Opcional)</label>
                         <input
                             type="text"
                             value={documentId}
                             onChange={(e) => setDocumentId(e.target.value.toUpperCase())}
                             placeholder="V-12345678"
-                            className="w-full form-input bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-slate-800 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500/50 transition-all font-medium uppercase"
+                            className="input w-full bg-surface-100 dark:bg-surface-950 border border-surface-200 dark:border-surface-800 rounded-xl px-4 py-3 text-surface-700 dark:text-white placeholder:text-surface-400 focus:ring-2 focus:ring-brand/50 transition-all font-medium uppercase"
                         />
                     </div>
                     <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Teléfono</label>
-                        <div className="w-full flex items-center bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus-within:ring-2 focus-within:ring-blue-500/50 transition-all overflow-hidden">
-                            <span className="px-3 py-3 text-sm font-black text-blue-500 border-r border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shrink-0 select-none">+58</span>
+                        <label className="block text-xs font-bold text-surface-400 uppercase mb-2">Teléfono</label>
+                        <div className="w-full flex items-center bg-surface-100 dark:bg-surface-950 border border-surface-200 dark:border-surface-800 rounded-xl focus-within:ring-2 focus-within:ring-brand/50 transition-all overflow-hidden">
+                            <span className="px-3 py-3 text-sm font-black text-brand border-r border-surface-200 dark:border-surface-700 bg-surface-200 dark:bg-surface-800 shrink-0 select-none">+58</span>
                             <input
                                 type="tel"
                                 placeholder="0412 1234567"
@@ -821,17 +846,18 @@ function EditCustomerModal({ customer, onClose, onSave }) {
                                     const clean = e.target.value.replace(/^\+?58/, '');
                                     setPhone(clean);
                                 }}
-                                className="flex-1 bg-transparent px-3 py-3 text-slate-800 dark:text-white outline-none text-sm font-medium placeholder:text-slate-400"
+                                className="flex-1 bg-transparent px-3 py-3 text-surface-700 dark:text-white outline-none text-sm font-medium placeholder:text-surface-400"
                             />
                         </div>
-                        <p className="text-[9px] text-slate-400 mt-1 ml-1">Venezuela · Ej: 0412 1234567</p>
+                        <p className="text-[9px] text-surface-400 mt-1 ml-1">Venezuela · Ej: 0412 1234567</p>
                     </div>
+                    {/* v1.2.0: touch target ≥ 48px */}
                     <button
                         type="submit"
                         disabled={!name.trim()}
-                        className="w-full py-3.5 bg-blue-500 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white font-bold rounded-xl active:scale-95 transition-all mt-4 flex justify-center items-center gap-2"
+                        className="w-full py-3.5 min-h-[48px] bg-brand disabled:bg-surface-300 dark:disabled:bg-surface-700 text-white font-bold rounded-xl active:scale-95 transition-all mt-4 flex justify-center items-center gap-2"
                     >
-                        <Save size={18} /> Guardar Cambios
+                        <Save size={18} aria-hidden="true" /> Guardar Cambios
                     </button>
                 </form>
             </div>
@@ -860,44 +886,46 @@ function AddCustomerModal({ onClose, onSave }) {
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-t-3xl sm:rounded-3xl shadow-xl overflow-hidden animate-in slide-in-from-bottom-10 sm:zoom-in-95 duration-200">
-                <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
-                    <h3 className="text-xl font-black text-slate-800 dark:text-white flex items-center gap-2">
-                        <User size={22} className="text-blue-500" /> Nuevo Cliente
+        // v1.2.0: surface tokens + shadow-tone-lg + aria-hidden en AddCustomerModal.
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-surface-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-surface dark:bg-surface-900 w-full max-w-sm rounded-t-3xl sm:rounded-3xl shadow-tone-lg overflow-hidden animate-in slide-in-from-bottom-10 sm:zoom-in-95 duration-200">
+                <div className="p-5 border-b border-surface-100 dark:border-surface-800 flex justify-between items-center bg-surface-100 dark:bg-surface-800/50">
+                    <h3 className="text-xl font-black text-surface-700 dark:text-white flex items-center gap-2">
+                        <User size={22} className="text-brand" aria-hidden="true" /> Nuevo Cliente
                     </h3>
-                    <button onClick={onClose} className="p-2 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors">
-                        <X size={20} />
+                    {/* v1.2.0: touch target ≥ 48px + aria-label */}
+                    <button onClick={onClose} aria-label="Cerrar" className="p-2 min-h-[48px] min-w-[48px] flex items-center justify-center text-surface-400 hover:bg-surface-200 dark:hover:bg-surface-700 rounded-full transition-colors">
+                        <X size={20} aria-hidden="true" />
                     </button>
                 </div>
 
                 <form onSubmit={handleSubmit} className="p-5 space-y-4">
                     <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Nombre del Cliente *</label>
+                        <label className="block text-xs font-bold text-surface-400 uppercase mb-2">Nombre del Cliente *</label>
                         <input
                             type="text"
                             required
                             value={name}
                             onChange={(e) => setName(e.target.value)}
                             placeholder="Ej. María Pérez"
-                            className="w-full form-input bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-slate-800 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500/50 transition-all font-medium"
+                            className="input w-full bg-surface-100 dark:bg-surface-950 border border-surface-200 dark:border-surface-800 rounded-xl px-4 py-3 text-surface-700 dark:text-white placeholder:text-surface-400 focus:ring-2 focus:ring-brand/50 transition-all font-medium"
                             autoFocus
                         />
                     </div>
                     <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Cédula / RIF (Opcional)</label>
+                        <label className="block text-xs font-bold text-surface-400 uppercase mb-2">Cédula / RIF (Opcional)</label>
                         <input
                             type="text"
                             value={documentId}
                             onChange={(e) => setDocumentId(e.target.value.toUpperCase())}
                             placeholder="V-12345678"
-                            className="w-full form-input bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-slate-800 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500/50 transition-all font-medium uppercase"
+                            className="input w-full bg-surface-100 dark:bg-surface-950 border border-surface-200 dark:border-surface-800 rounded-xl px-4 py-3 text-surface-700 dark:text-white placeholder:text-surface-400 focus:ring-2 focus:ring-brand/50 transition-all font-medium uppercase"
                         />
                     </div>
                     <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Teléfono (opcional)</label>
-                        <div className="w-full flex items-center bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus-within:ring-2 focus-within:ring-blue-500/50 transition-all overflow-hidden">
-                            <span className="px-3 py-3 text-sm font-black text-blue-500 border-r border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shrink-0 select-none">+58</span>
+                        <label className="block text-xs font-bold text-surface-400 uppercase mb-2">Teléfono (opcional)</label>
+                        <div className="w-full flex items-center bg-surface-100 dark:bg-surface-950 border border-surface-200 dark:border-surface-800 rounded-xl focus-within:ring-2 focus-within:ring-brand/50 transition-all overflow-hidden">
+                            <span className="px-3 py-3 text-sm font-black text-brand border-r border-surface-200 dark:border-surface-700 bg-surface-200 dark:bg-surface-800 shrink-0 select-none">+58</span>
                             <input
                                 type="tel"
                                 placeholder="0412 1234567"
@@ -906,18 +934,19 @@ function AddCustomerModal({ onClose, onSave }) {
                                     const clean = e.target.value.replace(/^\+?58/, '');
                                     setPhone(clean);
                                 }}
-                                className="flex-1 bg-transparent px-3 py-3 text-slate-800 dark:text-white outline-none text-sm font-medium placeholder:text-slate-400"
+                                className="flex-1 bg-transparent px-3 py-3 text-surface-700 dark:text-white outline-none text-sm font-medium placeholder:text-surface-400"
                             />
                         </div>
-                        <p className="text-[9px] text-slate-400 mt-1 ml-1">Venezuela · Ej: 0412 1234567</p>
+                        <p className="text-[9px] text-surface-400 mt-1 ml-1">Venezuela · Ej: 0412 1234567</p>
                     </div>
 
+                    {/* v1.2.0: touch target ≥ 48px */}
                     <button
                         type="submit"
                         disabled={!name.trim()}
-                        className="w-full py-3.5 bg-blue-500 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white font-bold rounded-xl active:scale-95 transition-all mt-4 flex justify-center items-center gap-2"
+                        className="w-full py-3.5 min-h-[48px] bg-brand disabled:bg-surface-300 dark:disabled:bg-surface-700 text-white font-bold rounded-xl active:scale-95 transition-all mt-4 flex justify-center items-center gap-2"
                     >
-                        <Save size={18} /> Guardar Cliente
+                        <Save size={18} aria-hidden="true" /> Guardar Cliente
                     </button>
                 </form>
             </div>

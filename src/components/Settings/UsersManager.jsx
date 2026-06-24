@@ -9,10 +9,10 @@ import {
 const ROLE_CONFIG = {
     ADMIN: {
         label: 'Administrador',
-        gradient: 'from-indigo-500 to-purple-500',
-        bg: 'bg-indigo-50 dark:bg-indigo-900/20',
-        text: 'text-indigo-600 dark:text-indigo-400',
-        border: 'border-indigo-200 dark:border-indigo-800/40',
+        gradient: 'from-brand to-brand-dark',
+        bg: 'bg-brand-light dark:bg-surface-800/20',
+        text: 'text-brand-dark dark:text-brand',
+        border: 'border-surface-300 dark:border-surface-800/40',
         icon: Shield,
     },
     CAJERO: {
@@ -60,7 +60,7 @@ function PinInput({ value, onChange, label, length = 4 }) {
                     value={digits[i]?.trim() || ''}
                     onChange={e => handleChange(i, e.target.value)}
                     onKeyDown={e => handleKeyDown(i, e)}
-                    className="w-10 h-12 text-center text-lg font-black bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 outline-none text-slate-800 dark:text-white transition-all"
+                    className="w-10 h-12 text-center text-lg font-black bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-xl focus:border-brand focus:ring-2 focus:ring-brand/30 outline-none text-slate-800 dark:text-white transition-all"
                 />
             ))}
         </div>
@@ -75,7 +75,7 @@ function UserRow({ user, currentUserId, onChangePin, onDelete, onEditName, trigg
     const isAdmin = user.rol === 'ADMIN';
 
     return (
-        <div className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${isCurrentUser ? 'bg-indigo-50/50 dark:bg-indigo-900/10 border-indigo-200/50 dark:border-indigo-800/30' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800'}`}>
+        <div className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${isCurrentUser ? 'bg-brand-light/50 dark:bg-surface-800/10 border-surface-300/50 dark:border-surface-800/30' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800'}`}>
             {/* Avatar */}
             <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${roleConf.gradient} flex items-center justify-center shrink-0 shadow-sm relative`}>
                 <span className="text-white font-black text-lg">{(user.nombre || 'U')[0].toUpperCase()}</span>
@@ -91,7 +91,7 @@ function UserRow({ user, currentUserId, onChangePin, onDelete, onEditName, trigg
                 <div className="flex items-center gap-2">
                     <p className="text-sm font-bold text-slate-800 dark:text-white truncate">{user.nombre}</p>
                     {isCurrentUser && (
-                        <span className="text-[8px] font-black uppercase tracking-wider bg-indigo-100 dark:bg-indigo-900/30 text-indigo-500 px-1.5 py-0.5 rounded-full">Tu</span>
+                        <span className="text-[8px] font-black uppercase tracking-wider bg-brand-light dark:bg-surface-800/30 text-brand px-1.5 py-0.5 rounded-full">Tu</span>
                     )}
                 </div>
                 <div className="flex items-center gap-1.5 mt-0.5">
@@ -106,14 +106,14 @@ function UserRow({ user, currentUserId, onChangePin, onDelete, onEditName, trigg
             <div className="flex items-center gap-1 shrink-0">
                 <button
                     onClick={() => { triggerHaptic?.(); onChangePin(user); }}
-                    className="p-2 rounded-lg text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all active:scale-90"
+                    className="p-2 rounded-lg text-slate-400 hover:text-brand hover:bg-brand-light dark:hover:bg-surface-800/20 transition-all active:scale-90"
                     title="Cambiar PIN"
                 >
                     <KeyRound size={16} />
                 </button>
                 <button
                     onClick={() => { triggerHaptic?.(); onEditName(user); }}
-                    className="p-2 rounded-lg text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all active:scale-90"
+                    className="p-2 rounded-lg text-slate-400 hover:text-brand hover:bg-brand-light dark:hover:bg-surface-800/20 transition-all active:scale-90"
                     title="Editar Nombre"
                 >
                     <Edit2 size={16} />
@@ -220,15 +220,15 @@ export default function UsersManager({ triggerHaptic }) {
             {!showAddForm ? (
                 <button
                     onClick={() => { triggerHaptic?.(); setShowAddForm(true); }}
-                    className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 font-bold text-xs uppercase tracking-wider rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors active:scale-[0.98] border border-dashed border-indigo-300 dark:border-indigo-700"
+                    className="w-full flex items-center justify-center gap-2 py-3 bg-brand-light dark:bg-surface-800/20 text-brand-dark dark:text-brand font-bold text-xs uppercase tracking-wider rounded-xl hover:bg-brand-light dark:hover:bg-surface-800/40 transition-colors active:scale-[0.98] border border-dashed border-indigo-300 dark:border-surface-700"
                 >
                     <UserPlus size={16} /> Agregar Usuario
                 </button>
             ) : (
-                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-indigo-200 dark:border-indigo-800/40 p-4 space-y-4 animate-in slide-in-from-top-2 duration-200">
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-surface-300 dark:border-surface-800/40 p-4 space-y-4 animate-in slide-in-from-top-2 duration-200">
                     <div className="flex items-center justify-between">
                         <h4 className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">
-                            <UserPlus size={16} className="text-indigo-500" /> Nuevo Usuario
+                            <UserPlus size={16} className="text-brand" /> Nuevo Usuario
                         </h4>
                         <button onClick={() => setShowAddForm(false)} className="p-1 text-slate-400 hover:text-slate-600 transition-colors">
                             <X size={16} />
@@ -243,7 +243,7 @@ export default function UsersManager({ triggerHaptic }) {
                             placeholder="Ej: Maria, Juan"
                             value={newName}
                             onChange={e => setNewName(e.target.value)}
-                            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
+                            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand/30 transition-all"
                             autoFocus
                         />
                     </div>
@@ -280,7 +280,7 @@ export default function UsersManager({ triggerHaptic }) {
                     <button
                         onClick={handleAdd}
                         disabled={!newName.trim() || newPin.length !== (newRole === 'ADMIN' ? 6 : 4)}
-                        className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-500 hover:bg-indigo-600 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all active:scale-[0.98] shadow-md shadow-indigo-500/20 disabled:shadow-none"
+                        className="w-full flex items-center justify-center gap-2 py-3 bg-brand hover:bg-brand-dark disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all active:scale-[0.98] shadow-md shadow-primary/20 disabled:shadow-none"
                     >
                         <Check size={16} /> Crear Usuario
                     </button>
@@ -323,7 +323,7 @@ export default function UsersManager({ triggerHaptic }) {
                             <button
                                 onClick={handleChangePin}
                                 disabled={pinValue.length !== (changePinUser?.rol === 'ADMIN' ? 6 : 4)}
-                                className="flex-1 py-3 text-sm font-bold text-white bg-indigo-500 rounded-xl hover:bg-indigo-600 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="flex-1 py-3 text-sm font-bold text-white bg-brand rounded-xl hover:bg-brand-dark active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 Guardar
                             </button>
@@ -380,7 +380,7 @@ export default function UsersManager({ triggerHaptic }) {
                                 type="text"
                                 value={editNameValue}
                                 onChange={e => setEditNameValue(e.target.value)}
-                                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-indigo-500/30 outline-none text-slate-800 dark:text-white transition-all text-center"
+                                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-brand/30 outline-none text-slate-800 dark:text-white transition-all text-center"
                                 placeholder="..."
                             />
                         </div>
@@ -395,7 +395,7 @@ export default function UsersManager({ triggerHaptic }) {
                             <button
                                 onClick={handleEditName}
                                 disabled={!editNameValue.trim()}
-                                className="flex-1 py-3 text-sm font-bold text-white bg-indigo-500 rounded-xl hover:bg-indigo-600 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="flex-1 py-3 text-sm font-bold text-white bg-brand rounded-xl hover:bg-brand-dark active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 Guardar
                             </button>

@@ -1,10 +1,26 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { showToast } from '../components/Toast';
 
 export function useVoiceSearch({ onResult, triggerHaptic }) {
     const [isRecording, setIsRecording] = useState(false);
     const [isProcessingAudio, setIsProcessingAudio] = useState(false);
     const recognitionRef = useRef(null);
+    // HOOK-019: Refs estables para que cleanup funcione aunque cambien los callbacks.
+    const onResultRef = useRef(onResult);
+    const triggerHapticRef = useRef(triggerHaptic);
+    useEffect(() => { onResultRef.current = onResult; }, [onResult]);
+    useEffect(() => { triggerHapticRef.current = triggerHaptic; }, [triggerHaptic]);
+
+    // HOOK-019: Cleanup global al desmontar el componente: abortar reconocimiento
+    // pendiente para liberar el micrófono y evitar callbacks tras unmount.
+    useEffect(() => {
+        return () => {
+            if (recognitionRef.current) {
+                try { recognitionRef.current.abort(); } catch (_) { /* noop */ }
+                recognitionRef.current = null;
+            }
+        };
+    }, []);
 
     const startRecording = () => {
         if (isRecording) return;
@@ -27,7 +43,7 @@ export function useVoiceSearch({ onResult, triggerHaptic }) {
 
             recognition.onstart = () => {
                 setIsRecording(true);
-                triggerHaptic && triggerHaptic();
+                triggerHapticRef.current && triggerHapticRef.current();
             };
 
             recognition.onresult = (event) => {
@@ -43,7 +59,7 @@ export function useVoiceSearch({ onResult, triggerHaptic }) {
                 const cleanText = currentText.replace(/[.,!?]$/, '').trim();
                 
                 if (cleanText) {
-                    onResult(cleanText);
+                    onResultRef.current(cleanText);
                 }
             };
 

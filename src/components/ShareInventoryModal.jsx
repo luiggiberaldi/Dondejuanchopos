@@ -204,7 +204,7 @@ export default function ShareInventoryModal({ isOpen, onClose }) {
                 {/* Header */}
                 <div className="flex items-center justify-between mb-5">
                     <h2 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
-                        <Database size={20} className="text-blue-500" /> Compartir Base de Datos
+                        <Database size={20} className="text-brand" /> Compartir Base de Datos
                     </h2>
                     <button onClick={handleClose} className="p-2 text-slate-400 hover:text-slate-600 rounded-xl transition-colors">
                         <X size={20} />
@@ -248,16 +248,16 @@ export default function ShareInventoryModal({ isOpen, onClose }) {
                                         <button
                                             key={id}
                                             onClick={() => toggleGroup(id)}
-                                            className={`w-full flex items-center gap-3 p-3.5 rounded-2xl border-2 transition-all text-left ${isChecked ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30' : 'border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900'}`}
+                                            className={`w-full flex items-center gap-3 p-3.5 rounded-2xl border-2 transition-all text-left ${isChecked ? 'border-brand bg-brand-light dark:bg-surface-950/30' : 'border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900'}`}
                                         >
-                                            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isChecked ? 'bg-blue-100 dark:bg-blue-900/40' : 'bg-slate-100 dark:bg-slate-800'}`}>
-                                                <Icon size={18} className={isChecked ? 'text-blue-500' : 'text-slate-400'} />
+                                            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isChecked ? 'bg-brand-light dark:bg-surface-800/40' : 'bg-slate-100 dark:bg-slate-800'}`}>
+                                                <Icon size={18} className={isChecked ? 'text-brand' : 'text-slate-400'} />
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 <p className={`text-sm font-bold ${isChecked ? 'text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>{label}</p>
                                                 <p className="text-[11px] text-slate-400">{desc} · {count} registros</p>
                                             </div>
-                                            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${isChecked ? 'bg-blue-500 border-blue-500' : 'border-slate-300 dark:border-slate-600'}`}>
+                                            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${isChecked ? 'bg-brand border-brand' : 'border-slate-300 dark:border-slate-600'}`}>
                                                 {isChecked && <Check size={12} className="text-white" strokeWidth={3} />}
                                             </div>
                                         </button>
@@ -273,7 +273,7 @@ export default function ShareInventoryModal({ isOpen, onClose }) {
                                 <button
                                     onClick={handleExport}
                                     disabled={loading || Object.values(selected).every(v => !v)}
-                                    className="w-full py-3.5 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white font-black rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all"
+                                    className="w-full py-3.5 bg-brand hover:bg-brand-dark disabled:opacity-50 text-white font-black rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all"
                                 >
                                     {loading ? <Loader2 size={18} className="animate-spin" /> : <Share2 size={18} />}
                                     {loading ? 'Generando código...' : 'Generar Código'}
@@ -281,12 +281,12 @@ export default function ShareInventoryModal({ isOpen, onClose }) {
                             </>
                         ) : (
                             <div className="text-center py-2">
-                                <div className="w-14 h-14 bg-blue-50 dark:bg-blue-900/20 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                                    <Check size={28} className="text-blue-500" />
+                                <div className="w-14 h-14 bg-brand-light dark:bg-surface-800/20 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                                    <Check size={28} className="text-brand" />
                                 </div>
                                 <p className="text-xs text-slate-400 mb-2">Código para compartir:</p>
                                 <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-5 mb-3">
-                                    <p className="text-4xl font-black text-blue-600 dark:text-blue-400 tracking-[0.3em] font-mono">{shareCode}</p>
+                                    <p className="text-4xl font-black text-brand-dark dark:text-brand tracking-[0.3em] font-mono">{shareCode}</p>
                                 </div>
                                 <p className="text-[10px] text-slate-400 mb-4">El receptor va a Compartir Datos → Importar y escribe este código.</p>
                                 <button
@@ -316,12 +316,12 @@ export default function ShareInventoryModal({ isOpen, onClose }) {
                                     onChange={(e) => handleCodeInput(e.target.value)}
                                     placeholder="000-000"
                                     maxLength={7}
-                                    className="w-full text-center text-3xl font-black font-mono tracking-[0.3em] p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 outline-none focus:border-blue-500 text-slate-800 dark:text-white placeholder:text-slate-300 dark:placeholder:text-slate-600 transition-colors"
+                                    className="w-full text-center text-3xl font-black font-mono tracking-[0.3em] p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 outline-none focus:border-brand text-slate-800 dark:text-white placeholder:text-slate-300 dark:placeholder:text-slate-600 transition-colors"
                                 />
                                 <button
                                     onClick={handleImport}
                                     disabled={loading || importCode.replace(/\D/g, '').length !== 6}
-                                    className="w-full py-3.5 bg-blue-500 hover:bg-blue-600 text-white font-black rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50"
+                                    className="w-full py-3.5 bg-brand hover:bg-brand-dark text-white font-black rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50"
                                 >
                                     {loading ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
                                     {loading ? 'Buscando...' : 'Importar Datos'}
@@ -338,13 +338,13 @@ export default function ShareInventoryModal({ isOpen, onClose }) {
                                 <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3 mb-3 text-left space-y-1.5">
                                     {importSummary?.productCount > 0 && (
                                         <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
-                                            <Package size={13} className="text-blue-400 shrink-0" />
+                                            <Package size={13} className="text-brand shrink-0" />
                                             <span><strong>{importSummary.productCount}</strong> productos</span>
                                         </div>
                                     )}
                                     {importSummary?.customerCount > 0 && (
                                         <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
-                                            <Users size={13} className="text-violet-400 shrink-0" />
+                                            <Users size={13} className="text-brand shrink-0" />
                                             <span><strong>{importSummary.customerCount}</strong> clientes</span>
                                         </div>
                                     )}

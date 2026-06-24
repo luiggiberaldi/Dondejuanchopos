@@ -34,12 +34,28 @@ export function useOfflineQueue() {
         }
     }, []);
 
-    /** Obtener tasa cacheada */
+    /** Obtener tasa cacheada
+     *  HOOK-024: Devuelve `{ rates, stale }` en vez del objeto crudo, marcando
+     *  `stale: true` cuando la cache tiene más de 24h. El caller puede mostrar
+     *  un indicador visual ("tasa desactualizada") y/o disparar un refresh.
+     */
     const getCachedRates = useCallback(() => {
         try {
             const saved = localStorage.getItem('offline_cached_rates');
-            return saved ? JSON.parse(saved) : null;
-        } catch { return null; }
+            if (!saved) return null;
+            const parsed = JSON.parse(saved);
+            if (!parsed) return null;
+            // HOOK-024: stamp de staleness.
+            const cachedAtMs = parsed.cachedAt ? new Date(parsed.cachedAt).getTime() : 0;
+            const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24h
+            const stale = cachedAtMs > 0
+                ? (Date.now() - cachedAtMs) > STALE_THRESHOLD_MS
+                : true; // sin cachedAt → considerarlo stale
+            return { rates: parsed, stale };
+        } catch (e) {
+            console.warn('[useOfflineQueue] getCachedRates parse error:', e);
+            return null;
+        }
     }, []);
 
     return { isOnline, cacheRates, getCachedRates };

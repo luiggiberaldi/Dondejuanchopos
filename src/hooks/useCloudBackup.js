@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { storageService } from '../utils/storageService';
 import { showToast } from '../components/Toast';
 import { supabaseCloud } from '../config/supabaseCloud';
+import { IDB_KEYS, LS_KEYS } from '../config/backupKeys';
+import { runWithoutEco } from '../utils/syncFlags';
 
 /**
  * Hook that encapsulates cloud backup/restore logic using device_id as the sole identifier.
@@ -24,51 +26,43 @@ export function useCloudBackup({
     const [dataConflictPending, setDataConflictPending] = useState(null);
 
     // ─── HELPER: Apply a cloud backup to local storage ───────────────────────
+    // HOOK-014: Envolver TODA la restauración en `runWithoutEco` para setear
+    // el flag `isSyncingFromCloud=true` y evitar que `storageService.setItem`
+    // (vía `pushCloudSync`) re-envíe a la nube los datos que acabamos de recibir.
     const applyCloudBackup = async (cloudBackup) => {
         if (!cloudBackup?.data) {
             console.error('[applyCloudBackup] Backup inválido o sin datos:', cloudBackup);
             throw new Error('El backup de la nube está vacío o es inválido.');
         }
-        if (cloudBackup.version === '2.0' && cloudBackup.data.idb) {
-            const idbEntries = Object.entries(cloudBackup.data.idb);
-            for (const [key, value] of idbEntries) {
-                await storageService.setItem(key, value);
+        await runWithoutEco(async () => {
+            if (cloudBackup.version === '2.0' && cloudBackup.data.idb) {
+                const idbEntries = Object.entries(cloudBackup.data.idb);
+                for (const [key, value] of idbEntries) {
+                    await storageService.setItem(key, value);
+                }
+            } else {
+                console.warn('[applyCloudBackup] Formato no reconocido, intentando restauración legacy...');
             }
-        } else {
-            console.warn('[applyCloudBackup] Formato no reconocido, intentando restauración legacy...');
-        }
-        if (cloudBackup.data.ls) {
-            for (const [key, value] of Object.entries(cloudBackup.data.ls)) {
-                localStorage.setItem(key, value);
+            if (cloudBackup.data.ls) {
+                for (const [key, value] of Object.entries(cloudBackup.data.ls)) {
+                    // localStorage.setItem pasa por el interceptor de useCloudSync;
+                    // el flag global también lo silencia (doble protección).
+                    localStorage.setItem(key, value);
+                }
             }
-        }
+        });
     };
 
     // ─── HELPER: Collect local backup payload ────────────────────────────────
+    // HOOK-041: Usa las listas canónicas de `src/config/backupKeys.js`.
     const collectLocalBackup = async () => {
-        const idbKeys = [
-            'bodega_products_v1', 'my_categories_v1',
-            'bodega_sales_v1', 'bodega_customers_v1',
-            'bodega_suppliers_v1', 'bodega_supplier_invoices_v1',
-            'bodega_accounts_v2', 'bodega_pending_cart_v1',
-            'bodega_payment_methods_v1',
-            'abasto_audit_log_v1'
-        ];
         const idbData = {};
-        for (const key of idbKeys) {
+        for (const key of IDB_KEYS) {
             const data = await storageService.getItem(key, null);
             if (data !== null) idbData[key] = data;
         }
-        const lsKeys = [
-            'premium_token', 'street_rate_bs', 'catalog_use_auto_usdt',
-            'catalog_custom_usdt_price', 'catalog_show_cash_price',
-            'monitor_rates_v12', 'business_name', 'business_rif',
-            'printer_paper_width', 'allow_negative_stock', 'cop_enabled',
-            'auto_cop_enabled', 'tasa_cop', 'bodega_use_auto_rate',
-            'bodega_custom_rate', 'bodega_inventory_view', 'abasto-auth-storage'
-        ];
         const lsData = {};
-        for (const key of lsKeys) {
+        for (const key of LS_KEYS) {
             const val = localStorage.getItem(key);
             if (val !== null) lsData[key] = val;
         }

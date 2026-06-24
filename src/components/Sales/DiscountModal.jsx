@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Percent, DollarSign, Calculator } from 'lucide-react';
-import { formatCop } from '../../utils/calculatorUtils';
+import { formatCop, formatBs } from '../../utils/calculatorUtils';
+import { round2, mulR } from '../../utils/dinero';
 
 export default function DiscountModal({
     currentDiscount,
@@ -28,20 +29,23 @@ export default function DiscountModal({
     // Calculate real preview
     let discountAmountUsd = 0;
     if (type === 'percentage') {
-        discountAmountUsd = cartSubtotalUsd * (numValue / 100);
+        // FIN-016-pattern: mulR + round2 para preview consistente con FinancialEngine.
+        discountAmountUsd = mulR(cartSubtotalUsd, round2(numValue / 100));
     } else {
-        discountAmountUsd = numValue;
+        discountAmountUsd = round2(numValue);
     }
-    
+
     // Prevent exceeding subtotal
     if (discountAmountUsd > cartSubtotalUsd) {
         discountAmountUsd = cartSubtotalUsd;
     }
 
-    const newTotalUsd = cartSubtotalUsd - discountAmountUsd;
-    const newTotalBs = newTotalUsd * effectiveRate;
+    const newTotalUsd = round2(cartSubtotalUsd - discountAmountUsd);
+    // FIN-016-pattern: mulR para conversión a Bs.
+    const newTotalBs = mulR(newTotalUsd, effectiveRate);
 
-    const formatBs = (n) => new Intl.NumberFormat('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+    // FIN-031: `formatBs` antes estaba shadowed localmente, pisando el import.
+    //   Usamos directamente el import de calculatorUtils (mismo Intl.NumberFormat).
 
     const handleSubmit = (e) => {
         e.preventDefault();
@@ -61,7 +65,7 @@ export default function DiscountModal({
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
                     <h3 className="font-black text-slate-800 dark:text-white text-lg flex items-center gap-2">
-                        <Calculator size={20} className="text-blue-500" />
+                        <Calculator size={20} className="text-brand" />
                         Descuento
                     </h3>
                     <button onClick={onClose} className="p-2 -mr-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors active:scale-95">
@@ -77,7 +81,7 @@ export default function DiscountModal({
                         <button
                             type="button"
                             onClick={() => { setType('percentage'); setValue(''); inputRef.current?.focus(); }}
-                            className={`flex flex-1 items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-xl transition-all duration-300 ${type === 'percentage' ? 'bg-white dark:bg-slate-900 shadow-sm text-blue-600 dark:text-blue-400 scale-100 ring-1 ring-slate-900/5 dark:ring-white/10' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 scale-95 hover:scale-100'}`}
+                            className={`flex flex-1 items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-xl transition-all duration-300 ${type === 'percentage' ? 'bg-white dark:bg-slate-900 shadow-sm text-brand-dark dark:text-brand scale-100 ring-1 ring-slate-900/5 dark:ring-white/10' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 scale-95 hover:scale-100'}`}
                         >
                             <Percent size={16} /> Porcentaje
                         </button>
@@ -95,7 +99,7 @@ export default function DiscountModal({
                         <div className="relative group">
                             <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
                                 {type === 'percentage' ? (
-                                    <Percent size={20} className="text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+                                    <Percent size={20} className="text-slate-400 group-focus-within:text-brand transition-colors" />
                                 ) : (
                                     <DollarSign size={20} className="text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
                                 )}
@@ -113,7 +117,7 @@ export default function DiscountModal({
                                     if (type === 'percentage' && parseFloat(val) > 100) val = '100';
                                     setValue(val);
                                 }}
-                                className="w-full bg-white dark:bg-slate-950 border-2 border-slate-200 dark:border-slate-800 rounded-2xl py-4 pl-12 pr-4 text-2xl font-black text-slate-800 dark:text-white placeholder:text-slate-300 dark:placeholder:text-slate-700 focus:outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-center"
+                                className="w-full bg-white dark:bg-slate-950 border-2 border-slate-200 dark:border-slate-800 rounded-2xl py-4 pl-12 pr-4 text-2xl font-black text-slate-800 dark:text-white placeholder:text-slate-300 dark:placeholder:text-slate-700 focus:outline-none focus:ring-4 focus:ring-brand/20 focus:border-brand transition-all text-center"
                                 placeholder={type === 'percentage' ? "0%" : "0.00"}
                                 autoFocus
                             />
@@ -178,7 +182,7 @@ export default function DiscountModal({
                         </button>
                         <button
                             type="submit"
-                            className="py-3.5 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-xl active:scale-95 transition-all outline-none shadow-lg shadow-blue-500/30"
+                            className="py-3.5 bg-brand hover:bg-brand-dark text-white font-bold rounded-xl active:scale-95 transition-all outline-none shadow-lg shadow-primary/30"
                         >
                             Aplicar
                         </button>

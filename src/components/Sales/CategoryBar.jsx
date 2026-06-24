@@ -53,7 +53,7 @@ export default function CategoryBar({
                     {/* Monto Libre Button */}
                     <button
                         onClick={() => { triggerHaptic && triggerHaptic(); onOpenCustomAmount && onOpenCustomAmount(); }}
-                        className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-black transition-all active:scale-95 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 shadow-sm"
+                        className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-black transition-all active:scale-95 bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand border border-surface-300 dark:border-surface-700 hover:bg-brand-light shadow-sm"
                     >
                         <Calculator size={11} />
                         Monto Libre
@@ -122,13 +122,13 @@ export default function CategoryBar({
                                                 <>
                                                     <span className="font-bold text-emerald-600 dark:text-emerald-400">${getUsd(p, tasaCop).toFixed(2)} USD</span>
                                                     <span className="text-slate-300 mx-0.5">|</span>
-                                                    <span className="font-bold text-blue-500 dark:text-blue-400">{formatBs(getUsd(p, tasaCop) * (effectiveRate || 0))} Bs</span>
+                                                    <span className="font-bold text-brand dark:text-brand">{formatBs(getUsd(p, tasaCop) * (effectiveRate || 0))} Bs</span>
                                                 </>
                                             ) : (
                                                 <>
                                                     <span className="font-bold text-amber-600 dark:text-amber-400">{formatCop(getCop(p, tasaCop))} COP</span>
                                                     <span className="text-slate-300 mx-0.5">|</span>
-                                                    <span className="font-bold text-blue-500 dark:text-blue-400">{formatBs(p.priceUsdt * (effectiveRate || 0))} Bs</span>
+                                                    <span className="font-bold text-brand dark:text-brand">{formatBs(p.priceUsdt * (effectiveRate || 0))} Bs</span>
                                                 </>
                                             )}
                                         </p>

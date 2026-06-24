@@ -57,7 +57,7 @@ const ProductsToolbar = ({
                         {products.length > 0 && !isCajero && (
                             <>
                                 <button onClick={() => { triggerHaptic && triggerHaptic(); setIsBulkPriceOpen(true); }}
-                                    className="p-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-500 dark:text-blue-400 rounded-lg transition-all active:scale-95" title="Ajuste Masivo">
+                                    className="p-1.5 bg-brand-light dark:bg-surface-800/30 text-brand dark:text-brand rounded-lg transition-all active:scale-95" title="Ajuste Masivo">
                                     <Percent size={14} strokeWidth={2.5} />
                                 </button>
                                 <button onClick={() => { triggerHaptic && triggerHaptic(); setIsDeleteAllModalOpen(true); }}
@@ -100,7 +100,7 @@ const ProductsToolbar = ({
                     {products.length > 0 && !isCajero && (
                         <>
                             <button onClick={() => { triggerHaptic && triggerHaptic(); setIsBulkPriceOpen(true); }}
-                                className="p-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-500 dark:text-blue-400 rounded-lg transition-all active:scale-95" title="Ajuste Masivo de Precios">
+                                className="p-1.5 bg-brand-light dark:bg-surface-800/30 text-brand dark:text-brand rounded-lg transition-all active:scale-95" title="Ajuste Masivo de Precios">
                                 <Percent size={14} strokeWidth={2.5} />
                             </button>
                             <button onClick={() => { triggerHaptic && triggerHaptic(); setIsDeleteAllModalOpen(true); }}

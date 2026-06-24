@@ -1,12 +1,20 @@
 import { useEffect, useRef } from 'react';
 
 /**
- * Hook para escuchar eventos del teclado globalmente y detectar 
+ * Hook para escuchar eventos del teclado globalmente y detectar
  * lecturas de escáneres de código de barras (emuladores de teclado rápidos).
+ *
+ * HOOK-028: antes, `onScan` estaba en las deps del `useEffect`, lo que hacía
+ * que el listener se re-creara en cada render del caller (porque la mayoría
+ * pasaba un callback inline). Ahora `onScan` se guarda en ref y el listener
+ * se crea una sola vez (al montar o cuando cambia `enabled`/`timeout`).
  */
 export function useBarcodeScanner({ onScan, enabled = true, timeout = 50 }) {
     const buffer = useRef('');
     const lastKeyTime = useRef(Date.now());
+    // HOOK-028: ref al callback más reciente, sin que afecte las deps del effect.
+    const onScanRef = useRef(onScan);
+    useEffect(() => { onScanRef.current = onScan; }, [onScan]);
 
     useEffect(() => {
         if (!enabled) return;
@@ -23,12 +31,12 @@ export function useBarcodeScanner({ onScan, enabled = true, timeout = 50 }) {
             }
 
             const currentTime = Date.now();
-            
+
             // Si el tiempo entre teclas supera el 'timeout', asumimos teclado manual y limpiamos buffer
             if (currentTime - lastKeyTime.current > timeout) {
                 buffer.current = '';
             }
-            
+
             lastKeyTime.current = currentTime;
 
             if (e.key === 'Enter') {
@@ -37,7 +45,10 @@ export function useBarcodeScanner({ onScan, enabled = true, timeout = 50 }) {
                     e.preventDefault();
                     const scannedCode = buffer.current;
                     buffer.current = '';
-                    onScan(scannedCode);
+                    // HOOK-028: invocar vía ref en vez de closure directa.
+                    if (typeof onScanRef.current === 'function') {
+                        onScanRef.current(scannedCode);
+                    }
                 } else {
                     buffer.current = '';
                 }
@@ -49,5 +60,6 @@ export function useBarcodeScanner({ onScan, enabled = true, timeout = 50 }) {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [onScan, enabled, timeout]);
+        // HOOK-028: deps reducidas a `enabled` y `timeout` (primitivos estables).
+    }, [enabled, timeout]);
 }

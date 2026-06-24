@@ -24,12 +24,21 @@ if ('serviceWorker' in navigator) {
 }
 
 // ── Evitar que la rueda del mouse cambie valores en inputs numéricos ──
-document.addEventListener('wheel', (e) => {
-  if (e.target?.type === 'number') {
-    e.target.blur();
-    e.preventDefault();
-  }
-}, { passive: false });
+// HOOK-033: Antes este listener se registraba a nivel módulo (sin cleanup),
+// lo que causaba:
+//   1) En HMR, se acumulaban listeners en cada reload.
+//   2) El listener sobrevivía al unmount del root en tests.
+// Lo movemos dentro de `AppRouter` (useEffect) para que tenga cleanup correcto.
+function _attachWheelGuard() {
+  const handler = (e) => {
+    if (e.target?.type === 'number') {
+      e.target.blur();
+      e.preventDefault();
+    }
+  };
+  document.addEventListener('wheel', handler, { passive: false });
+  return () => document.removeEventListener('wheel', handler);
+}
 
 // Detectar token de recuperación en la URL al cargar (antes de React)
 function detectRecovery() {
@@ -40,6 +49,9 @@ function detectRecovery() {
 
 function AppRouter() {
   const [isRecovery, setIsRecovery] = useState(detectRecovery);
+
+  // HOOK-033: wheel listener con cleanup correcto.
+  useEffect(() => _attachWheelGuard(), []);
 
   useEffect(() => {
     if (!supabaseCloud) return;

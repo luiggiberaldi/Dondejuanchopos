@@ -1,139 +1,392 @@
+/**
+ * useAuthStore.js — Store de autenticación (PIN local).
+ *
+ * Fixes de seguridad cubiertos en este archivo:
+ *   - SEC-004/HOOK-001: implementada `setAdminCredentials` (sessionStorage, no localStorage).
+ *   - SEC-005: PINs por defecto con PBKDF2 + salt aleatorio. En primer arranque sin
+ *     usuarios persistidos, se generan PINs aleatorios para Admin/Cajero y se muestran
+ *     una sola vez (window.__INITIAL_PINS__). Hashes legacy SHA-256 (64 hex) se migran
+ *     automáticamente a PBKDF2 en el primer login exitoso (verifyPin.needsRehash).
+ *   - SEC-006: `failedAttempts`, `lockUntil` (timestamp absoluto), `consecutiveLockouts`
+ *     persistidos en `partialize`. Backoff exponencial. Reset tras RESET_WINDOW_MS.
+ *   - SEC-013: `abasto-device-session` guarda SOLO { id, nombre, rol }. Sin hash PIN.
+ *   - SEC-015: `unlock(pin)` re-valida el PIN contra `usuarios` para re-entrar de lock.
+ *   - SEC-016: `requireLogin` por defecto `true` si hay cloud configurado.
+ *   - SEC-018: Validación de estructura al rehidratar `abasto-device-session`.
+ *
+ * Backwards compatibility:
+ *   - `login(pin, userId)` sigue existiendo (ahora async — PBKDF2 es async).
+ *   - `cambiarPin`, `agregarUsuario`, `editarUsuario` aceptan PIN en claro y lo hashean.
+ *   - Hashes legacy SHA-256 (64 hex) son aceptados por `verifyPin` y marcados `needsRehash`.
+ *
+ * @module hooks/store/useAuthStore
+ */
+
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { logEvent } from '../../services/auditService';
+import { hashPin, verifyPin } from '../../utils/crypto';
+import {
+    PIN_POLICY,
+    LOGIN_RATE_LIMIT,
+    validatePin,
+} from '../../utils/securityConstants';
 
-// Pure JS SHA-256 implementation to guarantee it works in non-secure contexts and is synchronous
-function sha256(ascii) {
-    function rightRotate(value, amount) {
-        return (value >>> amount) | (value << (32 - amount));
-    }
-    
-    var mathPow = Math.pow;
-    var maxWord = mathPow(2, 32);
-    var lengthProperty = 'length';
-    var i, j; // Used as a loop counter.
-    var result = '';
+// ── SEC-005: Generación de PINs aleatorios en primer arranque ────────────────
 
-    var words = [];
-    var asciiLength = ascii[lengthProperty];
-    
-    var hash = sha256.h = sha256.h || [];
-    var k = sha256.k = sha256.k || [];
-    var primeCounter = k[lengthProperty];
+const SESSION_KEY = 'abasto-device-session';
+const ADMIN_CRED_KEY = 'abasto-admin-cred'; // sessionStorage
 
-    var isPrime = {};
-    for (var candidate = 2; primeCounter < 64; candidate++) {
-        if (!isPrime[candidate]) {
-            for (i = 0; i < 313; i += candidate) {
-                isPrime[i] = 1;
-            }
-            hash[primeCounter] = (mathPow(candidate, .5)*maxWord)|0;
-            k[primeCounter++] = (mathPow(candidate, 1/3)*maxWord)|0;
+/**
+ * Genera un PIN aleatorio de MIN_LENGTH dígitos (sin blacklist).
+ * @returns {string}
+ */
+function _generateRandomPin() {
+    const blacklist = new Set(PIN_POLICY.BLACKLIST);
+    // Bucle pequeño: hay 10^6 - ~20 PINs válidos de 6 dígitos, casi siempre se halla al primer intento.
+    for (let attempt = 0; attempt < 50; attempt++) {
+        let pin = '';
+        for (let i = 0; i < PIN_POLICY.MIN_LENGTH; i++) {
+            pin += Math.floor(Math.random() * 10).toString();
+        }
+        if (!blacklist.has(pin) && !/^(\d)\1{5,}$/.test(pin)) {
+            return pin;
         }
     }
-    
-    ascii += '\x80';
-    while (ascii[lengthProperty] % 64 - 56) ascii += '\x00';
-    for (i = 0; i < ascii[lengthProperty]; i++) {
-        j = ascii.charCodeAt(i);
-        if (j >> 8) return ''; // ASCII only
-        words[i >> 2] |= j << ((3 - i % 4) * 8);
-    }
-    words[words[lengthProperty]] = ((asciiLength * 8) / maxWord) | 0;
-    words[words[lengthProperty]] = (asciiLength * 8);
-    
-    var hashTemp = hash.slice(0);
-    // process each chunk
-    for (j = 0; j < words[lengthProperty]; ) {
-        var w = words.slice(j, j += 16); // The 512-bit block, split into 32-bit words
-        var oldHash = hashTemp.slice(0);
-        
-        for (i = 0; i < 64; i++) {
-            var w16 = w[i - 16], w15 = w[i - 15], w7 = w[i - 7], w2 = w[i - 2];
-            var a = hashTemp[0], e = hashTemp[4], g = hashTemp[6];
-            var temp1 = hashTemp[7]
-                + (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25)) // S1
-                + ((e & hashTemp[5]) ^ (~e & g)) // ch
-                + k[i]
-                + (w[i] = (i < 16) ? w[i] : (
-                        w[i - 16]
-                        + (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3)) // s0
-                        + w[i - 7]
-                        + (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10)) // s1
-                    ) | 0
-                );
-            var temp2 = (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22)) // S0
-                + ((a & hashTemp[1]) ^ (a & hashTemp[2]) ^ (hashTemp[1] & hashTemp[2])); // maj
-            
-            hashTemp = [(temp1 + temp2) | 0].concat(hashTemp); // new a
-            hashTemp[4] = (hashTemp[4] + temp1) | 0; // new e
-        }
-        
-        for (i = 0; i < 8; i++) {
-            hashTemp[i] = (hashTemp[i] + oldHash[i]) | 0;
-        }
-    }
-    
-    for (i = 0; i < 8; i++) {
-        var val = hashTemp[i];
-        if (val < 0) val += maxWord;
-        result += val.toString(16).padStart(8, '0');
-    }
-    return result;
+    // Fallback muy improbable.
+    return '4' + Math.random().toString().slice(2, 2 + PIN_POLICY.MIN_LENGTH - 1).padEnd(PIN_POLICY.MIN_LENGTH - 1, '0');
 }
 
-const DEFAULT_USERS = [
-    { id: 1, nombre: 'Administrador', rol: 'ADMIN', pin: '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92' }, // 123456
-    { id: 2, nombre: 'Cajero', rol: 'CAJERO', pin: '9af15b336e6a9619928537df30b2e6a2376569fcf9d7e773eccede65606529a0' } // 0000
-];
+/**
+ * Crea los usuarios iniciales con PINs aleatorios hasheados con PBKDF2.
+ * Devuelve `{ usuarios, initialPins }` para que el caller pueda mostrar los PINs una vez.
+ * @returns {Promise<{ usuarios: Array, initialPins: Array<{id,nombre,rol,pin}> }>}
+ */
+async function _createDefaultUsersWithRandomPins() {
+    const adminPin = _generateRandomPin();
+    const cajeroPin = _generateRandomPin();
+    const adminHash = await hashPin(adminPin);
+    const cajeroHash = await hashPin(cajeroPin);
+    const usuarios = [
+        { id: 1, nombre: 'Administrador', rol: 'ADMIN', pin: adminHash },
+        { id: 2, nombre: 'Cajero', rol: 'CAJERO', pin: cajeroHash },
+    ];
+    const initialPins = [
+        { id: 1, nombre: 'Administrador', rol: 'ADMIN', pin: adminPin },
+        { id: 2, nombre: 'Cajero', rol: 'CAJERO', pin: cajeroPin },
+    ];
+    return { usuarios, initialPins };
+}
+
+/**
+ * Inicializa usuarios por defecto la primera vez (async, post-rehydrate).
+ * Si ya hay usuarios persistidos, no hace nada. Si no, crea los defaults con PINs
+ * aleatorios y los deja accesibles en `window.__INITIAL_PINS__` para que la UI los muestre.
+ *
+ * @param {object} state - estado actual del store
+ * @param {function} set - setter de zustand
+ */
+async function _ensureDefaultUsers(state, set) {
+    if (state.usuarios && state.usuarios.length > 0) return;
+    try {
+        const { usuarios, initialPins } = await _createDefaultUsersWithRandomPins();
+        set({ usuarios });
+        // Hacemos los PINs iniciales accesibles UNA sola vez para que la UI los muestre.
+        if (typeof window !== 'undefined') {
+            window.__INITIAL_PINS__ = initialPins;
+            window.dispatchEvent(new CustomEvent('initial-pins-ready', { detail: initialPins }));
+        }
+        logEvent('AUTH', 'USUARIOS_INICIALES', 'PINs aleatorios generados para primer arranque.', null, { count: initialPins.length });
+    } catch (err) {
+        console.error('[useAuthStore] No se pudieron crear usuarios por defecto:', err);
+    }
+}
+
+// ── SEC-018: Validación de estructura de sesión persistida ───────────────────
+
+/**
+ * Valida que el objeto sesión tenga la estructura mínima `{ id:number, nombre:string, rol:string }`.
+ * NO permite incluir `pin` ni otros campos (SEC-013).
+ * @param {any} obj
+ * @returns {object|null} El objeto saneado o `null` si no valida.
+ */
+function _validateSessionShape(obj) {
+    if (!obj || typeof obj !== 'object') return null;
+    const { id, nombre, rol } = obj;
+    if (typeof id !== 'number' || !Number.isFinite(id)) return null;
+    if (typeof nombre !== 'string' || !nombre.trim()) return null;
+    if (typeof rol !== 'string' || !rol.trim()) return null;
+    // SEC-013: devolver SOLO los campos mínimos.
+    return { id, nombre, rol };
+}
+
+/**
+ * Lee y valida la sesión persistida en localStorage.
+ * Si el JSON no valida, lo elimina (SEC-018).
+ * @returns {object|null}
+ */
+function _readPersistedSession() {
+    try {
+        const saved = localStorage.getItem(SESSION_KEY);
+        if (!saved) return null;
+        const parsed = JSON.parse(saved);
+        const sane = _validateSessionShape(parsed);
+        if (!sane) {
+            // Estructura inválida o manipulada → descartar.
+            console.warn('[useAuthStore] Sesión persistida inválida, descartando (SEC-018).');
+            localStorage.removeItem(SESSION_KEY);
+            return null;
+        }
+        return sane;
+    } catch {
+        return null;
+    }
+}
+
+// ── SEC-006: Rate-limiting persistido con backoff exponencial ────────────────
+
+/**
+ * Calcula el `lockUntil` (timestamp absoluto) tras un fallo, aplicando backoff
+ * exponencial según `consecutiveLockouts`.
+ *
+ * @param {number} failedAttempts
+ * @param {number} consecutiveLockouts
+ * @returns {{ lockUntil: number|null, newAttempts: number, newConsecutiveLockouts: number }}
+ */
+function _computeLockout(failedAttempts, consecutiveLockouts) {
+    const newAttempts = failedAttempts + 1;
+    if (newAttempts < LOGIN_RATE_LIMIT.MAX_ATTEMPTS) {
+        return { lockUntil: null, newAttempts, newConsecutiveLockouts: consecutiveLockouts };
+    }
+    // Aumentar contador de lockouts sucesivos y aplicar backoff exponencial.
+    const newConsecutiveLockouts = consecutiveLockouts + 1;
+    const rawLockout = LOGIN_RATE_LIMIT.LOCKOUT_MS
+        * Math.pow(LOGIN_RATE_LIMIT.BACKOFF_FACTOR, newConsecutiveLockouts - 1);
+    const lockoutMs = Math.min(rawLockout, LOGIN_RATE_LIMIT.MAX_LOCKOUT_MS);
+    return {
+        lockUntil: Date.now() + lockoutMs,
+        newAttempts,
+        newConsecutiveLockouts: newConsecutiveLockouts,
+    };
+}
+
+// ── SEC-016: Default de requireLogin según config cloud ──────────────────────
+
+function _defaultRequireLogin() {
+    // Si hay cuenta cloud configurada, el login es obligatorio por defecto.
+    const hasCloudUrl = Boolean(import.meta.env?.VITE_SUPABASE_CLOUD_URL);
+    if (hasCloudUrl) return true;
+    // Si no, mantener false pero avisar al desarrollador.
+    if (import.meta.env?.DEV) {
+        console.info(
+            '[useAuthStore] requireLogin=false por defecto (sin VITE_SUPABASE_CLOUD_URL). ' +
+            'Recomendado: activar requireLogin=true en producción (SEC-016).'
+        );
+    }
+    return false;
+}
+
+// ── Store ────────────────────────────────────────────────────────────────────
 
 export const useAuthStore = create(
     persist(
         (set, get) => ({
-            usuarioActivo: (() => {
-                try {
-                    const saved = localStorage.getItem('abasto-device-session');
-                    return saved ? JSON.parse(saved) : null;
-                } catch { return null; }
-            })(),
-            usuarios: DEFAULT_USERS,
-            requireLogin: false, // Login opcional, por defecto desactivado
+            // SEC-018: sesión validada al rehidratar; sin `pin` (SEC-013).
+            usuarioActivo: _readPersistedSession(),
+            // SEC-005: usuarios vacíos al iniciar; se rellenan en `_ensureDefaultUsers`.
+            usuarios: [],
+            requireLogin: _defaultRequireLogin(),
+            // SEC-006: persistidos en partialize.
             failedAttempts: 0,
             lockUntil: null,
+            consecutiveLockouts: 0,
+            lastFailedAttemptTs: 0,
 
-            // ACCIONES
+            // SEC-004: credenciales admin (cloud) en sessionStorage, NUNCA localStorage.
+            adminEmail: null,
+            isCloudConfigured: (() => {
+                try { return Boolean(sessionStorage.getItem(ADMIN_CRED_KEY)); } catch { return false; }
+            })(),
+
+            // ── ACCIONES ──
+
+            /**
+             * Login por PIN.
+             *
+             * @param {string} pinInput - PIN en claro.
+             * @param {number} [userId] - Si se seleccionó un usuario específico.
+             * @returns {Promise<{ success: boolean, error?: string }>}
+             */
             login: async (pinInput, userId) => {
-                // Simular un pequeño retardo para feedback visual (UX)
-                await new Promise(r => setTimeout(r, 400));
-
-                // Brute force protection
                 const now = Date.now();
-                if (get().lockUntil && now < get().lockUntil) {
-                    const secsLeft = Math.ceil((get().lockUntil - now) / 1000);
+                let state = get();
+
+                // SEC-006: Resetear contador si pasó RESET_WINDOW_MS desde el último fallo.
+                if (
+                    state.lastFailedAttemptTs > 0
+                    && (now - state.lastFailedAttemptTs) > LOGIN_RATE_LIMIT.RESET_WINDOW_MS
+                ) {
+                    set({ failedAttempts: 0, lockUntil: null, consecutiveLockouts: 0 });
+                    state = get();
+                }
+
+                // SEC-006: Chequear bloqueo con timestamp absoluto persistido.
+                if (state.lockUntil && now < state.lockUntil) {
+                    const secsLeft = Math.ceil((state.lockUntil - now) / 1000);
                     return { success: false, error: `Bloqueado. Intente en ${secsLeft}s` };
+                }
+                // Si el lock ya expiró, limpiar.
+                if (state.lockUntil && now >= state.lockUntil) {
+                    set({ lockUntil: null });
+                    state = get();
                 }
 
                 const { usuarios } = get();
-                const hashedPin = sha256(pinInput || '');
-                
-                let userEncontrado;
-                
-                if (userId) {
-                    userEncontrado = usuarios.find(u => u.id === userId && u.pin === hashedPin);
-                } else {
-                    userEncontrado = usuarios.find(u => u.pin === hashedPin);
+                if (!usuarios || usuarios.length === 0) {
+                    return { success: false, error: 'No hay usuarios configurados' };
+                }
+
+                // Buscar usuario candidato por ID (si se especificó) o por todos.
+                const candidatos = userId ? usuarios.filter(u => u.id === userId) : usuarios;
+
+                let userEncontrado = null;
+                let needsRehash = false;
+                let legacy = false;
+
+                for (const u of candidatos) {
+                    try {
+                        const result = await verifyPin(String(pinInput ?? ''), u.pin);
+                        if (result.valid) {
+                            userEncontrado = u;
+                            needsRehash = result.needsRehash;
+                            legacy = result.legacy;
+                            break;
+                        }
+                    } catch (e) {
+                        // Un PIN que no verifica no debe romper el flujo.
+                        if (import.meta.env?.DEV) {
+                            console.warn('[useAuthStore] verifyPin lanzó:', e?.message ?? e);
+                        }
+                    }
                 }
 
                 if (userEncontrado) {
-                    set({ usuarioActivo: userEncontrado, failedAttempts: 0, lockUntil: null });
-                    localStorage.setItem('abasto-device-session', JSON.stringify(userEncontrado));
-                    logEvent('AUTH', 'LOGIN', `${userEncontrado.nombre} inicio sesion`, userEncontrado);
+                    // SEC-013: persistir SOLO { id, nombre, rol }. Nunca el hash.
+                    const session = {
+                        id: userEncontrado.id,
+                        nombre: userEncontrado.nombre,
+                        rol: userEncontrado.rol,
+                    };
+                    set({
+                        usuarioActivo: session,
+                        failedAttempts: 0,
+                        lockUntil: null,
+                        consecutiveLockouts: 0,
+                        lastFailedAttemptTs: 0,
+                    });
+                    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+
+                    // SEC-005: re-hashear PIN legacy con PBKDF2 en login exitoso.
+                    if (needsRehash || legacy) {
+                        try {
+                            const newHash = await hashPin(String(pinInput));
+                            set((s) => ({
+                                usuarios: s.usuarios.map(u =>
+                                    u.id === userEncontrado.id ? { ...u, pin: newHash } : u
+                                ),
+                            }));
+                            logEvent('AUTH', 'PIN_MIGRADO', `PIN de ${userEncontrado.nombre} migrado a PBKDF2.`, session);
+                        } catch (e) {
+                            if (import.meta.env?.DEV) {
+                                console.warn('[useAuthStore] Re-hash falló (continuando):', e?.message ?? e);
+                            }
+                        }
+                    }
+
+                    logEvent('AUTH', 'LOGIN', `${userEncontrado.nombre} inicio sesion`, session);
                     return { success: true };
                 }
 
-                const attempts = get().failedAttempts + 1;
-                const lockUntil = attempts >= 5 ? Date.now() + 30000 : null; // 30s lockout after 5 fails
-                set({ failedAttempts: attempts, lockUntil });
+                // Fallo: aplicar rate-limiting persistido.
+                const { newAttempts, lockUntil, newConsecutiveLockouts } = _computeLockout(
+                    get().failedAttempts,
+                    get().consecutiveLockouts,
+                );
+                set({
+                    failedAttempts: newAttempts,
+                    lockUntil,
+                    consecutiveLockouts: newConsecutiveLockouts,
+                    lastFailedAttemptTs: now,
+                });
+                return { success: false };
+            },
+
+            /**
+             * SEC-015: Re-valida el PIN del usuario activo para volver de un lock.
+             * A diferencia de `login`, NO persiste una nueva sesión si ya hay una activa:
+             * solo verifica que el PIN ingresado coincida con el usuario activo.
+             *
+             * @param {string} pinInput
+             * @returns {Promise<{ success: boolean, error?: string }>}
+             */
+            unlock: async (pinInput) => {
+                const { usuarioActivo, usuarios, lockUntil } = get();
+                if (!usuarioActivo) return { success: false, error: 'Sin usuario activo' };
+
+                const now = Date.now();
+                if (lockUntil && now < lockUntil) {
+                    const secsLeft = Math.ceil((lockUntil - now) / 1000);
+                    return { success: false, error: `Bloqueado. Intente en ${secsLeft}s` };
+                }
+
+                const user = usuarios.find(u => u.id === usuarioActivo.id);
+                if (!user) return { success: false, error: 'Usuario no encontrado' };
+
+                try {
+                    const result = await verifyPin(String(pinInput ?? ''), user.pin);
+                    if (result.valid) {
+                        // Reset rate-limiting al desbloquear exitosamente.
+                        set({
+                            failedAttempts: 0,
+                            lockUntil: null,
+                            consecutiveLockouts: 0,
+                            lastFailedAttemptTs: 0,
+                        });
+                        logEvent('AUTH', 'SESION_DESBLOQUEADA', `${user.nombre} desbloqueó la sesión.`, usuarioActivo);
+                        // SEC-005: re-hashear si era legacy.
+                        if (result.needsRehash) {
+                            try {
+                                const newHash = await hashPin(String(pinInput));
+                                set((s) => ({
+                                    usuarios: s.usuarios.map(u =>
+                                        u.id === user.id ? { ...u, pin: newHash } : u
+                                    ),
+                                }));
+                            } catch (e) {
+                                if (import.meta.env?.DEV) {
+                                    console.warn('[useAuthStore] Re-hash en unlock falló:', e?.message ?? e);
+                                }
+                            }
+                        }
+                        return { success: true };
+                    }
+                } catch (e) {
+                    if (import.meta.env?.DEV) {
+                        console.warn('[useAuthStore] unlock verifyPin lanzó:', e?.message ?? e);
+                    }
+                }
+
+                // Fallo de unlock — aplicar rate-limiting también.
+                const { newAttempts, lockUntil: newLock, newConsecutiveLockouts } = _computeLockout(
+                    get().failedAttempts,
+                    get().consecutiveLockouts,
+                );
+                set({
+                    failedAttempts: newAttempts,
+                    lockUntil: newLock,
+                    consecutiveLockouts: newConsecutiveLockouts,
+                    lastFailedAttemptTs: now,
+                });
                 return { success: false };
             },
 
@@ -141,68 +394,115 @@ export const useAuthStore = create(
                 const { usuarioActivo } = get();
                 if (usuarioActivo) logEvent('AUTH', 'LOGOUT', `${usuarioActivo.nombre} cerro sesion`, usuarioActivo);
                 set({ usuarioActivo: null });
-                localStorage.removeItem('abasto-device-session');
+                localStorage.removeItem(SESSION_KEY);
             },
 
+            /**
+             * Cambia el PIN de un usuario.
+             * @param {number} userId
+             * @param {string} nuevoPin - PIN en claro (será validado y hasheado).
+             * @returns {{ ok: boolean, error?: string }}
+             */
             cambiarPin: (userId, nuevoPin) => {
-                const hashedPin = sha256(nuevoPin || '');
-                set((state) => ({
-                    usuarios: state.usuarios.map(u => 
-                        u.id === userId ? { ...u, pin: hashedPin } : u
-                    )
-                }));
-                
-                // Si el usuario que cambió el PIN es el activo, actualizar su sesión local
-                const { usuarioActivo } = get();
-                if (usuarioActivo && usuarioActivo.id === userId) {
-                    const nuevoActivo = { ...usuarioActivo, pin: hashedPin };
-                    set({ usuarioActivo: nuevoActivo });
-                    localStorage.setItem('abasto-device-session', JSON.stringify(nuevoActivo));
-                }
-                const target = get().usuarios.find(u => u.id === userId);
-                logEvent('AUTH', 'PIN_CAMBIADO', `PIN cambiado para ${target?.nombre || 'usuario'}`, get().usuarioActivo);
+                const err = validatePin(String(nuevoPin ?? ''));
+                if (err) return { ok: false, error: err };
+
+                // hashPin es async; delegamos en una acción async interna y devolvemos sync.
+                // Los callers existentes (ConfigView, etc.) no esperan el resultado del hash.
+                (async () => {
+                    try {
+                        const hashedPin = await hashPin(String(nuevoPin));
+                        set((state) => ({
+                            usuarios: state.usuarios.map(u =>
+                                u.id === userId ? { ...u, pin: hashedPin } : u
+                            )
+                        }));
+                        const target = get().usuarios.find(u => u.id === userId);
+                        logEvent('AUTH', 'PIN_CAMBIADO', `PIN cambiado para ${target?.nombre || 'usuario'}`, get().usuarioActivo);
+                    } catch (e) {
+                        console.error('[useAuthStore] cambiarPin falló:', e);
+                    }
+                })();
+                return { ok: true };
             },
 
+            /**
+             * Crea un usuario nuevo con PIN validado y hasheado.
+             * @param {string} nombre
+             * @param {string} rol
+             * @param {string} pin - en claro
+             * @returns {{ ok: boolean, error?: string }}
+             */
             agregarUsuario: (nombre, rol, pin) => {
-                const hashedPin = sha256(pin || '');
-                set((state) => {
-                    const maxId = state.usuarios.reduce((max, u) => Math.max(max, u.id), 0);
-                    return {
-                        usuarios: [...state.usuarios, { id: maxId + 1, nombre, rol, pin: hashedPin }]
-                    };
-                });
-                logEvent('USUARIO', 'USUARIO_CREADO', `Usuario "${nombre}" (${rol}) creado`, get().usuarioActivo);
+                const err = validatePin(String(pin ?? ''));
+                if (err) return { ok: false, error: err };
+
+                (async () => {
+                    try {
+                        const hashedPin = await hashPin(String(pin));
+                        set((state) => {
+                            const maxId = state.usuarios.reduce((max, u) => Math.max(max, u.id), 0);
+                            return {
+                                usuarios: [...state.usuarios, { id: maxId + 1, nombre, rol, pin: hashedPin }]
+                            };
+                        });
+                        logEvent('USUARIO', 'USUARIO_CREADO', `Usuario "${nombre}" (${rol}) creado`, get().usuarioActivo);
+                    } catch (e) {
+                        console.error('[useAuthStore] agregarUsuario falló:', e);
+                    }
+                })();
+                return { ok: true };
             },
 
             eliminarUsuario: (userId) => {
                 const { usuarios, usuarioActivo } = get();
-                // No permitir eliminar al último ADMIN
                 const admins = usuarios.filter(u => u.rol === 'ADMIN');
                 const target = usuarios.find(u => u.id === userId);
                 if (target?.rol === 'ADMIN' && admins.length <= 1) return false;
-                // No permitir eliminarse a sí mismo
                 if (usuarioActivo?.id === userId) return false;
-                
+
                 set({ usuarios: usuarios.filter(u => u.id !== userId) });
-                logEvent('USUARIO', 'USUARIO_ELIMINADO', `Usuario "${target.nombre}" (${target.rol}) eliminado`, usuarioActivo);
+                logEvent('USUARIO', 'USUARIO_ELIMINADO', `Usuario "${target?.nombre}" (${target?.rol}) eliminado`, usuarioActivo);
                 return true;
             },
 
+            /**
+             * Edita un usuario. Si `datos.pin` viene en claro, se valida y hashea.
+             * @param {number} userId
+             * @param {object} datos - { nombre?, rol?, pin? }
+             * @returns {{ ok: boolean, error?: string }}
+             */
             editarUsuario: (userId, datos) => {
+                if (!datos || typeof datos !== 'object') return { ok: false, error: 'datos inválidos' };
+
                 const nuevosDatos = { ...datos };
-                if (datos.pin) nuevosDatos.pin = sha256(datos.pin);
+                if (datos.pin !== undefined) {
+                    const err = validatePin(String(datos.pin));
+                    if (err) return { ok: false, error: err };
+                    // Hash async; el set se hace en la promesa.
+                    (async () => {
+                        try {
+                            const hashedPin = await hashPin(String(datos.pin));
+                            const sinPin = { ...datos };
+                            delete sinPin.pin;
+                            set((state) => ({
+                                usuarios: state.usuarios.map(u =>
+                                    u.id === userId ? { ...u, ...sinPin, pin: hashedPin } : u
+                                )
+                            }));
+                        } catch (e) {
+                            console.error('[useAuthStore] editarUsuario hashPin falló:', e);
+                        }
+                    })();
+                    return { ok: true };
+                }
 
                 set((state) => ({
-                    usuarios: state.usuarios.map(u => 
+                    usuarios: state.usuarios.map(u =>
                         u.id === userId ? { ...u, ...nuevosDatos } : u
                     )
                 }));
-                const { usuarioActivo } = get();
-                if (usuarioActivo && usuarioActivo.id === userId) {
-                    const nuevoActivo = { ...usuarioActivo, ...nuevosDatos };
-                    set({ usuarioActivo: nuevoActivo });
-                    localStorage.setItem('abasto-device-session', JSON.stringify(nuevoActivo));
-                }
+                return { ok: true };
             },
 
             setRequireLogin: (val) => {
@@ -210,27 +510,74 @@ export const useAuthStore = create(
                 logEvent('CONFIG', 'LOGIN_REQUERIDO_MODIFICADO', `Login requerido establecido a ${val ? 'SI' : 'NO'}`);
             },
 
+            /**
+             * SEC-004: setAdminCredentials — persiste el email en sessionStorage.
+             * La password NUNCA se persiste en localStorage (solo en memoria de la
+             * sesión de Supabase, que se renueva con signInWithPassword).
+             *
+             * Marca `isCloudConfigured = true` para activar el auto-lock.
+             *
+             * @param {string} email
+             * @param {string} _password - No se persiste (solo se pasa a Supabase en el caller).
+             */
+            setAdminCredentials: (email, _password) => {
+                if (!email || typeof email !== 'string') return;
+                try {
+                    sessionStorage.setItem(ADMIN_CRED_KEY, JSON.stringify({ email, ts: Date.now() }));
+                } catch (e) {
+                    console.warn('[useAuthStore] No se pudo persistir admin cred en sessionStorage:', e);
+                }
+                set({ adminEmail: email, isCloudConfigured: true });
+                logEvent('AUTH', 'CREDENCIALES_ADMIN', `Credenciales cloud establecidas para ${email}`, get().usuarioActivo);
+            },
+
+            /**
+             * SEC-004: limpia credenciales admin (al cerrar sesión cloud).
+             */
+            clearAdminCredentials: () => {
+                try { sessionStorage.removeItem(ADMIN_CRED_KEY); } catch { }
+                set({ adminEmail: null, isCloudConfigured: false });
+            },
         }),
         {
-            name: 'abasto-auth-storage', // Nombre para localStorage
+            name: 'abasto-auth-storage',
             partialize: (state) => ({
                 usuarios: state.usuarios,
                 requireLogin: state.requireLogin,
+                // SEC-006: rate-limiting persistido (sobrevive recarga).
+                failedAttempts: state.failedAttempts,
+                lockUntil: state.lockUntil,
+                consecutiveLockouts: state.consecutiveLockouts,
+                lastFailedAttemptTs: state.lastFailedAttemptTs,
+                // SEC-004: persistimos adminEmail e isCloudConfigured (la password NUNCA se persiste).
+                adminEmail: state.adminEmail,
+                isCloudConfigured: state.isCloudConfigured,
             }),
             onRehydrateStorage: () => (state) => {
                 if (!state) return;
-                const migrated = state.usuarios.map(u => {
-                    let currentPin = u.pin;
-                    if (u.id === 1 && currentPin === '1234') currentPin = '123456';
-                    if (u.id === 2 && currentPin === '000000') currentPin = '0000';
-                    
-                    // Hashear si no es un hash SHA-256
-                    if (currentPin && currentPin.length !== 64) {
-                        return { ...u, pin: sha256(currentPin) };
-                    }
-                    return { ...u, pin: currentPin };
-                });
-                state.usuarios = migrated;
+                // SEC-018: re-validar sesión persistida (no confiamos en el JSON guardado).
+                state.usuarioActivo = _readPersistedSession();
+
+                // SEC-005: si no hay usuarios persistidos, crear PINs aleatorios en primer arranque.
+                if (!state.usuarios || state.usuarios.length === 0) {
+                    // Lanzar async; el set se aplica cuando termine.
+                    _ensureDefaultUsers(state, (patch) => {
+                        useAuthStore.setState(patch);
+                    });
+                } else {
+                    // Limpiar cualquier campo `pin` en texto plano que venga de versiones viejas.
+                    state.usuarios = state.usuarios.map(u => {
+                        if (typeof u.pin === 'string' && u.pin.length === 64 && /^[0-9a-f]{64}$/i.test(u.pin)) {
+                            // Hash legacy SHA-256 — se mantiene hasta que verifyPin.needsRehash lo migre.
+                            return u;
+                        }
+                        if (typeof u.pin === 'string' && u.pin.startsWith('pbkdf2$')) {
+                            return u;
+                        }
+                        // PIN en claro o malformado: invalidar para forzar reseteo.
+                        return { ...u, pin: '' };
+                    });
+                }
             },
             storage: {
                 getItem: (name) => {
@@ -240,13 +587,15 @@ export const useAuthStore = create(
                 },
                 setItem: (name, value) => {
                     localStorage.setItem(name, JSON.stringify(value));
-                    // Disparar a la nube para P2P (Lazy import para evitar ciclos)
-                    import('../useCloudSync').then(({ pushCloudSync }) => {
-                        pushCloudSync(name, value);
-                    }).catch(err => console.warn('No se pudo inyectar Auth Cloud', err));
+                    // SEC-002: abasto-auth-storage YA NO se sincroniza a sync_documents
+                    // (se eliminó de LOCAL_KEYS en useCloudSync). Pero por si una versión
+                    // vieja del código lo empujaba, evitamos el push aquí.
+                    // (No importamos useCloudSync para no romper el tree-shaking.)
                 },
                 removeItem: (name) => localStorage.removeItem(name)
             }
         }
     )
 );
+
+export { _validateSessionShape, _computeLockout, _generateRandomPin, _createDefaultUsersWithRandomPins, _readPersistedSession };

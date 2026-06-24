@@ -1,4 +1,6 @@
-import { formatBs, formatCop } from './calculatorUtils';
+import { formatBs, formatCop, formatUsd } from './calculatorUtils';
+// FIN-024: reemplazar `* rate` raw y `.toFixed(2)` con mulR + formatUsd (sin Math.round/toFixed).
+import { mulR } from './dinero';
 
 /**
  * Genera el HTML completo para impresión térmica de un ticket de venta.
@@ -11,7 +13,8 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
 
     const rate = sale.rate || bcvRate || 1;
     const isCop = sale.copEnabled && sale.tasaCop > 0;
-    const fmtUsd = (v) => isCop ? `USD ${parseFloat(v).toFixed(2)}` : `$${parseFloat(v).toFixed(2)}`;
+    // FIN-024: formatUsd en vez de parseFloat(v).toFixed(2).
+    const fmtUsd = (v) => isCop ? `USD ${formatUsd(v)}` : `$${formatUsd(v)}`;
     const saleNum = String(sale.saleNumber || 0).padStart(7, '0');
     const d = new Date(sale.timestamp);
     const fecha = d.toLocaleDateString('es-VE');
@@ -20,16 +23,18 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
 
     // Generar filas de productos
     const itemsHtml = (sale.items || []).map(item => {
-        const qty = item.isWeight ? item.qty.toFixed(2) : String(item.qty);
+        // FIN-024: formatUsd para qty peso, sin toFixed.
+        const qty = item.isWeight ? formatUsd(item.qty) : String(item.qty);
         const unit = item.isWeight ? 'Kg' : 'u';
-        const sub = item.priceUsd * item.qty;
-        const subBs = sub * rate;
+        // FIN-024: mulR en vez de multiplicación raw.
+        const sub = mulR(item.priceUsd, item.qty);
+        const subBs = mulR(sub, rate);
         const maxLen = is80 ? 32 : 22;
         const name = item.name.length > maxLen ? item.name.substring(0, maxLen) + '...' : item.name;
-        const importeStr = isCop ? 'USD ' + sub.toFixed(2) : '$' + sub.toFixed(2);
+        const importeStr = fmtUsd(sub);
         const detailStr = isCop
-            ? 'USD ' + item.priceUsd.toFixed(2) + ' c/u - ' + formatCop(item.priceCop ? item.priceCop * item.qty : sub * sale.tasaCop) + ' COP - Bs ' + formatBs(subBs)
-            : '$' + item.priceUsd.toFixed(2) + ' c/u - Bs ' + formatBs(subBs);
+            ? 'USD ' + formatUsd(item.priceUsd) + ' c/u - ' + formatCop(item.priceCop ? mulR(item.priceCop, item.qty) : mulR(sub, sale.tasaCop)) + ' COP - Bs ' + formatBs(subBs)
+            : '$' + formatUsd(item.priceUsd) + ' c/u - Bs ' + formatBs(subBs);
         return `
             <tr>
                 <td style="text-align:left;font-size:${fBase};padding:2px 0;">${qty}${unit}</td>
@@ -46,11 +51,12 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
     const paymentsHtml = (sale.payments || []).map(p => {
         const pIsCop = p.currency === 'COP';
         const isBs = !pIsCop && (p.currency ? p.currency !== 'USD' : (p.methodId?.includes('_bs') || p.methodId === 'pago_movil'));
+        // FIN-024: mulR en vez de multiplicación raw.
         const val = pIsCop
-            ? 'COP ' + (p.amountInput || (p.amountUsd * (sale.tasaCop || 1))).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            ? 'COP ' + (p.amountInput || mulR(p.amountUsd, (sale.tasaCop || 1))).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
             : isBs
-            ? 'Bs ' + formatBs(p.amountBs || (p.amountUsd * rate))
-            : 'USD ' + (p.amountUsd || 0).toFixed(2);
+            ? 'Bs ' + formatBs(p.amountBs || mulR(p.amountUsd, rate))
+            : fmtUsd(p.amountUsd || 0);
         return `
             <tr>
                 <td style="font-size:11px;padding:2px 0;">${p.methodLabel || 'Pago'}</td>
@@ -59,6 +65,7 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
     }).join('');
 
     const fiadoRate = bcvRate || rate;
+    // FIN-024: mulR en vez de multiplicación raw.
     const fiadoHtml = hasFiado ? `
         <div style="margin-top:6px;padding:4px 0;border-top:1px dashed #ccc;">
             <table style="width:100%"><tr>
@@ -66,7 +73,7 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
                 <td style="color:#dc3545;font-weight:bold;font-size:11px;text-align:right;">${fmtUsd(sale.fiadoUsd)}</td>
             </tr><tr>
                 <td></td>
-                <td style="color:#dc3545;font-size:9px;text-align:right;">Bs ${formatBs(sale.fiadoUsd * fiadoRate)} (tasa actual)</td>
+                <td style="color:#dc3545;font-size:9px;text-align:right;">Bs ${formatBs(mulR(sale.fiadoUsd, fiadoRate))} (tasa actual)</td>
             </tr></table>
         </div>` : '';
 
@@ -191,8 +198,8 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
         </table>
         ` : ''}
         <div class="center bold" style="font-size:${fSmall};color:#555;margin-bottom:4px;">TOTAL A PAGAR</div>
-        <div class="total-usd">${isCop ? 'USD ' + parseFloat(sale.totalUsd || 0).toFixed(2) : '$' + parseFloat(sale.totalUsd || 0).toFixed(2)}</div>
-        ${isCop ? `<div class="total-bs" style="font-size:${is80 ? '16px' : '13px'};">COP ${formatCop(sale.totalCop || (sale.totalUsd * sale.tasaCop))}</div>` : ''}
+        <div class="total-usd">${fmtUsd(sale.totalUsd || 0)}</div>
+        ${isCop ? `<div class="total-bs" style="font-size:${is80 ? '16px' : '13px'};">COP ${formatCop(sale.totalCop || mulR(sale.totalUsd, sale.tasaCop))}</div>` : ''}
         <div class="total-bs" style="margin-bottom:4px">Bs ${formatBs(sale.totalBs || 0)}</div>
     </div>
 

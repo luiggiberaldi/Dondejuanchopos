@@ -1,12 +1,15 @@
 import { useEffect } from 'react';
 import { supabase } from '../core/supabaseClient';
-import { encodeToken } from '../security/tokenCrypto';
 
 const PRODUCT_ID = 'bodega';
 
 /**
  * Hook that handles heartbeat sending, license status verification,
  * and real-time subscription for license changes.
+ *
+ * SEC-001/SEC-007: Ya NO minteamos tokens XOR legacy en localStorage.
+ * La fuente de verdad es la fila `licenses` en el servidor. Solo actualizamos
+ * el estado React (via callbacks) cuando el backend confirma el cambio.
  */
 export function useLicenseMonitoring({
     deviceId,
@@ -19,7 +22,6 @@ export function useLicenseMonitoring({
     useEffect(() => {
         if (!deviceId || !import.meta.env.VITE_SUPABASE_URL) return;
 
-        // Funcion de chequeo rapido de estado
         const verifyStatus = async () => {
             try {
                 const { data: license, error } = await supabase
@@ -30,11 +32,10 @@ export function useLicenseMonitoring({
                     .maybeSingle();
 
                 if (license && (license.active === false || license.type === 'revoked') && isPremium) {
-                    // Revocado
                     localStorage.removeItem('pda_premium_token');
                     onRevoked("Tu licencia ha sido desactivada. Contacta al administrador.");
                 } else if (license && license.active === true) {
-                    // Verificar si demo vencio por fecha
+                    // Verificar si demo venció por fecha
                     if ((license.type === 'demo7' || license.type === 'demo3') && license.expires_at) {
                         const expiresAt = new Date(license.expires_at).getTime();
                         if (Date.now() >= expiresAt && isPremium) {
@@ -44,23 +45,22 @@ export function useLicenseMonitoring({
                         }
                     }
 
-                    // Si el backend cambio el tipo de licencia, actualizar estado local sin recargar
+                    // Si el backend cambió el tipo de licencia, actualizar estado local.
+                    // SEC-001: NO creamos tokens XOR; solo actualizamos estado React.
                     if (license.type === 'permanent' && (!isPremium || isDemo)) {
-                        // Demo (o Expirado) -> Permanente: actualizar token y estado
-                        const token = { deviceId, type: 'permanent' };
-                        localStorage.setItem('pda_premium_token', encodeToken(JSON.stringify(token)));
                         onPermanentActivated();
                     } else if ((license.type === 'demo7' || license.type === 'demo3') && (!isPremium || !isDemo) && license.expires_at) {
-                        // Permanente (o Expirado) -> Demo: actualizar token y estado
                         const expiresAt = new Date(license.expires_at).getTime();
                         if (Date.now() < expiresAt) {
-                            const token = { deviceId, type: license.type, expires: expiresAt, isDemo: true };
-                            localStorage.setItem('pda_premium_token', encodeToken(JSON.stringify(token)));
                             onDemoActivated(expiresAt);
                         }
                     }
                 }
-            } catch (e) { }
+            } catch (e) {
+                if (import.meta.env?.DEV) {
+                    console.warn('[LicenseMonitoring] verifyStatus falló:', e?.message ?? e);
+                }
+            }
         };
 
         const sendHeartbeat = async () => {
@@ -68,21 +68,21 @@ export function useLicenseMonitoring({
             try {
                 const clientName = localStorage.getItem('business_name') || localStorage.getItem('restaurant_name') || '';
                 await supabase.rpc('heartbeat_device', { p_device_id: deviceId, p_product_id: PRODUCT_ID, p_client_name: clientName });
-            } catch (e) { }
+            } catch (e) {
+                if (import.meta.env?.DEV) {
+                    console.warn('[LicenseMonitoring] heartbeat falló:', e?.message ?? e);
+                }
+            }
         };
 
-        // 1. Ejecutar heartbeat al montar y cada 4 horas
         sendHeartbeat();
         const heartbeatInterval = setInterval(sendHeartbeat, 4 * 60 * 60 * 1000);
 
-        // 2. Revisar apenas el usuario regrese a la app
-        // (El polling de 60s fue eliminado — el Realtime cubre las revocaciones instantáneas)
         const handleVisibility = () => {
             if (document.visibilityState === 'visible') verifyStatus();
         };
         document.addEventListener('visibilitychange', handleVisibility);
 
-        // 3. Supabase Realtime para detección instantánea de revocaciones
         let subscription = null;
         try {
             subscription = supabase
@@ -96,7 +96,11 @@ export function useLicenseMonitoring({
                     verifyStatus();
                 })
                 .subscribe();
-        } catch (e) { }
+        } catch (e) {
+            if (import.meta.env?.DEV) {
+                console.warn('[LicenseMonitoring] suscripción Realtime falló:', e?.message ?? e);
+            }
+        }
 
         return () => {
             clearInterval(heartbeatInterval);

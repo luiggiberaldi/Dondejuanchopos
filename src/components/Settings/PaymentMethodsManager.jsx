@@ -142,7 +142,7 @@ export default function PaymentMethodsManager({ triggerHaptic }) {
                     <div className="flex flex-wrap gap-2">
                         <button
                             onClick={() => setNewCurrency('BS')}
-                            className={`flex-1 min-w-[120px] py-2 rounded-lg text-xs font-black transition-all ${newCurrency === 'BS' ? 'bg-blue-500 text-white' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700'}`}
+                            className={`flex-1 min-w-[120px] py-2 rounded-lg text-xs font-black transition-all ${newCurrency === 'BS' ? 'bg-brand text-white' : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700'}`}
                         >
                             Bolívares (Bs)
                         </button>
@@ -192,7 +192,7 @@ export default function PaymentMethodsManager({ triggerHaptic }) {
             {/* Sección Bolívares */}
             {methodsBs.length > 0 && (
                 <div>
-                    <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-2">Bolívares (Bs)</p>
+                    <p className="text-[10px] font-black text-brand uppercase tracking-widest mb-2">Bolívares (Bs)</p>
                     {methodsBs.map(renderMethod)}
                 </div>
             )}

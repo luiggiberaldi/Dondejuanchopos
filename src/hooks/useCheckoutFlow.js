@@ -1,6 +1,9 @@
 import { storageService } from '../utils/storageService';
 import { showToast } from '../components/Toast';
 import { processSaleTransaction } from '../utils/checkoutProcessor';
+import { withLock } from '../utils/withLock';  // FIN-026: lock para apertura de caja.
+import { round2 } from '../utils/dinero';
+import { CurrencyService } from '../services/CurrencyService'; // FIN-026: safeParse en vez de parseFloat.
 import { SALES_KEY } from './useSalesData';
 
 export function useCheckoutFlow({
@@ -68,24 +71,45 @@ export function useCheckoutFlow({
         return newCustomer;
     };
 
+    // FIN-026: handleSaveApertura envuelto en withLock + validación de montos >= 0.
     const handleSaveApertura = async (data) => {
+        // Validar montos no negativos.
+        const openingUsd = round2(CurrencyService.safeParse(data.openingUsd));
+        const openingBs = round2(CurrencyService.safeParse(data.openingBs));
+        const openingCop = round2(CurrencyService.safeParse(data.openingCop));
+
+        if (openingUsd < 0 || openingBs < 0 || openingCop < 0) {
+            showToast('Los montos de apertura no pueden ser negativos.', 'error');
+            if (playError) playError();
+            return;
+        }
+        if (openingUsd === 0 && openingBs === 0 && openingCop === 0) {
+            showToast('Ingresa al menos un monto de apertura.', 'warning');
+            if (playError) playError();
+            return;
+        }
+
         try {
             const today = new Date().toISOString();
             const aperturaRecord = {
                 id: `apertura_${Date.now()}`,
                 tipo: 'APERTURA_CAJA',
-                openingUsd: data.openingUsd,
-                openingBs: data.openingBs,
-                ...(data.openingCop ? { openingCop: data.openingCop } : {}),
+                openingUsd,
+                openingBs,
+                // FIN-026: incluir openingCop siempre (aunque sea 0) para trazabilidad.
+                openingCop,
                 timestamp: today,
                 cajaCerrada: false
             };
 
-            const existingSales = await storageService.getItem(SALES_KEY, []);
-            const updatedSales = [...existingSales, aperturaRecord];
+            // FIN-026: envolver en withLock para evitar duplicar aperturas en doble-click.
+            await withLock('pos_write_lock', async () => {
+                const existingSales = await storageService.getItem(SALES_KEY, []);
+                const updatedSales = [...existingSales, aperturaRecord];
+                await storageService.setItem(SALES_KEY, updatedSales);
+                setTodayAperturaData(aperturaRecord);
+            });
 
-            await storageService.setItem(SALES_KEY, updatedSales);
-            setTodayAperturaData(aperturaRecord);
             setIsAperturaOpen(false);
             showToast('Caja abierta exitosamente', 'success');
             if (triggerHaptic) triggerHaptic();

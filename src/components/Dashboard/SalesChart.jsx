@@ -50,7 +50,7 @@ function SalesChart({ weekData, onDayClick, selectedDate, copEnabled, copPrimary
                                 <div
                                     className={`w-full max-w-[28px] rounded-t-lg transition-all duration-300 ease-out group-hover:opacity-80 ${
                                         isSelected
-                                            ? 'bg-gradient-to-t from-blue-500 to-blue-400 shadow-md shadow-blue-500/30'
+                                            ? 'bg-gradient-to-t from-brand to-brand-dark shadow-md shadow-primary/30'
                                         : isToday
                                             ? 'bg-gradient-to-t from-emerald-500 to-emerald-400 shadow-md shadow-emerald-500/20'
                                         : day.total > 0
@@ -66,7 +66,7 @@ function SalesChart({ weekData, onDayClick, selectedDate, copEnabled, copPrimary
 
                             {/* Day label */}
                             <span className={`text-[10px] font-bold ${
-                                isSelected ? 'text-blue-600 dark:text-blue-400'
+                                isSelected ? 'text-brand-dark dark:text-brand'
                                 : isToday ? 'text-emerald-600 dark:text-emerald-400'
                                 : 'text-slate-400'
                             }`}>

@@ -3,6 +3,8 @@ import { X, ChevronRight, DollarSign, Wallet, CheckCircle2, AlertTriangle, Trend
 import { formatBs, formatCop } from '../../utils/calculatorUtils';
 import { getPaymentLabel, getPaymentIcon, toTitleCase } from '../../config/paymentMethods';
 import { round2, subR, mulR } from '../../utils/dinero';
+// FIN-028: semáforo de cierre ahora considera las tres monedas con tolerancias explícitas.
+import { FINANCIAL_EPSILON } from '../../utils/securityConstants';
 
 export default function CierreCajaWizard({
     isOpen,
@@ -51,10 +53,27 @@ export default function CierreCajaWizard({
     const todayTotalCop = todayTotalCopProp > 0 ? todayTotalCopProp : (copEnabled && tasaCop > 0 ? mulR(todayTotalUsd, tasaCop) : 0);
 
     // Semaforo
+    // FIN-028: Antes solo consideraba USD. Ahora combina las tres monedas con
+    //   tolerancias explícitas (FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_*).
+    //   Regla: si alguna moneda tiene discrepancia significativa → rojo.
+    //         si alguna tiene diferencia menor pero todas las demás cuadradas → ámbar.
+    //         si todas cuadran dentro de tolerancia → verde.
     const absDiffUsd = Math.abs(diffUsd);
+    const absDiffBs = Math.abs(diffBs);
+    const absDiffCop = Math.abs(diffCop);
+    const hasCopActivity = hasCopTransactions || expectedCop > 0 || declaredCop > 0;
+
+    const usdOk = absDiffUsd <= FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_USD;
+    const bsOk = absDiffBs <= FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_BS;
+    const copOk = !hasCopActivity || absDiffCop <= FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_COP;
+
     const getSemaforo = () => {
-        if (absDiffUsd <= 0.50) return { color: 'emerald', label: 'Caja cuadrada', icon: CheckCircle2, bg: 'bg-emerald-500' };
-        if (absDiffUsd <= 5.00) return { color: 'amber', label: 'Diferencia menor', icon: AlertTriangle, bg: 'bg-amber-500' };
+        if (usdOk && bsOk && copOk) return { color: 'emerald', label: 'Caja cuadrada', icon: CheckCircle2, bg: 'bg-emerald-500' };
+        // Diferencia menor: al menos una moneda excede tolerancia pero todas < 5x tolerancia.
+        const usdMinor = absDiffUsd <= FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_USD * 5;
+        const bsMinor = absDiffBs <= FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_BS * 5;
+        const copMinor = !hasCopActivity || absDiffCop <= FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_COP * 5;
+        if (usdMinor && bsMinor && copMinor) return { color: 'amber', label: 'Diferencia menor', icon: AlertTriangle, bg: 'bg-amber-500' };
         return { color: 'red', label: 'Discrepancia significativa', icon: AlertTriangle, bg: 'bg-red-500' };
     };
 
@@ -115,13 +134,13 @@ export default function CierreCajaWizard({
                     </div>
                     <div className="flex gap-2">
                         {[1, 2, 3].map(s => (
-                            <div key={s} className={`h-1.5 flex-1 rounded-full transition-all duration-500 ${s <= step ? 'bg-indigo-500' : 'bg-slate-200 dark:bg-slate-700'}`} />
+                            <div key={s} className={`h-1.5 flex-1 rounded-full transition-all duration-500 ${s <= step ? 'bg-brand' : 'bg-slate-200 dark:bg-slate-700'}`} />
                         ))}
                     </div>
                     <div className="flex justify-between mt-2">
-                        <span className={`text-[10px] font-bold uppercase tracking-wider ${step >= 1 ? 'text-indigo-500' : 'text-slate-400'}`}>Resumen</span>
-                        <span className={`text-[10px] font-bold uppercase tracking-wider ${step >= 2 ? 'text-indigo-500' : 'text-slate-400'}`}>Conteo</span>
-                        <span className={`text-[10px] font-bold uppercase tracking-wider ${step >= 3 ? 'text-indigo-500' : 'text-slate-400'}`}>Resultado</span>
+                        <span className={`text-[10px] font-bold uppercase tracking-wider ${step >= 1 ? 'text-brand' : 'text-slate-400'}`}>Resumen</span>
+                        <span className={`text-[10px] font-bold uppercase tracking-wider ${step >= 2 ? 'text-brand' : 'text-slate-400'}`}>Conteo</span>
+                        <span className={`text-[10px] font-bold uppercase tracking-wider ${step >= 3 ? 'text-brand' : 'text-slate-400'}`}>Resultado</span>
                     </div>
                 </div>
 
@@ -132,9 +151,9 @@ export default function CierreCajaWizard({
                     {step === 1 && (
                         <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
                             {/* Totales principales */}
-                            <div className="bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-2xl p-5 text-white relative overflow-hidden">
+                            <div className="bg-gradient-to-br from-brand to-brand-dark rounded-2xl p-5 text-white relative overflow-hidden">
                                 <div className="absolute -right-6 -top-6 w-24 h-24 bg-white/10 rounded-full blur-2xl" />
-                                <p className="text-xs font-bold text-indigo-200 uppercase tracking-widest mb-1">Ingresos brutos del dia</p>
+                                <p className="text-xs font-bold text-brand-light uppercase tracking-widest mb-1">Ingresos brutos del dia</p>
                                 <p className="text-3xl font-black">
                                     {copEnabled && copPrimary && tasaCop > 0
                                         ? `${formatCop(todayTotalCop)} COP`
@@ -142,17 +161,17 @@ export default function CierreCajaWizard({
                                 </p>
                                 {copActive && (
                                     copPrimary
-                                        ? <p className="text-sm font-bold text-indigo-200 mt-0.5">{fmtUsdAmt(todayTotalUsd)}</p>
+                                        ? <p className="text-sm font-bold text-brand-light mt-0.5">{fmtUsdAmt(todayTotalUsd)}</p>
                                         : <p className="text-sm font-bold text-amber-300 mt-0.5">{formatCop(todayTotalCop)} COP</p>
                                 )}
-                                <p className="text-sm font-bold text-indigo-200 mt-0.5">{formatBs(todayTotalBs)} Bs</p>
+                                <p className="text-sm font-bold text-brand-light mt-0.5">{formatBs(todayTotalBs)} Bs</p>
                                 <div className="flex items-center gap-4 mt-3 pt-3 border-t border-white/20">
                                     <div className="flex items-center gap-1.5">
-                                        <ShoppingBag size={14} className="text-indigo-200" />
+                                        <ShoppingBag size={14} className="text-brand-light" />
                                         <span className="text-sm font-bold">{todaySales.length} {todaySales.length === 1 ? 'venta' : 'ventas'}</span>
                                     </div>
                                     <div className="flex items-center gap-1.5">
-                                        <Package size={14} className="text-indigo-200" />
+                                        <Package size={14} className="text-brand-light" />
                                         <span className="text-sm font-bold">{todayItemsSold} items</span>
                                     </div>
                                 </div>
@@ -233,7 +252,7 @@ export default function CierreCajaWizard({
                                         {todayTopProducts.slice(0, 5).map((p, i) => (
                                             <div key={i} className="flex items-center justify-between bg-slate-50 dark:bg-slate-800/50 rounded-xl px-3 py-2 border border-slate-100 dark:border-slate-700/50">
                                                 <div className="flex items-center gap-2">
-                                                    <span className="w-5 h-5 bg-indigo-100 dark:bg-indigo-900/30 rounded-md flex items-center justify-center text-[10px] font-black text-indigo-500">{i + 1}</span>
+                                                    <span className="w-5 h-5 bg-brand-light dark:bg-surface-800/30 rounded-md flex items-center justify-center text-[10px] font-black text-brand">{i + 1}</span>
                                                     <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate max-w-[160px]">{p.name}</span>
                                                 </div>
                                                 <span className="text-xs font-bold text-slate-500 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-md">{p.qty} uds</span>
@@ -246,7 +265,7 @@ export default function CierreCajaWizard({
                             {/* CTA */}
                             <button
                                 onClick={() => setStep(2)}
-                                className="w-full py-4 bg-indigo-500 hover:bg-indigo-600 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-sm"
+                                className="w-full py-4 bg-brand hover:bg-brand-dark text-white font-bold rounded-2xl shadow-lg shadow-primary/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-sm"
                             >
                                 Continuar al Conteo <ArrowRight size={18} />
                             </button>
@@ -257,8 +276,8 @@ export default function CierreCajaWizard({
                     {step === 2 && (
                         <div className="space-y-5 animate-in fade-in slide-in-from-right-4 duration-300">
                             <div className="text-center py-2">
-                                <div className="w-16 h-16 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                                    <Wallet size={32} className="text-indigo-500" />
+                                <div className="w-16 h-16 bg-brand-light dark:bg-surface-800/20 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                                    <Wallet size={32} className="text-brand" />
                                 </div>
                                 <h3 className="text-lg font-black text-slate-800 dark:text-white">Conteo Fisico</h3>
                                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 leading-relaxed max-w-[280px] mx-auto">
@@ -279,11 +298,11 @@ export default function CierreCajaWizard({
                                         onChange={e => setActualUsd(e.target.value)}
                                         placeholder="0.00"
                                         autoFocus
-                                        className="w-full bg-slate-50 dark:bg-slate-950 border-2 border-slate-200 dark:border-slate-700 rounded-2xl py-4 pl-12 pr-4 text-xl text-slate-800 dark:text-white font-black outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all font-mono"
+                                        className="w-full bg-slate-50 dark:bg-slate-950 border-2 border-slate-200 dark:border-slate-700 rounded-2xl py-4 pl-12 pr-4 text-xl text-slate-800 dark:text-white font-black outline-none focus:border-brand focus:ring-4 focus:ring-brand/10 transition-all font-mono"
                                     />
                                 </div>
                                 <p className="text-[11px] text-slate-400 mt-1.5 pl-1">
-                                    Sistema espera: <span className="font-bold text-indigo-500">${expectedUsd.toFixed(2)}</span>
+                                    Sistema espera: <span className="font-bold text-brand">${expectedUsd.toFixed(2)}</span>
                                 </p>
                             </div>
 
@@ -299,14 +318,14 @@ export default function CierreCajaWizard({
                                         value={actualBs}
                                         onChange={e => setActualBs(e.target.value)}
                                         placeholder="0.00"
-                                        className="w-full bg-slate-50 dark:bg-slate-950 border-2 border-slate-200 dark:border-slate-700 rounded-2xl py-4 pl-12 pr-4 text-xl text-slate-800 dark:text-white font-black outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all font-mono"
+                                        className="w-full bg-slate-50 dark:bg-slate-950 border-2 border-slate-200 dark:border-slate-700 rounded-2xl py-4 pl-12 pr-4 text-xl text-slate-800 dark:text-white font-black outline-none focus:border-brand focus:ring-4 focus:ring-brand/10 transition-all font-mono"
                                     />
                                 </div>
                                 <p className="text-[11px] mt-1.5 pl-1">
                                     {
                                         expectedBs < 0
                                             ? <span className="font-bold text-amber-500">⚠ La gaveta usó Bs {formatBs(Math.abs(expectedBs))} extra para dar cambio</span>
-                                            : <span className="text-slate-400">Sistema espera: <span className="font-bold text-indigo-500">{formatBs(expectedBs)} Bs</span></span>
+                                            : <span className="text-slate-400">Sistema espera: <span className="font-bold text-brand">{formatBs(expectedBs)} Bs</span></span>
                                     }
                                 </p>
                             </div>
@@ -340,7 +359,7 @@ export default function CierreCajaWizard({
                                 </button>
                                 <button
                                     onClick={() => setStep(3)}
-                                    className="flex-1 py-3.5 text-sm font-bold text-white bg-indigo-500 hover:bg-indigo-600 rounded-xl shadow-lg shadow-indigo-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                                    className="flex-1 py-3.5 text-sm font-bold text-white bg-brand hover:bg-brand-dark rounded-xl shadow-lg shadow-primary/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
                                 >
                                     Calcular <ArrowRight size={16} />
                                 </button>

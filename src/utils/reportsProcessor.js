@@ -32,12 +32,14 @@ export function calculateReportsData(allSales, from, to, bcvRate, products) {
     const paymentBreakdown = FinancialEngine.calculatePaymentBreakdown(salesForCashFlow);
 
     // Top productos
+    // FIN-018: acumular revenue con round2 (antes era `+= mulR(...)` sin re-redondeo → drift).
     const productMap = {};
     salesForStats.forEach(s => {
         s.items?.forEach(item => {
-            const key = item.id || item.name; if (!productMap[key]) productMap[key] = { name: item.name, qty: 0, revenue: 0 };
+            const key = item.id || item.name;
+            if (!productMap[key]) productMap[key] = { name: item.name, qty: 0, revenue: 0 };
             productMap[key].qty += item.qty;
-            productMap[key].revenue += mulR(item.priceUsd, item.qty);
+            productMap[key].revenue = round2(productMap[key].revenue + mulR(item.priceUsd, item.qty));
         });
     });
     const topProducts = Object.values(productMap).sort((a, b) => b.revenue - a.revenue).slice(0, 8);

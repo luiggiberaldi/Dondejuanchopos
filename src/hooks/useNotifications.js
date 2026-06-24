@@ -40,7 +40,13 @@ export function useNotifications() {
                 tag,
                 vibrate: [100, 50, 100],
             });
-        } catch (_) { /* SW-only env */ }
+        } catch (e) {
+            // HOOK-031: antes catch silencioso. Loguear en dev para detectar
+            // configuraciones con solo-ServiceWorker o permisos revocados.
+            if (import.meta.env?.DEV) {
+                console.warn('[useNotifications] send falló (probable SW-only env):', e);
+            }
+        }
     }, []);
 
     // ── 1. Stock bajo / agotado ──────────────────────────────────────────────

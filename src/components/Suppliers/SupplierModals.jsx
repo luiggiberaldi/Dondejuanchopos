@@ -30,7 +30,7 @@ export function AddSupplierModal({ onClose, onSave, editingSupplier = null }) {
             <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-t-3xl sm:rounded-3xl shadow-xl overflow-hidden animate-in slide-in-from-bottom-10 sm:zoom-in-95 duration-200">
                 <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
                     <h3 className="text-xl font-black text-slate-800 dark:text-white flex items-center gap-2">
-                        {editingSupplier ? <Pencil size={20} className="text-purple-500" /> : <Truck size={20} className="text-purple-500" />}
+                        {editingSupplier ? <Pencil size={20} className="text-brand" /> : <Truck size={20} className="text-brand" />}
                         {editingSupplier ? 'Editar Proveedor' : 'Nuevo Proveedor'}
                     </h3>
                     <button onClick={onClose} className="p-2 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors">
@@ -40,21 +40,21 @@ export function AddSupplierModal({ onClose, onSave, editingSupplier = null }) {
                 <form onSubmit={handleSubmit} className="p-5 space-y-4">
                     <div>
                         <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Nombre de Empresa/Proveedor *</label>
-                        <input type="text" required value={name} onChange={(e) => setName(e.target.value)} className="w-full form-input bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-purple-500/50 transition-all" placeholder="Ej: Distribuidora Polar" autoFocus />
+                        <input type="text" required value={name} onChange={(e) => setName(e.target.value)} className="w-full form-input bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-brand/50 transition-all" placeholder="Ej: Distribuidora Polar" autoFocus />
                     </div>
                     <div>
                         <label className="block text-xs font-bold text-slate-400 uppercase mb-2">RIF / Documento</label>
-                        <input type="text" value={documentId} onChange={(e) => setDocumentId(e.target.value)} className="w-full form-input bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-purple-500/50 transition-all" placeholder="Ej: J-123456789" />
+                        <input type="text" value={documentId} onChange={(e) => setDocumentId(e.target.value)} className="w-full form-input bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-brand/50 transition-all" placeholder="Ej: J-123456789" />
                     </div>
                     <div>
                         <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Teléfono</label>
-                        <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full form-input bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-purple-500/50 transition-all" placeholder="Ej: 0414-1234567" />
+                        <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full form-input bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-brand/50 transition-all" placeholder="Ej: 0414-1234567" />
                     </div>
                     <div>
                         <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Persona de Contacto (Opcional)</label>
-                        <input type="text" value={contactName} onChange={(e) => setContactName(e.target.value)} className="w-full form-input bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-purple-500/50 transition-all" placeholder="Ej: Juan Pérez" />
+                        <input type="text" value={contactName} onChange={(e) => setContactName(e.target.value)} className="w-full form-input bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-brand/50 transition-all" placeholder="Ej: Juan Pérez" />
                     </div>
-                    <button type="submit" disabled={!name.trim()} className="w-full py-3.5 bg-purple-500 hover:bg-purple-600 disabled:bg-purple-500/50 text-white font-bold rounded-xl active:scale-95 transition-all text-sm flex justify-center items-center gap-2 mt-4">
+                    <button type="submit" disabled={!name.trim()} className="w-full py-3.5 bg-brand-dark hover:bg-brand-dark disabled:bg-brand-dark/50 text-white font-bold rounded-xl active:scale-95 transition-all text-sm flex justify-center items-center gap-2 mt-4">
                         <Save size={18} /> {editingSupplier ? 'Guardar Cambios' : 'Guardar Proveedor'}
                     </button>
                 </form>
@@ -159,7 +159,7 @@ export function PayInvoiceModal({ supplier, bcvRate, tasaCop, copEnabled, copPri
                     
                     {/* Moneda */}
                     <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-                        <button type="button" onClick={() => { setCurrencyMode('BS'); setAmount(''); setPaymentMethod('efectivo_bs'); }} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${currencyMode === 'BS' ? 'bg-white shadow text-blue-500' : 'text-slate-500'}`}>Bs</button>
+                        <button type="button" onClick={() => { setCurrencyMode('BS'); setAmount(''); setPaymentMethod('efectivo_bs'); }} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${currencyMode === 'BS' ? 'bg-white shadow text-brand' : 'text-slate-500'}`}>Bs</button>
                         <button type="button" onClick={() => { setCurrencyMode('USD'); setAmount(''); setPaymentMethod('efectivo_usd'); }} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${currencyMode === 'USD' ? 'bg-white shadow text-emerald-500' : 'text-slate-500'}`}>USD</button>
                         {copEnabled && (
                             <button type="button" onClick={() => { setCurrencyMode('COP'); setAmount(''); setPaymentMethod('efectivo_cop'); }} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${currencyMode === 'COP' ? 'bg-white shadow text-amber-500' : 'text-slate-500'}`}>COP</button>
@@ -169,7 +169,7 @@ export function PayInvoiceModal({ supplier, bcvRate, tasaCop, copEnabled, copPri
                     {/* Input */}
                     <div>
                         <div className="relative">
-                            <span className={`absolute left-3 top-1/2 -translate-y-1/2 font-black text-lg ${currencyMode === 'BS' ? 'text-blue-500' : 'text-emerald-500'}`}>{currencyMode === 'BS' ? 'Bs' : currencyMode === 'COP' ? 'COP' : 'USD'}</span>
+                            <span className={`absolute left-3 top-1/2 -translate-y-1/2 font-black text-lg ${currencyMode === 'BS' ? 'text-brand' : 'text-emerald-500'}`}>{currencyMode === 'BS' ? 'Bs' : currencyMode === 'COP' ? 'COP' : 'USD'}</span>
                             <input type="number" step="0.01" required value={amount} onChange={e => setAmount(e.target.value)} className={`w-full form-input border rounded-xl px-3 py-3 ${currencyMode === 'BS' ? 'pl-10' : 'pl-12'} text-2xl font-black dark:bg-slate-950`} autoFocus />
                         </div>
                         {amount && bcvRate > 0 && (
@@ -233,8 +233,8 @@ export function SupplierDetailsSheet({ supplier, isOpen, isAdmin, onClose, onAdd
                 <div className="px-5 pb-6 space-y-5">
                     {/* Header */}
                     <div className="flex items-center gap-4">
-                        <div className="w-14 h-14 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center shrink-0">
-                            <span className="text-2xl font-black text-purple-600 dark:text-purple-400">
+                        <div className="w-14 h-14 rounded-full bg-brand-dark dark:bg-brand-dark/30 flex items-center justify-center shrink-0">
+                            <span className="text-2xl font-black text-brand dark:text-brand">
                                 {supplier.name.charAt(0).toUpperCase()}
                             </span>
                         </div>

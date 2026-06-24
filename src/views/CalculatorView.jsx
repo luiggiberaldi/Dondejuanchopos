@@ -13,16 +13,18 @@ export default function CalculatorView({ rates, theme, triggerHaptic, isKeyboard
 
   if (isInitialLoading) {
     return (
-      <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 rounded-[2.5rem] p-6 animate-pulse border border-slate-200 dark:border-slate-800">
-        <div className="h-20 bg-slate-200 dark:bg-slate-800 rounded-xl mb-4"></div>
-        <div className="flex-1 bg-slate-200 dark:bg-slate-800 rounded-xl"></div>
+      // v1.2.0: surface tokens (warm cream) + ring-surface-200 en vez de slate.
+      <div className="flex flex-col h-full bg-surface-50 dark:bg-surface-950 rounded-[2.5rem] p-6 animate-pulse border border-surface-200 dark:border-surface-800">
+        <div className="h-20 bg-surface-200 dark:bg-surface-800 rounded-xl mb-4"></div>
+        <div className="flex-1 bg-surface-200 dark:bg-surface-800 rounded-xl"></div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 rounded-[2.5rem] shadow-2xl border border-slate-200 dark:border-slate-800 relative ring-4 ring-slate-100 dark:ring-slate-900/50">
-      <div className="flex-1 relative bg-slate-50/50 dark:bg-slate-900/50">
+    // v1.2.0: surface tokens + ring-surface-100 (warm). El resultado principal (número grande) y las tasas destacadas se renderizan dentro de <ManualMode/>, ya migrado por separado.
+    <div className="flex flex-col h-full bg-surface-50 dark:bg-surface-950 rounded-[2.5rem] shadow-tone-lg border border-surface-200 dark:border-surface-800 relative ring-4 ring-surface-100 dark:ring-surface-900/50">
+      <div className="flex-1 relative bg-surface-50/50 dark:bg-surface-900/50">
         <ManualMode
           rates={currentRates}
           accounts={accounts}

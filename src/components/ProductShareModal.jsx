@@ -141,7 +141,7 @@ export const ProductShareModal = ({ isOpen, onClose, product, rates, accounts, s
                 <div>
                     <label className="text-xs font-bold text-slate-400 uppercase mb-2 block">Modo de Cotización</label>
                     <div className="flex gap-2">
-                        <button onClick={() => applyPreset('market')} className="flex-1 py-2 px-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl text-xs font-bold border border-indigo-100 dark:border-indigo-800 hover:bg-indigo-100 transition-colors">
+                        <button onClick={() => applyPreset('market')} className="flex-1 py-2 px-3 bg-brand-light dark:bg-surface-800/20 text-brand-dark dark:text-brand rounded-xl text-xs font-bold border border-surface-200 dark:border-surface-800 hover:bg-brand-light transition-colors">
                             🚀 Mercado
                         </button>
                         <button onClick={() => applyPreset('fiscal')} className="flex-1 py-2 px-3 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 hover:bg-slate-100 transition-colors">

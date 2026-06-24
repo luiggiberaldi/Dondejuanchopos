@@ -1,30 +1,76 @@
+// worker.js — Cloudflare Worker para /api/rates y /api/share.
+//
+// ISSUES cubiertos:
+// - INFRA-004 / SEC-010: crypto.getRandomValues, rate-limit por IP, device_id,
+//   AES-GCM encryption del blob.
+// - INFRA-005: CORS whitelist desde ALLOWED_ORIGINS.
+// - INFRA-011: security headers en TODAS las responses (incluidas env.ASSETS.fetch).
+// - INFRA-030: console.error con observability habilitada en wrangler.jsonc.
+
 import { DurableObject } from "cloudflare:workers";
 
-// ─── Durable Object: almacenamiento de códigos de compartir ──────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
+// INFRA-004: 10 chars alfanuméricos (36^10 ≈ 3.6×10^15 combinaciones) en vez de
+// 6 dígitos decimales (10^6 = 1M, brute-forceable en minutos).
+const SHARE_CODE_LENGTH = 10;
+const SHARE_CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+const SHARE_CODE_FORMAT_RE = /^[A-Za-z0-9]{10}$/;
+
+// INFRA-004: rate-limit por IP — máx 5 POST/hora/IP.
+const RATE_LIMIT_MAX_POSTS = 5;
+const RATE_LIMIT_WINDOW_S = 3600;
+
+const MAX_PAYLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
+const SHARE_TTL_SECONDS = 86400; // 24 h
+
+// ─── Durable Object: almacenamiento de códigos + cache + rate-limit ───────────
 export class ShareStorage extends DurableObject {
   sql = this.ctx.storage.sql;
 
   constructor(ctx, env) {
     super(ctx, env);
+
+    // Tabla de códigos: ahora guarda device_id e IV del cifrado AES-GCM (INFRA-004).
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS share_codes (
-        code TEXT PRIMARY KEY,
-        data TEXT NOT NULL,
+        code       TEXT PRIMARY KEY,
+        device_id  TEXT NOT NULL,
+        iv         TEXT NOT NULL,
+        data       TEXT NOT NULL,
         created_at INTEGER DEFAULT (unixepoch()),
         expires_at INTEGER NOT NULL
       )
     `);
+
+    // Migration: añadir columnas nuevas si la tabla existía de un deploy anterior.
+    // SQLite no soporta ADD COLUMN IF NOT EXISTS; capturamos el error.
+    try { this.sql.exec(`ALTER TABLE share_codes ADD COLUMN device_id TEXT NOT NULL DEFAULT ''`); } catch (_) { /* ya existe */ }
+    try { this.sql.exec(`ALTER TABLE share_codes ADD COLUMN iv TEXT NOT NULL DEFAULT ''`); } catch (_) { /* ya existe */ }
+
+    this.sql.exec(`CREATE INDEX IF NOT EXISTS idx_share_codes_device_id ON share_codes(device_id)`);
+
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS rates_cache (
-        key TEXT PRIMARY KEY,
-        data TEXT NOT NULL,
-        updated_at INTEGER NOT NULL
+        key         TEXT PRIMARY KEY,
+        data        TEXT NOT NULL,
+        updated_at  INTEGER NOT NULL
       )
     `);
-    // Limpiar códigos expirados al inicio
+
+    // INFRA-004: tabla para rate-limit por IP.
+    this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS rate_limits (
+        ip            TEXT PRIMARY KEY,
+        count         INTEGER NOT NULL DEFAULT 0,
+        window_start  INTEGER NOT NULL
+      )
+    `);
+
+    // Limpiar códigos expirados al inicio.
     this.sql.exec(`DELETE FROM share_codes WHERE expires_at < unixepoch()`);
   }
 
+  // ── rates_cache (sin cambios funcionales) ──
   async getRatesCache() {
     const row = this.sql.exec(`SELECT data, updated_at FROM rates_cache WHERE key = 'bcv'`).one();
     if (!row) return null;
@@ -40,21 +86,25 @@ export class ShareStorage extends DurableObject {
     );
   }
 
-  async store(code, payload, ttlSeconds = 86400) {
+  // ── share_codes ──
+  async store(code, deviceId, ivB64, encryptedB64, ttlSeconds = SHARE_TTL_SECONDS) {
     const expiresAt = Math.floor(Date.now() / 1000) + ttlSeconds;
     this.sql.exec(
-      `INSERT OR REPLACE INTO share_codes (code, data, expires_at) VALUES (?, ?, ?)`,
-      code, JSON.stringify(payload), expiresAt
+      `INSERT OR REPLACE INTO share_codes (code, device_id, iv, data, expires_at) VALUES (?, ?, ?, ?, ?)`,
+      code, deviceId, ivB64, encryptedB64, expiresAt
     );
   }
 
-  async retrieve(code) {
+  // INFRA-004: retrieve exige code Y device_id matching.
+  async retrieve(code, deviceId) {
     this.sql.exec(`DELETE FROM share_codes WHERE expires_at < unixepoch()`);
     const row = this.sql.exec(
-      `SELECT data FROM share_codes WHERE code = ? AND expires_at >= unixepoch()`,
+      `SELECT device_id, iv, data FROM share_codes WHERE code = ? AND expires_at >= unixepoch()`,
       code
     ).one();
-    return row ? JSON.parse(row.data) : null;
+    if (!row) return null;
+    if (row.device_id !== deviceId) return null; // device_id mismatch
+    return { iv: row.iv, data: row.data };
   }
 
   async exists(code) {
@@ -64,31 +114,176 @@ export class ShareStorage extends DurableObject {
     ).one();
     return !!row;
   }
+
+  // ── rate_limits (INFRA-004) ──
+  // Devuelve { allowed, remaining, retryAfter? }.
+  async checkRateLimit(ip) {
+    const now = Math.floor(Date.now() / 1000);
+    const row = this.sql.exec(
+      `SELECT count, window_start FROM rate_limits WHERE ip = ?`, ip
+    ).one();
+
+    if (!row || (now - row.window_start) >= RATE_LIMIT_WINDOW_S) {
+      // Ventana nueva o expirada → reset.
+      this.sql.exec(
+        `INSERT OR REPLACE INTO rate_limits (ip, count, window_start) VALUES (?, 1, ?)`,
+        ip, now
+      );
+      return { allowed: true, remaining: RATE_LIMIT_MAX_POSTS - 1 };
+    }
+    if (row.count >= RATE_LIMIT_MAX_POSTS) {
+      return {
+        allowed: false,
+        remaining: 0,
+        retryAfter: RATE_LIMIT_WINDOW_S - (now - row.window_start),
+      };
+    }
+    this.sql.exec(`UPDATE rate_limits SET count = count + 1 WHERE ip = ?`, ip);
+    return { allowed: true, remaining: RATE_LIMIT_MAX_POSTS - row.count - 1 };
+  }
 }
 
-// ─── Handler de la API /api/rates ────────────────────────────────────────────
-async function handleRates(request, env) {
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+// ─── CORS (INFRA-005) ─────────────────────────────────────────────────────────
+// Whitelist desde env.ALLOWED_ORIGINS (split por coma). Nunca `*`.
+function getAllowedOrigins(env) {
+  const raw = env?.ALLOWED_ORIGINS || '';
+  return raw.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+function getCorsHeaders(request, env) {
+  const allowed = getAllowedOrigins(env);
+  const origin = request.headers.get('Origin') || '';
+
+  let corsOrigin = '';
+  if (origin && allowed.includes(origin)) {
+    corsOrigin = origin;
+  } else if (!allowed.length && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+    // Dev fallback: si no hay whitelist configurada, permitir localhost.
+    corsOrigin = origin;
+  }
+
+  return {
+    'Access-Control-Allow-Origin': corsOrigin || 'null',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Device-Id',
+    'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin',
   };
+}
+
+// ─── Security headers (INFRA-011) ─────────────────────────────────────────────
+const SECURITY_HEADERS = {
+  'Content-Security-Policy':
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://*.supabase.co https://ve.dolarapi.com https://script.google.com; frame-ancestors 'none';",
+  'X-Frame-Options': 'DENY',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
+};
+
+// Aplica security headers a una Response existente (mutando headers).
+// Úsala SIEMPRE antes de retornar, incluyendo las de env.ASSETS.fetch.
+function withSecurityHeaders(response) {
+  for (const [k, v] of Object.entries(SECURITY_HEADERS)) {
+    response.headers.set(k, v);
+  }
+  return response;
+}
+
+function jsonResponse(body, init = {}, extraHeaders = {}) {
+  const headers = { 'Content-Type': 'application/json', ...extraHeaders };
+  return new Response(JSON.stringify(body), { ...init, headers });
+}
+
+// ─── Crypto helpers (INFRA-004) ───────────────────────────────────────────────
+
+// Código criptográficamente seguro de 10 chars alfanuméricos.
+// Formato legible: XXXXX-XXXXX (10 chars útiles + 1 guion).
+function generateShareCode() {
+  const bytes = new Uint8Array(SHARE_CODE_LENGTH);
+  crypto.getRandomValues(bytes);
+  let out = '';
+  for (let i = 0; i < SHARE_CODE_LENGTH; i++) {
+    out += SHARE_CODE_ALPHABET[bytes[i] % SHARE_CODE_ALPHABET.length];
+  }
+  return `${out.slice(0, 5)}-${out.slice(5)}`;
+}
+
+// Decodifica la master key (acepta hex de 64 chars o base64) a Uint8Array.
+function decodeMasterKey(raw) {
+  if (/^[0-9a-fA-F]+$/.test(raw) && raw.length >= 64) {
+    const arr = new Uint8Array(raw.length / 2);
+    for (let i = 0; i < arr.length; i++) {
+      arr[i] = parseInt(raw.substr(i * 2, 2), 16);
+    }
+    return arr;
+  }
+  // Asumimos base64.
+  const bin = atob(raw);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr;
+}
+
+// Deriva una clave AES-GCM-256 a partir de BACKUP_ENCRYPTION_KEY + device_id
+// usando HKDF-SHA256. Determinística: mismo device_id → misma clave.
+async function deriveEncryptionKey(env, deviceId) {
+  if (!env.BACKUP_ENCRYPTION_KEY) {
+    throw new Error('BACKUP_ENCRYPTION_KEY not set');
+  }
+  const masterBytes = decodeMasterKey(env.BACKUP_ENCRYPTION_KEY);
+  const baseKey = await crypto.subtle.importKey(
+    'raw', masterBytes, 'HKDF', false, ['deriveKey']
+  );
+  const salt = new TextEncoder().encode(deviceId);
+  return crypto.subtle.deriveKey(
+    { name: 'HKDF', hash: 'SHA-256', salt, info: new TextEncoder().encode('share-backup-v1') },
+    baseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+async function encryptBackup(env, deviceId, plaintextStr) {
+  const key = await deriveEncryptionKey(env, deviceId);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const plaintext = new TextEncoder().encode(plaintextStr);
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext);
+  return {
+    iv: btoa(String.fromCharCode(...iv)),
+    data: btoa(String.fromCharCode(...new Uint8Array(ct))),
+  };
+}
+
+async function decryptBackup(env, deviceId, ivB64, dataB64) {
+  const key = await deriveEncryptionKey(env, deviceId);
+  const iv = Uint8Array.from(atob(ivB64), (c) => c.charCodeAt(0));
+  const ct = Uint8Array.from(atob(dataB64), (c) => c.charCodeAt(0));
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+  return new TextDecoder().decode(pt);
+}
+
+// ─── Handler: /api/rates ──────────────────────────────────────────────────────
+async function handleRates(request, env) {
+  const corsHeaders = getCorsHeaders(request, env);
 
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 200, headers: corsHeaders });
+    return withSecurityHeaders(new Response(null, { status: 200, headers: corsHeaders }));
   }
 
   const storage = env.SHARE_STORAGE.get(env.SHARE_STORAGE.idFromName('global'));
 
-  // Return cached rates if fresh (< 14 min)
+  // Cache fresca (< 14 min).
   const cached = await storage.getRatesCache();
   if (cached) {
-    return new Response(JSON.stringify(cached), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Cache': 'HIT' }
-    });
+    return withSecurityHeaders(
+      jsonResponse(cached, { headers: { ...corsHeaders, 'X-Cache': 'HIT' } })
+    );
   }
 
-  // Fetch fresh rates from dolarapi (public, no key required)
+  // Fetch a dolarapi (público, sin key).
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 7000);
@@ -98,8 +293,12 @@ async function handleRates(request, env) {
     if (!res.ok) throw new Error(`dolarapi ${res.status}`);
 
     const data = await res.json();
-    const oficial = Array.isArray(data) ? data.find(d => d.fuente === 'oficial' || d.nombre === 'Oficial') : null;
-    const paralelo = Array.isArray(data) ? data.find(d => d.fuente === 'paralelo' || d.nombre === 'Paralelo') : null;
+    const oficial = Array.isArray(data)
+      ? data.find((d) => d.fuente === 'oficial' || d.nombre === 'Oficial')
+      : null;
+    const paralelo = Array.isArray(data)
+      ? data.find((d) => d.fuente === 'paralelo' || d.nombre === 'Paralelo')
+      : null;
 
     if (!oficial?.promedio) throw new Error('No se obtuvo tasa oficial');
 
@@ -114,138 +313,203 @@ async function handleRates(request, env) {
 
     await storage.setRatesCache(rates);
 
-    return new Response(JSON.stringify(rates), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Cache': 'MISS' }
-    });
-  } catch (err) {
-    // Return stale cache if fetch fails
+    return withSecurityHeaders(
+      jsonResponse(rates, { headers: { ...corsHeaders, 'X-Cache': 'MISS' } })
+    );
+  } catch (_err) {
+    // Fallback a cache stale si fetch falla.
     const stale = await storage.getRatesCache().catch(() => null);
     if (stale) {
-      return new Response(JSON.stringify({ ...stale, stale: true }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Cache': 'STALE' }
-      });
+      return withSecurityHeaders(
+        jsonResponse({ ...stale, stale: true }, { headers: { ...corsHeaders, 'X-Cache': 'STALE' } })
+      );
     }
-    return new Response(JSON.stringify({ error: 'No se pudo obtener la tasa de cambio.' }), {
-      status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
+    return withSecurityHeaders(
+      jsonResponse({ error: 'No se pudo obtener la tasa de cambio.' }, { status: 503, headers: corsHeaders })
+    );
   }
 }
 
-// ─── Handler de la API /api/share ────────────────────────────────────────────
+// ─── Handler: /api/share ──────────────────────────────────────────────────────
 async function handleShare(request, env) {
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  };
+  const corsHeaders = getCorsHeaders(request, env);
 
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 200, headers: corsHeaders });
+    return withSecurityHeaders(new Response(null, { status: 200, headers: corsHeaders }));
   }
 
   const storage = env.SHARE_STORAGE.get(env.SHARE_STORAGE.idFromName('global'));
 
   try {
-    // POST — Guardar backup completo y generar código
+    // ── POST — Guardar backup completo y generar código ──
     if (request.method === 'POST') {
+      // INFRA-004: rate-limit por IP.
+      const ip =
+        request.headers.get('CF-Connecting-IP') ||
+        request.headers.get('X-Forwarded-For') ||
+        'unknown';
+      const rl = await storage.checkRateLimit(ip);
+      if (!rl.allowed) {
+        return withSecurityHeaders(
+          jsonResponse(
+            { error: 'Rate limit exceeded. Intenta más tarde.' },
+            { status: 429, headers: { ...corsHeaders, 'Retry-After': String(rl.retryAfter || RATE_LIMIT_WINDOW_S) } }
+          )
+        );
+      }
+
+      // INFRA-004: exigir device_id header.
+      const deviceId = request.headers.get('X-Device-Id');
+      if (!deviceId || deviceId.length < 8 || deviceId.length > 128) {
+        return withSecurityHeaders(
+          jsonResponse(
+            { error: 'X-Device-Id header requerido (8-128 chars).' },
+            { status: 400, headers: corsHeaders }
+          )
+        );
+      }
+
+      // Verificar BACKUP_ENCRYPTION_KEY configurada.
+      if (!env.BACKUP_ENCRYPTION_KEY) {
+        console.error('[Share API] BACKUP_ENCRYPTION_KEY not set');
+        return withSecurityHeaders(
+          jsonResponse(
+            { error: 'Servidor mal configurado (falta BACKUP_ENCRYPTION_KEY).' },
+            { status: 500, headers: corsHeaders }
+          )
+        );
+      }
+
       let body;
       try {
         body = await request.json();
       } catch {
-        return new Response(
-          JSON.stringify({ error: 'Cuerpo de la solicitud inválido.' }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        return withSecurityHeaders(
+          jsonResponse(
+            { error: 'Cuerpo de la solicitud inválido.' },
+            { status: 400, headers: corsHeaders }
+          )
         );
       }
+
       const { products, categories, idb, ls } = body;
 
-      // Aceptar formato completo (idb + ls) o formato legado (products)
+      // Aceptar formato completo (idb + ls) o formato legado (products).
       if (!idb && (!products || !Array.isArray(products) || products.length === 0)) {
-        return new Response(
-          JSON.stringify({ error: 'No hay datos para compartir.' }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        return withSecurityHeaders(
+          jsonResponse(
+            { error: 'No hay datos para compartir.' },
+            { status: 400, headers: corsHeaders }
+          )
         );
       }
 
-      // Construir payload
+      // Construir payload.
       const payload = idb
         ? { idb, ls: ls || {}, isComplete: true, groups: Array.isArray(body.groups) ? body.groups : [], createdAt: new Date().toISOString() }
         : { products, categories: categories || null, groups: [], createdAt: new Date().toISOString() };
 
-      // Validar tamaño (máximo 10MB)
+      // Validar tamaño (máximo 10MB).
       const payloadStr = JSON.stringify(payload);
-      if (payloadStr.length > 10 * 1024 * 1024) {
-        return new Response(
-          JSON.stringify({ error: `Datos demasiado grandes (${(payloadStr.length / 1024 / 1024).toFixed(1)}MB). Máximo: 10MB.` }),
-          { status: 413, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      if (payloadStr.length > MAX_PAYLOAD_BYTES) {
+        return withSecurityHeaders(
+          jsonResponse(
+            { error: `Datos demasiado grandes (${(payloadStr.length / 1024 / 1024).toFixed(1)}MB). Máximo: 10MB.` },
+            { status: 413, headers: corsHeaders }
+          )
         );
       }
 
-      // Generar código único de 6 dígitos
+      // INFRA-004: cifrar payload con AES-GCM antes de almacenar.
+      const { iv, data } = await encryptBackup(env, deviceId, payloadStr);
+
+      // INFRA-004: código criptográficamente seguro (10 alfanuméricos).
       let code;
-      let attempts = 0;
-      do {
-        code = Math.floor(100000 + Math.random() * 900000).toString();
-        const exists = await storage.exists(code);
-        if (!exists) break;
-        attempts++;
-      } while (attempts < 5);
+      for (let i = 0; i < 5; i++) {
+        code = generateShareCode();
+        if (!(await storage.exists(code))) break;
+      }
 
-      await storage.store(code, payload);
+      await storage.store(code, deviceId, iv, data);
 
-      const productCount = idb
-        ? (idb.bodega_products_v1?.length ?? 0)
-        : products.length;
+      const productCount = idb ? idb.bodega_products_v1?.length ?? 0 : products.length;
 
-      return new Response(
-        JSON.stringify({
-          code: `${code.slice(0, 3)}-${code.slice(3)}`,
-          expiresIn: '24 horas',
-          isComplete: !!idb,
-          productCount,
-        }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      return withSecurityHeaders(
+        jsonResponse(
+          { code, expiresIn: '24 horas', isComplete: !!idb, productCount },
+          { status: 200, headers: { ...corsHeaders, 'X-RateLimit-Remaining': String(rl.remaining) } }
+        )
       );
     }
 
-    // GET — Obtener backup por código
+    // ── GET — Obtener backup por código + device_id ──
     if (request.method === 'GET') {
       const url = new URL(request.url);
       const rawCode = url.searchParams.get('code') || '';
       const code = rawCode.replace(/[-\s]/g, '');
 
-      if (code.length !== 6 || !/^\d+$/.test(code)) {
-        return new Response(
-          JSON.stringify({ error: 'Código inválido. Usa el formato XXX-XXX.' }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      // INFRA-004: validar formato 10 alfanuméricos.
+      if (!SHARE_CODE_FORMAT_RE.test(code)) {
+        return withSecurityHeaders(
+          jsonResponse(
+            { error: 'Código inválido. Usa el formato XXXXX-XXXXX.' },
+            { status: 400, headers: corsHeaders }
+          )
         );
       }
 
-      const data = await storage.retrieve(code);
-
-      if (!data) {
-        return new Response(
-          JSON.stringify({ error: 'Código no encontrado o expirado.' }),
-          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      // INFRA-004: exigir device_id header.
+      const deviceId = request.headers.get('X-Device-Id');
+      if (!deviceId) {
+        return withSecurityHeaders(
+          jsonResponse(
+            { error: 'X-Device-Id header requerido.' },
+            { status: 400, headers: corsHeaders }
+          )
         );
       }
 
-      return new Response(
-        JSON.stringify(data),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      const entry = await storage.retrieve(code, deviceId);
+      if (!entry) {
+        // Mismo mensaje para code-no-existe y device_id-mismatch → no filtrar.
+        return withSecurityHeaders(
+          jsonResponse(
+            { error: 'Código no encontrado, expirado, o device_id no coincide.' },
+            { status: 404, headers: corsHeaders }
+          )
+        );
+      }
+
+      // Descifrar.
+      try {
+        const plaintext = await decryptBackup(env, deviceId, entry.iv, entry.data);
+        return withSecurityHeaders(
+          jsonResponse(JSON.parse(plaintext), { headers: corsHeaders })
+        );
+      } catch (decryptErr) {
+        console.error('[Share API] Decrypt failed:', decryptErr);
+        return withSecurityHeaders(
+          jsonResponse(
+            { error: 'No se pudo descifrar el backup.' },
+            { status: 500, headers: corsHeaders }
+          )
+        );
+      }
     }
 
-    return new Response(
-      JSON.stringify({ error: 'Método no permitido.' }),
-      { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    return withSecurityHeaders(
+      jsonResponse(
+        { error: 'Método no permitido.' },
+        { status: 405, headers: corsHeaders }
+      )
     );
-
   } catch (err) {
     console.error('[Share API] Error:', err);
-    return new Response(
-      JSON.stringify({ error: 'Error interno del servidor.' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    return withSecurityHeaders(
+      jsonResponse(
+        { error: 'Error interno del servidor.' },
+        { status: 500, headers: corsHeaders }
+      )
     );
   }
 }
@@ -269,15 +533,21 @@ export default {
     // - manifest.webmanifest: puede cambiar entre deploys
     const noCacheFiles = ['/', '/index.html', '/sw.js', '/registerSW.js', '/manifest.webmanifest'];
     const isWorkbox = url.pathname.startsWith('/workbox-');
+
     if (noCacheFiles.includes(url.pathname) || isWorkbox) {
       const response = await env.ASSETS.fetch(request);
+      // INFRA-011: clonar la Response para poder mutar headers (los de ASSETS.fetch
+      // pueden ser read-only en algunos runtimes).
       const newResponse = new Response(response.body, response);
       newResponse.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
       newResponse.headers.set('Pragma', 'no-cache');
       newResponse.headers.set('Expires', '0');
-      return newResponse;
+      return withSecurityHeaders(newResponse);
     }
 
-    return env.ASSETS.fetch(request);
-  }
+    // INFRA-011: aplicar security headers también a assets estáticos.
+    const response = await env.ASSETS.fetch(request);
+    const secured = new Response(response.body, response);
+    return withSecurityHeaders(secured);
+  },
 };

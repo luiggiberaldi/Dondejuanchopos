@@ -45,7 +45,7 @@ export default function SwipeableItem({ children, onEdit, onDelete, triggerHapti
             {/* Background Actions Layer */}
             <div className="absolute inset-0 flex items-center justify-between px-4 sm:px-6 rounded-2xl md:rounded-3xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
                 {/* Left Action (Edit) */}
-                <div className={`flex items-center gap-2 transform transition-all duration-300 font-bold text-sm bg-blue-500 rounded-xl p-2 text-white shadow-lg shadow-blue-500/30 ${offset > 20 ? 'translate-x-0 opacity-100' : '-translate-x-full opacity-0'}`}>
+                <div className={`flex items-center gap-2 transform transition-all duration-300 font-bold text-sm bg-brand rounded-xl p-2 text-white shadow-lg shadow-primary/30 ${offset > 20 ? 'translate-x-0 opacity-100' : '-translate-x-full opacity-0'}`}>
                     <Edit2 size={18} /> <span className="hidden sm:inline">Editar</span>
                 </div>
                 

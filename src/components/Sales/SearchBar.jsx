@@ -156,22 +156,22 @@ const SearchBar = forwardRef(function SearchBar({
 
             {/* ─── POPUP JERARQUÍA: Paquete o Unidad ─── */}
             {hierarchyPending && (
-                <div className="absolute top-full mt-2 left-0 right-0 z-30 bg-white dark:bg-slate-900 border-2 border-indigo-200 dark:border-indigo-800 rounded-2xl shadow-2xl shadow-indigo-500/10 overflow-hidden">
-                    <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 border-b border-indigo-100 dark:border-indigo-800">
+                <div className="absolute top-full mt-2 left-0 right-0 z-30 bg-white dark:bg-slate-900 border-2 border-surface-300 dark:border-surface-800 rounded-2xl shadow-2xl shadow-primary/10 overflow-hidden">
+                    <div className="p-3 bg-brand-light dark:bg-surface-800/20 border-b border-surface-200 dark:border-surface-800">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-xs font-black text-indigo-700 dark:text-indigo-300 uppercase tracking-wider">¿Cómo lo vendes?</p>
-                                <p className="text-[11px] text-indigo-500/70 dark:text-indigo-400/50 font-medium mt-0.5">{hierarchyPending.name}</p>
+                                <p className="text-xs font-black text-brand-dark dark:text-brand uppercase tracking-wider">¿Cómo lo vendes?</p>
+                                <p className="text-[11px] text-brand/70 dark:text-brand/50 font-medium mt-0.5">{hierarchyPending.name}</p>
                             </div>
-                            <button onClick={() => setHierarchyPending(null)} className="p-1 text-indigo-400 hover:text-indigo-600"><X size={16} /></button>
+                            <button onClick={() => setHierarchyPending(null)} className="p-1 text-brand hover:text-brand-dark"><X size={16} /></button>
                         </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3 p-3">
                         <button onClick={() => addToCart(hierarchyPending, null, 'package')}
-                            className="flex flex-col items-center gap-2 p-4 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 border-2 border-indigo-200 dark:border-indigo-800 hover:border-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-all active:scale-95">
-                            <Package size={24} className="text-indigo-600 dark:text-indigo-400" />
-                            <span className="text-xs font-black text-indigo-700 dark:text-indigo-300 uppercase">Caja/Bulto</span>
-                            <span className="text-sm font-black text-indigo-600 dark:text-indigo-400">{copEnabled && copPrimary && tasaCop > 0 ? `${formatCop(getCop(hierarchyPending, tasaCop))} COP` : `$${hierarchyPending.priceUsdt?.toFixed(2)}`}</span>
+                            className="flex flex-col items-center gap-2 p-4 rounded-xl bg-brand-light dark:bg-surface-800/20 border-2 border-surface-300 dark:border-surface-800 hover:border-brand hover:bg-brand-light dark:hover:bg-surface-800/40 transition-all active:scale-95">
+                            <Package size={24} className="text-brand-dark dark:text-brand" />
+                            <span className="text-xs font-black text-brand-dark dark:text-brand uppercase">Caja/Bulto</span>
+                            <span className="text-sm font-black text-brand-dark dark:text-brand">{copEnabled && copPrimary && tasaCop > 0 ? `${formatCop(getCop(hierarchyPending, tasaCop))} COP` : `$${hierarchyPending.priceUsdt?.toFixed(2)}`}</span>
                             <span className="text-[9px] text-slate-400 font-bold">{hierarchyPending.unitsPerPackage} uds</span>
                         </button>
                         <button onClick={() => addToCart(hierarchyPending, null, 'unit')}

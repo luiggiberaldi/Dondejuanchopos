@@ -71,7 +71,7 @@ export default function SalesHeader({
                                 ? <strong className="text-xs text-amber-600 dark:text-amber-400">{Math.round(tasaCop).toLocaleString('es-CO')}</strong>
                                 : <strong className="text-xs text-emerald-600 dark:text-emerald-400">{formatBs(effectiveRate)}</strong>
                             }
-                            {!isAuto && <span className="text-[8px] bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-1 rounded font-bold">MAN</span>}
+                            {!isAuto && <span className="text-[8px] bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand px-1 rounded font-bold">MAN</span>}
                         </button>
                     </div>
                 </div>
@@ -80,7 +80,7 @@ export default function SalesHeader({
                 <div className="hidden sm:flex items-center gap-2">
                     <button
                         onClick={() => setShowKeyboardHelp(true)}
-                        className="hidden md:flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 px-3 py-1.5 rounded-xl transition-colors hover:bg-indigo-100 dark:hover:bg-indigo-900/40"
+                        className="hidden md:flex items-center gap-1.5 bg-brand-light dark:bg-surface-800/20 text-brand-dark dark:text-brand px-3 py-1.5 rounded-xl transition-colors hover:bg-brand-light dark:hover:bg-surface-800/40"
                     >
                         <Keyboard size={14} />
                         <span className="text-xs font-bold">Atajos (PC)</span>
@@ -108,7 +108,7 @@ export default function SalesHeader({
                                     <strong className="text-sm text-emerald-600 dark:text-emerald-400">{formatBs(effectiveRate)} Bs</strong>
                                 </>
                             )}
-                            {!isAuto && <span className="text-[10px] bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-1 rounded-md font-bold">MAN</span>}
+                            {!isAuto && <span className="text-[10px] bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand px-1 rounded-md font-bold">MAN</span>}
                         </button>
                     </Tooltip>
                 </div>
@@ -136,7 +136,7 @@ export default function SalesHeader({
                     </div>
                     {!isAuto && (
                         <input type="number" value={manualValue} onChange={handleManualChange}
-                            className={`w-full p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm font-bold outline-none focus:ring-2 ${isCopMode ? 'text-amber-600 dark:text-amber-400 focus:border-amber-500 focus:ring-amber-500/20' : 'text-indigo-600 dark:text-indigo-400 focus:border-indigo-500 focus:ring-indigo-500/20'}`}
+                            className={`w-full p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm font-bold outline-none focus:ring-2 ${isCopMode ? 'text-amber-600 dark:text-amber-400 focus:border-amber-500 focus:ring-amber-500/20' : 'text-brand-dark dark:text-brand focus:border-brand focus:ring-brand/20'}`}
                             placeholder={isCopMode ? 'Tasa COP por 1 USD (ej: 4150)' : 'Ingresa Tasa Manual (Bs por $)'} autoFocus />
                     )}
                     <button

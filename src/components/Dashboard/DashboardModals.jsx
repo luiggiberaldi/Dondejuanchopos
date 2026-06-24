@@ -163,7 +163,7 @@ export function RecycleOfferModal({
             >
                 <div className="p-5 text-center">
                     <div className="flex justify-center mb-4">
-                        <div className="w-14 h-14 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-500 rounded-full flex items-center justify-center">
+                        <div className="w-14 h-14 bg-brand-light dark:bg-surface-800/30 text-brand rounded-full flex items-center justify-center">
                             <Recycle size={28} />
                         </div>
                     </div>
@@ -194,7 +194,7 @@ export function RecycleOfferModal({
                     </button>
                     <button
                         onClick={onRecycle}
-                        className="flex-1 py-3 bg-indigo-500 hover:bg-indigo-600 text-white font-bold rounded-xl active:scale-[0.98] transition-all flex justify-center items-center gap-2 shadow-md shadow-indigo-500/20"
+                        className="flex-1 py-3 bg-brand hover:bg-brand-dark text-white font-bold rounded-xl active:scale-[0.98] transition-all flex justify-center items-center gap-2 shadow-md shadow-primary/20"
                     >
                         <Recycle size={16} /> Reciclar
                     </button>

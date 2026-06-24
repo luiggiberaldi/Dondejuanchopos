@@ -26,7 +26,7 @@ Ajustaremos cómo se almacenan y validan las licencias.
 
 ### [Capa de Lógica]
 
-#### [MODIFICAR] [useSecurity.js](file:///c:/Users/luigg/Desktop/2026/proyectos%20terminados/tasas%20al%20dia/abasto/src/hooks/useSecurity.js)
+#### [MODIFICAR] `src/hooks/useSecurity.js`
 - **`unlockApp`**: Actualizar para verificar el conteo total de dispositivos registrados para un código dado.
   - Si el código es válido y el conteo de dispositivos activos para ese código es < 2, permitir el registro.
   - Si el conteo es >= 2, devolver un error específico (ej. `LIMIT_REACHED`).
@@ -34,12 +34,12 @@ Ajustaremos cómo se almacenan y validan las licencias.
 
 ### [Capa de Datos]
 
-#### [NUEVO] [syncService.js](file:///c:/Users/luigg/Desktop/2026/proyectos%20terminados/tasas%20al%20dia/abasto/src/utils/syncService.js)
+#### [NUEVO] `src/utils/syncService.js`
 Crearemos un nuevo servicio para manejar la sincronización en tiempo real.
 - **`subscribeToChanges`**: Usar Supabase Realtime para escuchar actualizaciones en productos y ventas.
 - **`syncLocalToCloud`**: Un proceso en segundo plano para subir cambios locales (soporte offline).
 
-#### [MODIFICAR] [storageService.js](file:///c:/Users/luigg/Desktop/2026/proyectos%20terminados/tasas%20al%20dia/abasto/src/utils/storageService.js)
+#### [MODIFICAR] `src/utils/storageService.js`
 - Actualizar `getItem` and `setItem` para preferir Supabase cuando una licencia válida esté activa y haya internet disponible.
 
 ## Plan de Verificación

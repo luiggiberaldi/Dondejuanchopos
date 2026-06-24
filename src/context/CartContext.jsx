@@ -1,5 +1,8 @@
-import React, { createContext, useContext, useState, useRef, useEffect } from 'react';
+import React, { createContext, useContext, useState, useRef, useEffect, useMemo, useCallback } from 'react';
 
+// HOOK-006: CartContext es la ÚNICA fuente de verdad del carrito.
+// Antes había estado duplicado en `useAppStore` (Zustand) y aquí mismo;
+// la versión Zustand era legacy y se eliminó en `src/core/store.js`.
 const CartContext = createContext(null);
 
 export function CartProvider({ children }) {
@@ -18,7 +21,7 @@ export function CartProvider({ children }) {
      * @param {Array} items - Array de items de la venta original
      * @param {string} navigateTo - Tab destino (e.g. 'ventas')
      */
-    const loadCart = (items, navigateTo = 'ventas') => {
+    const loadCart = useCallback((items, navigateTo = 'ventas') => {
         if (!Array.isArray(items) || items.length === 0) return;
         setCart(items.map(item => ({
             id: item.id,
@@ -30,19 +33,24 @@ export function CartProvider({ children }) {
             isWeight: item.isWeight || false,
         })));
         setPendingNavigate(navigateTo);
-    };
+    }, []);
 
-    const clearCart = () => {
+    const clearCart = useCallback(() => {
         setCart([]);
         setDiscount({ type: 'percentage', value: 0 });
-    };
+    }, []);
+
+    // HOOK-005: Memoizar el value para que los consumidores no se re-rendericen
+    // en cada render del provider a menos que el carrito o el descuento cambien.
+    // setCart/setPendingNavigate/setDiscount son estables (de useState).
+    const value = useMemo(() => ({
+        cart, setCart, cartRef, loadCart, clearCart,
+        pendingNavigate, setPendingNavigate,
+        discount, setDiscount
+    }), [cart, pendingNavigate, discount, loadCart, clearCart]);
 
     return (
-        <CartContext.Provider value={{ 
-            cart, setCart, cartRef, loadCart, clearCart, 
-            pendingNavigate, setPendingNavigate,
-            discount, setDiscount
-        }}>
+        <CartContext.Provider value={value}>
             {children}
         </CartContext.Provider>
     );

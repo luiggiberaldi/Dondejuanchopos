@@ -135,7 +135,7 @@ export default function SalesHistory({
                                             {copPrimary
                                                 ? <><span className="text-slate-500 dark:text-slate-400">${(s.totalUsd || 0).toFixed(2)}</span><span className="text-slate-300 mx-0.5">|</span></>
                                                 : <><span className="text-amber-600 dark:text-amber-400">{formatCop((s.totalUsd || 0) * tasaCop)} COP</span><span className="text-slate-300 mx-0.5">|</span></>}
-                                            <span className="text-blue-500 dark:text-blue-400">{formatBs((s.totalBs || (s.totalUsd || 0) * (s.rate || bcvRate)))} Bs</span>
+                                            <span className="text-brand dark:text-brand">{formatBs((s.totalBs || (s.totalUsd || 0) * (s.rate || bcvRate)))} Bs</span>
                                         </p>
                                     )}
                                     <div className="flex justify-end mt-0.5">
@@ -160,8 +160,8 @@ export default function SalesHistory({
                                                         {copEnabled && tasaCop > 0
                                                             ? <span className="text-slate-400 font-normal ml-1">
                                                                 {copPrimary
-                                                                    ? <>${(item.priceUsd * item.qty).toFixed(2)} · <span className="text-blue-500 dark:text-blue-400">{formatBs(item.priceUsd * item.qty * (s.rate || bcvRate))} Bs</span></>
-                                                                    : <>{formatCop((item.priceCop || Math.round(item.priceUsd * tasaCop)) * item.qty)} COP · <span className="text-blue-500 dark:text-blue-400">{formatBs(item.priceUsd * item.qty * (s.rate || bcvRate))} Bs</span></>}
+                                                                    ? <>${(item.priceUsd * item.qty).toFixed(2)} · <span className="text-brand dark:text-brand">{formatBs(item.priceUsd * item.qty * (s.rate || bcvRate))} Bs</span></>
+                                                                    : <>{formatCop((item.priceCop || Math.round(item.priceUsd * tasaCop)) * item.qty)} COP · <span className="text-brand dark:text-brand">{formatBs(item.priceUsd * item.qty * (s.rate || bcvRate))} Bs</span></>}
                                                               </span>
                                                             : <span className="text-slate-400 font-normal ml-1">· {formatBs(item.priceUsd * item.qty * (s.rate || bcvRate))} Bs</span>}
                                                     </span>
@@ -205,14 +205,14 @@ export default function SalesHistory({
                                         {onDownloadPDF && (
                                             <button
                                                 onClick={(e) => { e.stopPropagation(); onDownloadPDF(s); }}
-                                                className="py-2 px-3 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 hover:bg-blue-200 hover:dark:bg-blue-900/50 font-bold rounded-lg transition-colors flex justify-center items-center gap-1.5 text-xs shadow-sm">
+                                                className="py-2 px-3 bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand hover:bg-brand-light hover:dark:bg-surface-800/50 font-bold rounded-lg transition-colors flex justify-center items-center gap-1.5 text-xs shadow-sm">
                                                 PDF
                                             </button>
                                         )}
                                         {onPrintTicket && (
                                             <button
                                                 onClick={(e) => { e.stopPropagation(); onPrintTicket(s); }}
-                                                className="py-2 px-3 bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400 hover:bg-violet-200 hover:dark:bg-violet-900/50 font-bold rounded-lg transition-colors flex justify-center items-center gap-1.5 text-xs shadow-sm active:scale-95"
+                                                className="py-2 px-3 bg-brand-dark dark:bg-brand-dark/30 text-brand dark:text-brand hover:bg-brand-dark hover:dark:bg-brand-dark/50 font-bold rounded-lg transition-colors flex justify-center items-center gap-1.5 text-xs shadow-sm active:scale-95"
                                                 title="Imprimir ticket"
                                             >
                                                 <Printer size={14} />
@@ -242,7 +242,7 @@ export default function SalesHistory({
                                         )}
                                         <button
                                             onClick={(e) => { e.stopPropagation(); onRecycleSale(s); }}
-                                            className="py-2 px-3 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-200 hover:dark:bg-indigo-900/50 font-bold rounded-lg transition-colors flex justify-center items-center gap-1.5 text-xs shadow-sm active:scale-95">
+                                            className="py-2 px-3 bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand hover:bg-brand-light hover:dark:bg-surface-800/50 font-bold rounded-lg transition-colors flex justify-center items-center gap-1.5 text-xs shadow-sm active:scale-95">
                                             <Recycle size={14} />
                                         </button>
                                     </div>
