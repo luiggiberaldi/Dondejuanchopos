@@ -4,6 +4,8 @@ import { useProductContext } from '../context/ProductContext';
 import { useCart } from '../context/CartContext';
 import { useAuthStore } from '../hooks/store/useAuthStore';
 import { useOfflineQueue } from '../hooks/useOfflineQueue';
+import { storageService } from '../utils/storageService';
+import { getActivePaymentMethods } from '../config/paymentMethods';
 
 const BODEGA_CHAT_SYSTEM = `Eres un asistente inteligente y experto integrado en "Precios al Día", el sistema de punto de venta (POS) y gestión de inventario offline-first para bodegas, abastos y comercios en Venezuela.
 
@@ -73,43 +75,164 @@ export default function AIAssistantWidget() {
         return () => window.visualViewport?.removeEventListener('resize', handleResize);
     }, []);
 
-    // Compilar estado actual del POS en un texto descriptivo
-    const compilePosContext = () => {
+    // Compilar contexto completo del POS en tiempo real (async — lee de IndexedDB)
+    const compilePosContext = async () => {
         const rateBcv = effectiveRate || 0;
         const rateCop = tasaCop || 0;
-        const username = usuarioActivo?.nombre || "Cajero general";
-        const role = usuarioActivo?.rol || "CAJERO";
-        const lowStockCount = products ? products.filter(p => p.stock <= (p.minStock || 5)).length : 0;
-        const connection = isOnline ? "Online (Sincronizado)" : "Offline (Modo sin conexión)";
+        const username = usuarioActivo?.nombre || 'Sin sesión';
+        const role = usuarioActivo?.rol || 'CAJERO';
+        const connection = isOnline ? 'Online (Sincronizado)' : 'Offline (Modo sin conexión)';
+        const businessName = localStorage.getItem('business_name') || 'Sin nombre registrado';
+        const businessRif = localStorage.getItem('business_rif') || 'Sin RIF';
+
+        // ── INVENTARIO ──────────────────────────────────────────────────
+        const totalProducts = products?.length || 0;
+        const lowStockItems = products
+            ? products.filter(p => (p.stock ?? 0) <= (p.lowStockAlert ?? 5) && (p.stock ?? 0) >= 0)
+            : [];
+        const outOfStockItems = products
+            ? products.filter(p => (p.stock ?? 0) <= 0)
+            : [];
+
+        // Top 5 productos con menos stock
+        const criticalStock = lowStockItems
+            .sort((a, b) => (a.stock ?? 0) - (b.stock ?? 0))
+            .slice(0, 5)
+            .map(p => `${p.name} (stock: ${p.stock ?? 0}, alerta: ${p.lowStockAlert ?? 5})`)
+            .join(', ');
+
+        // Categorías en uso
+        const categoriesInUse = products
+            ? [...new Set(products.map(p => p.category).filter(Boolean))]
+            : [];
+
+        // ── CARRITO ACTUAL ───────────────────────────────────────────────
         const cartLen = cart?.length || 0;
+        const cartItems = cart?.length > 0
+            ? cart.map(i => `${i.name} x${i.qty} ($${(i.priceUsd || 0).toFixed(2)})`).join(', ')
+            : 'vacío';
 
-        let salesCount = 0;
-        let totalSalesUsd = 0;
-        let totalSalesBs = 0;
-
+        // ── VENTAS DEL DÍA ───────────────────────────────────────────────
+        let salesCount = 0, totalSalesUsd = 0, totalSalesBs = 0;
+        let paymentBreakdown = {};
+        let voidedCount = 0;
         try {
-            const sales = JSON.parse(localStorage.getItem('bodega_sales_v1') || '[]');
+            const sales = await storageService.getItem('bodega_sales_v1', []);
             const todayStr = new Date().toISOString().split('T')[0];
-            const todaySales = sales.filter(s => {
-                const sDate = s.timestamp ? s.timestamp.split('T')[0] : '';
-                return sDate === todayStr;
-            });
+            const todaySales = sales.filter(s => s.timestamp?.startsWith(todayStr) && s.status !== 'ANULADA');
+            const todayVoided = sales.filter(s => s.timestamp?.startsWith(todayStr) && s.status === 'ANULADA');
             salesCount = todaySales.length;
-            totalSalesUsd = todaySales.reduce((acc, curr) => acc + (curr.totalUsd || 0), 0);
-            totalSalesBs = todaySales.reduce((acc, curr) => acc + (curr.totalBs || 0), 0);
-        } catch (e) {
-            console.error("Error al leer métricas para IA:", e);
-        }
+            voidedCount = todayVoided.length;
+            totalSalesUsd = todaySales.reduce((acc, s) => acc + (s.totalUsd || 0), 0);
+            totalSalesBs = todaySales.reduce((acc, s) => acc + (s.totalBs || 0), 0);
+            // Desglose por método de pago
+            todaySales.forEach(s => {
+                const pm = s.paymentMethod || s.metodoPago || 'desconocido';
+                if (!paymentBreakdown[pm]) paymentBreakdown[pm] = { count: 0, usd: 0 };
+                paymentBreakdown[pm].count++;
+                paymentBreakdown[pm].usd += (s.totalUsd || 0);
+            });
+        } catch (e) { /* silencioso */ }
 
-        return `[CONTEXTO EN TIEMPO REAL DEL POS]
+        const paymentSummary = Object.entries(paymentBreakdown)
+            .map(([pm, v]) => `${pm}: ${v.count} ventas ($${v.usd.toFixed(2)})`)
+            .join(', ') || 'sin datos';
+
+        // ── CLIENTES ─────────────────────────────────────────────────────
+        let customersCount = 0, customersWithDebt = 0, totalDebtUsd = 0;
+        let topDebtors = '';
+        try {
+            const customers = await storageService.getItem('bodega_customers_v1', []);
+            customersCount = customers.length;
+            const debtors = customers.filter(c => (c.deuda || 0) > 0.01);
+            customersWithDebt = debtors.length;
+            totalDebtUsd = debtors.reduce((acc, c) => acc + (c.deuda || 0), 0);
+            topDebtors = debtors
+                .sort((a, b) => (b.deuda || 0) - (a.deuda || 0))
+                .slice(0, 3)
+                .map(c => `${c.name}: $${(c.deuda || 0).toFixed(2)}`)
+                .join(', ');
+        } catch (e) { /* silencioso */ }
+
+        // ── PROVEEDORES ──────────────────────────────────────────────────
+        let suppliersCount = 0, pendingInvoices = 0, totalPendingUsd = 0;
+        try {
+            const suppliers = await storageService.getItem('bodega_suppliers_v1', []);
+            const invoices = await storageService.getItem('bodega_supplier_invoices_v1', []);
+            suppliersCount = suppliers.length;
+            const pending = invoices.filter(inv => inv.status === 'PENDIENTE');
+            pendingInvoices = pending.length;
+            totalPendingUsd = pending.reduce((acc, inv) => acc + (inv.totalUsd || inv.total || 0), 0);
+        } catch (e) { /* silencioso */ }
+
+        // ── MÉTODOS DE PAGO ACTIVOS ───────────────────────────────────────
+        let activePayMethods = [];
+        try {
+            const methods = await getActivePaymentMethods();
+            activePayMethods = methods.map(m => `${m.label} (${m.currency})`);
+        } catch (e) { activePayMethods = ['Efectivo Bs', 'Pago Móvil', 'USD']; }
+
+        // ── USUARIOS REGISTRADOS ──────────────────────────────────────────
+        let usersInfo = 'Solo sesión simple (sin multi-usuario activo)';
+        try {
+            const usuarios = JSON.parse(localStorage.getItem('bodega_usuarios') || '[]');
+            if (usuarios.length > 0) {
+                usersInfo = usuarios.map(u => `${u.nombre} (${u.rol})`).join(', ');
+            }
+        } catch (e) { /* silencioso */ }
+
+        // ── APERTURA DE CAJA HOY ──────────────────────────────────────────
+        let aperturaInfo = 'No registrada hoy';
+        try {
+            const todayKey = new Date().toISOString().split('T')[0];
+            const apertura = JSON.parse(localStorage.getItem(`apertura_caja_${todayKey}`) || 'null');
+            if (apertura) {
+                aperturaInfo = `Fondo inicial: $${(apertura.fondoUsd || 0).toFixed(2)} USD / Bs.${(apertura.fondoBs || 0).toFixed(2)}`;
+            }
+        } catch (e) { /* silencioso */ }
+
+        return `
+[CONTEXTO EN TIEMPO REAL DEL POS — ${new Date().toLocaleString('es-VE')}]
+
+## NEGOCIO
+- Nombre: ${businessName} | RIF: ${businessRif}
 - Conexión: ${connection}
 - Usuario activo: ${username} (Rol: ${role})
-- Tasa BCV Oficial: Bs. ${rateBcv.toFixed(2)}
-- Tasa COP: ${rateCop}
-- Carrito actual: ${cartLen} productos
-- Items bajo stock: ${lowStockCount}
-- Ventas hoy: ${salesCount} transacciones (Total hoy: $${totalSalesUsd.toFixed(2)} USD / Bs. ${totalSalesBs.toFixed(2)} Bs.)
-`;
+
+## TASAS DE CAMBIO VIGENTES
+- Tasa BCV (USD→Bs): Bs. ${rateBcv.toFixed(2)} por dólar
+- Tasa COP: ${rateCop > 0 ? `${rateCop.toFixed(2)} COP por dólar` : 'No configurada'}
+
+## INVENTARIO
+- Total productos registrados: ${totalProducts}
+- Productos con stock bajo o agotado: ${lowStockItems.length} (${outOfStockItems.length} agotados)
+- Críticos: ${criticalStock || 'ninguno'}
+- Categorías en uso: ${categoriesInUse.join(', ') || 'ninguna'}
+
+## CARRITO EN VENTA ACTUAL
+- Productos en carrito: ${cartLen} (${cartItems})
+
+## VENTAS DEL DÍA
+- Transacciones completadas: ${salesCount} | Anuladas: ${voidedCount}
+- Total: $${totalSalesUsd.toFixed(2)} USD / Bs. ${totalSalesBs.toFixed(2)}
+- Por método de pago: ${paymentSummary}
+- Apertura de caja: ${aperturaInfo}
+
+## CLIENTES
+- Total clientes: ${customersCount}
+- Con deuda pendiente: ${customersWithDebt} clientes | Total deuda: $${totalDebtUsd.toFixed(2)} USD
+- Mayores deudores: ${topDebtors || 'ninguno'}
+
+## PROVEEDORES
+- Total proveedores: ${suppliersCount}
+- Facturas pendientes de pago: ${pendingInvoices} | Total: $${totalPendingUsd.toFixed(2)} USD
+
+## MÉTODOS DE PAGO ACTIVOS
+- ${activePayMethods.join(', ')}
+
+## USUARIOS DEL SISTEMA
+- ${usersInfo}
+`.trim();
     };
 
     const handleSend = async (textToSend) => {
@@ -125,8 +248,8 @@ export default function AIAssistantWidget() {
         setIsTyping(true);
 
         try {
-            // Construir payload con contexto dinámico
-            const contextText = compilePosContext();
+            // Construir payload con contexto completo en tiempo real (async)
+            const contextText = await compilePosContext();
             
             // Enviamos el historial completo a la API
             const apiMessages = [
