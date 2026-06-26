@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Clock, Send, Ban, ChevronDown, ChevronUp, Trash2, Shuffle, Recycle, Receipt, Printer, LockIcon, CornerDownLeft } from 'lucide-react';
+import { Clock, Send, Ban, ChevronDown, ChevronUp, Trash2, Shuffle, Recycle, Receipt, Printer, LockIcon, CornerDownLeft, Smartphone } from 'lucide-react';
 import { formatBs, formatCop } from '../../utils/calculatorUtils';
 import { getPaymentLabel, getPaymentMethod, PAYMENT_ICONS, toTitleCase, getPaymentIcon } from '../../config/paymentMethods';
 import EmptyState from '../EmptyState';
 import { printerSerial } from '../../services/PrinterSerial';
 import { showToast } from '../Toast';
+import CasheaIcon from '../CasheaIcon';
 
 export default function SalesHistory({
     recentSales,
@@ -86,12 +87,16 @@ export default function SalesHistory({
                     if (s.tipo === 'VENTA_FIADA') {
                         methodLabel = 'Por Cobrar';
                         PayMethodIcon = Clock;
+                    } else if (s.tipo === 'VENTA_CASHEA') {
+                        methodLabel = 'Cashea';
+                        PayMethodIcon = Smartphone;
                     } else if (s.payments && s.payments.length === 1) {
                         methodLabel = toTitleCase(s.payments[0].methodLabel);
                         const m = getPaymentMethod(s.payments[0].methodId);
                         if (m) PayMethodIcon = getPaymentIcon(m.id) || m.Icon || null;
                     } else if (s.payments && s.payments.length > 1) {
-                        methodLabel = 'Pago Mixto';
+                        const hasCashea = s.payments.some(p => p.methodId === 'cashea' || p.isCashea);
+                        methodLabel = hasCashea ? 'Mixto (Cashea)' : 'Pago Mixto';
                         PayMethodIcon = Shuffle;
                     } else if (s.paymentMethod) {
                         const m = getPaymentMethod(s.paymentMethod);
@@ -110,12 +115,28 @@ export default function SalesHistory({
                                 className="flex items-center gap-3 p-3 cursor-pointer select-none active:bg-slate-100 dark:active:bg-slate-800"
                                 onClick={() => setExpandedSaleId(isExpanded ? null : s.id)}
                             >
-                                <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isCanceled ? 'bg-red-100 opacity-50' : 'bg-white dark:bg-slate-700 shadow-sm'}`}>
-                                    {isCanceled ? <Ban size={20} className="text-red-400" /> : (PayMethodIcon ? <PayMethodIcon size={20} className="text-slate-500" /> : <span className="text-xl">💵</span>)}
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                                    isCanceled 
+                                        ? 'bg-red-100 opacity-50' 
+                                        : s.tipo === 'VENTA_CASHEA'
+                                            ? 'bg-purple-150 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800'
+                                            : 'bg-white dark:bg-slate-700 shadow-sm'
+                                }`}>
+                                    {isCanceled ? (
+                                        <Ban size={20} className="text-red-400" />
+                                    ) : s.tipo === 'VENTA_CASHEA' ? (
+                                        <CasheaIcon size={24} />
+                                    ) : PayMethodIcon ? (
+                                        <PayMethodIcon size={20} className="text-slate-500 dark:text-slate-400" />
+                                    ) : (
+                                        <span className="text-xl">💵</span>
+                                    )}
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <p className={`text-sm font-bold flex items-center gap-1.5 truncate ${isCanceled ? 'line-through text-slate-400' : 'text-slate-800 dark:text-slate-200'}`}>
-                                        {s.customerName || 'Consumidor Final'} {s.tipo === 'VENTA_FIADA' && <span className="text-[9px] bg-amber-100 text-amber-600 px-1 rounded uppercase">Fiado</span>}
+                                        {s.customerName || 'Consumidor Final'} 
+                                        {s.tipo === 'VENTA_FIADA' && <span className="text-[9px] bg-amber-100 text-amber-600 px-1 rounded uppercase font-black">Fiado</span>}
+                                        {s.tipo === 'VENTA_CASHEA' && <span className="text-[9px] bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 px-1.5 py-0.5 rounded uppercase font-black flex items-center gap-0.5"><CasheaIcon size={10} /> Cashea</span>}
                                     </p>
                                     <p className="text-[11px] text-slate-500 flex items-center gap-1">
                                         {s.saleNumber && <span className="font-black text-slate-400">#{String(s.saleNumber).padStart(7, '0')}</span>}
@@ -177,6 +198,11 @@ export default function SalesHistory({
                                             <span>Ref: {formatBs(s.totalBs)} Bs @ {formatBs(s.rate || bcvRate)}</span>
                                             {s.tasaCop > 0 && <span>COP: {(s.totalCop || (s.totalUsd * s.tasaCop)).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} @ {s.tasaCop}</span>}
                                         </div>
+                                        {s.casheaUsd > 0 && (
+                                            <div className="flex items-center gap-1 self-start mt-0.5 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 font-bold px-1.5 py-0.5 rounded-md border border-purple-100 dark:border-purple-800/40">
+                                                <span>⚡ Cashea: ${s.casheaUsd.toFixed(2)}</span>
+                                            </div>
+                                        )}
                                         {s.changeUsd > 0 && (
                                             <div className="flex items-center gap-1 self-start mt-0.5 bg-orange-50 dark:bg-orange-900/20 text-orange-500 dark:text-orange-400 font-bold px-1.5 py-0.5 rounded-md border border-orange-100 dark:border-orange-800/40">
                                                 <CornerDownLeft size={10} />
@@ -212,7 +238,7 @@ export default function SalesHistory({
                                         {onPrintTicket && (
                                             <button
                                                 onClick={(e) => { e.stopPropagation(); onPrintTicket(s); }}
-                                                className="py-2 px-3 bg-brand-dark dark:bg-brand-dark/30 text-brand dark:text-brand hover:bg-brand-dark hover:dark:bg-brand-dark/50 font-bold rounded-lg transition-colors flex justify-center items-center gap-1.5 text-xs shadow-sm active:scale-95"
+                                                className="py-2 px-3 bg-brand-light dark:bg-brand-dark/20 text-brand-dark dark:text-brand hover:bg-brand dark:hover:bg-brand-dark/40 font-bold rounded-lg transition-colors flex justify-center items-center gap-1.5 text-xs shadow-sm active:scale-95"
                                                 title="Imprimir ticket"
                                             >
                                                 <Printer size={14} />

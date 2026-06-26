@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Package, Calculator, ChevronDown } from 'lucide-react';
 import { BODEGA_CATEGORIES, CATEGORY_ICONS, CATEGORY_COLORS } from '../../config/categories';
 import { formatCop, formatBs, getCop, getUsd } from '../../utils/calculatorUtils';
@@ -21,11 +21,27 @@ export default function CategoryBar({
     categories = [],
 }) {
     const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+    // PERF: ref para adjuntar wheel listener con { passive: false } sin advertencia del navegador
+    const categoryScrollRef = useRef(null);
 
     // Reset pagination when category changes
     useEffect(() => {
         setVisibleCount(PAGE_SIZE);
     }, [selectedCategory]);
+
+    // Wheel → scroll horizontal sin advertencia de evento pasivo
+    useEffect(() => {
+        const el = categoryScrollRef.current;
+        if (!el) return;
+        const handler = (e) => {
+            if (e.deltaY !== 0) {
+                e.preventDefault();
+                el.scrollLeft += e.deltaY;
+            }
+        };
+        el.addEventListener('wheel', handler, { passive: false });
+        return () => el.removeEventListener('wheel', handler);
+    }, []);
 
     const visibleProducts = filteredByCategory.slice(0, visibleCount);
     const hasMore = filteredByCategory.length > visibleCount;
@@ -41,14 +57,9 @@ export default function CategoryBar({
         <div className={`relative ${searchTerm.length === 0 ? 'lg:flex-1 lg:overflow-hidden lg:flex lg:flex-col lg:min-h-0' : ''}`}>
             {/* Category Chips Container with Mask */}
             <div className="relative horizontal-scroll-mask mb-1">
-                <div 
+                <div
+                    ref={categoryScrollRef}
                     className="shrink-0 flex gap-1 overflow-x-auto pb-1.5 pt-1 pl-0.5 pr-12 scrollbar-hide"
-                    onWheel={(e) => {
-                        if (e.deltaY !== 0) {
-                            e.preventDefault();
-                            e.currentTarget.scrollLeft += e.deltaY;
-                        }
-                    }}
                 >
                     {/* Monto Libre Button */}
                     <button

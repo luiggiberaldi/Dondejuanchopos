@@ -56,8 +56,11 @@ export async function processSaleTransaction({
     const remainingUsd = round2(Math.max(0, subR(cartTotalUsd, totalPaidUsd)));
     const changeUsd    = round2(Math.max(0, subR(totalPaidUsd, cartTotalUsd)));
 
-    if (!selectedCustomer && remainingUsd > 0.01) {
-        return { success: false, error: 'Se requiere cliente para ventas fiadas' };
+    const casheaPayment = payments.find(p => p.methodId === 'cashea');
+    const casheaUsd = casheaPayment ? round2(casheaPayment.amountUsd) : 0;
+
+    if (!selectedCustomer && (remainingUsd > 0.01 || casheaUsd > 0)) {
+        return { success: false, error: remainingUsd > 0.01 ? 'Se requiere cliente para ventas fiadas' : 'Se requiere cliente para ventas con Cashea' };
     }
 
     // FIN-005: Bloquear ventas con anomalía de vuelto (changeUsd > total * 5).
@@ -70,6 +73,7 @@ export async function processSaleTransaction({
     }
 
     const fiadoAmountUsd = remainingUsd > 0.01 ? remainingUsd : 0;
+    const tipoVenta = casheaUsd > 0 ? 'VENTA_CASHEA' : (fiadoAmountUsd > 0 ? 'VENTA_FIADA' : 'VENTA');
 
     // ── Normalizar payments: asegurar currency y methodLabel ──
     // Esto permite que el FinancialEngine calcule el breakdown correctamente
@@ -82,7 +86,7 @@ export async function processSaleTransaction({
 
     const sale = {
         id: crypto.randomUUID(),
-        tipo: fiadoAmountUsd > 0 ? 'VENTA_FIADA' : 'VENTA',
+        tipo: tipoVenta,
         status: 'COMPLETADA',
         items: cart.map(i => ({
             id: i.id,
@@ -115,8 +119,8 @@ export async function processSaleTransaction({
         copEnabled: copEnabled,
         rateSource: useAutoRate ? 'BCV Auto' : 'Manual',
         timestamp: new Date().toISOString(),
-        changeUsd: fiadoAmountUsd > 0 ? 0 : round2(changeBreakdown?.changeUsdGiven || 0),
-        changeBs:  fiadoAmountUsd > 0 ? 0 : round2(changeBreakdown?.changeBsGiven  || 0),
+        changeUsd: tipoVenta !== 'VENTA' ? 0 : round2(changeBreakdown?.changeUsdGiven || 0),
+        changeBs:  tipoVenta !== 'VENTA' ? 0 : round2(changeBreakdown?.changeBsGiven  || 0),
         // FIN-012: Guardar vueltoParaMonedero para revertir al anular.
         // Por ahora el flujo de checkout no enruta vuelto a favor (siempre 0),
         // pero dejamos el campo para ventas futuras y abonos manuales.
@@ -125,7 +129,8 @@ export async function processSaleTransaction({
         customerName:     selectedCustomer ? selectedCustomer.name : 'Consumidor Final',
         customerDocument: selectedCustomer?.documentId || null,
         customerPhone:    selectedCustomer?.phone      || null,
-        fiadoUsd: fiadoAmountUsd
+        fiadoUsd: fiadoAmountUsd,
+        casheaUsd: casheaUsd
     };
 
     // FIN-008: deepFreeze en lugar de Object.freeze (congela items[] y payments[]).
@@ -142,7 +147,7 @@ export async function processSaleTransaction({
 
         // Audit log
         const user = useAuthStore.getState().usuarioActivo;
-        const tipo = fiadoAmountUsd > 0 ? 'VENTA_FIADA' : 'VENTA_COMPLETADA';
+        const tipo = casheaUsd > 0 ? 'VENTA_CASHEA' : (fiadoAmountUsd > 0 ? 'VENTA_FIADA' : 'VENTA_COMPLETADA');
         logEvent('VENTA', tipo,
             `Venta #${saleNumber} - $${round2(cartTotalUsd)} - ${cart.length} items - ${selectedCustomer?.name || 'Consumidor Final'}`,
             user,
@@ -197,11 +202,14 @@ export async function processSaleTransaction({
                 .filter(p => p.methodId === 'saldo_favor')
                 .map(p => p.amountUsd));
 
+            const deudaParaCliente = casheaUsd > 0 ? casheaUsd : fiadoAmountUsd;
+
             const transaccionOpts = {
                 usaSaldoFavor:    amount_favor_used,
-                esCredito:        fiadoAmountUsd > FINANCIAL_EPSILON.PAYMENT_ZERO,
-                deudaGenerada:    fiadoAmountUsd,
-                vueltoParaMonedero: 0
+                esCredito:        deudaParaCliente > FINANCIAL_EPSILON.PAYMENT_ZERO,
+                deudaGenerada:    deudaParaCliente,
+                vueltoParaMonedero: 0,
+                esCashea:         casheaUsd > 0
             };
 
             updatedCustomer  = procesarImpactoCliente(selectedCustomer, transaccionOpts);

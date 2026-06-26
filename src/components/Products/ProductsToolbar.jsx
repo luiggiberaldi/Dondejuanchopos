@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Store, Plus, Trash2, Pencil, Search, LayoutGrid, List, Percent, CheckSquare } from 'lucide-react';
 import { CATEGORY_COLORS } from '../../config/categories';
 
@@ -29,6 +29,20 @@ const ProductsToolbar = ({
     const handleScroll = (e) => {
         setShowLeftFade(e.target.scrollLeft > 4);
     };
+
+    // Wheel → scroll horizontal en el carril de categorías sin advertencia de evento pasivo
+    useEffect(() => {
+        const el = categoryScrollRef?.current;
+        if (!el) return;
+        const handler = (e) => {
+            if (e.deltaY !== 0) {
+                e.preventDefault();
+                el.scrollLeft += e.deltaY;
+            }
+        };
+        el.addEventListener('wheel', handler, { passive: false });
+        return () => el.removeEventListener('wheel', handler);
+    }, [categoryScrollRef]);
 
     // Helper to get count of products in a category
     const getCategoryProductCount = (catId) => {
@@ -146,15 +160,9 @@ const ProductsToolbar = ({
             {/* Row 3: Category Filter Pills — horizontal scroll with left/right fade */}
             <div className="relative w-full py-0.5 pr-8">
                 <div 
-                    ref={categoryScrollRef} 
+                    ref={categoryScrollRef}
                     className="flex gap-1 overflow-x-auto py-1 pl-1 pr-10 scrollbar-hide scroll-smooth"
                     onScroll={handleScroll}
-                    onWheel={(e) => {
-                        if (e.deltaY !== 0) {
-                            e.preventDefault();
-                            e.currentTarget.scrollLeft += e.deltaY;
-                        }
-                    }}
                 >
                     {categories.map(cat => {
                         const count = getCategoryProductCount(cat.id);

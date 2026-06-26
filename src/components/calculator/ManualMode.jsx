@@ -330,7 +330,7 @@ export const ManualMode = ({ rates, accounts, theme, triggerHaptic, isKeyboardOp
                             const msg = `Hola! Me interesa la licencia Premium de PreciosAlDía para enviar cotizaciones por WhatsApp.`;
                             window.open(`https://wa.me/584124051793?text=${encodeURIComponent(msg)}`, '_blank');
                         }}
-                        className="w-full py-3 bg-[#10B981] text-white font-bold rounded-xl shadow-lg shadow-emerald-500/20 active:scale-95 transition-transform text-sm"
+                        className="w-full py-3 bg-brand hover:bg-brand-dark text-white dark:text-slate-950 font-bold rounded-xl shadow-lg shadow-brand/20 active:scale-95 transition-all text-sm"
                     >
                         Solicitar Licencia
                     </button>

@@ -28,6 +28,14 @@ export function useCheckoutCalculations({
     const [paymentWarning, setPaymentWarning] = useState(null);
     const pendingConfirmRef = useRef(null);
 
+    // -- Cashea Hook Integration --
+    const [casheaActive, setCasheaActive] = useState(false);
+    const [casheaPercent, setCasheaPercent] = useState(60);
+
+    const casheaEnabled = localStorage.getItem('cashea_enabled') === 'true';
+    const casheaMinAmount = parseFloat(localStorage.getItem('cashea_min_amount') || '0') || 0;
+    const casheaMeetsMinimum = casheaMinAmount <= 0 || cartTotalUsd >= casheaMinAmount;
+
     // FIN-009 / FIN-033: detectar tasa inválida y exponer flag para que la UI bloquee.
     const rateError = !effectiveRate || effectiveRate <= 0
         ? 'Tasa BCV no configurada. Configúrala antes de cobrar.'
@@ -36,9 +44,6 @@ export function useCheckoutCalculations({
         ? 'Tasa COP no configurada. Configúrala antes de aceptar pagos en pesos.'
         : null;
 
-    // safeRate/safeTasaCop: NO usar 1/4150 como fallback mágico. Si la tasa es inválida,
-    // los cálculos de conversión devolverán 0 (mulR/divR sobre 0 → 0) y rateError/coproRateError
-    // bloqueará el botón de confirmar.
     const safeRate = effectiveRate > 0 ? effectiveRate : 0;
     const safeTasaCop = tasaCop > 0 ? tasaCop : 0;
 
@@ -62,12 +67,23 @@ export function useCheckoutCalculations({
         }));
     }, [barValues, paymentMethods, effectiveRate, tasaCop, safeRate, safeTasaCop]);
 
-    const remainingUsd = Math.max(0, subR(cartTotalUsd, totalPaidUsd));
-    const remainingBs = Math.max(0, subR(cartTotalBs, totalPaidBs));
-    const changeUsd = Math.max(0, subR(totalPaidUsd, cartTotalUsd));
-    const changeBs = Math.max(0, subR(totalPaidBs, cartTotalBs));
+    // Monto que Cashea cubre (virtual, se agrega como pago al confirmar)
+    const casheaAmountUsd = useMemo(() => {
+        if (!casheaActive) return 0;
+        return round2(mulR(cartTotalUsd, (100 - casheaPercent) / 100));
+    }, [casheaActive, casheaPercent, cartTotalUsd]);
+
+    const totalPaidWithCasheaUsd = round2(totalPaidUsd + casheaAmountUsd);
+
+    const remainingUsd = Math.max(0, subR(cartTotalUsd, totalPaidWithCasheaUsd));
+    const remainingBs = Math.max(0, subR(cartTotalBs, totalPaidBs + mulR(casheaAmountUsd, safeRate)));
+    const changeUsd = Math.max(0, subR(totalPaidWithCasheaUsd, cartTotalUsd));
+    const changeBs = Math.max(0, subR(totalPaidBs + mulR(casheaAmountUsd, safeRate), cartTotalBs));
     // FIN-023: umbral centralizado en securityConstants (antes `0.009` hardcodeado).
     const isPaid = remainingUsd < FINANCIAL_EPSILON.PAYMENT_ZERO;
+
+    const PAYMENT_TOLERANCE = 0.01;
+    const casheaConfirmReady = !casheaActive || isPaid || totalPaidUsd >= round2(cartTotalUsd - casheaAmountUsd) - PAYMENT_TOLERANCE;
 
     const handleBarChange = useCallback((methodId, value) => {
         let v = value.replace(',', '.');
@@ -116,13 +132,30 @@ export function useCheckoutCalculations({
                         : (safeRate > 0 ? mulR(amount, safeRate) : 0),
                 };
             });
+
+        // Agregar pago virtual de Cashea si está activo
+        if (casheaActive && casheaAmountUsd > 0) {
+            payments.push({
+                id: crypto.randomUUID(),
+                methodId: 'cashea',
+                methodLabel: 'Cashea',
+                currency: 'USD',
+                amountInput: casheaAmountUsd,
+                amountInputCurrency: 'USD',
+                amountUsd: casheaAmountUsd,
+                amountBs: mulR(casheaAmountUsd, safeRate),
+                isCashea: true,
+                casheaPercent: 100 - casheaPercent,
+            });
+        }
+
         const defaultUsdChange = (!changeUsdGiven && !changeBsGiven) ? changeUsd : round2(CurrencyService.safeParse(changeUsdGiven));
         const defaultBsChange  = (!changeUsdGiven && !changeBsGiven) ? changeBs  : round2(CurrencyService.safeParse(changeBsGiven));
         onConfirmSale(payments, {
             changeUsdGiven: Math.min(defaultUsdChange, changeUsd),
             changeBsGiven: Math.min(defaultBsChange, changeBs),
         });
-    }, [barValues, paymentMethods, onConfirmSale, changeUsdGiven, changeBsGiven, changeUsd, changeBs, safeRate, safeTasaCop]);
+    }, [barValues, paymentMethods, onConfirmSale, changeUsdGiven, changeBsGiven, changeUsd, changeBs, safeRate, safeTasaCop, casheaActive, casheaAmountUsd, casheaPercent]);
 
     // ── Detección inteligente de errores de entrada ───────────────────────────
     const _detectWarning = useCallback(() => {
@@ -241,5 +274,15 @@ export function useCheckoutCalculations({
         // FIN-009 / FIN-033: exponer errores de tasa para que la UI bloquee el cobro.
         rateError,
         copRateError,
+        // Cashea outputs
+        casheaActive,
+        setCasheaActive,
+        casheaPercent,
+        setCasheaPercent,
+        casheaAmountUsd,
+        casheaConfirmReady,
+        casheaEnabled,
+        casheaMinAmount,
+        casheaMeetsMinimum,
     };
 }

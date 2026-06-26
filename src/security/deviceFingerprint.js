@@ -18,6 +18,34 @@
 
 const FP_HASH_LENGTH = 32; // 32 hex chars = 128 bits (antes 8 = 32 bits).
 const FP_PREFIX = 'PDA-';
+const FP_PREFIX_V2 = 'PDA-V2-';
+
+/**
+ * Genera una representación estable del User Agent (OS y Navegador, sin versiones de parche/menor).
+ * @returns {string}
+ */
+function _getStableUserAgent() {
+    if (typeof window === 'undefined' || !window.navigator) return '';
+    const ua = window.navigator.userAgent || '';
+    
+    // Detectar Sistema Operativo
+    let os = 'UnknownOS';
+    if (ua.includes('Windows')) os = 'Windows';
+    else if (ua.includes('Macintosh') || ua.includes('Mac OS')) os = 'MacOS';
+    else if (ua.includes('Android')) os = 'Android';
+    else if (ua.includes('iPhone') || ua.includes('iPad') || ua.includes('iPod')) os = 'iOS';
+    else if (ua.includes('Linux')) os = 'Linux';
+
+    // Detectar Navegador
+    let browser = 'UnknownBrowser';
+    if (ua.includes('Firefox')) browser = 'Firefox';
+    else if (ua.includes('Chrome') && !ua.includes('Edg') && !ua.includes('OPR')) browser = 'Chrome';
+    else if (ua.includes('Safari') && !ua.includes('Chrome')) browser = 'Safari';
+    else if (ua.includes('Edg')) browser = 'Edge';
+    else if (ua.includes('OPR') || ua.includes('Opera')) browser = 'Opera';
+
+    return `${os}|${browser}`;
+}
 
 /**
  * Devuelve la sal configurada por despliegue (VITE_LICENSE_SALT).
@@ -36,30 +64,25 @@ function _getSalt() {
  * Genera un fingerprint robusto del dispositivo.
  * Combina características del navegador + sal del backend → SHA-256 de 32 hex chars.
  *
- * @returns {Promise<string>} Fingerprint en formato `PDA-<32hex>`.
+ * @returns {Promise<string>} Fingerprint en formato `PDA-V2-<32hex>`.
  */
 export async function generateFingerprint() {
     if (typeof window === 'undefined' || !window.navigator) {
         // SSR / no-browser — devolver un fingerprint sintético determinista.
-        return `${FP_PREFIX}${'0'.repeat(FP_HASH_LENGTH)}`;
+        return `${FP_PREFIX_V2}${'0'.repeat(FP_HASH_LENGTH)}`;
     }
 
     const nav = window.navigator;
     const screen = window.screen || {};
 
     const components = [
-        nav.userAgent || '',
+        _getStableUserAgent(),
         nav.language || '',
         nav.languages ? nav.languages.join(',') : '',
         nav.hardwareConcurrency || 1,
         nav.deviceMemory || 1,
         nav.platform || '',
-        screen.width || 0,
-        screen.height || 0,
         screen.colorDepth || 0,
-        screen.availWidth || 0,
-        screen.availHeight || 0,
-        new Date().getTimezoneOffset(),
         Intl?.DateTimeFormat()?.resolvedOptions()?.timeZone || '',
         // Sal del backend — dificulta precomputar fingerprints falsos.
         _getSalt(),
@@ -82,7 +105,7 @@ export async function generateFingerprint() {
             .toUpperCase()
             .padStart(FP_HASH_LENGTH, '0')
             .slice(0, FP_HASH_LENGTH);
-        return `${FP_PREFIX}${hex}`;
+        return `${FP_PREFIX_V2}${hex}`;
     }
 
     const encoder = new TextEncoder();
@@ -94,7 +117,7 @@ export async function generateFingerprint() {
         .map(b => b.toString(16).padStart(2, '0'))
         .join('')
         .toUpperCase();
-    return `${FP_PREFIX}${hex}`;
+    return `${FP_PREFIX_V2}${hex}`;
 }
 
 /**
@@ -108,8 +131,13 @@ export async function generateFingerprint() {
  * @returns {Promise<boolean>} `true` si coinciden, `false` si difieren o el formato es inválido.
  */
 export async function verifyStoredFingerprint(storedId, currentFp) {
-    if (typeof storedId !== 'string' || !storedId.startsWith(FP_PREFIX)) {
+    if (typeof storedId !== 'string') {
         return false;
+    }
+    // Si es una ID heredada (no empieza por PDA-V2-), omitimos la validación estricta
+    // de fingerprint para no romper la activación preexistente del usuario legítimo.
+    if (!storedId.startsWith(FP_PREFIX_V2)) {
+        return true;
     }
     const expected = currentFp ?? await generateFingerprint();
     // Comparación en tiempo constante.

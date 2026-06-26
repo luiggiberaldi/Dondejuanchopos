@@ -26,7 +26,7 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
     const todaySales = useMemo(() =>
         salesWithLocalDate.filter(s => {
             if (s.status === 'ANULADA') return false;
-            if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA') return false;
+            if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'VENTA_CASHEA') return false;
             if (s.cajaCerrada === true) return false;
             return s.localDate === today;
         }),
@@ -37,7 +37,7 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
     const todayCashFlow = useMemo(() =>
         salesWithLocalDate.filter(s => {
             if (s.status === 'ANULADA') return false;
-            if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'COBRO_DEUDA' && s.tipo !== 'PAGO_PROVEEDOR' && s.tipo !== 'APERTURA_CAJA') return false;
+            if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'VENTA_CASHEA' && s.tipo !== 'COBRO_DEUDA' && s.tipo !== 'PAGO_PROVEEDOR' && s.tipo !== 'APERTURA_CAJA') return false;
             if (s.cajaCerrada === true) return false;
             return s.localDate === today;
         }),
@@ -90,7 +90,7 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
         const dateStr = getLocalISODate(d);
         const daySales = salesWithLocalDate.filter(s => {
             if (s.status === 'ANULADA') return false;
-            if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA') return false;
+            if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'VENTA_CASHEA') return false;
             return s.localDate === dateStr;
         });
 
@@ -107,9 +107,17 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
     // Deudas pendientes totales
     // FIN-019: usar sumR en vez de reduce raw.
     const totalDeudas = useMemo(() => {
-        const deudores = customers.filter(c => (c.deuda || 0) > 0.01);
-        const totalUsd = sumR(deudores.map(c => c.deuda || 0));
-        return { count: deudores.length, totalUsd, top5: [...deudores].sort((a, b) => (b.deuda || 0) - (a.deuda || 0)).slice(0, 5) };
+        const deudores = customers.filter(c => (c.deuda || 0) > 0.01 || (c.casheaDeuda || 0) > 0.01);
+        const totalUsd = sumR(deudores.map(c => sumR(c.deuda || 0, c.casheaDeuda || 0)));
+        return {
+            count: deudores.length,
+            totalUsd,
+            top5: [...deudores].sort((a, b) => {
+                const totalA = sumR(a.deuda || 0, a.casheaDeuda || 0);
+                const totalB = sumR(b.deuda || 0, b.casheaDeuda || 0);
+                return totalB - totalA;
+            }).slice(0, 5)
+        };
     }, [customers]);
 
     // Top productos vendidos (todas las ventas netas)

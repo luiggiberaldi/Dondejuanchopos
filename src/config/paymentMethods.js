@@ -196,6 +196,7 @@ export const getPaymentLabel = (id, fallbackLabel) => {
     
     // Virtual categories (not selectable, display-only)
     if (id === 'fiado') return 'Fiado (Por Cobrar)';
+    if (id === 'cashea') return 'Cashea (Por Cobrar)';
 
     // Use fallback if provided and it's not a raw ID
     if (fallbackLabel && fallbackLabel !== id && !fallbackLabel.startsWith('custom_')) {
@@ -216,6 +217,8 @@ export const getPaymentIcon = (id) => {
     const custom = _findCustom(id);
     if (custom && custom.icon) return ICON_COMPONENTS[custom.icon] || null;
     
+    if (id === 'cashea') return Smartphone;
+
     return null;
 };
 
@@ -226,6 +229,7 @@ export const PAYMENT_ICONS = {
     punto_venta: CreditCard,
     efectivo_usd: DollarSign,
     fiado: ShoppingCart,
+    cashea: Smartphone,
 };
 
 // Mapa para rehidratar íconos custom por su key string

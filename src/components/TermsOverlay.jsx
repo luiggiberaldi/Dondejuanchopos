@@ -32,18 +32,18 @@ export default function TermsOverlay() {
 
     return (
         // v1.2.0: backdrop warm cream (bg-surface-950/95) con blur.
-        <div className="fixed inset-0 z-[9999] bg-surface-950/95 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-300">
-            {/* v1.2.0: tarjeta bg-surface sobre fondo, con border warm y shadow-tone-lg. */}
-            <div ref={revealRef} className="reveal w-full max-w-2xl bg-surface dark:bg-surface-100 border border-surface-200 dark:border-surface-700 rounded-[2rem] shadow-tone-lg overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-500">
+        <div ref={revealRef} className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-300">
+            {/* v1.2.0: tarjeta bg-surface-100, con border warm y shadow-tone-lg. */}
+            <div className="reveal w-full max-w-2xl bg-surface-100 dark:bg-surface-100 border border-surface-200 dark:border-surface-700 rounded-[2rem] shadow-tone-lg overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-500">
 
-                {/* Header — bg-surface-2 (fondo elevado) */}
-                <div className="px-6 py-5 border-b border-surface-200 dark:border-surface-700 bg-surface-2 dark:bg-surface-800 flex items-center gap-3">
+                {/* Header — bg-surface-200 (fondo elevado) */}
+                <div className="px-6 py-5 border-b border-surface-200 dark:border-surface-700 bg-surface-200 dark:bg-surface-200 flex items-center gap-3">
                     <div className="p-2.5 bg-brand rounded-xl shadow-primary-tone">
                         <FileText size={24} className="text-white" strokeWidth={2.5} />
                     </div>
                     <div>
                         {/* v1.2.0: font-display (Instrument Serif) en el título principal del modal */}
-                        <h2 className="font-display text-2xl text-surface-700 dark:text-surface-100 tracking-tight leading-tight">Términos y Condiciones</h2>
+                        <h2 className="font-display text-2xl text-surface-700 tracking-tight leading-tight">Términos y Condiciones</h2>
                         <p className="text-xs text-surface-500 dark:text-surface-400 font-medium">Por favor, lee y acepta para continuar</p>
                     </div>
                 </div>
@@ -67,23 +67,23 @@ export default function TermsOverlay() {
                 >
                     {/* v1.2.0: cada sección con clase reveal — stagger automático por :nth-child. */}
                     <section className="reveal">
-                        <h1 className="font-display text-3xl text-surface-700 dark:text-surface-100 mb-4 leading-tight">Términos y Condiciones de Uso — PreciosAlDía</h1>
+                        <h1 className="font-display text-3xl text-surface-700 mb-4 leading-tight">Términos y Condiciones de Uso — PreciosAlDía</h1>
                         <p className="text-xs text-surface-500 dark:text-surface-400 font-bold mb-6">Última actualización: Febrero 2026</p>
                     </section>
 
                     <hr className="my-6 border-surface-200 dark:border-surface-700" />
 
                     <section className="reveal">
-                        <h2 className="font-display text-xl text-surface-700 dark:text-surface-100 mt-6 mb-3">1. Aceptación de los Términos</h2>
-                        <p className="text-sm text-surface-600 dark:text-surface-300 leading-relaxed mb-4">
+                        <h2 className="font-display text-xl text-surface-700 mt-6 mb-3">1. Aceptación de los Términos</h2>
+                        <p className="text-sm text-surface-700 leading-relaxed mb-4">
                             Al acceder y utilizar la aplicación <strong>PreciosAlDía</strong> (en adelante, "la Aplicación"), usted acepta estar sujeto a estos Términos y Condiciones. Si no está de acuerdo con alguna parte de estos términos, no debe utilizar la Aplicación.
                         </p>
                     </section>
 
                     <section className="reveal">
-                        <h2 className="font-display text-xl text-surface-700 dark:text-surface-100 mt-6 mb-3">2. Descripción del Servicio</h2>
-                        <p className="text-sm text-surface-600 dark:text-surface-300 leading-relaxed mb-2">PreciosAlDía es una aplicación web progresiva (PWA) diseñada para la gestión de bodegas y pequeños comercios que proporciona:</p>
-                        <ul className="text-sm text-surface-600 dark:text-surface-300 space-y-1 mb-4">
+                        <h2 className="font-display text-xl text-surface-700 mt-6 mb-3">2. Descripción del Servicio</h2>
+                        <p className="text-sm text-surface-700 leading-relaxed mb-2">PreciosAlDía es una aplicación web progresiva (PWA) diseñada para la gestión de bodegas y pequeños comercios que proporciona:</p>
+                        <ul className="text-sm text-surface-700 space-y-1 mb-4">
                             <li><strong>Gestión de inventario</strong> con precios en múltiples monedas (USD, Bolívares)</li>
                             <li><strong>Punto de venta (POS)</strong> con carrito, checkout y recibos</li>
                             <li><strong>Dashboard de ventas</strong> con reportes y estadísticas</li>
@@ -93,63 +93,63 @@ export default function TermsOverlay() {
                     </section>
 
                     <section className="reveal">
-                        <h2 className="font-display text-xl text-surface-700 dark:text-surface-100 mt-6 mb-3">3. Descargo de Responsabilidad</h2>
+                        <h2 className="font-display text-xl text-surface-700 mt-6 mb-3">3. Descargo de Responsabilidad</h2>
 
-                        <h3 className="text-base font-bold text-surface-600 dark:text-surface-200 mt-4 mb-2">3.1 Información No Vinculante</h3>
-                        <p className="text-sm text-surface-600 dark:text-surface-300 leading-relaxed mb-4">
+                        <h3 className="text-base font-bold text-surface-700 mt-4 mb-2">3.1 Información No Vinculante</h3>
+                        <p className="text-sm text-surface-700 leading-relaxed mb-4">
                             <strong className="text-red-600 dark:text-red-400">TODA LA INFORMACIÓN PROPORCIONADA EN LA APLICACIÓN ES ESTRICTAMENTE INFORMATIVA Y DE REFERENCIA.</strong> PreciosAlDía no garantiza la exactitud, integridad, vigencia o fiabilidad de las tasas de cambio, precios o cualquier otra información mostrada.
                         </p>
 
-                        <h3 className="text-base font-bold text-surface-600 dark:text-surface-200 mt-4 mb-2">3.2 No Constituye Asesoría Financiera</h3>
-                        <p className="text-sm text-surface-600 dark:text-surface-300 leading-relaxed mb-4">
+                        <h3 className="text-base font-bold text-surface-700 mt-4 mb-2">3.2 No Constituye Asesoría Financiera</h3>
+                        <p className="text-sm text-surface-700 leading-relaxed mb-4">
                             La información provista <strong>NO constituye asesoría financiera, legal, tributaria o de inversión</strong>. Usted es responsable de verificar los precios y tasas con fuentes oficiales.
                         </p>
 
-                        <h3 className="text-base font-bold text-surface-600 dark:text-surface-200 mt-4 mb-2">3.3 Limitación de Responsabilidad</h3>
-                        <p className="text-sm text-surface-600 dark:text-surface-300 leading-relaxed mb-2"><strong>PreciosAlDía y sus desarrolladores NO se hacen responsables por:</strong></p>
-                        <ul className="text-sm text-surface-600 dark:text-surface-300 space-y-1 mb-4">
+                        <h3 className="text-base font-bold text-surface-700 mt-4 mb-2">3.3 Limitación de Responsabilidad</h3>
+                        <p className="text-sm text-surface-700 leading-relaxed mb-2"><strong>PreciosAlDía y sus desarrolladores NO se hacen responsables por:</strong></p>
+                        <ul className="text-sm text-surface-700 space-y-1 mb-4">
                             <li>Pérdidas económicas directas o indirectas derivadas del uso de la información</li>
                             <li>Errores en el cálculo de precios o conversiones de moneda</li>
                             <li>Decisiones comerciales tomadas con base en la información de la Aplicación</li>
                             <li>Pérdida de datos almacenados en el dispositivo</li>
                         </ul>
 
-                        <h3 className="text-base font-bold text-surface-600 dark:text-surface-200 mt-4 mb-2">3.4 Uso Bajo Propio Riesgo</h3>
-                        <p className="text-sm text-surface-600 dark:text-surface-300 leading-relaxed mb-4">
+                        <h3 className="text-base font-bold text-surface-700 mt-4 mb-2">3.4 Uso Bajo Propio Riesgo</h3>
+                        <p className="text-sm text-surface-700 leading-relaxed mb-4">
                             Al usar PreciosAlDía, usted acepta que lo hace <strong>bajo su propio riesgo y responsabilidad</strong>.
                         </p>
                     </section>
 
                     <section className="reveal">
-                        <h2 className="font-display text-xl text-surface-700 dark:text-surface-100 mt-6 mb-3">4. Funcionalidades Premium</h2>
-                        <p className="text-sm text-surface-600 dark:text-surface-300 leading-relaxed mb-2">PreciosAlDía ofrece funciones gratuitas y funciones exclusivas para usuarios con <strong>Licencia Premium</strong>:</p>
-                        <ul className="text-sm text-surface-600 dark:text-surface-300 space-y-1 mb-2">
+                        <h2 className="font-display text-xl text-surface-700 mt-6 mb-3">4. Funcionalidades Premium</h2>
+                        <p className="text-sm text-surface-700 leading-relaxed mb-2">PreciosAlDía ofrece funciones gratuitas y funciones exclusivas para usuarios con <strong>Licencia Premium</strong>:</p>
+                        <ul className="text-sm text-surface-700 space-y-1 mb-2">
                             <li><strong>Gratuito:</strong> Dashboard básico, hasta 10 productos en inventario.</li>
                             <li><strong>Premium:</strong> Inventario ilimitado, sistema de ventas POS, gestión de clientes, compartir inventario, reportes completos.</li>
                         </ul>
-                        <p className="text-sm text-surface-600 dark:text-surface-300 leading-relaxed mb-4">
+                        <p className="text-sm text-surface-700 leading-relaxed mb-4">
                             El acceso Premium se otorga mediante código de activación único vinculado al dispositivo. La licencia es personal, intransferible y no reembolsable. Se ofrece un periodo de demostración de 3 días por dispositivo.
                         </p>
                     </section>
 
                     <section className="reveal">
-                        <h2 className="font-display text-xl text-surface-700 dark:text-surface-100 mt-6 mb-3">5. Privacidad y Datos</h2>
-                        <p className="text-sm text-surface-600 dark:text-surface-300 leading-relaxed mb-4">
+                        <h2 className="font-display text-xl text-surface-700 mt-6 mb-3">5. Privacidad y Datos</h2>
+                        <p className="text-sm text-surface-700 leading-relaxed mb-4">
                             PreciosAlDía opera con principios de <strong>privacidad por diseño</strong>. Los datos se almacenan localmente en su dispositivo y <strong>NO se venden ni comparten con terceros</strong>.
                         </p>
                     </section>
 
                     <section className="reveal">
-                        <h2 className="font-display text-xl text-surface-700 dark:text-surface-100 mt-6 mb-3">6. Legislación Aplicable</h2>
-                        <p className="text-sm text-surface-600 dark:text-surface-300 leading-relaxed mb-4">
+                        <h2 className="font-display text-xl text-surface-700 mt-6 mb-3">6. Legislación Aplicable</h2>
+                        <p className="text-sm text-surface-700 leading-relaxed mb-4">
                             Estos Términos se rigen por las leyes de la <strong>República Bolivariana de Venezuela</strong>.
                         </p>
                     </section>
 
                     <section className="reveal">
-                        <h2 className="font-display text-xl text-surface-700 dark:text-surface-100 mt-6 mb-3">7. Código de Conducta</h2>
-                        <p className="text-sm text-surface-600 dark:text-surface-300 leading-relaxed mb-2">Al utilizar PreciosAlDía, usted se compromete a:</p>
-                        <ul className="text-sm text-surface-600 dark:text-surface-300 space-y-1 mb-4">
+                        <h2 className="font-display text-xl text-surface-700 mt-6 mb-3">7. Código de Conducta</h2>
+                        <p className="text-sm text-surface-700 leading-relaxed mb-2">Al utilizar PreciosAlDía, usted se compromete a:</p>
+                        <ul className="text-sm text-surface-700 space-y-1 mb-4">
                             <li><strong>NO</strong> utilizar la Aplicación para actividades ilícitas</li>
                             <li><strong>NO</strong> intentar vulnerar la seguridad del sistema</li>
                             <li><strong>NO</strong> realizar ingeniería inversa del código</li>
@@ -162,14 +162,14 @@ export default function TermsOverlay() {
                     {/* v1.2.0: bloque de aceptación final con accent (naranja/óxido) — destaca el compromiso. */}
                     <section className="reveal">
                         <div className="bg-accent-50 dark:bg-accent-900/20 border-l-4 border-accent-500 p-4 rounded-r-xl mb-6">
-                            <h3 className="font-display text-lg text-surface-700 dark:text-surface-100 mb-2">Aceptación Final</h3>
-                            <p className="text-sm text-surface-600 dark:text-surface-300 leading-relaxed">
+                            <h3 className="font-display text-lg text-surface-700 mb-2">Aceptación Final</h3>
+                            <p className="text-sm text-surface-700 leading-relaxed">
                                 <strong>AL USAR PRECIOSALDÍA, USTED DECLARA HABER LEÍDO, ENTENDIDO Y ACEPTADO ESTOS TÉRMINOS Y CONDICIONES EN SU TOTALIDAD.</strong>
                             </p>
                         </div>
                     </section>
 
-                    <p className="reveal text-center text-sm font-bold text-surface-700 dark:text-surface-100 mt-8 mb-4">
+                    <p className="reveal text-center text-sm font-bold text-surface-700 mt-8 mb-4">
                         PreciosAlDía — Tu Bodega Inteligente 🇻🇪
                     </p>
                     <p className="reveal text-center text-xs text-surface-500 dark:text-surface-400 mb-8">
@@ -179,8 +179,8 @@ export default function TermsOverlay() {
                     <div id="terms-end" className="h-1"></div>
                 </div>
 
-                {/* Footer with Accept Button — bg-surface-2 */}
-                <div className="px-6 py-4 border-t border-surface-200 dark:border-surface-700 bg-surface-2 dark:bg-surface-800">
+                {/* Footer with Accept Button — bg-surface-200 */}
+                <div className="px-6 py-4 border-t border-surface-200 dark:border-surface-700 bg-surface-200 dark:bg-surface-200">
                     {/* v1.2.0: botón aceptar con bg-brand (cian) — design system .btn-primary tone. */}
                     <button
                         onClick={handleAccept}

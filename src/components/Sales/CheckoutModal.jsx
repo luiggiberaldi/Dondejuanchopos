@@ -1,7 +1,8 @@
-import React, { useState, useCallback } from 'react';
-import { X, Users, Receipt, Wallet, ArrowLeftRight, AlertTriangle } from 'lucide-react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { X, Users, Receipt, Wallet, ArrowLeftRight, AlertTriangle, Smartphone, Lock } from 'lucide-react';
+import CasheaIcon from '../CasheaIcon';
 import { formatBs, formatCop } from '../../utils/calculatorUtils';
-import { mulR, divR, subR } from '../../utils/dinero';
+import { mulR, divR, subR, round2 } from '../../utils/dinero';
 import { useCheckoutCalculations } from '../../hooks/useCheckoutCalculations';
 import CheckoutPaymentBars from './CheckoutPaymentBars';
 import CheckoutCustomerPicker from './CheckoutCustomerPicker';
@@ -55,6 +56,19 @@ export default function CheckoutModal({
         paymentWarning,
         confirmWarning,
         dismissWarning,
+        // Cashea outputs
+        casheaActive,
+        setCasheaActive,
+        casheaPercent,
+        setCasheaPercent,
+        casheaAmountUsd,
+        casheaConfirmReady,
+        casheaEnabled,
+        casheaMinAmount,
+        casheaMeetsMinimum,
+        rateError,
+        copRateError,
+        safeRate,
     } = useCheckoutCalculations({
         paymentMethods,
         effectiveRate,
@@ -64,6 +78,23 @@ export default function CheckoutModal({
         triggerHaptic,
         onConfirmSale,
     });
+
+    const CASHEA_LEVEL_MAP = { 1: 60, 2: 50, 3: 40, 4: 30, 5: 20, 6: 10 };
+
+    useEffect(() => {
+        if (casheaEnabled && selectedCustomer) {
+            if (selectedCustomer.casheaLevel && CASHEA_LEVEL_MAP[selectedCustomer.casheaLevel] !== undefined) {
+                if (casheaMeetsMinimum) {
+                    setCasheaActive(true);
+                    setCasheaPercent(CASHEA_LEVEL_MAP[selectedCustomer.casheaLevel]);
+                }
+            } else {
+                setCasheaActive(false);
+            }
+        } else {
+            setCasheaActive(false);
+        }
+    }, [selectedCustomerId, selectedCustomer, casheaEnabled, casheaMeetsMinimum, setCasheaActive, setCasheaPercent]);
 
     const handleSaldoFavor = useCallback(() => {
         triggerHaptic && triggerHaptic();
@@ -151,6 +182,109 @@ export default function CheckoutModal({
                     onBarChange={handleBarChange}
                     onFillBar={fillBar}
                 />
+
+                {/* -- CASHEA PANEL -- */}
+                {casheaEnabled && (
+                    <div className="px-3 py-2">
+                        <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3">
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                    <CasheaIcon size={20} />
+                                    <span className="text-sm font-bold text-slate-800 dark:text-white">Cashea</span>
+                                    {selectedCustomer?.casheaLevel && (
+                                        <span className="text-[10px] font-black bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded">
+                                            Nivel {selectedCustomer.casheaLevel}
+                                        </span>
+                                    )}
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        if (!selectedCustomerId) {
+                                            triggerHaptic && triggerHaptic();
+                                            return;
+                                        }
+                                        if (!casheaMeetsMinimum) {
+                                            return;
+                                        }
+                                        triggerHaptic && triggerHaptic();
+                                        setCasheaActive(!casheaActive);
+                                    }}
+                                    disabled={!selectedCustomerId || !casheaMeetsMinimum}
+                                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                        casheaActive ? 'bg-purple-600' : 'bg-slate-200 dark:bg-slate-800'
+                                    } ${(!selectedCustomerId || !casheaMeetsMinimum) ? 'opacity-40 cursor-not-allowed' : ''}`}
+                                >
+                                    <span
+                                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                            casheaActive ? 'translate-x-5' : 'translate-x-0'
+                                        }`}
+                                    />
+                                </button>
+                            </div>
+
+                            {/* Informational hints when not active / cannot activate */}
+                            {!selectedCustomerId && (
+                                <p className="text-[10px] text-slate-400 font-bold">
+                                    * Selecciona un cliente para habilitar Cashea.
+                                </p>
+                            )}
+                            {selectedCustomerId && !casheaMeetsMinimum && (
+                                <p className="text-[10px] text-amber-500 font-bold">
+                                    * Compra mínima de ${casheaMinAmount.toFixed(2)} requerida para Cashea (Total actual: ${cartTotalUsd.toFixed(2)}).
+                                </p>
+                            )}
+
+                            {/* Active Cashea Breakdown */}
+                            {casheaActive && (
+                                <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-800 space-y-3">
+                                    <div>
+                                        <span className="block text-[10px] font-black text-purple-700 dark:text-purple-400 uppercase tracking-wider mb-1.5">
+                                            Cuota Inicial (%)
+                                        </span>
+                                        <div className="grid grid-cols-6 gap-1">
+                                            {[60, 50, 40, 30, 20, 10].map(pct => (
+                                                <button
+                                                    key={pct}
+                                                    onClick={() => {
+                                                        triggerHaptic && triggerHaptic();
+                                                        setCasheaPercent(pct);
+                                                    }}
+                                                    className={`py-1.5 text-xs font-black rounded-lg transition-all ${
+                                                        casheaPercent === pct
+                                                            ? 'bg-purple-600 text-white shadow-md'
+                                                            : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+                                                    }`}
+                                                >
+                                                    {pct}%
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Breakdown */}
+                                    <div className="bg-purple-50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/30 rounded-lg p-2.5 space-y-1.5">
+                                        <div className="flex justify-between items-center text-xs">
+                                            <span className="font-bold text-slate-500 dark:text-slate-400">Total Venta:</span>
+                                            <span className="font-black text-slate-800 dark:text-white">${cartTotalUsd.toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center text-xs">
+                                            <span className="font-bold text-slate-500 dark:text-slate-400">Cuota Inicial ({casheaPercent}%):</span>
+                                            <span className="font-black text-purple-700 dark:text-purple-400">
+                                                ${round2(mulR(cartTotalUsd, casheaPercent / 100)).toFixed(2)}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-center text-xs">
+                                            <span className="font-bold text-slate-500 dark:text-slate-400">Financiado (a cobrar por app):</span>
+                                            <span className="font-black text-purple-700 dark:text-purple-400">
+                                                ${casheaAmountUsd.toFixed(2)}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
 
                 {/* -- CLIENTE -- */}
                 <CheckoutCustomerPicker
@@ -295,23 +429,39 @@ export default function CheckoutModal({
                 <div className="px-4 py-3">
                     <button
                         onClick={() => {
-                            if (!isPaid && selectedCustomerId && remainingUsd > 0.01) {
+                            if (casheaActive) {
+                                triggerHaptic && triggerHaptic();
+                                setConfirmFiar(true);
+                            } else if (!isPaid && selectedCustomerId && remainingUsd > 0.01) {
                                 triggerHaptic && triggerHaptic();
                                 setConfirmFiar(true);
                             } else {
                                 handleConfirm();
                             }
                         }}
-                        disabled={!selectedCustomerId && remainingUsd > 0.01}
-                        className={`w-full py-4 text-white font-black text-base rounded-2xl shadow-lg transition-all tracking-wide flex items-center justify-center gap-2 ${isPaid
-                            ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/25 active:scale-[0.98]'
-                            : selectedCustomerId
-                                ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/25 active:scale-[0.98]'
-                                : 'bg-slate-300 dark:bg-slate-800 text-slate-500 shadow-none cursor-not-allowed'
-                            }`}
+                        disabled={rateError || copRateError || (!isPaid && casheaActive) || (!selectedCustomerId && remainingUsd > 0.01)}
+                        className={`w-full py-4 text-white font-black text-base rounded-2xl shadow-lg transition-all tracking-wide flex items-center justify-center gap-2 ${
+                            rateError || copRateError
+                                ? 'bg-red-500/80 cursor-not-allowed shadow-none'
+                                : isPaid
+                                    ? casheaActive
+                                        ? 'bg-purple-600 hover:bg-purple-700 shadow-purple-500/25 active:scale-[0.98]'
+                                        : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/25 active:scale-[0.98]'
+                                    : selectedCustomerId
+                                        ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/25 active:scale-[0.98]'
+                                        : 'bg-slate-300 dark:bg-slate-800 text-slate-500 shadow-none cursor-not-allowed'
+                        }`}
                     >
-                        {isPaid ? (
-                            <><Receipt size={18} /> CONFIRMAR VENTA</>
+                        {rateError || copRateError ? (
+                            <><AlertTriangle size={18} /> ERROR DE TASA</>
+                        ) : isPaid ? (
+                            casheaActive ? (
+                                <><Receipt size={18} /> CONFIRMAR VENTA CASHEA</>
+                            ) : (
+                                <><Receipt size={18} /> CONFIRMAR VENTA</>
+                            )
+                        ) : casheaActive ? (
+                            <><Smartphone size={18} /> COMPLETAR CUOTA INICIAL</>
                         ) : selectedCustomerId ? (
                             <><Users size={18} /> FIAR RESTANTE ({copEnabled && tasaCop > 0 ? (copPrimary ? `${formatCop(remainingUsd * tasaCop)} COP / $${remainingUsd.toFixed(2)}` : `$${remainingUsd.toFixed(2)} / ${formatCop(remainingUsd * tasaCop)} COP`) : `$${remainingUsd.toFixed(2)}`})</>
                         ) : (
@@ -320,45 +470,93 @@ export default function CheckoutModal({
                     </button>
                 </div>
             </div>
-
-            {/* --- MODAL CONFIRMACION FIAR --- */}
             {confirmFiar && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setConfirmFiar(false)}>
                     <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 max-w-sm sm:max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-4 mb-5">
-                            <div className="w-12 h-12 sm:w-14 sm:h-14 bg-amber-100 dark:bg-amber-900/30 rounded-2xl flex items-center justify-center shrink-0">
-                                <AlertTriangle size={24} className="text-amber-600 sm:w-7 sm:h-7" />
+                            <div className={`w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center shrink-0 ${
+                                casheaActive ? 'bg-purple-100 dark:bg-purple-900/30' : 'bg-amber-100 dark:bg-amber-900/30'
+                            }`}>
+                                {casheaActive ? (
+                                    <CasheaIcon size={24} className="sm:w-7 sm:h-7" />
+                                ) : (
+                                    <AlertTriangle size={24} className="text-amber-600 sm:w-7 sm:h-7" />
+                                )}
                             </div>
                             <div>
-                                <h3 className="text-lg sm:text-xl font-black text-slate-800 dark:text-white">Confirmar Fiado</h3>
+                                <h3 className="text-lg sm:text-xl font-black text-slate-800 dark:text-white">
+                                    {casheaActive ? 'Confirmar Financiamiento Cashea' : 'Confirmar Fiado'}
+                                </h3>
                                 <p className="text-xs sm:text-sm text-slate-400 mt-0.5">Revisa los detalles antes de continuar</p>
                             </div>
                         </div>
 
-                        <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/30 rounded-2xl p-4 sm:p-5 mb-5">
+                        <div className={`border rounded-2xl p-4 sm:p-5 mb-5 ${
+                            casheaActive
+                                ? 'bg-purple-50 dark:bg-purple-900/10 border-purple-200 dark:border-purple-800/30'
+                                : 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/30'
+                        }`}>
                             <div className="text-center mb-3">
-                                <p className="text-[11px] sm:text-xs font-bold text-amber-500 uppercase tracking-widest mb-1">Monto a fiar</p>
-                                <p className={`text-3xl sm:text-4xl font-black ${copEnabled && copPrimary ? 'text-amber-600 dark:text-amber-400' : 'text-amber-600'}`}>{copEnabled && copPrimary && tasaCop > 0 ? `${formatCop(remainingUsd * tasaCop)} COP` : `$${remainingUsd.toFixed(2)}`}</p>
-                                <p className="text-sm sm:text-base font-bold text-amber-500/70 mt-0.5">{copEnabled && tasaCop > 0 ? (copPrimary ? `$${remainingUsd.toFixed(2)} · ${formatBs(remainingBs)} Bs` : `${formatCop(remainingUsd * tasaCop)} COP · ${formatBs(remainingBs)} Bs`) : `${formatBs(remainingBs)} Bs`}</p>
-                            </div>
-                            <div className="border-t border-amber-200/50 dark:border-amber-800/20 pt-3 space-y-2">
-                                <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300">
-                                    Se registrara como deuda a nombre de <span className="font-black text-slate-800 dark:text-white">{selectedCustomer?.name}</span>.
+                                <p className={`text-[11px] sm:text-xs font-bold uppercase tracking-widest mb-1 ${
+                                    casheaActive ? 'text-purple-500' : 'text-amber-500'
+                                }`}>
+                                    {casheaActive ? 'Monto a financiar con Cashea' : 'Monto a fiar'}
                                 </p>
-                                {totalPaidUsd > 0.01 && (
+                                <p className={`text-3xl sm:text-4xl font-black ${
+                                    casheaActive
+                                        ? 'text-purple-600 dark:text-purple-400'
+                                        : (copEnabled && copPrimary ? 'text-amber-600 dark:text-amber-400' : 'text-amber-600')
+                                }`}>
+                                    {casheaActive
+                                        ? `$${casheaAmountUsd.toFixed(2)}`
+                                        : (copEnabled && copPrimary && tasaCop > 0 ? `${formatCop(remainingUsd * tasaCop)} COP` : `$${remainingUsd.toFixed(2)}`)
+                                    }
+                                </p>
+                                <p className={`text-sm sm:text-base font-bold mt-0.5 ${
+                                    casheaActive ? 'text-purple-500/70' : 'text-amber-500/70'
+                                }`}>
+                                    {casheaActive
+                                        ? `${formatBs(casheaAmountUsd * safeRate)} Bs`
+                                        : (copEnabled && tasaCop > 0 ? (copPrimary ? `$${remainingUsd.toFixed(2)} · ${formatBs(remainingBs)} Bs` : `${formatCop(remainingUsd * tasaCop)} COP · ${formatBs(remainingBs)} Bs`) : `${formatBs(remainingBs)} Bs`)
+                                    }
+                                </p>
+                            </div>
+                            <div className={`border-t pt-3 space-y-2 ${
+                                casheaActive ? 'border-purple-200/50 dark:border-purple-800/20' : 'border-amber-200/50 dark:border-amber-800/20'
+                            }`}>
+                                <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300">
+                                    {casheaActive ? (
+                                        <>
+                                            Se registrará como deuda de Cashea a nombre de <span className="font-black text-slate-800 dark:text-white">{selectedCustomer?.name}</span>.
+                                        </>
+                                    ) : (
+                                        <>
+                                            Se registrará como deuda a nombre de <span className="font-black text-slate-800 dark:text-white">{selectedCustomer?.name}</span>.
+                                        </>
+                                    )}
+                                </p>
+                                {casheaActive ? (
                                     <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
-                                        El cliente abona <span className="font-bold text-emerald-600">{copEnabled && tasaCop > 0 ? (copPrimary ? `${formatCop(totalPaidUsd * tasaCop)} COP / $${totalPaidUsd.toFixed(2)}` : `$${totalPaidUsd.toFixed(2)} / ${formatCop(totalPaidUsd * tasaCop)} COP`) : `$${totalPaidUsd.toFixed(2)}`}</span> ahora y el restante queda pendiente.
+                                        El cliente abona la cuota inicial de <span className="font-bold text-purple-600 dark:text-purple-400">${round2(cartTotalUsd - casheaAmountUsd).toFixed(2)}</span> en caja. El restante queda financiado.
                                     </p>
+                                ) : (
+                                    <>
+                                        {totalPaidUsd > 0.01 && (
+                                            <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
+                                                El cliente abona <span className="font-bold text-emerald-600">{copEnabled && tasaCop > 0 ? (copPrimary ? `${formatCop(totalPaidUsd * tasaCop)} COP / $${totalPaidUsd.toFixed(2)}` : `$${totalPaidUsd.toFixed(2)} / ${formatCop(totalPaidUsd * tasaCop)} COP`) : `$${totalPaidUsd.toFixed(2)}`}</span> ahora y el restante queda pendiente.
+                                            </p>
+                                        )}
+                                        {totalPaidUsd <= 0.01 && (
+                                            <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
+                                                El monto total de la venta quedará como deuda del cliente.
+                                            </p>
+                                        )}
+                                    </>
                                 )}
-                                {totalPaidUsd <= 0.01 && (
-                                    <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
-                                        El monto total de la venta quedara como deuda del cliente.
-                                    </p>
-                                )}
-                                {selectedCustomer && (selectedCustomer.deuda || 0) > 0.01 && (
+                                {selectedCustomer && !casheaActive && (selectedCustomer.deuda || 0) > 0.01 && (
                                     <div className="bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/30 rounded-lg p-2.5 mt-2">
                                         <p className="text-[11px] sm:text-xs font-bold text-red-600 dark:text-red-400">
-                                            Este cliente ya tiene una deuda de {copEnabled && tasaCop > 0 ? (copPrimary ? `${formatCop((selectedCustomer.deuda || 0) * tasaCop)} COP ($${(selectedCustomer.deuda || 0).toFixed(2)})` : `$${(selectedCustomer.deuda || 0).toFixed(2)} (${formatCop((selectedCustomer.deuda || 0) * tasaCop)} COP)`) : `$${(selectedCustomer.deuda || 0).toFixed(2)}`}. La deuda total pasara a ser {copEnabled && tasaCop > 0 ? (copPrimary ? `${formatCop(((selectedCustomer.deuda || 0) + remainingUsd) * tasaCop)} COP ($${((selectedCustomer.deuda || 0) + remainingUsd).toFixed(2)})` : `$${((selectedCustomer.deuda || 0) + remainingUsd).toFixed(2)} (${formatCop(((selectedCustomer.deuda || 0) + remainingUsd) * tasaCop)} COP)`) : `$${((selectedCustomer.deuda || 0) + remainingUsd).toFixed(2)}`}.
+                                            Este cliente ya tiene una deuda de {copEnabled && tasaCop > 0 ? (copPrimary ? `${formatCop((selectedCustomer.deuda || 0) * tasaCop)} COP ($${(selectedCustomer.deuda || 0).toFixed(2)})` : `$${(selectedCustomer.deuda || 0).toFixed(2)} (${formatCop((selectedCustomer.deuda || 0) * tasaCop)} COP)`) : `$${(selectedCustomer.deuda || 0).toFixed(2)}`}. La deuda total pasará a ser {copEnabled && tasaCop > 0 ? (copPrimary ? `${formatCop(((selectedCustomer.deuda || 0) + remainingUsd) * tasaCop)} COP ($${((selectedCustomer.deuda || 0) + remainingUsd).toFixed(2)})` : `$${((selectedCustomer.deuda || 0) + remainingUsd).toFixed(2)} (${formatCop(((selectedCustomer.deuda || 0) + remainingUsd) * tasaCop)} COP)`) : `$${((selectedCustomer.deuda || 0) + remainingUsd).toFixed(2)}`}.
                                         </p>
                                     </div>
                                 )}
@@ -374,9 +572,13 @@ export default function CheckoutModal({
                             </button>
                             <button
                                 onClick={() => { setConfirmFiar(false); handleConfirm(); }}
-                                className="flex-1 py-3.5 sm:py-4 font-black text-sm sm:text-base text-white bg-amber-500 hover:bg-amber-600 rounded-xl shadow-lg shadow-amber-500/25 active:scale-95 transition-all"
+                                className={`flex-1 py-3.5 sm:py-4 font-black text-sm sm:text-base text-white rounded-xl shadow-lg active:scale-95 transition-all ${
+                                    casheaActive
+                                        ? 'bg-purple-600 hover:bg-purple-700 shadow-purple-500/25'
+                                        : 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/25'
+                                }`}
                             >
-                                Confirmar fiado
+                                {casheaActive ? 'Confirmar Cashea' : 'Confirmar fiado'}
                             </button>
                         </div>
                     </div>

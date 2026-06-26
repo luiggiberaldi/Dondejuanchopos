@@ -55,7 +55,16 @@ export function useReveal(opts = {}) {
       { threshold, rootMargin }
     );
 
-    reveals.forEach((el) => observer.observe(el));
+    reveals.forEach((el) => {
+      // Check inmediato: si el elemento ya está en el viewport, marcarlo visible ya.
+      const rect = el.getBoundingClientRect();
+      const inViewport = rect.top < window.innerHeight && rect.bottom > 0;
+      if (inViewport) {
+        el.classList.add('is-visible');
+        if (once) return; // no necesita observarse
+      }
+      observer.observe(el);
+    });
     return () => observer.disconnect();
   }, [threshold, rootMargin, once]);
 

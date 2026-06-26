@@ -38,7 +38,7 @@ export default function SuppliersList({
                     </div>
                     <div className="relative z-10 flex justify-between items-start">
                         <div>
-                            <p className="text-sm font-medium text-brand flex items-center gap-1.5 mb-1">
+                            <p className="text-sm font-medium text-cyan-100/90 flex items-center gap-1.5 mb-1">
                                 Cuentas por Pagar
                             </p>
                             <h3 className="text-4xl font-black tracking-tight">
@@ -47,9 +47,9 @@ export default function SuppliersList({
                                     : `USD ${formatUsd(totalDebtUsd)}`}
                             </h3>
                             <div className="flex flex-col mt-1">
-                                {copEnabled && copPrimary && tasaCop > 0 && <p className="text-sm font-bold text-brand">USD {formatUsd(totalDebtUsd)}</p>}
-                                {copEnabled && !copPrimary && tasaCop > 0 && <p className="text-sm font-bold text-brand">{formatCop(totalDebtUsd * tasaCop)} COP</p>}
-                                {bcvRate > 0 && <p className="text-sm font-bold text-brand">{formatBs(totalDebtUsd * bcvRate)} Bs</p>}
+                                {copEnabled && copPrimary && tasaCop > 0 && <p className="text-sm font-bold text-cyan-100/90">USD {formatUsd(totalDebtUsd)}</p>}
+                                {copEnabled && !copPrimary && tasaCop > 0 && <p className="text-sm font-bold text-cyan-100/90">{formatCop(totalDebtUsd * tasaCop)} COP</p>}
+                                {bcvRate > 0 && <p className="text-sm font-bold text-cyan-100/90">{formatBs(totalDebtUsd * bcvRate)} Bs</p>}
                             </div>
                         </div>
                         {isAdmin && (
@@ -124,7 +124,7 @@ export default function SuppliersList({
                                 className="bg-white dark:bg-slate-900 rounded-2xl px-4 py-3.5 border border-slate-100 dark:border-slate-800 shadow-sm transition-all active:scale-[0.98] flex items-center gap-3 relative cursor-pointer hover:border-purple-200 dark:hover:border-purple-800/50 group"
                             >
                                 <div className="w-12 h-12 rounded-full bg-brand-dark dark:bg-brand-dark/20 group-hover:bg-brand-dark dark:group-hover:bg-brand-dark/40 flex items-center justify-center shrink-0 border border-surface-200 dark:border-surface-700 transition-colors">
-                                    <span className="text-xl font-black text-brand dark:text-brand">
+                                    <span className="text-xl font-black text-white dark:text-brand">
                                         {supplier.name.charAt(0).toUpperCase()}
                                     </span>
                                 </div>
@@ -132,12 +132,12 @@ export default function SuppliersList({
                                     <h3 className="font-black text-slate-800 dark:text-white text-sm truncate">{supplier.name}</h3>
                                     <div className="flex items-center gap-2 mt-1">
                                         {supplier.documentId && (
-                                            <p className="text-[10px] font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700">
+                                            <p className="text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-700">
                                                 {supplier.documentId}
                                             </p>
                                         )}
                                         {supplier.phone && (
-                                            <p className="text-[10px] text-slate-400 flex items-center gap-1 font-medium">
+                                            <p className="text-[10px] text-slate-600 dark:text-slate-400 flex items-center gap-1 font-medium">
                                                 <Phone size={10} /> {supplier.phone}
                                             </p>
                                         )}
@@ -151,9 +151,9 @@ export default function SuppliersList({
                                                     ? `-${formatCop(supplier.deuda * tasaCop)} COP`
                                                     : `-USD ${formatUsd(supplier.deuda)}`}
                                             </p>
-                                            {copEnabled && copPrimary && <p className="text-[10px] font-bold text-red-400/80">-USD {formatUsd(supplier.deuda)}</p>}
-                                            {copEnabled && !copPrimary && tasaCop > 0 && <p className="text-[10px] font-bold text-red-400/80">-{formatCop(supplier.deuda * tasaCop)} COP</p>}
-                                            {bcvRate > 0 && <p className="text-[10px] font-bold text-red-400/80">-{formatBs(supplier.deuda * bcvRate)} Bs</p>}
+                                            {copEnabled && copPrimary && <p className="text-[10px] font-bold text-red-600 dark:text-red-400">-USD {formatUsd(supplier.deuda)}</p>}
+                                            {copEnabled && !copPrimary && tasaCop > 0 && <p className="text-[10px] font-bold text-red-600 dark:text-red-400">-{formatCop(supplier.deuda * tasaCop)} COP</p>}
+                                            {bcvRate > 0 && <p className="text-[10px] font-bold text-red-600 dark:text-red-400">-{formatBs(supplier.deuda * bcvRate)} Bs</p>}
                                             <p className="text-[9px] font-bold text-red-500 bg-red-50 dark:bg-red-900/30 px-1.5 py-0.5 rounded inline-block mt-0.5 uppercase tracking-wider">Deuda</p>
                                         </>
                                     ) : (

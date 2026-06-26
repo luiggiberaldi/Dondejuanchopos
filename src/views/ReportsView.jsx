@@ -18,6 +18,7 @@ const SALES_KEY = 'bodega_sales_v1';
 
 const RANGE_OPTIONS = [
     { id: 'today', label: 'Hoy' },
+    { id: 'yesterday', label: 'Ayer' },
     { id: 'week', label: 'Esta Semana' },
     { id: 'month', label: 'Este Mes' },
     { id: 'lastMonth', label: 'Mes Anterior' },
@@ -143,54 +144,57 @@ export default function ReportsView({ rates, triggerHaptic, onNavigate, isActive
 
     return (
         // v1.2.0: revealRef en contenedor raíz + bg-surface-50 (warm cream).
-        <div ref={revealRef} className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 space-y-4 md:space-y-5 pb-32">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 space-y-4 md:space-y-5 pb-32">
             {/* Header */}
-            <div className="reveal flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                {/* v1.2.0: font-display (Instrument Serif) en título de la vista */}
-                <h2 className="display text-2xl md:text-3xl text-surface-700 dark:text-white flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <h2 className="display text-2xl md:text-3xl text-slate-800 dark:text-white flex items-center gap-2">
                     <div className="bg-brand text-white p-1.5 md:p-2 rounded-xl shadow-primary-tone">
                         <BarChart3 size={20} aria-hidden="true" />
                     </div>
                     Reportes
                 </h2>
-                {/* v1.2.0: touch targets ≥ 48px + shadow-primary-tone */}
                 <button
                     onClick={onExportPDF}
                     disabled={salesForStats.length === 0 && salesForCashFlow.length === 0}
-                    className="flex items-center gap-2 px-4 py-2.5 min-h-[48px] bg-brand hover:bg-brand-dark disabled:bg-surface-300 dark:disabled:bg-surface-700 text-white font-bold rounded-xl text-sm shadow-primary-tone active:scale-95 transition-all"
+                    className="flex items-center gap-2 px-4 py-2.5 min-h-[48px] bg-brand hover:bg-brand-dark disabled:bg-slate-300 dark:disabled:bg-surface-700 text-white font-bold rounded-xl text-sm shadow-primary-tone active:scale-95 transition-all"
                 >
                     <Download size={16} aria-hidden="true" /> Descargar PDF
                 </button>
             </div>
 
-            {/* Tab Selector */}
-            {/* v1.2.0: surface tokens + border-surface-300 (warm border) */}
-            <div className="reveal flex bg-surface-100 dark:bg-surface-800 p-1 rounded-xl">
+            {/* Tab Selector — 3 tabs */}
+            <div className="flex bg-slate-200 dark:bg-surface-800 p-1 rounded-xl gap-1">
                 <button
                     onClick={() => { triggerHaptic && triggerHaptic(); setActiveTab('metrics'); }}
-                    className={`flex-1 py-2.5 min-h-[40px] text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${activeTab === 'metrics' ? 'bg-surface dark:bg-surface-900 text-brand-dark dark:text-brand shadow-tone-sm' : 'text-surface-500 hover:text-surface-700 dark:text-surface-400'}`}
+                    className={`flex-1 py-2.5 min-h-[40px] text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 ${activeTab === 'metrics' ? 'bg-white dark:bg-surface-900 text-brand-dark dark:text-brand shadow-tone-sm' : 'text-slate-600 hover:text-slate-800 dark:text-surface-400'}`}
                 >
-                    <BarChart3 size={16} aria-hidden="true"/> Métricas de Ventas
+                    <BarChart3 size={14} aria-hidden="true"/> Métricas
+                </button>
+                <button
+                    onClick={() => { triggerHaptic && triggerHaptic(); setActiveTab('sales_history'); }}
+                    className={`flex-1 py-2.5 min-h-[40px] text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 ${activeTab === 'sales_history' ? 'bg-white dark:bg-surface-900 text-brand-dark dark:text-brand shadow-tone-sm' : 'text-slate-600 hover:text-slate-800 dark:text-surface-400'}`}
+                >
+                    <Download size={14} aria-hidden="true"/> Historial
                 </button>
                 <button
                     onClick={() => { triggerHaptic && triggerHaptic(); setActiveTab('history'); }}
-                    className={`flex-1 py-2.5 min-h-[40px] text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${activeTab === 'history' ? 'bg-surface dark:bg-surface-900 text-brand-dark dark:text-brand shadow-tone-sm' : 'text-surface-500 hover:text-surface-700 dark:text-surface-400'}`}
+                    className={`flex-1 py-2.5 min-h-[40px] text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 ${activeTab === 'history' ? 'bg-white dark:bg-surface-900 text-brand-dark dark:text-brand shadow-tone-sm' : 'text-slate-600 hover:text-slate-800 dark:text-surface-400'}`}
                 >
-                    <LockIcon size={16} aria-hidden="true"/> Cierres de Caja
+                    <LockIcon size={14} aria-hidden="true"/> Cierres
                 </button>
             </div>
 
             {/* Range Selector */}
-            {/* v1.2.0: surface tokens + touch targets ≥ 40px (chips auxiliares, no críticos). */}
-            <div className="reveal flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1">
+            <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1">
                 {RANGE_OPTIONS.map(opt => (
                     <button
                         key={opt.id}
                         onClick={() => { triggerHaptic && triggerHaptic(); setSelectedRange(opt.id); }}
-                        className={`px-4 py-2 min-h-[40px] rounded-full text-sm font-bold whitespace-nowrap transition-colors active:scale-95 ${selectedRange === opt.id
-                            ? 'bg-brand text-white shadow-primary-tone'
-                            : 'bg-surface dark:bg-surface-900 text-surface-600 dark:text-surface-400 border border-surface-200 dark:border-surface-800'
-                            }`}
+                        className={`px-4 py-2 min-h-[40px] rounded-full text-sm font-bold whitespace-nowrap transition-colors active:scale-95 ${
+                            selectedRange === opt.id
+                                ? 'bg-brand text-white shadow-primary-tone'
+                                : 'bg-white dark:bg-surface-900 text-slate-700 dark:text-surface-400 border border-slate-300 dark:border-surface-800'
+                        }`}
                     >
                         {opt.label}
                     </button>
@@ -200,9 +204,9 @@ export default function ReportsView({ rates, triggerHaptic, onNavigate, isActive
             {/* Custom Date Range */}
             {/* v1.2.0: surface tokens + border-surface-300 (warm border). */}
             {selectedRange === 'custom' && (
-                <div className="reveal flex flex-col sm:flex-row gap-3 bg-surface dark:bg-surface-900 rounded-2xl p-4 border border-surface-200 dark:border-surface-800">
+                <div className="flex flex-col sm:flex-row gap-3 bg-white dark:bg-surface-900 rounded-2xl p-4 border border-slate-200 dark:border-surface-800">
                     <div className="flex-1">
-                        <label className="text-[10px] font-bold text-surface-400 uppercase mb-1 block">Desde</label>
+                        <label className="text-[10px] font-bold text-surface-500 dark:text-surface-400 uppercase mb-1 block">Desde</label>
                         <input
                             type="date"
                             value={customFrom}
@@ -211,7 +215,7 @@ export default function ReportsView({ rates, triggerHaptic, onNavigate, isActive
                         />
                     </div>
                     <div className="flex-1">
-                        <label className="text-[10px] font-bold text-surface-400 uppercase mb-1 block">Hasta</label>
+                        <label className="text-[10px] font-bold text-surface-500 dark:text-surface-400 uppercase mb-1 block">Hasta</label>
                         <input
                             type="date"
                             value={customTo}
@@ -222,7 +226,7 @@ export default function ReportsView({ rates, triggerHaptic, onNavigate, isActive
                 </div>
             )}
 
-            {activeTab === 'metrics' ? (
+            {activeTab === 'metrics' && (
                 <ReportsMetricsTab
                     salesForStats={salesForStats}
                     salesForCashFlow={salesForCashFlow}
@@ -243,7 +247,7 @@ export default function ReportsView({ rates, triggerHaptic, onNavigate, isActive
                     triggerHaptic={triggerHaptic}
                     expandedSaleId={expandedSaleId}
                     setExpandedSaleId={setExpandedSaleId}
-                    showHistory={showHistory}
+                    showHistory={false}
                     setShowHistory={setShowHistory}
                     visibleCount={visibleCount}
                     setVisibleCount={setVisibleCount}
@@ -253,8 +257,47 @@ export default function ReportsView({ rates, triggerHaptic, onNavigate, isActive
                     setHistoryFilter={setHistoryFilter}
                     setVoidSaleTarget={setVoidSaleTarget}
                     setRecycleOffer={setRecycleOffer}
+                    hideHistory={true}
                 />
-            ) : (
+            )}
+
+            {activeTab === 'sales_history' && (
+                <ReportsMetricsTab
+                    salesForStats={salesForStats}
+                    salesForCashFlow={salesForCashFlow}
+                    historySales={historySales}
+                    totalUsd={totalUsd}
+                    totalBs={totalBs}
+                    totalCop={totalCop}
+                    totalItems={totalItems}
+                    profit={profit}
+                    paymentBreakdown={paymentBreakdown}
+                    topProducts={topProducts}
+                    salesByDay={salesByDay}
+                    maxDayTotal={maxDayTotal}
+                    bcvRate={bcvRate}
+                    copEnabled={copEnabled}
+                    copPrimary={copPrimary}
+                    tasaCop={tasaCop}
+                    triggerHaptic={triggerHaptic}
+                    expandedSaleId={expandedSaleId}
+                    setExpandedSaleId={setExpandedSaleId}
+                    showHistory={true}
+                    setShowHistory={setShowHistory}
+                    visibleCount={visibleCount}
+                    setVisibleCount={setVisibleCount}
+                    historySearch={historySearch}
+                    setHistorySearch={setHistorySearch}
+                    historyFilter={historyFilter}
+                    setHistoryFilter={setHistoryFilter}
+                    setVoidSaleTarget={setVoidSaleTarget}
+                    setRecycleOffer={setRecycleOffer}
+                    hideHistory={false}
+                    onlyHistory={true}
+                />
+            )}
+
+            {activeTab === 'history' && (
                 <ReportsHistoryTab
                     groupedClosings={groupedClosings}
                     bcvRate={bcvRate}
@@ -277,7 +320,7 @@ export default function ReportsView({ rates, triggerHaptic, onNavigate, isActive
                                 <Recycle size={28} aria-hidden="true" />
                             </div>
                             <h3 className="text-sm font-black text-surface-700 dark:text-white">Venta Anulada</h3>
-                            <p className="text-[11px] text-surface-400 text-center">Puedes reciclar los productos de esta venta al carrito actual.</p>
+                            <p className="text-[11px] text-surface-500 dark:text-surface-400 text-center">Puedes reciclar los productos de esta venta al carrito actual.</p>
                         </div>
                         <div className="flex gap-2">
                             {/* v1.2.0: touch targets ≥ 48px */}

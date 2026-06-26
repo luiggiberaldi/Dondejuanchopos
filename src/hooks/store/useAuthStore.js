@@ -58,13 +58,13 @@ function _generateRandomPin() {
 }
 
 /**
- * Crea los usuarios iniciales con PINs aleatorios hasheados con PBKDF2.
+ * Crea los usuarios iniciales con PINs de fábrica (solo ceros) hasheados con PBKDF2.
  * Devuelve `{ usuarios, initialPins }` para que el caller pueda mostrar los PINs una vez.
  * @returns {Promise<{ usuarios: Array, initialPins: Array<{id,nombre,rol,pin}> }>}
  */
 async function _createDefaultUsersWithRandomPins() {
-    const adminPin = _generateRandomPin();
-    const cajeroPin = _generateRandomPin();
+    const adminPin = '0'.repeat(PIN_POLICY.MIN_LENGTH);
+    const cajeroPin = '0'.repeat(PIN_POLICY.MIN_LENGTH);
     const adminHash = await hashPin(adminPin);
     const cajeroHash = await hashPin(cajeroPin);
     const usuarios = [
@@ -81,7 +81,7 @@ async function _createDefaultUsersWithRandomPins() {
 /**
  * Inicializa usuarios por defecto la primera vez (async, post-rehydrate).
  * Si ya hay usuarios persistidos, no hace nada. Si no, crea los defaults con PINs
- * aleatorios y los deja accesibles en `window.__INITIAL_PINS__` para que la UI los muestre.
+ * de fábrica (solo ceros) y los deja accesibles en `window.__INITIAL_PINS__` para que la UI los muestre.
  *
  * @param {object} state - estado actual del store
  * @param {function} set - setter de zustand
@@ -96,7 +96,7 @@ async function _ensureDefaultUsers(state, set) {
             window.__INITIAL_PINS__ = initialPins;
             window.dispatchEvent(new CustomEvent('initial-pins-ready', { detail: initialPins }));
         }
-        logEvent('AUTH', 'USUARIOS_INICIALES', 'PINs aleatorios generados para primer arranque.', null, { count: initialPins.length });
+        logEvent('AUTH', 'USUARIOS_INICIALES', 'PINs de fabrica generados para primer arranque.', null, { count: initialPins.length });
     } catch (err) {
         console.error('[useAuthStore] No se pudieron crear usuarios por defecto:', err);
     }

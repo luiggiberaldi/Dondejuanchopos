@@ -40,7 +40,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
     const { notifyLowStock, notifySaleComplete } = useNotifications();
 
     // ── Global Context ──────────────────────────────────────
-    const { products, setProducts, isLoadingProducts, useAutoRate, setUseAutoRate, customRate, setCustomRate, effectiveRate, copEnabled, copPrimary, tasaCop, autoCopEnabled, setAutoCopEnabled, tasaCopManual, setTasaCopManual, categories } = useProductContext();
+    const { products, setProducts, isLoadingProducts, rateMode, setRateMode, useAutoRate, setUseAutoRate, customRate, setCustomRate, effectiveRate, rates, copEnabled, copPrimary, tasaCop, autoCopEnabled, setAutoCopEnabled, tasaCopManual, setTasaCopManual, categories } = useProductContext();
 
     // ── State ──────────────────────────────────────
     const [showConfetti, setShowConfetti] = useState(false);
@@ -540,8 +540,10 @@ export default function SalesView({ triggerHaptic, isActive }) {
             {/* Header + Rate Config */}
             <SalesHeader
                 effectiveRate={effectiveRate}
+                rateMode={rateMode} setRateMode={setRateMode}
                 useAutoRate={useAutoRate} setUseAutoRate={setUseAutoRate}
                 customRate={customRate} setCustomRate={setCustomRate}
+                rates={rates}
                 showRateConfig={showRateConfig} setShowRateConfig={setShowRateConfig}
                 setShowKeyboardHelp={setShowKeyboardHelp}
                 triggerHaptic={triggerHaptic}

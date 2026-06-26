@@ -17,19 +17,19 @@ function SaleMethodIcon({ iconId }) {
 
 function StatCard({ icon: Icon, label, value, sub, color }) {
     const colors = {
-        emerald: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400',
+        emerald: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400',
         blue: 'bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand',
         indigo: 'bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand',
-        amber: 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400',
+        amber: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400',
     };
     return (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl p-3 md:p-4 border border-slate-100 dark:border-slate-800 shadow-sm">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl p-3 md:p-4 border border-slate-200 dark:border-slate-800 shadow-sm">
             <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${colors[color]}`}>
                 <Icon size={16} />
             </div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase">{label}</p>
-            <p className="text-xl md:text-2xl font-display font-semibold text-slate-800 dark:text-white mt-0.5">{value}</p>
-            {sub && <p className="text-xs font-bold text-slate-400 mt-0.5">{sub}</p>}
+            <p className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">{label}</p>
+            <p className="text-xl md:text-2xl font-display font-semibold text-slate-900 dark:text-white mt-0.5">{value}</p>
+            {sub && <p className="text-xs font-bold text-slate-600 dark:text-slate-400 mt-0.5">{sub}</p>}
         </div>
     );
 }
@@ -238,21 +238,25 @@ export default function ReportsMetricsTab({
     setHistoryFilter,
     setVoidSaleTarget,
     setRecycleOffer,
+    hideHistory = false,
+    onlyHistory = false,
 }) {
     return (
         <>
-            {/* Summary Cards */}
+            {/* Summary Cards — ocultar si onlyHistory */}
+            {!onlyHistory && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <StatCard icon={ShoppingBag} label="Ventas" value={salesForStats.length} color="emerald" />
                 <StatCard icon={DollarSign} label="Ingresos" value={copEnabled && copPrimary && tasaCop > 0 ? `${formatCop(totalCop || Math.round(totalUsd * tasaCop))} COP` : `$${totalUsd.toFixed(2)}`} sub={copEnabled && tasaCop > 0 ? (copPrimary ? `$${totalUsd.toFixed(2)} · ${formatBs(totalBs)} Bs` : `${formatCop(totalCop || Math.round(totalUsd * tasaCop))} COP · ${formatBs(totalBs)} Bs`) : `${formatBs(totalBs)} Bs`} color="blue" />
                 <StatCard icon={TrendingUp} label="Ganancia" value={copEnabled && copPrimary && tasaCop > 0 ? `${formatCop((bcvRate > 0 ? profit / bcvRate : 0) * tasaCop)} COP` : (bcvRate > 0 ? `$${(profit / bcvRate).toFixed(2)}` : '$0.00')} sub={copEnabled && tasaCop > 0 ? (copPrimary ? `$${(bcvRate > 0 ? profit / bcvRate : 0).toFixed(2)} · ${formatBs(profit)} Bs` : `${formatCop((bcvRate > 0 ? profit / bcvRate : 0) * tasaCop)} COP · ${formatBs(profit)} Bs`) : `${formatBs(profit)} Bs`} color="indigo" />
                 <StatCard icon={Package} label="Artículos" value={totalItems} color="amber" />
             </div>
+            )}
 
             {/* Mini bar chart per day */}
             {salesByDay.length > 1 && (
                 <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 shadow-sm mt-4">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-1">
+                    <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-3 flex items-center gap-1">
                         <Calendar size={12} /> Ventas por Día
                     </h3>
                     <div className="flex items-end gap-1 h-24">
@@ -261,14 +265,14 @@ export default function ReportsMetricsTab({
                             const dayLabel = new Date(day.date + 'T12:00:00').toLocaleDateString('es-VE', { day: 'numeric', month: 'short' });
                             return (
                                 <div key={day.date} className="flex-1 flex flex-col items-center gap-0.5">
-                                    <span className="text-[8px] font-bold text-slate-400">{copEnabled && copPrimary && tasaCop > 0 ? `${Math.round(day.total * tasaCop / 1000)}k` : `$${day.total.toFixed(0)}`}</span>
+                                    <span className="text-[8px] font-bold text-slate-500 dark:text-slate-400">{copEnabled && copPrimary && tasaCop > 0 ? `${Math.round(day.total * tasaCop / 1000)}k` : `$${day.total.toFixed(0)}`}</span>
                                     <div className="w-full flex justify-center">
                                         <div
                                             className="w-full max-w-[24px] rounded-t-md bg-gradient-to-t from-brand to-brand-dark transition-all duration-500"
                                             style={{ height: `${Math.max(pct, 6)}%`, minHeight: '3px' }}
                                         />
                                     </div>
-                                    <span className="text-[8px] text-slate-400 font-medium leading-none">{dayLabel}</span>
+                                    <span className="text-[8px] text-slate-500 dark:text-slate-400 font-medium leading-none">{dayLabel}</span>
                                 </div>
                             );
                         })}
@@ -326,9 +330,9 @@ export default function ReportsMetricsTab({
                                 </span>
                                 <div className="text-right flex items-center gap-2">
                                     <span className="font-bold text-slate-700 dark:text-white">{displayAmount}</span>
-                                    {data.currency !== 'FIADO' && <span className="text-[10px] text-slate-400 font-medium w-8 text-right">{pct.toFixed(0)}%</span>}
+                                    {data.currency !== 'FIADO' && <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium w-8 text-right">{pct.toFixed(0)}%</span>}
                                     {data.currency === 'FIADO' && (
-                                        <div className="text-[10px] text-slate-400 font-medium">{formatBs(bsEquiv)} Bs</div>
+                                        <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">{formatBs(bsEquiv)} Bs</div>
                                     )}
                                 </div>
                             </div>
@@ -353,7 +357,7 @@ export default function ReportsMetricsTab({
                                 <span className="text-orange-500 dark:text-orange-400 font-medium">{data.label || 'Vuelto entregado'}</span>
                                 <div className="flex items-center gap-2">
                                     <span className="font-bold text-orange-500 dark:text-orange-400">− {displayAmount}</span>
-                                    <span className="text-[10px] text-slate-400 font-medium w-8 text-right">{pct.toFixed(0)}%</span>
+                                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium w-8 text-right">{pct.toFixed(0)}%</span>
                                 </div>
                             </div>
                             <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
@@ -365,7 +369,7 @@ export default function ReportsMetricsTab({
 
                 return (
                 <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 shadow-sm">
-                    <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">
+                    <h3 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-4">
                         Medios de Pago
                     </h3>
 
@@ -433,17 +437,17 @@ export default function ReportsMetricsTab({
             {/* Top Products */}
             {topProducts.length > 0 && (
                 <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 shadow-sm">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-1">
+                    <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-3 flex items-center gap-1">
                         <TrendingUp size={12} /> Top Productos
                     </h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {topProducts.map((p, i) => (
                             <div key={p.name} className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800 rounded-xl p-2.5">
-                                <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black ${i < 3 ? 'bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand' : 'bg-slate-100 dark:bg-slate-700 text-slate-400'
+                                <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black ${i < 3 ? 'bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
                                     }`}>{i + 1}</span>
                                 <div className="flex-1 min-w-0">
                                     <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">{p.name}</p>
-                                    <p className="text-[10px] text-slate-400">{p.qty} vendidos</p>
+                                    <p className="text-[10px] text-slate-500 dark:text-slate-400">{p.qty} vendidos</p>
                                 </div>
                                 <span className="text-xs font-black text-brand-dark dark:text-brand">{copEnabled && copPrimary && tasaCop > 0 ? `${formatCop(p.revenue * tasaCop)} COP` : `$${p.revenue.toFixed(2)}`}</span>
                             </div>
@@ -452,8 +456,8 @@ export default function ReportsMetricsTab({
                 </div>
             )}
 
-            {/* Transaction List Toggle */}
-            {historySales.length > 0 && (() => {
+            {/* Transaction List */}
+            {!hideHistory && historySales.length > 0 && (() => {
                 const searchedSales = historySales.filter(s => {
                     const matchesFilter = historyFilter === 'all'
                         || (historyFilter === 'completed' && s.status !== 'ANULADA')
@@ -471,102 +475,97 @@ export default function ReportsMetricsTab({
                 const sumUsd = completedInList.reduce((a, s) => a + (s.totalUsd || 0), 0);
 
                 return (
-                    <div className="mt-2">
-                        <button
-                            onClick={() => { triggerHaptic && triggerHaptic(); setShowHistory(h => !h); setVisibleCount(30); setHistorySearch(''); setHistoryFilter('all'); }}
-                            className="w-full flex items-center justify-between bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 shadow-sm active:scale-[0.99] transition-all"
-                        >
+                    <div className="mt-6">
+                        {/* Encabezado de sección prominente */}
+                        <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-2">
                                 <div className="w-8 h-8 bg-brand-light dark:bg-surface-800/30 rounded-lg flex items-center justify-center">
                                     <Clock size={16} className="text-brand-dark dark:text-brand" />
                                 </div>
-                                <div className="text-left">
-                                    <p className="text-xs font-bold text-slate-700 dark:text-white">Listado de Transacciones</p>
-                                    <p className="text-[10px] text-slate-400">{historySales.length} {historySales.length === 1 ? 'transacción' : 'transacciones'} en este periodo</p>
+                                <div>
+                                    <h2 className="text-sm font-black text-slate-800 dark:text-white">Historial de Ventas</h2>
+                                    <p className="text-[10px] text-slate-500 dark:text-slate-400">{historySales.length} {historySales.length === 1 ? 'transacción' : 'transacciones'} en este periodo</p>
                                 </div>
                             </div>
-                            {showHistory ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
-                        </button>
+                        </div>
 
-                        {showHistory && (
-                            <div className="mt-3 space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                                {/* Search + Filter Bar */}
-                                <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800 p-3 space-y-2">
-                                    <div className="relative">
-                                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                        <input
-                                            type="text"
-                                            value={historySearch}
-                                            onChange={e => { setHistorySearch(e.target.value); setVisibleCount(30); }}
-                                            placeholder="Buscar por cliente, producto u orden..."
-                                            className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg py-2 pl-9 pr-8 text-xs font-medium text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/30 transition-all"
-                                        />
-                                        {historySearch && (
-                                            <button onClick={() => setHistorySearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                                                <X size={14} />
-                                            </button>
-                                        )}
-                                    </div>
-                                    <div className="flex items-center gap-1.5">
-                                        {[{ id: 'all', label: 'Todas' }, { id: 'completed', label: 'Completadas' }, { id: 'voided', label: 'Anuladas' }].map(f => (
-                                            <button
-                                                key={f.id}
-                                                onClick={() => { setHistoryFilter(f.id); setVisibleCount(30); }}
-                                                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${historyFilter === f.id
-                                                    ? 'bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand shadow-sm'
-                                                    : 'bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-slate-600'}`}
-                                            >{f.label}</button>
-                                        ))}
-                                        <div className="flex-1" />
-                                        <span className="text-[10px] font-bold text-slate-400">{searchedSales.length} resultado{searchedSales.length !== 1 ? 's' : ''}</span>
-                                    </div>
-                                </div>
-
-                                {/* Mini Summary Strip */}
-                                {searchedSales.length > 0 && (
-                                    <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl px-3 py-2 text-[10px] font-bold text-slate-500">
-                                        <span className="flex items-center gap-1"><DollarSign size={12} className="text-emerald-500" /> {copEnabled && copPrimary && tasaCop > 0 ? `${formatCop(sumUsd * tasaCop)} COP` : `$${sumUsd.toFixed(2)}`}</span>
-                                        <span className="w-px h-3 bg-slate-300 dark:bg-slate-700" />
-                                        <span>{completedInList.length} venta{completedInList.length !== 1 ? 's' : ''}</span>
-                                        {voidedInList.length > 0 && (
-                                            <><span className="w-px h-3 bg-slate-300 dark:bg-slate-700" /><span className="text-red-400">{voidedInList.length} anulada{voidedInList.length !== 1 ? 's' : ''}</span></>
-                                        )}
-                                    </div>
-                                )}
-
-                                {/* Transaction Rows */}
-                                {searchedSales.slice(0, visibleCount).map(s => (
-                                    <TransactionRow
-                                        key={s.id}
-                                        sale={s}
-                                        bcvRate={bcvRate}
-                                        isExpanded={expandedSaleId === s.id}
-                                        onToggle={() => setExpandedSaleId(prev => prev === s.id ? null : s.id)}
-                                        onVoidSale={setVoidSaleTarget}
-                                        onRecycleSale={setRecycleOffer}
-                                        copEnabled={copEnabled}
-                                        copPrimary={copPrimary}
-                                        tasaCop={tasaCop}
+                        <div className="space-y-2">
+                            {/* Search + Filter Bar */}
+                            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-3 space-y-2">
+                                <div className="relative">
+                                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                    <input
+                                        type="text"
+                                        value={historySearch}
+                                        onChange={e => { setHistorySearch(e.target.value); setVisibleCount(30); }}
+                                        placeholder="Buscar por cliente, producto u orden..."
+                                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg py-2 pl-9 pr-8 text-xs font-medium text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/30 transition-all"
                                     />
-                                ))}
-
-                                {searchedSales.length === 0 && (
-                                    <div className="text-center py-6">
-                                        <Search size={24} className="text-slate-300 mx-auto mb-2" />
-                                        <p className="text-xs font-bold text-slate-400">Sin resultados para esta busqueda</p>
-                                    </div>
-                                )}
-
-                                {visibleCount < searchedSales.length && (
-                                    <button
-                                        onClick={() => setVisibleCount(c => c + 30)}
-                                        className="w-full py-3 text-xs font-bold text-brand bg-brand-light dark:bg-surface-800/20 rounded-xl hover:bg-brand-light dark:hover:bg-surface-800/30 transition-colors active:scale-[0.98]"
-                                    >
-                                        Mostrar mas ({searchedSales.length - visibleCount} restantes)
-                                    </button>
-                                )}
+                                    {historySearch && (
+                                        <button onClick={() => setHistorySearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                                            <X size={14} />
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                    {[{ id: 'all', label: 'Todas' }, { id: 'completed', label: 'Completadas' }, { id: 'voided', label: 'Anuladas' }].map(f => (
+                                        <button
+                                            key={f.id}
+                                            onClick={() => { setHistoryFilter(f.id); setVisibleCount(30); }}
+                                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${historyFilter === f.id
+                                                ? 'bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand shadow-sm'
+                                                : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-700'}`}
+                                        >{f.label}</button>
+                                    ))}
+                                    <div className="flex-1" />
+                                    <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400">{searchedSales.length} resultado{searchedSales.length !== 1 ? 's' : ''}</span>
+                                </div>
                             </div>
-                        )}
+
+                            {/* Mini Summary Strip */}
+                            {searchedSales.length > 0 && (
+                                <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl px-3 py-2 text-[10px] font-bold text-slate-600">
+                                    <span className="flex items-center gap-1"><DollarSign size={12} className="text-emerald-500" /> {copEnabled && copPrimary && tasaCop > 0 ? `${formatCop(sumUsd * tasaCop)} COP` : `$${sumUsd.toFixed(2)}`}</span>
+                                    <span className="w-px h-3 bg-slate-300 dark:bg-slate-700" />
+                                    <span>{completedInList.length} venta{completedInList.length !== 1 ? 's' : ''}</span>
+                                    {voidedInList.length > 0 && (
+                                        <><span className="w-px h-3 bg-slate-300 dark:bg-slate-700" /><span className="text-red-500">{voidedInList.length} anulada{voidedInList.length !== 1 ? 's' : ''}</span></>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Transaction Rows */}
+                            {searchedSales.slice(0, visibleCount).map(s => (
+                                <TransactionRow
+                                    key={s.id}
+                                    sale={s}
+                                    bcvRate={bcvRate}
+                                    isExpanded={expandedSaleId === s.id}
+                                    onToggle={() => setExpandedSaleId(prev => prev === s.id ? null : s.id)}
+                                    onVoidSale={setVoidSaleTarget}
+                                    onRecycleSale={setRecycleOffer}
+                                    copEnabled={copEnabled}
+                                    copPrimary={copPrimary}
+                                    tasaCop={tasaCop}
+                                />
+                            ))}
+
+                            {searchedSales.length === 0 && (
+                                <div className="text-center py-6">
+                                    <Search size={24} className="text-slate-300 mx-auto mb-2" />
+                                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400">Sin resultados para esta busqueda</p>
+                                </div>
+                            )}
+
+                            {visibleCount < searchedSales.length && (
+                                <button
+                                    onClick={() => setVisibleCount(c => c + 30)}
+                                    className="w-full py-3 text-xs font-bold text-brand bg-brand-light dark:bg-surface-800/20 rounded-xl hover:bg-brand-light dark:hover:bg-surface-800/30 transition-colors active:scale-[0.98]"
+                                >
+                                    Mostrar mas ({searchedSales.length - visibleCount} restantes)
+                                </button>
+                            )}
+                        </div>
                     </div>
                 );
             })()}

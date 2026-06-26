@@ -55,12 +55,17 @@ export default function ReceiptModal({ receipt, onClose, onShareWhatsApp, curren
                             </>
                         )}
 
-                        <div className="inline-flex items-center flex-wrap justify-center gap-1.5 px-3 py-1 bg-slate-100 rounded-full text-xs font-bold text-slate-600 mt-2">
-                            {receipt.payments && receipt.payments.map((p, i) => (
+                        <div className="inline-flex items-center flex-wrap justify-center gap-1.5 px-3 py-1 bg-slate-100 dark:bg-slate-800 rounded-full text-xs font-bold text-slate-600 dark:text-slate-350 mt-2">
+                            {receipt.payments && receipt.payments.filter(p => p.methodId !== 'cashea' && !p.isCashea).map((p, i, arr) => (
                                 <span key={p.id} className="flex items-center gap-1">
-                                    <Wallet size={12} /> {p.methodLabel} {i < receipt.payments.length - 1 ? ' • ' : ''}
+                                    <Wallet size={12} /> {p.methodLabel} {i < arr.length - 1 ? ' • ' : ''}
                                 </span>
                             ))}
+                            {receipt.casheaUsd > 0 && (
+                                <span className="flex items-center gap-1 text-purple-600 dark:text-purple-400 font-extrabold ml-1">
+                                    ⚡ Cashea
+                                </span>
+                            )}
                         </div>
                     </div>
 
@@ -117,12 +122,21 @@ export default function ReceiptModal({ receipt, onClose, onShareWhatsApp, curren
                         {receipt.payments && receipt.payments.length > 0 && (
                             <div className="mt-4 pt-4 border-t border-slate-200 text-sm">
                                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Pagos Recibidos</p>
-                                {receipt.payments.map(p => (
+                                {receipt.payments.filter(p => p.methodId !== 'cashea' && !p.isCashea).map(p => (
                                     <div key={p.id} className="flex justify-between text-slate-600 mb-1">
                                         <span>{p.methodLabel}:</span>
                                         <span className="font-bold">{p.amountInputCurrency === 'USD' ? '$' : p.amountInputCurrency === 'COP' ? 'COP' : 'Bs'} {p.amountInput}</span>
                                     </div>
                                 ))}
+
+                                {receipt.casheaUsd > 0 && (
+                                    <div className="flex justify-between text-purple-600 dark:text-purple-400 font-black mt-2 pt-2 border-t border-slate-200 bg-purple-50 dark:bg-purple-950/20 -mx-4 px-4 py-2 rounded-lg">
+                                        <span className="flex items-center gap-1">
+                                            <span>⚡</span> Financiado (Cashea):
+                                        </span>
+                                        <span>${receipt.casheaUsd.toFixed(2)} USD</span>
+                                    </div>
+                                )}
 
                                 {receipt.changeUsd > 0 && (
                                     <div className="flex justify-between text-emerald-600 font-bold mt-2 pt-2 border-t border-slate-200">

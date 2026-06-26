@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo, Suspense, lazy } from 'react';
-import { Home, ShoppingCart, Store, Users, Download, FlaskConical, Moon, Sun, BarChart3, WifiOff, X, Settings } from 'lucide-react';
+import { Home, ShoppingCart, Store, Users, Download, FlaskConical, Moon, Sun, BarChart3, WifiOff, X, Settings, Clock } from 'lucide-react';
 
 import DashboardView from './views/DashboardView';
+import AIAssistantWidget from './components/AIAssistantWidget';
 
 // Lazy-loaded views
 const SalesView = lazy(() => import('./views/SalesView'));
@@ -38,7 +39,7 @@ export default function App() {
     setMountedViews(prev => ({...prev, [activeTab]: true}));
   }, [activeTab]);
 
-  const { isPremium, isDemo, demoTimeLeft, demoExpiredMsg, dismissExpiredMsg, deviceId } = useSecurity();
+  const { isPremium, isDemo, demoTimeLeft, demoExpiredMsg, dismissExpiredMsg, deviceId, isMonthlyGracePeriod, monthlyGraceDaysLeft } = useSecurity();
   const { isOnline, cacheRates } = useOfflineQueue();
   useAutoBackup(isPremium, isDemo, deviceId);
 
@@ -51,12 +52,7 @@ export default function App() {
     if (requireLogin) logout();
   }, []);
 
-  // Si el usuario pierde acceso premium y estaba en inventario, redirigir a inicio
-  useEffect(() => {
-    if (!isPremium && activeTab === 'catalogo') {
-      setActiveTab('inicio');
-    }
-  }, [isPremium, activeTab]);
+
 
   // Inicializar Sincronización Realtime con Supabase (device_id como clave)
   useCloudSync(deviceId);
@@ -219,6 +215,30 @@ export default function App() {
         </div>
       )}
 
+      {/* Monthly License Grace Period Warning Banner */}
+      {isMonthlyGracePeriod && (
+        <div className={`fixed left-0 right-0 z-[200] flex justify-center pt-[env(safe-area-inset-top)] transition-all ${!isOnline ? 'top-12' : 'top-0'}`}>
+          <div className="mt-2 mx-4 px-4 py-2.5 bg-amber-500 text-white rounded-xl border border-amber-600/30 shadow-xl flex items-center justify-between gap-3 animate-in slide-in-from-top-4 max-w-md w-[calc(100%-2rem)]">
+            <div className="flex items-center gap-2">
+              <Clock size={16} className="text-white animate-pulse shrink-0" />
+              <div className="text-left">
+                <p className="text-[11px] font-black leading-tight">Suscripción por pagar</p>
+                <p className="text-[9px] text-white/90 leading-tight">Le quedan {monthlyGraceDaysLeft} {monthlyGraceDaysLeft === 1 ? 'día' : 'días'} de gracia antes de la suspensión.</p>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                const msg = `Hola! Necesito registrar el pago de mi mensualidad de PreciosAlDía Bodega. ID: ${deviceId}`;
+                window.open(`https://wa.me/584124051793?text=${encodeURIComponent(msg)}`, '_blank');
+              }}
+              className="px-2.5 py-1 bg-white text-amber-600 font-bold rounded-lg text-[9px] active:scale-95 transition-transform whitespace-nowrap shadow-sm hover:bg-slate-50"
+            >
+              Registrar Pago
+            </button>
+          </div>
+        </div>
+      )}
+
 
 
 
@@ -330,11 +350,13 @@ export default function App() {
                   toggleTheme={toggleTheme}
                   triggerHaptic={triggerHaptic}
                   isTab={true}
+                  rates={rates}
                 />
               </ErrorBoundary>
             </div>
           )}
         </Suspense>
+        {activeTab === 'inicio' && <AIAssistantWidget />}
       </main>
 
       </ProductProvider>

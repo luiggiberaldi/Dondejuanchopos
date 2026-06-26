@@ -83,11 +83,6 @@ export function useCheckoutFlow({
             if (playError) playError();
             return;
         }
-        if (openingUsd === 0 && openingBs === 0 && openingCop === 0) {
-            showToast('Ingresa al menos un monto de apertura.', 'warning');
-            if (playError) playError();
-            return;
-        }
 
         try {
             const today = new Date().toISOString();

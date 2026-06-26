@@ -12,6 +12,7 @@ export default function DashboardStats({
     totalDeudas, showTopDeudas, setShowTopDeudas,
     triggerHaptic, onDailyClose,
     copEnabled, copPrimary, tasaCop,
+    onTasaClick,
 }) {
     return (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
@@ -158,7 +159,10 @@ export default function DashboardStats({
             </div>
 
             {/* Tasas */}
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 shadow-sm">
+            <div 
+                onClick={() => { triggerHaptic && triggerHaptic(); onTasaClick && onTasaClick(); }}
+                className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 shadow-sm cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/80 active:scale-[0.98] transition-all"
+            >
                 <div className="flex items-center justify-between mb-2">
                     <div className="w-9 h-9 bg-brand-light dark:bg-surface-800/30 rounded-xl flex items-center justify-center">
                         <ArrowUpRight size={18} className="text-brand" />
@@ -261,39 +265,51 @@ export default function DashboardStats({
 
                     {showTopDeudas && (
                         <div className="mt-3 pt-3 border-t border-red-100 dark:border-red-800/20 space-y-2 relative z-10" style={{ animation: 'fadeIn 0.2s ease' }}>
-                            {totalDeudas.top5.map((c, i) => (
-                                <div key={c.id} className="flex items-center justify-between py-1.5">
-                                    <div className="flex items-center gap-2.5 min-w-0">
-                                        <span className="text-[10px] font-black text-red-300 w-4 text-center shrink-0">{i + 1}</span>
-                                        <div className="w-7 h-7 rounded-full bg-red-50 dark:bg-red-900/20 flex items-center justify-center shrink-0">
-                                            <span className="text-xs font-black text-red-400">{c.name.charAt(0).toUpperCase()}</span>
+                            {totalDeudas.top5.map((c, i) => {
+                                const debtNormal = c.deuda || 0;
+                                const debtCashea = c.casheaDeuda || 0;
+                                const debtTotal = debtNormal + debtCashea;
+                                return (
+                                    <div key={c.id} className="flex items-center justify-between py-1.5">
+                                        <div className="flex items-center gap-2.5 min-w-0">
+                                            <span className="text-[10px] font-black text-red-300 w-4 text-center shrink-0">{i + 1}</span>
+                                            <div className="w-7 h-7 rounded-full bg-red-50 dark:bg-red-900/20 flex items-center justify-center shrink-0">
+                                                <span className="text-xs font-black text-red-400">{c.name.charAt(0).toUpperCase()}</span>
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">{c.name}</p>
+                                                {debtCashea > 0 && (
+                                                    <span className="text-[9px] font-black text-purple-600 dark:text-purple-400 flex items-center gap-0.5 mt-0.5">
+                                                        ⚡ Incluye Cashea (${debtCashea.toFixed(2)})
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
-                                        <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">{c.name}</p>
+                                        <div className="text-right shrink-0">
+                                            {copEnabled && copPrimary && tasaCop > 0 ? (
+                                                <>
+                                                    <p className="text-sm font-black text-red-500">
+                                                        {formatCop(debtTotal * tasaCop)} COP
+                                                    </p>
+                                                    <p className="text-[9px] text-red-400/60">${debtTotal.toFixed(2)} · {formatBs(debtTotal * bcvRate)} Bs</p>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <p className="text-sm font-black text-red-500">
+                                                        ${debtTotal.toFixed(2)}
+                                                    </p>
+                                                    {copEnabled && tasaCop > 0 && (
+                                                        <p className="text-[9px] text-red-400/60">{formatCop(debtTotal * tasaCop)} COP · {formatBs(debtTotal * bcvRate)} Bs</p>
+                                                    )}
+                                                    {!(copEnabled && tasaCop > 0) && bcvRate > 0 && (
+                                                        <p className="text-[9px] text-red-400/60">{formatBs(debtTotal * bcvRate)} Bs</p>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
                                     </div>
-                                    <div className="text-right shrink-0">
-                                        {copEnabled && copPrimary && tasaCop > 0 ? (
-                                            <>
-                                                <p className="text-sm font-black text-red-500">
-                                                    {formatCop((c.deuda || 0) * tasaCop)} COP
-                                                </p>
-                                                <p className="text-[9px] text-red-400/60">${(c.deuda || 0).toFixed(2)} · {formatBs((c.deuda || 0) * bcvRate)} Bs</p>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <p className="text-sm font-black text-red-500">
-                                                    ${(c.deuda || 0).toFixed(2)}
-                                                </p>
-                                                {copEnabled && tasaCop > 0 && (
-                                                    <p className="text-[9px] text-red-400/60">{formatCop((c.deuda || 0) * tasaCop)} COP · {formatBs((c.deuda || 0) * bcvRate)} Bs</p>
-                                                )}
-                                                {!(copEnabled && tasaCop > 0) && bcvRate > 0 && (
-                                                    <p className="text-[9px] text-red-400/60">{formatBs((c.deuda || 0) * bcvRate)} Bs</p>
-                                                )}
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
                 </div>

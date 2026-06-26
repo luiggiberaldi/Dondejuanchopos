@@ -5,7 +5,7 @@ import { mulR, sumR, round2 } from './dinero';
 export function calculateReportsData(allSales, from, to, bcvRate, products) {
     // Ventas de Mercancía (para Totales, Profit, Top Productos)
     const salesForStats = allSales.filter(s => {
-        if (s.status === 'ANULADA' || (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA')) return false;
+        if (s.status === 'ANULADA' || (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'VENTA_CASHEA')) return false;
         const dateStr = getLocalISODate(new Date(s.timestamp));
         return dateStr >= from && dateStr <= to;
     });
@@ -13,7 +13,7 @@ export function calculateReportsData(allSales, from, to, bcvRate, products) {
     // Flujo de Dinero (para Desglose de Pagos, incluye pagos de deudas)
     const salesForCashFlow = allSales.filter(s => {
         if (s.status === 'ANULADA') return false;
-        if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'COBRO_DEUDA' && s.tipo !== 'PAGO_PROVEEDOR') return false;
+        if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'VENTA_CASHEA' && s.tipo !== 'COBRO_DEUDA' && s.tipo !== 'PAGO_PROVEEDOR') return false;
         const dateStr = getLocalISODate(new Date(s.timestamp));
         return dateStr >= from && dateStr <= to;
     });
@@ -102,8 +102,8 @@ export function groupSalesByCierreId(allSales, from, to) {
             const dateObj = new Date(c.cierreId);
 
             // Filtrar para métricas generales (stats) y flujo de caja (cashflow)
-            const salesForStats = c.sales.filter(s => s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA');
-            const salesForCashFlow = c.sales.filter(s => s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'COBRO_DEUDA' || s.tipo === 'PAGO_PROVEEDOR');
+            const salesForStats = c.sales.filter(s => s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA');
+            const salesForCashFlow = c.sales.filter(s => s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA' || s.tipo === 'COBRO_DEUDA' || s.tipo === 'PAGO_PROVEEDOR');
 
             const totalUsd = sumR(salesForStats.map(s => s.totalUsd || 0));
             const totalBs = sumR(salesForStats.map(s => s.totalBs || 0));

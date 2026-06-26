@@ -9,11 +9,11 @@ import {
 } from 'lucide-react';
 
 const CAT_CONFIG = {
-    AUTH:       { label: 'Autenticacion', icon: Shield,       color: 'text-brand',  bg: 'bg-brand-dark dark:bg-brand-dark/20' },
+    AUTH:       { label: 'Autenticacion', icon: Shield,       color: 'text-brand-dark dark:text-brand',  bg: 'bg-brand-light dark:bg-brand-dark/20' },
     VENTA:      { label: 'Ventas',        icon: ShoppingCart,  color: 'text-brand',    bg: 'bg-brand-light dark:bg-surface-800/20' },
     INVENTARIO: { label: 'Inventario',    icon: Package,       color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
     CLIENTE:    { label: 'Clientes',      icon: Users,         color: 'text-sky-500',     bg: 'bg-sky-50 dark:bg-sky-900/20' },
-    PROVEEDOR:  { label: 'Proveedores',   icon: Users,         color: 'text-brand',  bg: 'bg-brand-dark dark:bg-brand-dark/20' },
+    PROVEEDOR:  { label: 'Proveedores',   icon: Users,         color: 'text-brand-dark dark:text-brand',  bg: 'bg-brand-light dark:bg-brand-dark/20' },
     CONFIG:     { label: 'Configuracion', icon: Settings,      color: 'text-amber-500',   bg: 'bg-amber-50 dark:bg-amber-900/20' },
     USUARIO:    { label: 'Usuarios',      icon: Shield,        color: 'text-brand',  bg: 'bg-brand-light dark:bg-surface-800/20' },
     SISTEMA:    { label: 'Sistema',       icon: Database,      color: 'text-red-500',     bg: 'bg-red-50 dark:bg-red-900/20' },

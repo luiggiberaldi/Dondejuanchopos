@@ -27,6 +27,8 @@ import { useDashboardData } from '../hooks/useDashboardData';
 import { useDashboardMetrics } from '../hooks/useDashboardMetrics';
 import { TicketClientModal, DeleteHistoryModal, RecycleOfferModal } from '../components/Dashboard/DashboardModals';
 import { useReveal } from '../hooks/useReveal';
+import MonitorView from './MonitorView';
+import { useOfflineQueue } from '../hooks/useOfflineQueue';
 
 const SALES_KEY = 'bodega_sales_v1';
 export default function DashboardView({ rates, triggerHaptic, onNavigate, theme, toggleTheme, isActive, isDemo, demoTimeLeft }) {
@@ -43,6 +45,8 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
     const isLoading = isLoadingProducts || isLoadingLocal;
 
     // UI state
+    const [showMonitor, setShowMonitor] = useState(false);
+    const { isOnline } = useOfflineQueue();
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [deleteConfirmText, setDeleteConfirmText] = useState('');
     const [voidSaleTarget, setVoidSaleTarget] = useState(null);
@@ -302,19 +306,35 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
                 </div>
             </div>
 
-            {/* Acciones Rápidas — v1.2.0: reveal + shadow-tone-sm tone-matched */}
-            <div className="reveal grid grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
-                <button onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('ventas'); } }} className="bg-brand hover:bg-brand-dark text-white rounded-2xl p-3 flex flex-col items-center justify-center gap-2 shadow-tone-sm hover:shadow-primary-tone hover:scale-[1.02] active:scale-95 transition-all">
+            {/* Acciones Rápidas — v1.2.0: shadow-tone-sm tone-matched */}
+            <div className="grid grid-cols-4 lg:grid-cols-6 gap-3 mb-5">
+                <button 
+                    onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('ventas'); } }} 
+                    className="bg-[#01696f] hover:bg-[#00575d] dark:bg-[#1ce2ee] dark:hover:bg-[#0bc2cd] text-white dark:text-slate-950 rounded-2xl p-3 flex flex-col items-center justify-center gap-2 shadow-tone-sm hover:shadow-primary-tone hover:scale-[1.02] active:scale-95 transition-all"
+                >
                     <ShoppingCart size={22} />
                     <span className="text-xs font-bold">Vender</span>
                 </button>
-                <button onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('catalogo'); } }} className="bg-brand text-white rounded-2xl p-3 flex flex-col items-center justify-center gap-2 shadow-tone-sm hover:scale-[1.02] active:scale-95 transition-all">
+                <button 
+                    onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('catalogo'); } }} 
+                    className="bg-[#01696f] hover:bg-[#00575d] dark:bg-[#1ce2ee] dark:hover:bg-[#0bc2cd] text-white dark:text-slate-950 rounded-2xl p-3 flex flex-col items-center justify-center gap-2 shadow-tone-sm hover:scale-[1.02] active:scale-95 transition-all"
+                >
                     <Store size={22} />
                     <span className="text-xs font-bold">Inventario</span>
                 </button>
-                <button onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('clientes'); } }} className="bg-brand text-white rounded-2xl p-3 flex flex-col items-center justify-center gap-2 shadow-tone-sm hover:scale-[1.02] active:scale-95 transition-all">
+                <button 
+                    onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('clientes'); } }} 
+                    className="bg-[#01696f] hover:bg-[#00575d] dark:bg-[#1ce2ee] dark:hover:bg-[#0bc2cd] text-white dark:text-slate-950 rounded-2xl p-3 flex flex-col items-center justify-center gap-2 shadow-tone-sm hover:scale-[1.02] active:scale-95 transition-all"
+                >
                     <Users size={22} />
                     <span className="text-xs font-bold">Clientes</span>
+                </button>
+                <button 
+                    onClick={() => { triggerHaptic(); setShowMonitor(true); }} 
+                    className="bg-[#01696f] hover:bg-[#00575d] dark:bg-[#1ce2ee] dark:hover:bg-[#0bc2cd] text-white dark:text-slate-950 rounded-2xl p-3 flex flex-col items-center justify-center gap-2 shadow-tone-sm hover:scale-[1.02] active:scale-95 transition-all"
+                >
+                    <TrendingUp size={22} />
+                    <span className="text-xs font-bold">Monitor</span>
                 </button>
             </div>
 
@@ -340,7 +360,7 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
                 </div>
             ) : (
             /* ── ADMIN: layout completo ── */
-            <div className="lg:grid lg:grid-cols-[1fr_300px] xl:grid-cols-[1fr_340px] lg:gap-6 lg:items-start">
+            <div className={`${(lowStockProducts.length > 0 || topProducts.length > 0) ? 'lg:grid lg:grid-cols-[1fr_300px] xl:grid-cols-[1fr_340px] lg:gap-6 lg:items-start' : ''}`}>
 
             {/* LEFT: Stats + Payment + Chart */}
             <div>
@@ -367,6 +387,7 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
                 copEnabled={copEnabled}
                 copPrimary={copPrimary}
                 tasaCop={tasaCop}
+                onTasaClick={() => setShowMonitor(true)}
             />
 
             {/* Pago por Metodo */}
@@ -402,7 +423,7 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
             <div>
             {/* Bajo Stock — v1.2.0: reveal + shadow-tone-sm */}
             {lowStockProducts.length > 0 && (
-                <div className="reveal bg-surface dark:bg-surface-100 rounded-2xl p-4 border border-amber-200 dark:border-amber-800/30 shadow-tone-sm mb-5">
+                <div className="bg-surface dark:bg-surface-100 rounded-2xl p-4 border border-amber-200 dark:border-amber-800/30 shadow-tone-sm mb-5">
                     <h3 className="text-xs font-bold text-amber-500 uppercase mb-3 flex items-center gap-1">
                         <AlertTriangle size={12} /> Bajo Stock ({lowStockProducts.length})
                     </h3>
@@ -427,7 +448,7 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
 
             {/* Top Productos — v1.2.0: reveal + shadow-tone-sm, text-accent para Bs (BCV-derived) */}
             {topProducts.length > 0 && (
-                <div className="reveal bg-surface dark:bg-surface-100 rounded-2xl p-4 border border-surface-200 dark:border-surface-700 shadow-tone-sm mb-5">
+                <div className="bg-surface dark:bg-surface-100 rounded-2xl p-4 border border-surface-200 dark:border-surface-700 shadow-tone-sm mb-5">
                     <h3 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-1">
                         <TrendingUp size={12} /> Más Vendidos
                     </h3>
@@ -566,6 +587,21 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
                 copPrimary={copPrimary}
                 tasaCop={tasaCop}
             />
+            {showMonitor && (
+                <div className="fixed inset-0 z-[150] bg-[#080E1C] flex flex-col">
+                    <MonitorView
+                        rates={rates}
+                        loading={false}
+                        isOffline={!isOnline}
+                        onRefresh={() => refreshData(setProducts)}
+                        toggleTheme={toggleTheme}
+                        theme={theme}
+                        addLog={console.log}
+                        triggerHaptic={triggerHaptic}
+                        onClose={() => setShowMonitor(false)}
+                    />
+                </div>
+            )}
         </div>
     );
 }

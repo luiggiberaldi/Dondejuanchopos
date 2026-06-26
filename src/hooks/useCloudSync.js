@@ -80,6 +80,8 @@ export const pushCloudSync = async (key, value) => {
     if (key === 'abasto-auth-storage') return;
 
     try {
+        const { data: { session } } = await supabaseCloud.auth.getSession();
+        if (!session) return; // Evitar peticiones si no hay sesión activa (401)
         const collectionType = LOCAL_KEYS.includes(key) ? 'local' : 'store';
 
         await supabaseCloud.from('sync_documents').upsert({
@@ -165,6 +167,17 @@ export function useCloudSync(deviceId) {
 
         const initSync = async () => {
             try {
+                const { data: { session } } = await supabaseCloud.auth.getSession();
+                if (!session) {
+                    console.log('[CloudSync] Omitiendo sincronización: sin sesión cloud activa.');
+                    return;
+                }
+                // Evitar llamadas con token ya expirado (causarían 401)
+                if (session.expires_at && session.expires_at * 1000 < Date.now()) {
+                    console.log('[CloudSync] Omitiendo sincronización: token cloud expirado.');
+                    return;
+                }
+
                 isInitialized.current = true;
 
                 // ── Pull Inicial ───────────────────────────────────────────
@@ -225,7 +238,7 @@ export function useCloudSync(deviceId) {
             // El caller principal monta el hook una sola vez en App; este cleanup
             // protege el caso de deviceId cambiando a null y volviendo.
             if (globalSubscription && !deviceId) {
-                try { globalSubscription.unsubscribe(); } catch { }
+                try { supabaseCloud.removeChannel(globalSubscription).catch(() => {}); } catch { }
                 globalSubscription = null;
                 isInitialized.current = false;
                 _currentDeviceId = '';

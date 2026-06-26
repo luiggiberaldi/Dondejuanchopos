@@ -40,7 +40,14 @@ if (!supabaseUrl || !supabaseAnonKey) {
 // Cliente Singleton. Si faltan credenciales y estamos en dev, creamos un stub
 // que rechaza todas las llamadas con un error claro (mejor que 401s misteriosos).
 export const supabase = (supabaseUrl && supabaseAnonKey)
-    ? createClient(supabaseUrl, supabaseAnonKey)
+    ? createClient(supabaseUrl, supabaseAnonKey, {
+        auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false,
+            storageKey: 'sb-licensing-auth-token'
+        }
+      })
     : new Proxy({}, {
         get() {
             return () => Promise.reject(new Error('[supabaseClient] Sin configurar (SEC-021). Define VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY en .env.'));

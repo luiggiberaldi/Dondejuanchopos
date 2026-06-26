@@ -19,8 +19,6 @@ export function useRates() {
         try {
             const saved = JSON.parse(localStorage.getItem('monitor_rates_v12'));
             if (saved) {
-                // Migrar datos guardados: eliminar usdt si existe
-                if (saved.usdt) delete saved.usdt;
                 return saved;
             }
             return null;
@@ -125,6 +123,9 @@ export function useRates() {
         };
 
         const getExternalRatesFallback = async () => {
+            if (!EXCHANGERATE_KEY) {
+                return { eur: DEFAULT_EUR_USD_RATIO, cop: null };
+            }
             try {
                 const data = await fetchGeneric(`https://v6.exchangerate-api.com/v6/${EXCHANGERATE_KEY}/latest/USD`);
                 if (data?.result === "success") {
@@ -258,6 +259,12 @@ export function useRates() {
                         newRates.euro = { ...newRates.euro, ...metaEur, source: 'Euro BCV (Triangulado)' };
                     }
                 }
+            }
+
+            // Integrar tasa USDT si se obtuvo
+            if (newUsdtPrice > 0) {
+                const metaUsdt = getMeta(newUsdtPrice, newRates.usdt?.price ?? 0, newRates.usdt?.change ?? 0);
+                newRates.usdt = { ...metaUsdt, source: 'Paralelo / Binance' };
             }
 
             // Integrar cálculo AutoCOP con TRM y USDT

@@ -90,6 +90,7 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
         font-family: 'Courier New', 'Lucida Console', monospace;
+        font-weight: bold;
         width: ${cssBodyWidth};
         max-width: ${cssBodyWidth};
         margin: 0 auto;

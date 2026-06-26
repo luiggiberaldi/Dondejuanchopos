@@ -13,6 +13,12 @@ export function getDateRange(rangeId) {
         case 'today': {
             return { from: todayStr, to: todayStr };
         }
+        case 'yesterday': {
+            const d = new Date(now);
+            d.setDate(d.getDate() - 1);
+            const yesterdayStr = getLocalISODate(d);
+            return { from: yesterdayStr, to: yesterdayStr };
+        }
         case 'week': {
             const d = new Date(now);
             d.setDate(d.getDate() - d.getDay()); // domingo

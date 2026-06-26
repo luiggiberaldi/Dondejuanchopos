@@ -28,6 +28,57 @@ export function useSecurity() {
     const [integrityWarning, setIntegrityWarning] = useState(false);
     const lastIntegrityCheckRef = useRef(0);
 
+    // Nuevos estados para control de gracia de licencia mensual
+    const [isMonthlyGracePeriod, setIsMonthlyGracePeriod] = useState(false);
+    const [monthlyGraceDaysLeft, setMonthlyGraceDaysLeft] = useState(0);
+
+    const applyLicenseState = useCallback((type, isActive, expiresAtVal, createdAt) => {
+        if (!isActive || type === 'revoked' || type === 'registered') {
+            setIsPremium(false);
+            setIsDemo(false);
+            setIsMonthlyGracePeriod(false);
+            setMonthlyGraceDaysLeft(0);
+            return { isPremium: false, isDemo: false, isGrace: false, graceDays: 0 };
+        }
+
+        const expiresAt = expiresAtVal ? new Date(expiresAtVal).getTime() : null;
+        let isPrem = false;
+        let isDem = false;
+        let isGrace = false;
+        let graceDays = 0;
+
+        if (type === 'demo7' || type === 'demo3') {
+            if (expiresAt && Date.now() < expiresAt) {
+                isPrem = true;
+                isDem = true;
+            }
+        } else if (type === 'monthly') {
+            if (expiresAt) {
+                const gracePeriodEnd = expiresAt + 5 * 24 * 60 * 60 * 1000;
+                if (Date.now() < expiresAt) {
+                    isPrem = true;
+                } else if (Date.now() < gracePeriodEnd) {
+                    isPrem = true;
+                    isGrace = true;
+                    const diffTime = gracePeriodEnd - Date.now();
+                    graceDays = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+                }
+            } else {
+                isPrem = true;
+            }
+        } else if (type === 'permanent') {
+            isPrem = true;
+        }
+
+        setIsPremium(isPrem);
+        setIsDemo(isDem);
+        setIsMonthlyGracePeriod(isGrace);
+        setMonthlyGraceDaysLeft(graceDays);
+        if (expiresAt && isDem) setDemoExpires(expiresAt);
+
+        return { isPremium: isPrem, isDemo: isDem, isGrace, graceDays };
+    }, []);
+
     // Demo countdown hook
     const {
         demoTimeLeft,
@@ -51,18 +102,27 @@ export function useSecurity() {
         onRevoked: (msg) => {
             setIsPremium(false);
             setIsDemo(false);
+            setIsMonthlyGracePeriod(false);
             setDemoExpiredMsg(msg);
             setLoading(false);
         },
         onPermanentActivated: () => {
             setIsPremium(true);
             setIsDemo(false);
+            setIsMonthlyGracePeriod(false);
             setDemoExpires(null);
         },
         onDemoActivated: (expiresAt) => {
             setIsPremium(true);
             setIsDemo(true);
+            setIsMonthlyGracePeriod(false);
             setDemoExpires(expiresAt);
+        },
+        onMonthlyActivated: (expiresAt, isGrace, graceDays) => {
+            setIsPremium(true);
+            setIsDemo(false);
+            setIsMonthlyGracePeriod(isGrace);
+            setMonthlyGraceDaysLeft(graceDays);
         },
     });
 
@@ -87,40 +147,78 @@ export function useSecurity() {
                 localStorage.removeItem('pda_premium_token');
             }
         }
-
-        if (!tokenObj) {
+            if (!tokenObj) {
             // Fallback: verificar si existe licencia activa en Supabase (ej: reactivada remotamente).
             // Aquí confiamos en la fila del servidor, no en un token local minteado.
+            let remoteLicense = null;
+            let netError = false;
             try {
-                const { data: remoteLicense } = await supabase
+                const { data, error } = await supabase
                     .from('licenses')
-                    .select('type, active, expires_at, code')
+                    .select('type, is_active, expires_at, code, created_at')
                     .eq('device_id', currentDeviceId)
                     .eq('product_id', PRODUCT_ID)
                     .maybeSingle();
 
-                if (remoteLicense && remoteLicense.active === true) {
-                    const isTimeLimited = (remoteLicense.type === 'demo7' || remoteLicense.type === 'demo3');
-                    const expiresAt = remoteLicense.expires_at ? new Date(remoteLicense.expires_at).getTime() : null;
-
-                    if (isTimeLimited && expiresAt) {
-                        if (Date.now() < expiresAt) {
-                            // SEC-001: NO minteamos un token legacy. Solo actualizamos estado en memoria.
-                            setIsPremium(true);
-                            setIsDemo(true);
-                            setDemoExpires(expiresAt);
-                        }
-                    } else if (remoteLicense.type === 'permanent') {
-                        setIsPremium(true);
-                        setIsDemo(false);
-                    }
-                    setLoading(false);
-                    return;
+                if (error) {
+                    netError = true;
+                } else {
+                    remoteLicense = data;
                 }
             } catch (e) {
-                // HOOK-022: Sin red — no se puede restaurar; loguear en dev.
+                netError = true;
                 if (import.meta.env?.DEV) {
                     console.warn('[Security] Sin red al validar licencia remota:', e?.message ?? e);
+                }
+            }
+
+            if (remoteLicense && remoteLicense.is_active === true) {
+                const { type, is_active, expires_at, created_at } = remoteLicense;
+                const { isPremium: isPrem } = applyLicenseState(type, is_active, expires_at, created_at);
+
+                if (isPrem) {
+                    // Guardar en cache offline si es válida
+                    localStorage.setItem('pda_license_cache', JSON.stringify({
+                        type,
+                        isActive: true,
+                        expiresAt: expires_at ? new Date(expires_at).getTime() : null,
+                        createdAt: created_at,
+                        deviceId: currentDeviceId,
+                        updatedAt: Date.now()
+                    }));
+                } else {
+                    localStorage.removeItem('pda_license_cache');
+                    setDemoExpiredMsg("Tu suscripción mensual ha expirado y el período de gracia de 5 días ha finalizado. Por favor, regulariza tu pago.");
+                }
+
+                setLoading(false);
+                return;
+            } else if (remoteLicense && remoteLicense.is_active === false) {
+                // Si está explícitamente inactiva en Supabase, limpiar caché
+                localStorage.removeItem('pda_license_cache');
+                setIsPremium(false);
+                setIsDemo(false);
+                setIsMonthlyGracePeriod(false);
+                setLoading(false);
+                return;
+            }
+
+            // Si hay error de red o no hay respuesta del servidor, usar caché offline
+            if (netError || !remoteLicense) {
+                const cached = localStorage.getItem('pda_license_cache');
+                if (cached) {
+                    try {
+                        const cacheObj = JSON.parse(cached);
+                        if (cacheObj.deviceId === currentDeviceId && cacheObj.isActive) {
+                            const { isPremium: isPrem } = applyLicenseState(cacheObj.type, cacheObj.isActive, cacheObj.expiresAt, cacheObj.createdAt);
+                            if (isPrem) {
+                                setLoading(false);
+                                return;
+                            }
+                        }
+                    } catch (err) {
+                        // Cache corrupto
+                    }
                 }
             }
 
@@ -139,12 +237,12 @@ export function useSecurity() {
                 try {
                     const { data: remoteLicense } = await supabase
                         .from('licenses')
-                        .select('active, expires_at')
+                        .select('is_active, expires_at')
                         .eq('device_id', currentDeviceId)
                         .eq('product_id', PRODUCT_ID)
                         .maybeSingle();
 
-                    if (remoteLicense && remoteLicense.active === false) {
+                    if (remoteLicense && remoteLicense.is_active === false) {
                         revokedRemotely = true;
                     }
                 } catch (e) {
@@ -269,7 +367,7 @@ export function useSecurity() {
         initDeviceId();
 
         // FIX 3: Leer demo flag desde IndexedDB
-        storageService.getItem('pda_demo_flag_v1', null).then(r => {
+                        storageService.getItem('pda_demo_flag_v1', null).then(r => {
             if (r?.used) setDemoUsed(true);
         });
     }, [checkLicense]);
@@ -304,31 +402,77 @@ export function useSecurity() {
 
             const raw = localStorage.getItem('pda_premium_token');
 
-            // Si localStorage fue borrado, intentar restaurar desde servidor
+            // Si localStorage fue borrado o no hay token local (flujo sin token local en licencias DB),
+            // intentar validar remotamente o contra cache offline.
             if (!raw) {
+                let remoteLicense = null;
+                let netError = false;
                 try {
-                    const { data: remoteLicense } = await supabase
+                    const { data, error } = await supabase
                         .from('licenses')
-                        .select('type, active, expires_at')
+                        .select('type, is_active, expires_at, created_at')
                         .eq('device_id', deviceId)
                         .eq('product_id', PRODUCT_ID)
                         .maybeSingle();
 
-                    if (remoteLicense?.active === true) {
-                        console.warn('[Security] Token missing but license active on server. Re-checking license.');
-                        setIntegrityWarning(true);
-                        checkLicense(deviceId);
-                        return;
-                    }
+                    if (error) netError = true;
+                    else remoteLicense = data;
                 } catch (e) {
+                    netError = true;
                     if (import.meta.env?.DEV) {
                         console.warn('[Security] Sin red en integrity check:', e?.message ?? e);
                     }
                 }
+
+                if (remoteLicense) {
+                    const { type, is_active, expires_at, created_at } = remoteLicense;
+                    const { isPremium: isPrem } = applyLicenseState(type, is_active, expires_at, created_at);
+
+                    if (isPrem) {
+                        // Sincronizar cache offline
+                        localStorage.setItem('pda_license_cache', JSON.stringify({
+                            type,
+                            isActive: true,
+                            expiresAt: expires_at ? new Date(expires_at).getTime() : null,
+                            createdAt: created_at,
+                            deviceId,
+                            updatedAt: Date.now()
+                        }));
+                        return;
+                    } else {
+                        // Licencia explícitamente revocada o expirada
+                        localStorage.removeItem('pda_license_cache');
+                        setIsPremium(false);
+                        setIsDemo(false);
+                        setIsMonthlyGracePeriod(false);
+                        setDemoExpiredMsg("Tu suscripción mensual ha expirado y el período de gracia de 5 días ha finalizado. Por favor, regulariza tu pago.");
+                        return;
+                    }
+                }
+
+                // Si hay error de red, validar contra el caché offline
+                if (netError) {
+                    const cached = localStorage.getItem('pda_license_cache');
+                    if (cached) {
+                        try {
+                            const cacheObj = JSON.parse(cached);
+                            if (cacheObj.deviceId === deviceId && cacheObj.isActive) {
+                                const { isPremium: isPrem } = applyLicenseState(cacheObj.type, cacheObj.isActive, cacheObj.expiresAt, cacheObj.createdAt);
+                                if (isPrem) {
+                                    return; // Caché offline válido, no revocar
+                                }
+                            }
+                        } catch (err) {
+                            // Caché corrupto
+                        }
+                    }
+                }
+
                 if (isPremium) {
-                    console.warn('[Security] Token missing and no active server license. Revoking premium.');
+                    console.warn('[Security] No active server license and cache invalid/missing. Revoking premium.');
                     setIsPremium(false);
                     setIsDemo(false);
+                    setIsMonthlyGracePeriod(false);
                     setIntegrityWarning(true);
                 }
                 return;
@@ -349,6 +493,7 @@ export function useSecurity() {
                     if (obj) {
                         if ((obj.type === 'demo7' || obj.type === 'demo3') && obj.expires && Date.now() >= obj.expires) {
                             localStorage.removeItem('pda_premium_token');
+                            localStorage.removeItem('pda_license_cache');
                             setIsPremium(false);
                             setIsDemo(false);
                             setDemoExpiredMsg("Tu licencia temporal ha finalizado. Esperamos que hayas disfrutado la experiencia completa.");
@@ -360,6 +505,7 @@ export function useSecurity() {
                 } catch {
                     if (isPremium) {
                         localStorage.removeItem('pda_premium_token');
+                        localStorage.removeItem('pda_license_cache');
                         setIsPremium(false);
                         setIsDemo(false);
                         setIntegrityWarning(true);
@@ -425,6 +571,15 @@ export function useSecurity() {
         setIsDemo(true);
         setDemoExpires(expires);
         setDemoUsed(true);
+ 
+        // Guardar en cache offline
+        localStorage.setItem('pda_license_cache', JSON.stringify({
+            type: 'demo3',
+            isActive: true,
+            expiresAt: expires,
+            deviceId: currentDeviceId,
+            updatedAt: Date.now()
+        }));
 
         try {
             await supabase.rpc('activate_demo_secure', {
@@ -450,21 +605,23 @@ export function useSecurity() {
      */
     const unlockApp = async (inputCode) => {
         try {
-            const cleanCode = (inputCode || "").trim().toUpperCase().replace(/O/g, '0');
+            const cleanCode = (inputCode || "").replace(/-/g, "").trim().toUpperCase().replace(/O/g, '0');
             const { data: license, error } = await supabase
                 .from('licenses')
-                .select('type, active, expires_at, code')
+                .select('type, is_active, expires_at, code, created_at')
                 .eq('device_id', deviceId)
                 .eq('product_id', PRODUCT_ID)
                 .maybeSingle();
 
-            if (error || !license || license.code !== cleanCode) {
+            const cleanDbCode = (license?.code || "").replace(/-/g, "").trim().toUpperCase().replace(/O/g, '0');
+
+            if (error || !license || cleanDbCode !== cleanCode) {
                 return { success: false, status: 'INVALID_CODE' };
             }
 
-            const { type, active, expires_at } = license;
+            const { type, is_active, expires_at } = license;
 
-            if (!active) {
+            if (!is_active) {
                 return { success: false, status: 'LICENSE_REVOKED' };
             }
 
@@ -487,12 +644,34 @@ export function useSecurity() {
                 setIsPremium(true);
                 setIsDemo(true);
                 setDemoExpires(expiresAt);
+ 
+                // Guardar en cache offline
+                localStorage.setItem('pda_license_cache', JSON.stringify({
+                    type,
+                    isActive: true,
+                    expiresAt,
+                    createdAt: license.created_at || new Date().toISOString(),
+                    deviceId,
+                    updatedAt: Date.now()
+                }));
+ 
                 return { success: true, status: 'PREMIUM_ACTIVATED' };
             }
-
+ 
             // Permanente
             setIsPremium(true);
             setIsDemo(false);
+ 
+            // Guardar en cache offline
+            localStorage.setItem('pda_license_cache', JSON.stringify({
+                type,
+                isActive: true,
+                expiresAt: null,
+                createdAt: license.created_at || new Date().toISOString(),
+                deviceId,
+                updatedAt: Date.now()
+            }));
+ 
             return { success: true, status: 'PREMIUM_ACTIVATED' };
 
         } catch (err) {
@@ -535,5 +714,7 @@ export function useSecurity() {
         forceHeartbeat,
         integrityWarning,
         dismissIntegrityWarning: () => setIntegrityWarning(false),
+        isMonthlyGracePeriod,
+        monthlyGraceDaysLeft,
     };
 }

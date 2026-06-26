@@ -4,7 +4,7 @@ import { formatBs } from '../../utils/calculatorUtils';
 
 const AVATAR_COLORS = [
     'bg-brand-light text-brand-dark dark:bg-surface-800/40 dark:text-brand',
-    'bg-brand-dark text-brand dark:bg-brand-dark/40 dark:text-brand',
+    'bg-brand-dark text-white dark:bg-brand-dark/40 dark:text-brand',
     'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
     'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300',
     'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',

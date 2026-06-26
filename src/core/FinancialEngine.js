@@ -29,6 +29,7 @@ const FACTORY_LABELS = {
     transferencia_cop: 'Transferencia COP',
     saldo_favor:       'Saldo a Favor',
     fiado:             'Fiado (Por Cobrar)',
+    cashea:            'Cashea (Por Cobrar)',
 };
 
 function _resolveMethodLabel(methodId) {

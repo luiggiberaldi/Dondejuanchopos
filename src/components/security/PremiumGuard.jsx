@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Lock, Copy, Check, Star, Sparkles, Send, Bot, Store, MessageCircle, Database, Crown, CreditCard, Gift, BarChart3, Bell, Volume2, Search } from 'lucide-react';
+import { Lock, Copy, Check, Star, Sparkles, Send, Store, CreditCard, Gift, BarChart3, Bell, Volume2, Search, Cloud, Package, FileText, Share2, Users } from 'lucide-react';
 import { useSecurity } from '../../hooks/useSecurity';
 import { Modal } from '../Modal';
 
@@ -39,14 +39,14 @@ export default function PremiumGuard({ children, featureName = "Esta función", 
         if (result.success) {
             setMessageModal({
                 open: true,
-                title: '🎉 ¡Demo Activada!',
-                content: 'Disfruta de todas las funciones premium durante 3 días. Aprovecha al máximo la herramienta.'
+                title: 'Periodo de Prueba Activado',
+                content: 'Disfruta de todas las funciones de la versión completa durante 3 días. Aprovecha al máximo la herramienta.'
             });
         } else if (result.status === 'DEMO_USED') {
             setMessageModal({
                 open: true,
-                title: '🚫 Demo ya utilizada',
-                content: 'El periodo de prueba ya fue utilizado en este dispositivo. Contacta soporte para adquirir tu licencia.'
+                title: 'Prueba no disponible',
+                content: 'El periodo de prueba ya fue utilizado en este dispositivo. Contacta a soporte para adquirir tu licencia comercial.'
             });
         }
     };
@@ -69,32 +69,33 @@ export default function PremiumGuard({ children, featureName = "Esta función", 
     let title, message, Icon, iconColor, benefits;
 
     if (isShop) {
-        title = <span>PreciosAlDía <span className="text-amber-500">Business</span> 👑</span>;
-        message = "Desbloquea el potencial completo para tu bodega.";
+        title = <span>PreciosAlDía <span className="text-brand dark:text-brand font-black">Business</span></span>;
+        message = "Optimiza las ventas, el inventario y las cuentas de tu negocio.";
         Icon = Store;
-        iconColor = "text-brand-dark dark:text-brand animate-pulse";
+        iconColor = "text-brand dark:text-brand animate-pulse";
         benefits = (
             <>
-                <BenefitItem icon={<Store size={15} className="text-brand" />} text="Inventario ilimitado de productos" />
-                <BenefitItem icon={<CreditCard size={15} className="text-brand" />} text="Sistema de Ventas y POS completo" />
-                <BenefitItem icon={<BarChart3 size={15} className="text-brand" />} text="Reportes históricos con PDF" />
-                <BenefitItem icon={<Bell size={15} className="text-amber-500" />} text="Notificaciones inteligentes" />
-                <BenefitItem icon={<Search size={15} className="text-emerald-500" />} text="Categorías y búsqueda por voz" />
-                <BenefitItem icon={<Volume2 size={15} className="text-rose-500" />} text="Sonidos inmersivos" />
+                <BenefitItem icon={<CreditCard size={15} className="text-brand" />} text="Punto de Venta Multimoneda ($, Bs, COP)" />
+                <BenefitItem icon={<Package size={15} className="text-brand" />} text="Control de Inventario y Alertas de Stock" />
+                <BenefitItem icon={<Users size={15} className="text-brand" />} text="Registro de Clientes y Cuentas por Cobrar" />
+                <BenefitItem icon={<FileText size={15} className="text-brand" />} text="Arqueos de Caja y Reportes en PDF" />
+                <BenefitItem icon={<Share2 size={15} className="text-brand" />} text="Envío de Recibos Digitales por WhatsApp" />
+                <BenefitItem icon={<Cloud size={15} className="text-brand" />} text="Sincronización y Respaldo en la Nube" />
             </>
         );
     } else {
-        title = <span>PreciosAlDía <span className="text-amber-500">Premium</span> 👑</span>;
-        message = <span>Acceso exclusivo a <strong>{featureName}</strong> para miembros.</span>;
+        title = <span>PreciosAlDía <span className="text-brand dark:text-brand font-black">Premium</span></span>;
+        message = <span>Se requiere una suscripción activa para usar <strong>{featureName}</strong>.</span>;
         Icon = Lock;
-        iconColor = "text-amber-500";
+        iconColor = "text-brand";
         benefits = (
             <>
-                <BenefitItem icon={<Sparkles size={15} className="text-brand dark:text-brand" />} text="Gestión completa de inventario" />
-                <BenefitItem icon={<Star size={15} className="text-amber-500" />} text="Punto de Venta integrado" />
-                <BenefitItem icon={<BarChart3 size={15} className="text-brand" />} text="Reportes con descarga PDF" />
-                <BenefitItem icon={<Bell size={15} className="text-rose-500" />} text="Alertas de stock y cierre de caja" />
-                <BenefitItem icon={<Check size={15} className="text-green-600 dark:text-green-500" />} text="Soporte Prioritario" />
+                <BenefitItem icon={<CreditCard size={15} className="text-brand" />} text="Acceso Completo al Punto de Venta" />
+                <BenefitItem icon={<Package size={15} className="text-brand" />} text="Gestión de Inventario y Stock" />
+                <BenefitItem icon={<Users size={15} className="text-brand" />} text="Registro de Cuentas de Clientes" />
+                <BenefitItem icon={<FileText size={15} className="text-brand" />} text="Reportes Históricos en PDF" />
+                <BenefitItem icon={<Cloud size={15} className="text-brand" />} text="Respaldo de Información en la Nube" />
+                <BenefitItem icon={<Check size={15} className="text-emerald-500" />} text="Soporte Técnico de Alta Prioridad" />
             </>
         );
     }
@@ -107,15 +108,15 @@ export default function PremiumGuard({ children, featureName = "Esta función", 
                 }
             `}</style>
 
-            <div className="w-full max-w-[320px] sm:max-w-sm max-h-[95%] overflow-hidden rounded-[2rem] p-4 relative bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 shadow-2xl shadow-slate-200/50 dark:shadow-none">
+            <div className="w-full max-w-[320px] sm:max-w-sm max-h-[95%] overflow-hidden rounded-[2rem] p-4 relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-tone-lg">
 
                 {/* Decorative Background */}
-                <div className="absolute top-0 right-0 -mr-16 -mt-16 w-32 h-32 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-                <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-32 h-32 bg-brand/5 rounded-full blur-3xl pointer-events-none" />
+                <div className="absolute top-0 right-0 -mr-16 -mt-16 w-32 h-32 bg-accent-500/10 rounded-full blur-3xl pointer-events-none" />
+                <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-32 h-32 bg-brand/10 dark:bg-brand/5 rounded-full blur-3xl pointer-events-none" />
 
                 {/* Icon & Title */}
                 <div className="mb-2 relative z-10">
-                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-2 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shadow-sm">
+                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-2 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 shadow-tone-sm">
                         <Icon className={iconColor} size={24} strokeWidth={2} />
                     </div>
                     <h2 className="text-xl font-black mb-1 tracking-tight text-slate-900 dark:text-white leading-tight">
@@ -134,9 +135,9 @@ export default function PremiumGuard({ children, featureName = "Esta función", 
                 {/* CTA: Solicitar Licencia */}
                 <button
                     onClick={openWhatsApp}
-                    className="w-full bg-[#10B981] hover:bg-[#059669] text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 mb-2 transition-all shadow-lg shadow-emerald-500/20 hover:-translate-y-0.5 active:scale-95 text-sm"
+                    className="w-full bg-brand hover:bg-brand-dark text-white dark:text-slate-950 font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 mb-2 transition-all shadow-lg shadow-brand/20 hover:-translate-y-0.5 active:scale-95 text-sm"
                 >
-                    <Send size={16} fill="white" />
+                    <Send size={16} className="fill-white dark:fill-slate-950" />
                     <span>Solicitar Licencia</span>
                 </button>
 
@@ -144,10 +145,10 @@ export default function PremiumGuard({ children, featureName = "Esta función", 
                 <button
                     onClick={handleActivateDemo}
                     disabled={demoUsed || demoLoading}
-                    className={`w-full py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 mb-3 text-sm font-bold transition-all active:scale-95
+                    className={`w-full py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 mb-3 text-sm font-bold transition-all border active:scale-95
                         ${demoUsed
-                            ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
-                            : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/30'
+                            ? 'bg-slate-100 dark:bg-slate-800/40 text-slate-400 dark:text-slate-600 border-transparent cursor-not-allowed'
+                            : 'bg-brand-light dark:bg-slate-800/20 text-brand-dark dark:text-brand border-brand/20 dark:border-slate-800/30 hover:bg-brand-light/70 dark:hover:bg-slate-800/30'
                         }`}
                 >
                     <Gift size={16} />
@@ -155,24 +156,25 @@ export default function PremiumGuard({ children, featureName = "Esta función", 
                 </button>
 
                 {/* Device ID */}
-                <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-2 mb-3 border border-slate-100 dark:border-slate-700/50">
+                <div className="bg-slate-50/50 dark:bg-slate-900/50 rounded-xl p-2.5 mb-3 border border-slate-200 dark:border-slate-800/60">
                     <p className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-0.5 font-bold leading-tight">Tu ID de Instalación</p>
                     <div className="flex items-center justify-between gap-2">
-                        <code className="text-base font-mono font-bold text-slate-900 dark:text-slate-200 tracking-wider">
+                        <code className="text-xs sm:text-sm font-mono font-bold text-slate-900 dark:text-slate-200 tracking-tight break-all pr-1 select-all">
                             {deviceId}
                         </code>
                         <button
                             onClick={copyToClipboard}
-                            className="p-1.5 bg-white dark:bg-slate-700 hover:scale-105 shadow-sm border border-slate-100 dark:border-slate-600 rounded-lg transition-all text-slate-400 dark:text-slate-300 hover:text-amber-500"
+                            type="button"
+                            className="p-1.5 bg-white dark:bg-slate-800 hover:scale-105 shadow-tone-sm border border-slate-200 dark:border-slate-750 rounded-lg transition-all text-slate-400 dark:text-slate-300 hover:text-brand hover:border-brand"
                             title="Copiar ID"
                         >
-                            {copied ? <Check size={14} /> : <Copy size={14} />}
+                            {copied ? <Check size={14} className="text-brand" /> : <Copy size={14} />}
                         </button>
                     </div>
                 </div>
 
                 {/* Activation Form */}
-                <form onSubmit={handleUnlock} className="border-t border-slate-100 dark:border-slate-800 pt-2">
+                <form onSubmit={handleUnlock} className="border-t border-slate-200 dark:border-slate-800/80 pt-2">
                     <p className="text-[10px] text-slate-400 dark:text-slate-500 mb-1.5 font-bold uppercase tracking-wide leading-tight">Código de Activación</p>
                     <div className="flex gap-2">
                         <input
@@ -180,11 +182,11 @@ export default function PremiumGuard({ children, featureName = "Esta función", 
                             value={inputCode}
                             onChange={(e) => setInputCode(e.target.value.toUpperCase())}
                             placeholder="ACTIV-XXXX-XXXX"
-                            className={`flex-1 bg-white dark:bg-slate-950 border ${error ? 'border-red-500' : 'border-slate-200 dark:border-slate-700'} rounded-xl px-2 py-2 text-center font-mono text-xs font-bold tracking-widest text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50 transition-all uppercase placeholder:text-slate-300 dark:placeholder:text-slate-600 shadow-sm`}
+                            className={`flex-1 bg-white dark:bg-slate-950 border ${error ? 'border-red-500' : 'border-slate-200 dark:border-slate-800'} rounded-xl px-2 py-2 text-center font-mono text-xs font-bold tracking-wider text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand/50 transition-all uppercase placeholder:text-slate-300 dark:placeholder:text-slate-700 shadow-sm`}
                         />
                         <button
                             type="submit"
-                            className="bg-slate-900 dark:bg-slate-800 dark:border dark:border-slate-700 text-white font-bold px-4 rounded-xl text-xs hover:bg-slate-800 transition-colors shadow-lg shadow-slate-900/10"
+                            className="bg-brand hover:bg-brand-dark text-white dark:text-slate-950 font-bold px-4 rounded-xl text-xs hover:scale-105 active:scale-95 transition-all shadow-md shadow-brand/20"
                         >
                             <Check size={16} strokeWidth={3} />
                         </button>
@@ -208,7 +210,7 @@ export default function PremiumGuard({ children, featureName = "Esta función", 
                                 setMessageModal({ ...messageModal, open: false });
                                 if (messageModal.title.includes('Activada')) window.location.reload();
                             }}
-                            className="w-full py-3 bg-brand text-slate-900 font-bold rounded-xl shadow-lg shadow-brand/20 active:scale-95 transition-transform"
+                            className="w-full py-3 bg-brand hover:bg-brand-dark text-white dark:text-slate-950 font-bold rounded-xl shadow-lg shadow-brand/20 active:scale-95 transition-all"
                         >
                             Entendido
                         </button>

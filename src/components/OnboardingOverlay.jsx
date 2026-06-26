@@ -89,8 +89,8 @@ export default function OnboardingOverlay({ isPremium = false }) {
     };
 
     return (
-        // v1.2.0: backdrop warm cream (bg-surface-950/95) con blur.
-        <div ref={revealRef} className="fixed inset-0 z-[9998] bg-surface-950/95 backdrop-blur-md flex items-center justify-center p-5 animate-in fade-in duration-300 overflow-hidden">
+        // v1.2.0: backdrop bg-black/80 con blur.
+        <div ref={revealRef} className="fixed inset-0 z-[9998] bg-black/80 backdrop-blur-md flex items-center justify-center p-5 animate-in fade-in duration-300 overflow-hidden">
 
             {/* Decorative background orbs — tone-matched cian + emerald */}
             <div className="absolute top-1/4 -left-20 w-64 h-64 bg-emerald-500/10 rounded-full blur-[100px] pointer-events-none animate-pulse" />
@@ -108,7 +108,7 @@ export default function OnboardingOverlay({ isPremium = false }) {
 
                 {/* Card — keyed by step for slideIn animation; inner content staggers via Tailwind animate-* */}
                 <div
-                    className="bg-surface dark:bg-surface-100 rounded-[2rem] shadow-tone-lg border border-surface-200 dark:border-surface-700 overflow-hidden"
+                    className="bg-surface-100 dark:bg-surface-100 rounded-[2rem] shadow-tone-lg border border-surface-200 dark:border-surface-700 overflow-hidden"
                     key={step}
                     style={{
                         animation: `${direction > 0 ? 'slideInRight' : 'slideInLeft'} 0.3s ease-out`,
@@ -160,7 +160,7 @@ export default function OnboardingOverlay({ isPremium = false }) {
                             </p>
 
                             {/* Headline — font-display (Instrument Serif) */}
-                            <h2 className="font-display text-2xl text-surface-700 dark:text-surface-100 text-center mb-3 leading-tight animate-slide-up" style={{ animationDelay: '120ms' }}>
+                            <h2 className="font-display text-2xl text-surface-700 text-center mb-3 leading-tight animate-slide-up" style={{ animationDelay: '120ms' }}>
                                 {current.headline}
                             </h2>
 
@@ -172,8 +172,8 @@ export default function OnboardingOverlay({ isPremium = false }) {
                             </p>
 
                             {/* Tip */}
-                            <div className="bg-surface-2 dark:bg-surface-800 rounded-xl px-4 py-3 border border-surface-200 dark:border-surface-700 animate-fade-in" style={{ animationDelay: '240ms' }}>
-                                <p className="text-xs text-surface-600 dark:text-surface-300 font-medium text-center">
+                            <div className="bg-surface-200 dark:bg-surface-200 rounded-xl px-4 py-3 border border-surface-200 dark:border-surface-700 animate-fade-in" style={{ animationDelay: '240ms' }}>
+                                <p className="text-xs text-surface-700 font-medium text-center">
                                     {hasVariants
                                         ? (isPremium ? current.tipPremium : current.tipFree)
                                         : current.tip}
