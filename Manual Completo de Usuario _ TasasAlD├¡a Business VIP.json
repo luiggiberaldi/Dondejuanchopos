@@ -123,6 +123,29 @@
                     "details": "Funciona sin internet mostrando la última tasa guardada (alerta visual de datos antiguos)."
                 }
             ]
+        },
+        {
+            "id": "section_6",
+            "title": "👁️ Sección 6: Modo Supervisor (Monitoreo en Vivo)",
+            "description": "Visualiza ventas y el estado de la caja de tu negocio en tiempo real desde cualquier dispositivo móvil o PC.",
+            "features": [
+                {
+                    "name": "Monitoreo Remoto en Vivo",
+                    "details": "Permite ver el total vendido en dólares (USD), bolívares (Bs) y ganancias del turno activo, además del cajero de turno."
+                },
+                {
+                    "name": "Arqueo y Cierre de Caja en Vivo",
+                    "details": "Al realizar un cierre de caja en la Caja principal, se actualizará y mostrará automáticamente una zona de resumen de cierre en la pantalla del Supervisor con los totales definitivos conciliados."
+                },
+                {
+                    "name": "Cómo Vincular Dispositivo (Paso a Paso)",
+                    "details": "1. En el dispositivo principal (Caja), ve a Configuración (icono engranaje) -> pestaña 'Sistema' -> sección 'Celular del Supervisor'. Pulsa en 'Vincular Monitor' para generar un código QR y un código de 6 dígitos.\n2. En el dispositivo del Supervisor (teléfono o tablet), abre la aplicación.\n3. En la pantalla inicial de inicio de sesión, pulsa en el botón 'Modo Supervisor (Ver Monitoreo)'.\n4. Escanea el código QR de la Caja con la cámara del dispositivo o escribe el código manual de 6 dígitos.\n5. Presiona 'Vincular' y el monitor se conectará en vivo mostrando las cifras del local."
+                },
+                {
+                    "name": "Desvinculación y Seguridad",
+                    "details": "Los datos están protegidos. Puedes desvincular el dispositivo monitor en cualquier momento desde el botón 'Cerrar Sesión/Salir' en la esquina superior del panel del supervisor, deteniendo la transmisión de inmediato."
+                }
+            ]
         }
     ],
     "tips": [
