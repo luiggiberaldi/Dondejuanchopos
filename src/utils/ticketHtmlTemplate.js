@@ -67,13 +67,13 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
     const fiadoRate = bcvRate || rate;
     // FIN-024: mulR en vez de multiplicación raw.
     const fiadoHtml = hasFiado ? `
-        <div style="margin-top:6px;padding:4px 0;border-top:1px dashed #ccc;">
+        <div style="margin-top:6px;padding:4px 0;border-top:1px dashed #000;">
             <table style="width:100%"><tr>
-                <td style="color:#dc3545;font-weight:bold;font-size:11px;">Deuda pendiente:</td>
-                <td style="color:#dc3545;font-weight:bold;font-size:11px;text-align:right;">${fmtUsd(sale.fiadoUsd)}</td>
+                <td style="color:#000;font-weight:bold;font-size:11px;">Deuda pendiente:</td>
+                <td style="color:#000;font-weight:bold;font-size:11px;text-align:right;">${fmtUsd(sale.fiadoUsd)}</td>
             </tr><tr>
                 <td></td>
-                <td style="color:#dc3545;font-size:9px;text-align:right;">Bs ${formatBs(mulR(sale.fiadoUsd, fiadoRate))} (tasa actual)</td>
+                <td style="color:#000;font-size:9px;text-align:right;">Bs ${formatBs(mulR(sale.fiadoUsd, fiadoRate))} (tasa actual)</td>
             </tr></table>
         </div>` : '';
 
@@ -87,7 +87,13 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
         size: ${cssPageSize};
         margin: 0;
     }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * { 
+        margin: 0; 
+        padding: 0; 
+        box-sizing: border-box; 
+        font-weight: bold !important; 
+        color: #000 !important;
+    }
     body {
         font-family: 'Courier New', 'Lucida Console', monospace;
         font-weight: bold;
@@ -104,13 +110,13 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
     .bold { font-weight: bold; }
     .dash {
         border: none;
-        border-top: 1px dashed #555;
+        border-top: 1px dashed #000 !important;
         margin: ${is80 ? '8px 0' : '6px 0'};
     }
     .total-usd {
         font-size: ${fTotalU};
         font-weight: 900;
-        color: #107c41;
+        color: #000;
         text-align: center;
         margin: 4px 0;
     }
@@ -154,19 +160,19 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
     <table>
         <tr>
             <td style="font-size:${fSmall};font-weight:bold;">N: #${saleNum}</td>
-            <td style="font-size:${fTiny};color:#555;text-align:right;">${fecha} ${hora}</td>
+            <td style="font-size:${fTiny};color:#000;text-align:right;">${fecha} ${hora}</td>
         </tr>
     </table>
     <div style="font-size:${fSmall};margin:3px 0 2px;">
         <span style="font-weight:bold;">Cliente:</span> ${sale.customerName || 'Consumidor Final'}
     </div>
-    ${sale.customerDocument ? `<div style="font-size:${fTiny};color:#555;">C.I/RIF: ${sale.customerDocument}</div>` : ''}
+    ${sale.customerDocument ? `<div style="font-size:${fTiny};color:#000;">C.I/RIF: ${sale.customerDocument}</div>` : ''}
 
     <hr class="dash">
 
     <!-- Productos Header -->
     <table style="margin-bottom:4px;">
-        <tr style="font-size:${fTiny};color:#777;font-weight:bold;">
+        <tr style="font-size:${fTiny};color:#000;font-weight:bold;">
             <td style="text-align:left;">CANT</td>
             <td style="text-align:left;">DESCRIPCION</td>
             <td style="text-align:right;">IMPORTE</td>
@@ -179,7 +185,7 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
     <hr class="dash">
 
     <!-- Tasa -->
-    <div class="center" style="font-size:${fTiny};color:#555;margin:4px 0;">
+    <div class="center" style="font-size:${fTiny};color:#000;margin:4px 0;">
         <div style="margin-bottom:2px;">Tasa BCV: Bs ${formatBs(rate)} por ${isCop ? 'USD 1' : '$1'}</div>
         ${sale.tasaCop > 0 ? `<div>Tasa COP: ${sale.tasaCop.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} por USD 1</div>` : ''}
     </div>
@@ -187,18 +193,18 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
     <!-- Total -->
     <div style="margin:8px 0;">
         ${sale.discountAmountUsd > 0 ? `
-        <table style="margin-bottom:6px; font-size:${fTiny}; border-bottom: 1px dashed #ccc; padding-bottom: 4px;">
+        <table style="margin-bottom:6px; font-size:${fTiny}; border-bottom: 1px dashed #000; padding-bottom: 4px;">
             <tr>
-                <td style="text-align:left; color:#555; font-weight:bold;">SUBTOTAL:</td>
-                <td style="text-align:right; color:#555; font-weight:bold;">${fmtUsd(sale.cartSubtotalUsd || (sale.totalUsd + sale.discountAmountUsd))}</td>
+                <td style="text-align:left; color:#000; font-weight:bold;">SUBTOTAL:</td>
+                <td style="text-align:right; color:#000; font-weight:bold;">${fmtUsd(sale.cartSubtotalUsd || (sale.totalUsd + sale.discountAmountUsd))}</td>
             </tr>
             <tr>
-                <td style="text-align:left; color:#dc3545; font-weight:bold;">${sale.discountType === 'percentage' ? `DESCUENTO (${sale.discountValue}%):` : 'DESCUENTO:'}</td>
-                <td style="text-align:right; color:#dc3545; font-weight:bold;">-${fmtUsd(sale.discountAmountUsd)}</td>
+                <td style="text-align:left; color:#000; font-weight:bold;">${sale.discountType === 'percentage' ? `DESCUENTO (${sale.discountValue}%):` : 'DESCUENTO:'}</td>
+                <td style="text-align:right; color:#000; font-weight:bold;">-${fmtUsd(sale.discountAmountUsd)}</td>
             </tr>
         </table>
         ` : ''}
-        <div class="center bold" style="font-size:${fSmall};color:#555;margin-bottom:4px;">TOTAL A PAGAR</div>
+        <div class="center bold" style="font-size:${fSmall};color:#000;margin-bottom:4px;">TOTAL A PAGAR</div>
         <div class="total-usd">${fmtUsd(sale.totalUsd || 0)}</div>
         ${isCop ? `<div class="total-bs" style="font-size:${is80 ? '16px' : '13px'};">COP ${formatCop(sale.totalCop || mulR(sale.totalUsd, sale.tasaCop))}</div>` : ''}
         <div class="total-bs" style="margin-bottom:4px">Bs ${formatBs(sale.totalBs || 0)}</div>
@@ -209,7 +215,7 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
     <!-- Pagos -->
     ${(sale.payments && sale.payments.length > 0) || hasFiado ? `
     <div style="margin:4px 0;">
-        <div style="font-size:${fTiny};color:#777;font-weight:bold;margin-bottom:4px;">PAGOS REALIZADOS</div>
+        <div style="font-size:${fTiny};color:#000;font-weight:bold;margin-bottom:4px;">PAGOS REALIZADOS</div>
         <table>${paymentsHtml}</table>
         ${fiadoHtml}
     </div>

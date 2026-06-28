@@ -94,14 +94,14 @@ export default async function handler(req, res) {
                 continue;
             }
 
-            // Si es rate limit (429) o error de servidor (5xx), rotar a la siguiente key
-            if (response.status === 429 || response.status >= 500) {
+            // Si es rate limit (429), llave inválida/expirada (401/403) o error de servidor (5xx), rotar a la siguiente key
+            if (response.status === 429 || response.status === 401 || response.status === 403 || response.status >= 500) {
                 const errBody = await response.text();
                 lastError = `Key[${keyIndex}] HTTP ${response.status}: ${errBody}`;
                 continue; // <-- aquí está la magia: siguiente key
             }
 
-            // Cualquier otro error no recuperable (ej. 400, 401) — falla inmediatamente
+            // Cualquier otro error no recuperable (ej. 400 bad request) — falla inmediatamente
             if (!response.ok) {
                 const errText = await response.text();
                 return res.status(response.status).json({ error: `Error de la API de Groq: ${errText}` });

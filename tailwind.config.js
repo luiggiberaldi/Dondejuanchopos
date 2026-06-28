@@ -52,6 +52,7 @@ export default {
         },
         // Alias surface-* (nuevo namespace semántico, mismo valor que slate)
         surface: {
+          DEFAULT: 'rgb(var(--color-surface-100) / <alpha-value>)',
           50: 'rgb(var(--color-surface-50) / <alpha-value>)',
           100: 'rgb(var(--color-surface-100) / <alpha-value>)',
           200: 'rgb(var(--color-surface-200) / <alpha-value>)',

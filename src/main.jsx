@@ -10,7 +10,7 @@ import './index.css'
 if ('serviceWorker' in navigator) {
   // Forzar chequeo de nueva versión en cada carga
   navigator.serviceWorker.getRegistrations().then(regs => {
-    regs.forEach(reg => reg.update());
+    regs.forEach(reg => reg.update().catch(() => {/* Ignorar fallos en desarrollo o sin conexión */}));
   });
 
   // Cuando el nuevo SW toma control, recargar la página para servir el nuevo código.

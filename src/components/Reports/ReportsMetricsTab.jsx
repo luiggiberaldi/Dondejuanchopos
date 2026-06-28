@@ -5,6 +5,7 @@ import { getPaymentLabel, getPaymentMethod, PAYMENT_ICONS, toTitleCase, getPayme
 import { generateTicketPDF } from '../../utils/ticketGenerator';
 import EmptyState from '../EmptyState';
 import { BarChart3 } from 'lucide-react';
+import CasheaIcon from '../CasheaIcon';
 
 // ── Helper sub-components (moved from ReportsView) ──
 
@@ -141,13 +142,47 @@ function TransactionRow({ sale: s, bcvRate, isExpanded, onToggle, onVoidSale, on
                             <p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">Productos ({s.items.length})</p>
                             {s.items.map((item, i) => (
                                 <div key={i} className={`flex justify-between items-center text-xs ${isCanceled ? 'text-slate-400 line-through' : 'text-slate-600 dark:text-slate-300'}`}>
-                                    <span className="truncate pr-2">{item.isWeight ? `${item.qty.toFixed(3)}kg` : `${item.qty}u`} {item.name}</span>
+                                    <span className="truncate pr-2">
+                                        {item.isWeight ? `${item.qty.toFixed(3)}kg` : `${item.qty}u`} {item.name}
+                                        {(item.isWeight || item.qty !== 1) && (
+                                            <span className="text-[10px] text-slate-400 font-normal ml-1">
+                                                ({item.isWeight ? '' : 'c/u '}{copEnabled && copPrimary && tasaCop > 0 ? `${formatCop(item.priceCop || Math.round(item.priceUsd * tasaCop))} COP` : `$${item.priceUsd.toFixed(2)}`})
+                                            </span>
+                                        )}
+                                    </span>
                                     <span className="font-medium">{copEnabled && copPrimary && tasaCop > 0 ? `${formatCop((item.priceCop || Math.round(item.priceUsd * tasaCop)) * item.qty)} COP` : `$${(item.priceUsd * item.qty).toFixed(2)}`}</span>
                                 </div>
                             ))}
                         </div>
                     ) : (
                         <p className="text-xs text-slate-400 mb-3 pt-2">Pago de Deudas (Sin productos)</p>
+                    )}
+
+                    {s.payments && s.payments.length > 0 && (
+                        <div className="space-y-1 mb-3 pt-2 border-t border-dashed border-slate-200 dark:border-slate-700/50">
+                            <p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">Detalle de Pago</p>
+                            {s.payments.map((p, i) => {
+                                const pIsCop = p.currency === 'COP';
+                                const isBs = !pIsCop && (p.currency ? p.currency !== 'USD' : (p.methodId?.includes('_bs') || p.methodId === 'pago_movil'));
+                                const val = pIsCop
+                                    ? 'COP ' + (p.amountInput || (p.amountUsd * (s.tasaCop || tasaCop || 1))).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                    : isBs
+                                    ? 'Bs ' + formatBs(p.amountBs || (p.amountUsd * (s.rate || bcvRate)))
+                                    : `$${(p.amountUsd || 0).toFixed(2)}`;
+                                
+                                const isCashea = p.methodId === 'cashea';
+                                
+                                return (
+                                    <div key={i} className={`flex justify-between items-center text-xs ${isCanceled ? 'text-slate-400 line-through' : isCashea ? 'text-purple-650 dark:text-purple-400 font-bold' : 'text-slate-600 dark:text-slate-300'}`}>
+                                        <span className="flex items-center gap-1.5">
+                                            {isCashea && <CasheaIcon size={12} />}
+                                            {p.methodLabel || 'Pago'}
+                                        </span>
+                                        <span className="font-semibold">{val} {p.methodId !== 'cashea' && p.amountUsd > 0 && <span className="text-[10px] font-normal text-slate-400">(${(p.amountUsd || 0).toFixed(2)})</span>}</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
                     )}
 
                     <div className="flex justify-between text-[10px] font-medium text-slate-400 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-lg p-2 mb-3">
@@ -254,7 +289,7 @@ export default function ReportsMetricsTab({
             )}
 
             {/* Mini bar chart per day */}
-            {salesByDay.length > 1 && (
+            {!onlyHistory && salesByDay.length > 1 && (
                 <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 shadow-sm mt-4">
                     <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-3 flex items-center gap-1">
                         <Calendar size={12} /> Ventas por Día
@@ -281,7 +316,7 @@ export default function ReportsMetricsTab({
             )}
 
             {/* Payment Breakdown */}
-            {Object.keys(paymentBreakdown).length > 0 && (() => {
+            {!onlyHistory && Object.keys(paymentBreakdown).length > 0 && (() => {
                 const allEntries = Object.entries(paymentBreakdown).filter(([, d]) => d.total > 0);
                 const fiadoMethods = allEntries.filter(([, d]) => d.currency === 'FIADO' && !d.isChange);
                 const bsMethods    = allEntries.filter(([, d]) => (d.currency === 'BS' || (!d.currency)) && !d.isChange);
@@ -435,7 +470,7 @@ export default function ReportsMetricsTab({
             })()}
 
             {/* Top Products */}
-            {topProducts.length > 0 && (
+            {!onlyHistory && topProducts.length > 0 && (
                 <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 shadow-sm">
                     <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-3 flex items-center gap-1">
                         <TrendingUp size={12} /> Top Productos

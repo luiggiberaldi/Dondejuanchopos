@@ -1,11 +1,35 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronUp, LockIcon, Printer, DollarSign, Clock, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { ChevronDown, ChevronUp, LockIcon, Printer, DollarSign, Clock, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
 import { formatBs, formatCop } from '../../utils/calculatorUtils';
 import { getPaymentLabel, getPaymentIcon, toTitleCase, PAYMENT_ICONS } from '../../config/paymentMethods';
 import { generateDailyClosePDF } from '../../utils/dailyCloseGenerator';
+import { printerSerial } from '../../services/PrinterSerial';
+import { showToast } from '../Toast';
 
-export default function CierreHistoryCard({ cierre, bcvRate, products, copEnabled, copPrimary, tasaCop }) {
+export default function CierreHistoryCard({ cierre, correlativo, bcvRate, products, copEnabled, copPrimary, tasaCop }) {
     const [isExpanded, setIsExpanded] = useState(false);
+    const [isPrinting, setIsPrinting] = useState(false);
+
+    const handleThermalPrint = async (e) => {
+        e.stopPropagation();
+        if (!printerSerial.isSupported()) {
+            showToast('Tu navegador no soporta impresoras seriales. Usa Chrome o Edge.', 'error');
+            return;
+        }
+        try {
+            if (!printerSerial.isConnected()) {
+                const connected = await printerSerial.connect();
+                if (!connected) return;
+            }
+            setIsPrinting(true);
+            await printerSerial.printDailyClose(cierre, bcvRate, correlativo);
+            showToast('Cierre impreso correctamente', 'success');
+        } catch (err) {
+            showToast('Error al imprimir: ' + (err.message || 'desconocido'), 'error');
+        } finally {
+            setIsPrinting(false);
+        }
+    };
 
     const dateLabel = new Date(cierre.cierreId).toLocaleString('es-VE', { 
         weekday: 'short', day: '2-digit', month: 'short', year: 'numeric',
@@ -46,8 +70,8 @@ export default function CierreHistoryCard({ cierre, bcvRate, products, copEnable
     };
 
     const hasApertura = !!cierre.apertura;
-    const fondoInicial = hasApertura ? (cierre.apertura.totalUsd || 0) : 0;
-    const fondoInicialBs = hasApertura ? (cierre.apertura.totalBs || 0) : 0;
+    const fondoInicial = hasApertura ? (cierre.apertura.openingUsd || 0) : 0;
+    const fondoInicialBs = hasApertura ? (cierre.apertura.openingBs || 0) : 0;
 
     return (
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden mb-3 transition-all active:scale-[0.99] cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
@@ -59,6 +83,11 @@ export default function CierreHistoryCard({ cierre, bcvRate, products, copEnable
                     <div>
                         <p className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
                             Cierre de Caja
+                            {correlativo != null && (
+                                <span className="text-[9px] bg-brand-light dark:bg-brand/20 text-brand-dark dark:text-brand px-1.5 py-0.5 rounded font-black">
+                                    #{correlativo}
+                                </span>
+                            )}
                             <span className="text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded uppercase font-black">{cierre.salesCount} ops</span>
                         </p>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400 capitalize">{dateLabel}</p>
@@ -122,11 +151,22 @@ export default function CierreHistoryCard({ cierre, bcvRate, products, copEnable
                     </div>
 
                     <div className="pt-3 mt-1 flex gap-2">
-                        <button 
+                        <button
                             onClick={handlePrintPDF}
                             className="flex-1 py-2.5 bg-brand-light dark:bg-surface-800/20 text-brand-dark dark:text-brand hover:bg-brand-light font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors active:scale-95"
                         >
                             <Printer size={16} /> Re-imprimir PDF
+                        </button>
+                        <button
+                            onClick={handleThermalPrint}
+                            disabled={isPrinting}
+                            className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Imprimir en impresora térmica (Chrome/Edge)"
+                        >
+                            {isPrinting
+                                ? <><Loader2 size={14} className="animate-spin" /> Imprimiendo…</>
+                                : <><Printer size={14} /> Impresora Térmica</>
+                            }
                         </button>
                     </div>
                 </div>

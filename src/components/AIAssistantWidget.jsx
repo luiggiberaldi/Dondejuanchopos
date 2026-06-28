@@ -116,27 +116,68 @@ export default function AIAssistantWidget() {
         let salesCount = 0, totalSalesUsd = 0, totalSalesBs = 0;
         let paymentBreakdown = {};
         let voidedCount = 0;
+        let lastSalesDetail = 'Sin ventas registradas hoy';
         try {
             const sales = await storageService.getItem('bodega_sales_v1', []);
             const todayStr = new Date().toISOString().split('T')[0];
-            const todaySales = sales.filter(s => s.timestamp?.startsWith(todayStr) && s.status !== 'ANULADA');
+            const todaySales = sales
+                .filter(s => s.timestamp?.startsWith(todayStr) && s.status !== 'ANULADA')
+                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)); // más reciente primero
             const todayVoided = sales.filter(s => s.timestamp?.startsWith(todayStr) && s.status === 'ANULADA');
             salesCount = todaySales.length;
             voidedCount = todayVoided.length;
             totalSalesUsd = todaySales.reduce((acc, s) => acc + (s.totalUsd || 0), 0);
             totalSalesBs = todaySales.reduce((acc, s) => acc + (s.totalBs || 0), 0);
-            // Desglose por método de pago
+
+            // Desglose por método de pago (usando payments[].methodLabel que es el campo correcto)
             todaySales.forEach(s => {
-                const pm = s.paymentMethod || s.metodoPago || 'desconocido';
-                if (!paymentBreakdown[pm]) paymentBreakdown[pm] = { count: 0, usd: 0 };
-                paymentBreakdown[pm].count++;
-                paymentBreakdown[pm].usd += (s.totalUsd || 0);
+                const pmethods = s.payments?.length > 0
+                    ? s.payments.map(p => p.methodLabel || p.methodId || 'Sin dato').join(' + ')
+                    : (s.paymentMethod || s.metodoPago || 'Sin dato');
+                if (!paymentBreakdown[pmethods]) paymentBreakdown[pmethods] = { count: 0, usd: 0 };
+                paymentBreakdown[pmethods].count++;
+                paymentBreakdown[pmethods].usd += (s.totalUsd || 0);
             });
+
+            // Detalle de las últimas 5 ventas (absolutas, de cualquier día, ordenadas por fecha reciente)
+            const last5 = sales
+                .filter(s => s.status !== 'ANULADA')
+                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                .slice(0, 5);
+
+            if (last5.length > 0) {
+                lastSalesDetail = last5.map((s, idx) => {
+                    const fDate = s.timestamp
+                        ? new Date(s.timestamp).toLocaleString('es-VE', { 
+                            day: '2-digit', 
+                            month: '2-digit', 
+                            year: 'numeric',
+                            hour: '2-digit', 
+                            minute: '2-digit' 
+                          })
+                        : 'fecha/hora desconocida';
+                    const num = s.saleNumber ? `#${String(s.saleNumber).padStart(5, '0')}` : `(sin número)`;
+                    const cliente = s.customerName || s.clienteName || 'Consumidor Final';
+                    const tipo = s.tipo || 'VENTA';
+                    const productos = (s.items || []).map(i => `${i.name} x${i.qty}`).join(', ') || 'sin detalle';
+                    const metodo = s.payments?.length > 0
+                        ? s.payments.map(p => `${p.methodLabel || p.methodId || '?'} (${p.currency || '?'}): $${(p.amountUsd || 0).toFixed(2)}`).join(' | ')
+                        : 'Sin dato';
+                    // Desglose especial para ventas Cashea
+                    const casheaDesglose = s.tipo === 'VENTA_CASHEA' && s.casheaUsd > 0
+                        ? `\n     Inicial pagado por el cliente: $${((s.totalUsd || 0) - (s.casheaUsd || 0)).toFixed(2)} USD | Financiado por Cashea: $${(s.casheaUsd || 0).toFixed(2)} USD`
+                        : '';
+                    const vuelto = (s.changeUsd > 0 || s.changeBs > 0)
+                        ? ` | Vuelto: $${(s.changeUsd || 0).toFixed(2)} USD / Bs.${(s.changeBs || 0).toFixed(2)}`
+                        : '';
+                    return `  ${idx === 0 ? '➡️ Última' : `  ${idx + 1}º`} Venta ${num} — ${fDate} | ${tipo} | Cliente: ${cliente}\n     Productos: ${productos}\n     Total: $${(s.totalUsd || 0).toFixed(2)} USD / Bs.${(s.totalBs || 0).toFixed(2)}\n     Pago: ${metodo}${casheaDesglose}${vuelto}`;
+                }).join('\n');
+            }
         } catch (e) { /* silencioso */ }
 
         const paymentSummary = Object.entries(paymentBreakdown)
             .map(([pm, v]) => `${pm}: ${v.count} ventas ($${v.usd.toFixed(2)})`)
-            .join(', ') || 'sin datos';
+            .join(' | ') || 'sin datos';
 
         // ── CLIENTES ─────────────────────────────────────────────────────
         let customersCount = 0, customersWithDebt = 0, totalDebtUsd = 0;
@@ -215,8 +256,11 @@ export default function AIAssistantWidget() {
 ## VENTAS DEL DÍA
 - Transacciones completadas: ${salesCount} | Anuladas: ${voidedCount}
 - Total: $${totalSalesUsd.toFixed(2)} USD / Bs. ${totalSalesBs.toFixed(2)}
-- Por método de pago: ${paymentSummary}
+- Desglose por método: ${paymentSummary}
 - Apertura de caja: ${aperturaInfo}
+
+## ÚLTIMAS 5 VENTAS (con detalle completo)
+${lastSalesDetail}
 
 ## CLIENTES
 - Total clientes: ${customersCount}
@@ -257,8 +301,7 @@ export default function AIAssistantWidget() {
                 ...newMessages.map(m => ({ role: m.role, content: m.content }))
             ];
 
-            const isLocal = window.location.protocol === "file:" || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-            const apiEndpoint = isLocal ? 'http://localhost:3000/api/chat' : '/api/chat';
+            const apiEndpoint = '/api/chat';
 
             const response = await fetch(apiEndpoint, {
                 method: 'POST',
@@ -270,21 +313,51 @@ export default function AIAssistantWidget() {
                 throw new Error(`Error de servidor (${response.status})`);
             }
 
-            // Iniciar lectura de stream
+            // Iniciar lectura de stream con buffer para evitar pérdidas de fragmentos (SSE)
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let aiResponse = "";
+            let streamBuffer = "";
 
             // Añadir burbuja de respuesta vacía para actualizar en tiempo real
             setMessages(prev => [...prev, { role: 'assistant', content: "" }]);
 
             while (true) {
                 const { done, value } = await reader.read();
-                if (done) break;
+                if (done) {
+                    // Procesar cualquier residuo en el buffer
+                    if (streamBuffer.trim()) {
+                        const lines = streamBuffer.split('\n');
+                        for (const line of lines) {
+                            const cleanLine = line.trim();
+                            if (cleanLine.startsWith('data: ')) {
+                                const dataStr = cleanLine.slice(6);
+                                if (dataStr === '[DONE]') break;
+                                try {
+                                    const parsed = JSON.parse(dataStr);
+                                    const content = parsed.choices?.[0]?.delta?.content;
+                                    if (content) {
+                                        aiResponse += content;
+                                    }
+                                } catch (e) {}
+                            }
+                        }
+                        setMessages(prev => {
+                            const updated = [...prev];
+                            updated[updated.length - 1].content = aiResponse;
+                            return updated;
+                        });
+                    }
+                    break;
+                }
                 
-                const chunk = decoder.decode(value, { stream: true });
-                const lines = chunk.split('\n');
+                streamBuffer += decoder.decode(value, { stream: true });
+                const lines = streamBuffer.split('\n');
                 
+                // Extraer la última línea (que podría estar incompleta) y mantenerla en el buffer
+                streamBuffer = lines.pop() || "";
+                
+                let updatedNeeded = false;
                 for (const line of lines) {
                     const cleanLine = line.trim();
                     if (!cleanLine || !cleanLine.startsWith('data: ')) continue;
@@ -297,15 +370,19 @@ export default function AIAssistantWidget() {
                         const content = parsed.choices?.[0]?.delta?.content;
                         if (content) {
                             aiResponse += content;
-                            setMessages(prev => {
-                                const updated = [...prev];
-                                updated[updated.length - 1].content = aiResponse;
-                                return updated;
-                            });
+                            updatedNeeded = true;
                         }
                     } catch (e) {
-                        // Ignorar errores parciales de JSON
+                        // Ignorar JSON parcial
                     }
+                }
+
+                if (updatedNeeded) {
+                    setMessages(prev => {
+                        const updated = [...prev];
+                        updated[updated.length - 1].content = aiResponse;
+                        return updated;
+                    });
                 }
             }
         } catch (error) {

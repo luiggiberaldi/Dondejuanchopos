@@ -32,11 +32,9 @@ export function useReveal(opts = {}) {
     const root = ref.current;
     if (!root) return;
 
-    const reveals = root.querySelectorAll('.reveal');
-    if (reveals.length === 0) return;
-
     // Fallback: si no hay IntersectionObserver, mostrar todo inmediatamente.
     if (!('IntersectionObserver' in window)) {
+      const reveals = root.querySelectorAll('.reveal');
       reveals.forEach((el) => el.classList.add('is-visible'));
       return;
     }
@@ -55,17 +53,39 @@ export function useReveal(opts = {}) {
       { threshold, rootMargin }
     );
 
-    reveals.forEach((el) => {
-      // Check inmediato: si el elemento ya está en el viewport, marcarlo visible ya.
-      const rect = el.getBoundingClientRect();
-      const inViewport = rect.top < window.innerHeight && rect.bottom > 0;
-      if (inViewport) {
-        el.classList.add('is-visible');
-        if (once) return; // no necesita observarse
-      }
-      observer.observe(el);
+    const observeNewElements = () => {
+      const reveals = root.querySelectorAll('.reveal:not([data-reveal-observed])');
+      reveals.forEach((el) => {
+        el.setAttribute('data-reveal-observed', 'true');
+        
+        // Check inmediato: si el elemento ya está en el viewport, marcarlo visible ya.
+        const rect = el.getBoundingClientRect();
+        const inViewport = rect.top < window.innerHeight && rect.bottom > 0;
+        if (inViewport) {
+          el.classList.add('is-visible');
+          if (once) return; // no necesita observarse
+        }
+        observer.observe(el);
+      });
+    };
+
+    // Initial run
+    observeNewElements();
+
+    // Set up MutationObserver to watch for additions of .reveal elements
+    const mutationObserver = new MutationObserver(() => {
+      observeNewElements();
     });
-    return () => observer.disconnect();
+
+    mutationObserver.observe(root, {
+      childList: true,
+      subtree: true
+    });
+
+    return () => {
+      observer.disconnect();
+      mutationObserver.disconnect();
+    };
   }, [threshold, rootMargin, once]);
 
   return ref;

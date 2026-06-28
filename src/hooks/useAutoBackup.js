@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react';
 import { storageService } from '../utils/storageService';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { IDB_KEYS, LS_KEYS } from '../config/backupKeys';
+import { compressString, isCompressionSupported } from '../utils/compression';
+
 
 // ─── Configuración optimizada ───────────────────────────────────────────────
 const BACKUP_INTERVAL_MS = 30 * 60 * 1000; // 30 minutos
@@ -68,7 +70,13 @@ export function useAutoBackup(isPremium, isDemo, deviceId) {
                 await storageService.setItem(BACKUP_KEY, fullBackup);
 
                 // Subir a la nube (usar configRef, no props directas — HOOK-043)
-                if (premium && !demo && devId && supabaseCloud) {
+                if ((premium || !demo) && devId && supabaseCloud) {
+                    const todayStr = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+                    const lastDailyBackup = localStorage.getItem('bodega_last_daily_backup_date');
+
+                    // Si no es premium y ya respaldó hoy, omitir para evitar peticiones redundantes
+                    if (!premium && lastDailyBackup === todayStr && !forceUpload) return;
+
                     const currentHash = quickHash(idbData);
                     const lastHash = localStorage.getItem(LAST_UPLOAD_HASH_KEY);
 
@@ -80,13 +88,31 @@ export function useAutoBackup(isPremium, isDemo, deviceId) {
                     // Evitar peticiones con token ya expirado
                     if (session.expires_at && session.expires_at * 1000 < Date.now()) return;
 
+                    let payloadToUpload = fullBackup;
+                    if (isCompressionSupported()) {
+                        try {
+                            const compressedData = await compressString(JSON.stringify(fullBackup));
+                            payloadToUpload = {
+                                compressed: true,
+                                version: '2.0',
+                                timestamp: fullBackup.timestamp,
+                                appName: fullBackup.appName,
+                                device: fullBackup.device,
+                                data: compressedData
+                            };
+                        } catch (err) {
+                            console.error('[AutoBackup] Error al comprimir backup, usando raw JSON:', err);
+                        }
+                    }
+
                     await supabaseCloud.from('cloud_backups').upsert({
                         device_id: devId,
-                        backup_data: fullBackup,
+                        backup_data: payloadToUpload,
                         updated_at: new Date().toISOString()
                     }, { onConflict: 'device_id' });
 
                     localStorage.setItem(LAST_UPLOAD_HASH_KEY, currentHash);
+                    localStorage.setItem('bodega_last_daily_backup_date', todayStr);
                 }
 
             } catch (e) {

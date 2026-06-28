@@ -4,6 +4,8 @@ import { showToast } from '../components/Toast';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { IDB_KEYS, LS_KEYS } from '../config/backupKeys';
 import { runWithoutEco } from '../utils/syncFlags';
+import { compressString, decompressString, isCompressionSupported } from '../utils/compression';
+
 
 /**
  * Hook that encapsulates cloud backup/restore logic using device_id as the sole identifier.
@@ -30,21 +32,32 @@ export function useCloudBackup({
     // el flag `isSyncingFromCloud=true` y evitar que `storageService.setItem`
     // (vía `pushCloudSync`) re-envíe a la nube los datos que acabamos de recibir.
     const applyCloudBackup = async (cloudBackup) => {
-        if (!cloudBackup?.data) {
-            console.error('[applyCloudBackup] Backup inválido o sin datos:', cloudBackup);
+        let backup = cloudBackup;
+        if (cloudBackup?.compressed) {
+            try {
+                const rawJson = await decompressString(cloudBackup.data);
+                backup = JSON.parse(rawJson);
+            } catch (err) {
+                console.error('[applyCloudBackup] Error al descomprimir:', err);
+                throw new Error('El backup de la nube está dañado o no pudo descomprirse.');
+            }
+        }
+
+        if (!backup?.data) {
+            console.error('[applyCloudBackup] Backup inválido o sin datos:', backup);
             throw new Error('El backup de la nube está vacío o es inválido.');
         }
         await runWithoutEco(async () => {
-            if (cloudBackup.version === '2.0' && cloudBackup.data.idb) {
-                const idbEntries = Object.entries(cloudBackup.data.idb);
+            if (backup.version === '2.0' && backup.data.idb) {
+                const idbEntries = Object.entries(backup.data.idb);
                 for (const [key, value] of idbEntries) {
                     await storageService.setItem(key, value);
                 }
             } else {
                 console.warn('[applyCloudBackup] Formato no reconocido, intentando restauración legacy...');
             }
-            if (cloudBackup.data.ls) {
-                for (const [key, value] of Object.entries(cloudBackup.data.ls)) {
+            if (backup.data.ls) {
+                for (const [key, value] of Object.entries(backup.data.ls)) {
                     // localStorage.setItem pasa por el interceptor de useCloudSync;
                     // el flag global también lo silencia (doble protección).
                     localStorage.setItem(key, value);
@@ -78,12 +91,28 @@ export function useCloudBackup({
     const uploadLocalBackup = async (backupData) => {
         if (!supabaseCloud || !deviceId) return;
 
+        let payloadToUpload = backupData;
+        if (isCompressionSupported()) {
+            try {
+                const compressedData = await compressString(JSON.stringify(backupData));
+                payloadToUpload = {
+                    compressed: true,
+                    version: '2.0',
+                    timestamp: backupData.timestamp,
+                    appName: backupData.appName,
+                    data: compressedData
+                };
+            } catch (err) {
+                console.error('[CloudBackup] Error al comprimir manual backup, usando raw JSON:', err);
+            }
+        }
+
         // 1. Backup blob completo
         const { error } = await supabaseCloud
             .from('cloud_backups')
             .upsert({
                 device_id: deviceId,
-                backup_data: backupData,
+                backup_data: payloadToUpload,
                 updated_at: new Date().toISOString()
             }, { onConflict: 'device_id' });
         if (error) throw error;

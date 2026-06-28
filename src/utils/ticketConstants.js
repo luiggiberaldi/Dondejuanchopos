@@ -24,14 +24,14 @@ export function getPaperConfig(paperWidth) {
     return {
         is80,
         cssPageSize: is80 ? '80mm auto' : '58mm auto',
-        cssBodyWidth: is80 ? '76mm' : '48mm',
-        cssLogoW: is80 ? '60mm' : '44mm',
-        fDisclaimer: is80 ? '9px' : '7.5px',
-        fTiny: is80 ? '11px' : '9px',
+        cssBodyWidth: is80 ? '76mm' : '46mm',
+        cssLogoW: is80 ? '60mm' : '40mm',
+        fDisclaimer: is80 ? '9px' : '7px',
+        fTiny: is80 ? '11px' : '8.5px',
         fSmall: is80 ? '12px' : '10px',
         fBase: is80 ? '14px' : '11px',
-        fTitle: is80 ? '18px' : '14px',
-        fTotalU: is80 ? '32px' : '24px',
-        fTotalB: is80 ? '18px' : '14px',
+        fTitle: is80 ? '18px' : '13px',
+        fTotalU: is80 ? '32px' : '22px',
+        fTotalB: is80 ? '18px' : '13px',
     };
 }

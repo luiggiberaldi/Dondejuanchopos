@@ -72,12 +72,14 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
         [todaySales, bcvRate, products]
     );
 
-    // Últimas ventas (por defecto las últimas 7, o las del día seleccionado en la gráfica)
+    // Últimas ventas (por defecto todas ordenadas por fecha más reciente, o filtradas por el día seleccionado en la gráfica)
     const getRecentSales = useCallback((selectedChartDate) => {
+        const filteredSales = salesWithLocalDate.filter(s => s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA');
+        const sorted = [...filteredSales].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         if (selectedChartDate) {
-            return salesWithLocalDate.filter(s => s.localDate === selectedChartDate);
+            return sorted.filter(s => s.localDate === selectedChartDate);
         }
-        return salesWithLocalDate.slice(0, 7);
+        return sorted;
     }, [salesWithLocalDate]);
 
     // Datos últimos 7 días (para gráfica)

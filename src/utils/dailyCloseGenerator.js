@@ -243,12 +243,13 @@ export async function generateDailyClosePDF({
     // ════════════════════════════════════
     //  APERTURA DE CAJA
     // ════════════════════════════════════
-    if (apertura && (apertura.openingUsd > 0 || apertura.openingBs > 0)) {
+    if (apertura && (apertura.openingUsd > 0 || apertura.openingBs > 0 || (apertura.openingCop && apertura.openingCop > 0))) {
         y = sectionTitle('FONDO INICIAL (APERTURA)', y);
 
         const aperturaRows = [];
         if (apertura.openingUsd > 0) aperturaRows.push(['Efectivo USD inicial', fmtUsd(apertura.openingUsd)]);
         if (apertura.openingBs > 0) aperturaRows.push(['Efectivo Bs inicial', `Bs ${formatBs(apertura.openingBs)}`]);
+        if (apertura.openingCop > 0) aperturaRows.push(['Efectivo COP inicial', `${formatCop(apertura.openingCop)} COP`]);
         if (apertura.sellerName) aperturaRows.push(['Cajero apertura', apertura.sellerName]);
 
         aperturaRows.forEach(([label, value]) => {

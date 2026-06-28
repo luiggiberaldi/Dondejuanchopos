@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { storageService } from '../utils/storageService';
 import { IDB_KEYS, LS_KEYS } from '../config/backupKeys';
+import { compressString, isCompressionSupported } from '../utils/compression';
 
 async function collectAndUpload(deviceId) {
     // Recolectar datos locales
@@ -23,10 +24,26 @@ async function collectAndUpload(deviceId) {
         data: { idb: idbData, ls: lsData }
     };
 
+    let payloadToUpload = backupData;
+    if (isCompressionSupported()) {
+        try {
+            const compressedData = await compressString(JSON.stringify(backupData));
+            payloadToUpload = {
+                compressed: true,
+                version: '2.0',
+                timestamp: backupData.timestamp,
+                appName: backupData.appName,
+                data: compressedData
+            };
+        } catch (err) {
+            console.error('[RemoteBackup] Error compressing remote backup:', err);
+        }
+    }
+
     // Subir a cloud_backups
     const { error } = await supabaseCloud
         .from('cloud_backups')
-        .upsert({ device_id: deviceId, backup_data: backupData, updated_at: new Date().toISOString() },
+        .upsert({ device_id: deviceId, backup_data: payloadToUpload, updated_at: new Date().toISOString() },
             { onConflict: 'device_id' });
     if (error) throw error;
 }

@@ -337,6 +337,77 @@ class PrinterSerial {
 
         await this._write(concat(...chunks));
     }
+
+    async printDailyClose(cierre, rate, correlativo) {
+        const w = this._getWidth();
+        const businessName = localStorage.getItem('business_name') || 'Mi Bodega';
+        const businessRif  = localStorage.getItem('business_rif')  || '';
+        const d = new Date(cierre.cierreId);
+        const dateStr = d.toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        const timeStr = d.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' });
+
+        const formatBsLocal = (n) =>
+            new Intl.NumberFormat('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
+        const fmtUsd = (v) => `$${parseFloat(v || 0).toFixed(2)}`;
+        const fmtCop = (v) => Math.round(v || 0).toLocaleString('es-CO');
+
+        const chunks = [CMD.INIT];
+
+        // ── Header ────────────────────────────────────────────────
+        chunks.push(CMD.ALIGN_CENTER, CMD.SIZE_DOUBLE, CMD.BOLD_ON);
+        chunks.push(encode(businessName.substring(0, w) + '\n'));
+        chunks.push(CMD.SIZE_NORMAL, CMD.BOLD_OFF);
+        if (businessRif) chunks.push(encode(`RIF: ${businessRif}\n`));
+        chunks.push(encode('*** CIERRE DE CAJA ***\n'));
+        if (correlativo != null) chunks.push(encode(`Cierre #${correlativo}\n`));
+        chunks.push(encode(`Fecha: ${dateStr}  ${timeStr}\n`));
+        chunks.push(CMD.ALIGN_LEFT);
+        chunks.push(encode(line(w)));
+
+        // ── Fondo de apertura ─────────────────────────────────────
+        if (cierre.apertura) {
+            const aperturaUsd = cierre.apertura.openingUsd || 0;
+            const aperturaBs  = cierre.apertura.openingBs  || 0;
+            chunks.push(encode(twoCol('Fondo apertura:', fmtUsd(aperturaUsd), w) + '\n'));
+            if (aperturaBs > 0) chunks.push(encode(twoCol('  Bs:', formatBsLocal(aperturaBs) + ' Bs', w) + '\n'));
+            chunks.push(encode(line(w)));
+        }
+
+        // ── Desglose de ingresos ──────────────────────────────────
+        chunks.push(CMD.BOLD_ON);
+        chunks.push(encode('DESGLOSE DE INGRESOS\n'));
+        chunks.push(CMD.BOLD_OFF);
+        for (const [method, data] of Object.entries(cierre.paymentBreakdown || {})) {
+            const label = (data.label || method).substring(0, w - 14);
+            let displayAmount = '';
+            if (data.currency === 'USD' || data.currency === 'FIADO') {
+                displayAmount = fmtUsd(data.total);
+            } else if (data.currency === 'COP') {
+                displayAmount = `${fmtCop(data.total)} COP`;
+            } else {
+                displayAmount = `${formatBsLocal(data.total)} Bs`;
+            }
+            chunks.push(encode(twoCol(`  ${label}:`, displayAmount, w) + '\n'));
+        }
+        chunks.push(encode(line(w)));
+
+        // ── Totales ───────────────────────────────────────────────
+        chunks.push(CMD.BOLD_ON);
+        chunks.push(encode(twoCol('TOTAL USD:', fmtUsd(cierre.totalUsd), w) + '\n'));
+        chunks.push(CMD.BOLD_OFF);
+        if (rate > 0) chunks.push(encode(twoCol('TOTAL Bs:', formatBsLocal(cierre.totalBs) + ' Bs', w) + '\n'));
+        if (cierre.totalCop > 0) chunks.push(encode(twoCol('TOTAL COP:', fmtCop(cierre.totalCop) + ' COP', w) + '\n'));
+        chunks.push(encode(twoCol('Operaciones:', String(cierre.salesCount || 0), w) + '\n'));
+        chunks.push(encode(line(w)));
+
+        // ── Footer ─────────────────────────────────────────────────
+        chunks.push(CMD.ALIGN_CENTER);
+        chunks.push(encode('PreciosAlDia Bodega\n'));
+        chunks.push(CMD.FEED_5);
+        chunks.push(CMD.CUT);
+
+        await this._write(concat(...chunks));
+    }
 }
 
 // Singleton

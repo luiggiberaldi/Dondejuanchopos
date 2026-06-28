@@ -6,6 +6,8 @@ import EmptyState from '../EmptyState';
 import { printerSerial } from '../../services/PrinterSerial';
 import { showToast } from '../Toast';
 import CasheaIcon from '../CasheaIcon';
+import { usePagination } from '../../hooks/usePagination';
+import PaginationBar from '../PaginationBar';
 
 export default function SalesHistory({
     recentSales,
@@ -25,6 +27,19 @@ export default function SalesHistory({
 }) {
     const [expandedSaleId, setExpandedSaleId] = useState(null);
     const [printingId, setPrintingId] = useState(null);
+
+    const {
+        currentPage,
+        totalPages,
+        paginatedItems: paginatedSales,
+        goNext,
+        goPrev,
+        hasNext,
+        hasPrev,
+        startIndex,
+        endIndex,
+        totalItems,
+    } = usePagination(recentSales, 10);
 
     const handleThermalPrint = async (e, sale) => {
         e.stopPropagation();
@@ -63,7 +78,7 @@ export default function SalesHistory({
         <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 shadow-sm mb-20">
             <div className="flex items-center justify-between mb-3">
                 <h3 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1">
-                    <Clock size={12} /> Últimas 7 Ventas
+                    <Clock size={12} /> Historial de Ventas
                 </h3>
                 <div className="flex items-center gap-2">
                     <span className="text-[10px] text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">{totalSalesCount} histórico</span>
@@ -79,25 +94,30 @@ export default function SalesHistory({
                 </div>
             </div>
             <div className="space-y-3">
-                {recentSales.map(s => {
+                {paginatedSales.map(s => {
                     const d = new Date(s.timestamp);
+                    const hasCashea = (s.payments && s.payments.some(p => 
+                        (p.methodId && p.methodId.toLowerCase().includes('cashea')) || 
+                        (p.methodLabel && p.methodLabel.toLowerCase().includes('cashea')) || 
+                        p.isCashea
+                    )) || (s.casheaUsd > 0) || (s.tipo === 'VENTA_CASHEA');
+
                     let methodLabel = 'Efectivo';
                     let PayMethodIcon = PAYMENT_ICONS['efectivo_bs'];
 
                     if (s.tipo === 'VENTA_FIADA') {
                         methodLabel = 'Por Cobrar';
                         PayMethodIcon = Clock;
-                    } else if (s.tipo === 'VENTA_CASHEA') {
+                    } else if (s.payments && s.payments.length > 1) {
+                        methodLabel = hasCashea ? 'Mixto (Cashea)' : 'Pago Mixto';
+                        PayMethodIcon = Shuffle;
+                    } else if (s.tipo === 'VENTA_CASHEA' || hasCashea) {
                         methodLabel = 'Cashea';
                         PayMethodIcon = Smartphone;
                     } else if (s.payments && s.payments.length === 1) {
                         methodLabel = toTitleCase(s.payments[0].methodLabel);
                         const m = getPaymentMethod(s.payments[0].methodId);
                         if (m) PayMethodIcon = getPaymentIcon(m.id) || m.Icon || null;
-                    } else if (s.payments && s.payments.length > 1) {
-                        const hasCashea = s.payments.some(p => p.methodId === 'cashea' || p.isCashea);
-                        methodLabel = hasCashea ? 'Mixto (Cashea)' : 'Pago Mixto';
-                        PayMethodIcon = Shuffle;
                     } else if (s.paymentMethod) {
                         const m = getPaymentMethod(s.paymentMethod);
                         if (m) {
@@ -118,13 +138,13 @@ export default function SalesHistory({
                                 <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
                                     isCanceled 
                                         ? 'bg-red-100 opacity-50' 
-                                        : s.tipo === 'VENTA_CASHEA'
+                                        : hasCashea
                                             ? 'bg-purple-150 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800'
                                             : 'bg-white dark:bg-slate-700 shadow-sm'
                                 }`}>
                                     {isCanceled ? (
                                         <Ban size={20} className="text-red-400" />
-                                    ) : s.tipo === 'VENTA_CASHEA' ? (
+                                    ) : (s.tipo === 'VENTA_CASHEA' || (hasCashea && !(s.payments && s.payments.length > 1))) ? (
                                         <CasheaIcon size={24} />
                                     ) : PayMethodIcon ? (
                                         <PayMethodIcon size={20} className="text-slate-500 dark:text-slate-400" />
@@ -136,7 +156,7 @@ export default function SalesHistory({
                                     <p className={`text-sm font-bold flex items-center gap-1.5 truncate ${isCanceled ? 'line-through text-slate-400' : 'text-slate-800 dark:text-slate-200'}`}>
                                         {s.customerName || 'Consumidor Final'} 
                                         {s.tipo === 'VENTA_FIADA' && <span className="text-[9px] bg-amber-100 text-amber-600 px-1 rounded uppercase font-black">Fiado</span>}
-                                        {s.tipo === 'VENTA_CASHEA' && <span className="text-[9px] bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 px-1.5 py-0.5 rounded uppercase font-black flex items-center gap-0.5"><CasheaIcon size={10} /> Cashea</span>}
+                                        {hasCashea && <span className="text-[9px] bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 px-1.5 py-0.5 rounded uppercase font-black flex items-center gap-0.5"><CasheaIcon size={10} /> Cashea</span>}
                                     </p>
                                     <p className="text-[11px] text-slate-500 flex items-center gap-1">
                                         {s.saleNumber && <span className="font-black text-slate-400">#{String(s.saleNumber).padStart(7, '0')}</span>}
@@ -173,7 +193,14 @@ export default function SalesHistory({
                                             <p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">Productos ({s.items.length})</p>
                                             {s.items.map((item, i) => (
                                                 <div key={i} className={`flex justify-between items-center text-xs ${isCanceled ? 'text-slate-400 line-through' : 'text-slate-600 dark:text-slate-300'}`}>
-                                                    <span className="truncate pr-2">{item.isWeight ? `${item.qty.toFixed(3)}kg` : `${item.qty}u`} {item.name}</span>
+                                                    <span className="truncate pr-2">
+                                                        {item.isWeight ? `${item.qty.toFixed(3)}kg` : `${item.qty}u`} {item.name}
+                                                        {(item.isWeight || item.qty !== 1) && (
+                                                            <span className="text-[10px] text-slate-400 font-normal ml-1">
+                                                                ({item.isWeight ? '' : 'c/u '}{copEnabled && copPrimary && tasaCop > 0 ? `${formatCop(item.priceCop || Math.round(item.priceUsd * tasaCop))} COP` : `$${item.priceUsd.toFixed(2)}`})
+                                                            </span>
+                                                        )}
+                                                    </span>
                                                     <span className="font-medium text-right">
                                                         {copEnabled && copPrimary
                                                             ? <span className="text-amber-600 dark:text-amber-400">{formatCop((item.priceCop || Math.round(item.priceUsd * tasaCop)) * item.qty)} COP</span>
@@ -193,14 +220,46 @@ export default function SalesHistory({
                                         <p className="text-xs text-slate-400 mb-3 pt-2">Pago de Deudas (Sin productos)</p>
                                     )}
 
+                                    {s.payments && s.payments.length > 0 && (
+                                        <div className="space-y-1 mb-3 pt-2 border-t border-dashed border-slate-200 dark:border-slate-700/50">
+                                            <p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">Detalle de Pago</p>
+                                            {s.payments.map((p, i) => {
+                                                const pIsCop = p.currency === 'COP';
+                                                const isBs = !pIsCop && (p.currency ? p.currency !== 'USD' : (p.methodId?.includes('_bs') || p.methodId === 'pago_movil'));
+                                                const val = pIsCop
+                                                    ? 'COP ' + (p.amountInput || (p.amountUsd * (s.tasaCop || tasaCop || 1))).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                                    : isBs
+                                                    ? 'Bs ' + formatBs(p.amountBs || (p.amountUsd * (s.rate || bcvRate)))
+                                                    : `$${(p.amountUsd || 0).toFixed(2)}`;
+                                                
+                                                const isCashea = p.methodId === 'cashea';
+                                                
+                                                return (
+                                                    <div key={i} className={`flex justify-between items-center text-xs ${isCanceled ? 'text-slate-400 line-through' : isCashea ? 'text-purple-650 dark:text-purple-400 font-bold' : 'text-slate-600 dark:text-slate-350'}`}>
+                                                        <span className="flex items-center gap-1.5">
+                                                            {isCashea && <CasheaIcon size={12} />}
+                                                            {p.methodLabel || 'Pago'}
+                                                        </span>
+                                                        <span className="font-semibold">{val} {p.methodId !== 'cashea' && p.amountUsd > 0 && <span className="text-[10px] font-normal text-slate-450">(${(p.amountUsd || 0).toFixed(2)})</span>}</span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+
                                     <div className="flex justify-between text-[10px] font-medium text-slate-400 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-lg p-2 mb-3">
                                         <div className="flex flex-col gap-0.5">
                                             <span>Ref: {formatBs(s.totalBs)} Bs @ {formatBs(s.rate || bcvRate)}</span>
                                             {s.tasaCop > 0 && <span>COP: {(s.totalCop || (s.totalUsd * s.tasaCop)).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} @ {s.tasaCop}</span>}
                                         </div>
                                         {s.casheaUsd > 0 && (
-                                            <div className="flex items-center gap-1 self-start mt-0.5 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 font-bold px-1.5 py-0.5 rounded-md border border-purple-100 dark:border-purple-800/40">
-                                                <span>⚡ Cashea: ${s.casheaUsd.toFixed(2)}</span>
+                                            <div className="flex flex-col gap-0.5 self-start mt-0.5">
+                                                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold px-1.5 py-0.5 rounded-md border border-slate-200 dark:border-slate-700 text-[10px]">
+                                                    <span>💵 Inicial: ${((s.totalUsd || 0) - (s.casheaUsd || 0)).toFixed(2)}</span>
+                                                </div>
+                                                <div className="flex items-center gap-1 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 font-bold px-1.5 py-0.5 rounded-md border border-purple-200 dark:border-purple-800/40 text-[10px]">
+                                                    <span>⚡ Financia Cashea: ${s.casheaUsd.toFixed(2)}</span>
+                                                </div>
                                             </div>
                                         )}
                                         {s.changeUsd > 0 && (
@@ -238,21 +297,13 @@ export default function SalesHistory({
                                         {onPrintTicket && (
                                             <button
                                                 onClick={(e) => { e.stopPropagation(); onPrintTicket(s); }}
-                                                className="py-2 px-3 bg-brand-light dark:bg-brand-dark/20 text-brand-dark dark:text-brand hover:bg-brand dark:hover:bg-brand-dark/40 font-bold rounded-lg transition-colors flex justify-center items-center gap-1.5 text-xs shadow-sm active:scale-95"
+                                                className="py-2 px-3 bg-slate-800 dark:bg-slate-700 text-white hover:bg-slate-700 dark:hover:bg-slate-600 font-bold rounded-lg transition-colors flex justify-center items-center gap-1.5 text-xs shadow-sm active:scale-95"
                                                 title="Imprimir ticket"
                                             >
                                                 <Printer size={14} />
+                                                <span>Imprimir</span>
                                             </button>
                                         )}
-                                        <button
-                                            onClick={(e) => handleThermalPrint(e, s)}
-                                            disabled={printingId === s.id}
-                                            className="py-2 px-3 bg-slate-800 dark:bg-slate-700 text-white hover:bg-slate-700 dark:hover:bg-slate-600 font-bold rounded-lg transition-colors flex justify-center items-center gap-1.5 text-xs shadow-sm active:scale-95 disabled:opacity-50"
-                                            title="Imprimir en impresora térmica"
-                                        >
-                                            <Printer size={14} />
-                                            <span className="hidden sm:inline">{printingId === s.id ? '...' : 'Térmica'}</span>
-                                        </button>
 
                                         {isAdmin && !isCanceled && !s.cajaCerrada && (
                                             <button
@@ -278,6 +329,18 @@ export default function SalesHistory({
                     );
                 })}
             </div>
+            <PaginationBar
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalItems={totalItems}
+                startIndex={startIndex}
+                endIndex={endIndex}
+                onNext={goNext}
+                onPrev={goPrev}
+                hasNext={hasNext}
+                hasPrev={hasPrev}
+                label="ventas"
+            />
         </div>
     );
 }

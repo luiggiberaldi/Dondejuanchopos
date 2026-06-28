@@ -10,8 +10,17 @@ export default function ReportsHistoryTab({ groupedClosings, bcvRate, products, 
     return (
         <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
             {groupedClosings.length > 0 ? (
-                groupedClosings.map(cierre => (
-                    <CierreHistoryCard key={cierre.cierreId} cierre={cierre} bcvRate={bcvRate} products={products} copEnabled={copEnabled} copPrimary={copPrimary} tasaCop={tasaCop} />
+                groupedClosings.map((cierre, idx) => (
+                    <CierreHistoryCard
+                        key={cierre.cierreId}
+                        cierre={cierre}
+                        correlativo={groupedClosings.length - idx}
+                        bcvRate={bcvRate}
+                        products={products}
+                        copEnabled={copEnabled}
+                        copPrimary={copPrimary}
+                        tasaCop={tasaCop}
+                    />
                 ))
             ) : (
                 <div className="mt-8">

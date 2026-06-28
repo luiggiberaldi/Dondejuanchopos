@@ -16,6 +16,8 @@ import { useProductContext } from '../context/ProductContext';
 import { useAudit } from '../hooks/useAudit';
 import { useAuthStore } from '../hooks/store/useAuthStore';
 import { useSupplierManagement } from '../hooks/useSupplierManagement';
+import { usePagination } from '../hooks/usePagination';
+import PaginationBar from '../components/PaginationBar';
 
 // Importaciones de Proveedores
 import SuppliersList from '../components/Suppliers/SuppliersList';
@@ -118,6 +120,24 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
         if (filterType === 'favor') return c.deuda < -0.01;
         return true;
     });
+
+    const {
+        currentPage,
+        totalPages,
+        paginatedItems: paginatedCustomers,
+        goNext,
+        goPrev,
+        resetPage,
+        hasNext,
+        hasPrev,
+        startIndex,
+        endIndex,
+        totalItems,
+    } = usePagination(filteredCustomers, 10);
+
+    useEffect(() => {
+        resetPage();
+    }, [searchTerm, filterType]);
 
     const toggleHistory = async (customerId) => {
         triggerHaptic && triggerHaptic();
@@ -379,26 +399,40 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
                         onSecondaryAction={() => { setSearchTerm(''); triggerHaptic && triggerHaptic(); }}
                     />
                 ) : (
-                    filteredCustomers.map(customer => (
-                        <SwipeableItem
-                            key={customer.id}
-                            onDelete={isAdmin ? () => handleDeleteCustomerRequest(customer) : undefined}
-                            triggerHaptic={triggerHaptic}
-                        >
-                            <CustomerCard
-                                customer={customer}
-                                bcvRate={bcvRate}
-                                tasaCop={tasaCop}
-                                copEnabled={copEnabled}
-                                copPrimary={copPrimary}
-                                onClick={() => {
-                                    setSelectedCustomer(customer);
-                                    toggleHistory(customer.id);
-                                }}
+                    <>
+                        {paginatedCustomers.map(customer => (
+                            <SwipeableItem
+                                key={customer.id}
                                 onDelete={isAdmin ? () => handleDeleteCustomerRequest(customer) : undefined}
-                            />
-                        </SwipeableItem>
-                    ))
+                                triggerHaptic={triggerHaptic}
+                            >
+                                <CustomerCard
+                                    customer={customer}
+                                    bcvRate={bcvRate}
+                                    tasaCop={tasaCop}
+                                    copEnabled={copEnabled}
+                                    copPrimary={copPrimary}
+                                    onClick={() => {
+                                        setSelectedCustomer(customer);
+                                        toggleHistory(customer.id);
+                                    }}
+                                    onDelete={isAdmin ? () => handleDeleteCustomerRequest(customer) : undefined}
+                                />
+                            </SwipeableItem>
+                        ))}
+                        <PaginationBar
+                            currentPage={currentPage}
+                            totalPages={totalPages}
+                            totalItems={totalItems}
+                            startIndex={startIndex}
+                            endIndex={endIndex}
+                            onNext={goNext}
+                            onPrev={goPrev}
+                            hasNext={hasNext}
+                            hasPrev={hasPrev}
+                            label="clientes"
+                        />
+                    </>
                 )}
             </div>
         </div>
@@ -537,18 +571,18 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
 function CustomerCard({ customer, bcvRate, tasaCop, copEnabled, copPrimary, onClick, onDelete }) {
     return (
         // v1.2.0: surface tokens + shadow-tone-sm (warm shadow) en vez de shadow-sm.
-        <article className="reveal bg-surface dark:bg-surface-900 rounded-2xl px-4 py-3 border border-surface-200 dark:border-surface-800 shadow-tone-sm transition-all active:scale-[0.98] flex items-center gap-2 relative">
+        <article className="reveal bg-white dark:bg-surface-900 rounded-2xl px-4 py-3 border border-slate-200 dark:border-slate-700 shadow-sm transition-all active:scale-[0.98] flex items-center gap-2 relative">
             <div
                 onClick={onClick}
                 className="flex-1 min-w-0 flex items-center gap-3 cursor-pointer"
             >
-                <div className="w-11 h-11 rounded-full bg-brand-light dark:bg-surface-800/30 flex items-center justify-center shrink-0">
-                    <span className="text-lg font-black text-brand-dark dark:text-brand">
+                <div className="w-11 h-11 rounded-full bg-brand-light dark:bg-slate-700 flex items-center justify-center shrink-0">
+                    <span className="text-lg font-black text-brand-dark dark:text-white">
                         {customer.name.charAt(0).toUpperCase()}
                     </span>
                 </div>
                 <div className="flex-1 min-w-0">
-                    <h3 className="font-bold text-surface-700 dark:text-white text-sm truncate">{customer.name}</h3>
+                    <h3 className="font-bold text-slate-800 dark:text-white text-sm truncate">{customer.name}</h3>
                     <div className="flex items-center gap-2 mt-0.5">
                         {customer.documentId && (
                             // v1.2.0: .badge class (design system) en vez de clases Tailwind ad-hoc.
@@ -557,7 +591,7 @@ function CustomerCard({ customer, bcvRate, tasaCop, copEnabled, copPrimary, onCl
                             </p>
                         )}
                         {customer.phone && (
-                            <p className="text-[10px] text-slate-600 dark:text-slate-400 flex items-center gap-1 font-medium">
+                            <p className="text-[10px] text-slate-500 dark:text-slate-300 flex items-center gap-1 font-medium">
                                 <Phone size={10} aria-hidden="true" /> {customer.phone}
                             </p>
                         )}
@@ -664,13 +698,13 @@ function CustomerDetailSheet({ customer, isOpen, isAdmin, onClose, onAjustar, on
                                     </p>
                                 )}
                                 {customer.phone && (
-                                    <p className="text-xs text-surface-400 flex items-center gap-1">
+                                    <p className="text-xs text-surface-500 dark:text-surface-400 flex items-center gap-1">
                                         <Phone size={12} aria-hidden="true" /> {customer.phone}
                                     </p>
                                 )}
                             </div>
                             {createdDate && (
-                                <p className="text-[10px] text-surface-400 mt-1">Cliente desde {createdDate}</p>
+                                <p className="text-[10px] text-surface-500 dark:text-surface-400 mt-1">Cliente desde {createdDate}</p>
                             )}
                         </div>
                     </div>
@@ -682,39 +716,39 @@ function CustomerDetailSheet({ customer, isOpen, isAdmin, onClose, onAjustar, on
                             {customer.deuda > 0 || customer.casheaDeuda > 0 ? (
                                 <>
                                     {customer.deuda > 0 && (
-                                        <div className="flex-1 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/30 rounded-xl px-3 py-2.5 text-center">
-                                            <p className="text-[10px] font-bold text-red-400 uppercase">Debe</p>
-                                            <p className={`text-lg font-black ${copEnabled && copPrimary ? 'text-amber-600 dark:text-amber-400' : 'text-red-500'}`}>
+                                        <div className="flex-1 bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700/50 rounded-xl px-3 py-2.5 text-center">
+                                            <p className="text-[10px] font-bold text-red-600 dark:text-red-400 uppercase">Debe</p>
+                                            <p className={`text-lg font-black ${copEnabled && copPrimary ? 'text-amber-700 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>
                                                 {copEnabled && copPrimary && tasaCop > 0
                                                     ? `-${formatCop(customer.deuda * tasaCop)} COP`
                                                     : `-$${formatUsd(customer.deuda)}`}
                                             </p>
-                                            {copEnabled && copPrimary && <p className="text-[10px] font-bold text-red-400/70">-${formatUsd(customer.deuda)}</p>}
-                                            {bcvRate > 0 && <p className="text-[10px] font-bold text-red-400/70">-{formatBs(customer.deuda * bcvRate)} Bs</p>}
-                                            {copEnabled && !copPrimary && tasaCop > 0 && <p className="text-[10px] font-bold text-red-500/90">-{formatCop(customer.deuda * tasaCop)} COP</p>}
+                                            {copEnabled && copPrimary && <p className="text-[10px] font-bold text-red-600 dark:text-red-400">-${formatUsd(customer.deuda)}</p>}
+                                            {bcvRate > 0 && <p className="text-[10px] font-bold text-red-600 dark:text-red-400">-{formatBs(customer.deuda * bcvRate)} Bs</p>}
+                                            {copEnabled && !copPrimary && tasaCop > 0 && <p className="text-[10px] font-bold text-red-600 dark:text-red-400">-{formatCop(customer.deuda * tasaCop)} COP</p>}
                                         </div>
                                     )}
                                     {customer.casheaDeuda > 0 && (
-                                        <div className="flex-1 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800/30 rounded-xl px-3 py-2.5 text-center animate-in fade-in">
-                                            <p className="text-[10px] font-bold text-purple-400 uppercase flex items-center justify-center gap-0.5">⚡ Cashea</p>
-                                            <p className="text-lg font-black text-purple-600 dark:text-purple-400">
+                                        <div className="flex-1 bg-purple-100 dark:bg-purple-900/40 border border-purple-300 dark:border-purple-700/50 rounded-xl px-3 py-2.5 text-center animate-in fade-in">
+                                            <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase flex items-center justify-center gap-0.5">⚡ Cashea</p>
+                                            <p className="text-lg font-black text-purple-700 dark:text-purple-300">
                                                 -${formatUsd(customer.casheaDeuda)}
                                             </p>
-                                            {bcvRate > 0 && <p className="text-[10px] font-bold text-purple-400/70">-{formatBs(customer.casheaDeuda * bcvRate)} Bs</p>}
+                                            {bcvRate > 0 && <p className="text-[10px] font-bold text-purple-600 dark:text-purple-400">-{formatBs(customer.casheaDeuda * bcvRate)} Bs</p>}
                                         </div>
                                     )}
                                 </>
                             ) : customer.favor > 0 ? (
-                                <div className="flex-1 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/30 rounded-xl px-3 py-2.5 text-center">
-                                    <p className="text-[10px] font-bold text-emerald-400 uppercase">A favor</p>
-                                    <p className={`text-lg font-black ${copEnabled && copPrimary ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-500'}`}>
+                                <div className="flex-1 bg-emerald-100 dark:bg-emerald-900/40 border border-emerald-300 dark:border-emerald-700/50 rounded-xl px-3 py-2.5 text-center">
+                                    <p className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 uppercase">A favor</p>
+                                    <p className={`text-lg font-black ${copEnabled && copPrimary ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-300'}`}>
                                         {copEnabled && copPrimary && tasaCop > 0
                                             ? `+${formatCop(customer.favor * tasaCop)} COP`
                                             : `+$${formatUsd(customer.favor)}`}
                                     </p>
-                                    {copEnabled && copPrimary && <p className="text-[10px] font-bold text-emerald-400/70">+${formatUsd(customer.favor)}</p>}
-                                    {bcvRate > 0 && <p className="text-[10px] font-bold text-emerald-400/70">+{formatBs(customer.favor * bcvRate)} Bs</p>}
-                                    {copEnabled && !copPrimary && tasaCop > 0 && <p className="text-[10px] font-bold text-emerald-500/90">+{formatCop(customer.favor * tasaCop)} COP</p>}
+                                    {copEnabled && copPrimary && <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">+${formatUsd(customer.favor)}</p>}
+                                    {bcvRate > 0 && <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">+{formatBs(customer.favor * bcvRate)} Bs</p>}
+                                    {copEnabled && !copPrimary && tasaCop > 0 && <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">+{formatCop(customer.favor * tasaCop)} COP</p>}
                                 </div>
                             ) : (
                                 <div className="flex-1 bg-surface-100 dark:bg-surface-800/50 border border-surface-200 dark:border-surface-700 rounded-xl px-3 py-2.5 text-center">
@@ -732,7 +766,7 @@ function CustomerDetailSheet({ customer, isOpen, isAdmin, onClose, onAjustar, on
                     <div className="grid grid-cols-2 gap-2">
                         <button
                             onClick={onAjustar}
-                            className="flex flex-col items-center gap-1.5 py-3 min-h-[80px] bg-brand-light dark:bg-surface-800/20 text-brand-dark dark:text-brand rounded-xl text-xs font-bold hover:bg-brand-light dark:hover:bg-surface-800/40 transition-colors active:scale-95 col-span-1"
+                            className="flex flex-col items-center gap-1.5 py-3 min-h-[80px] bg-brand dark:bg-brand-dark text-white rounded-xl text-xs font-bold hover:opacity-90 transition-colors active:scale-95 col-span-1"
                         >
                             <CreditCard size={18} aria-hidden="true" />
                             <span>Ajustar Cuenta</span>
@@ -740,7 +774,7 @@ function CustomerDetailSheet({ customer, isOpen, isAdmin, onClose, onAjustar, on
                         {(customer.deuda !== 0 || customer.favor !== 0) && isAdmin && (
                             <button
                                 onClick={onReset}
-                                className="flex flex-col items-center gap-1.5 py-3 min-h-[80px] bg-surface-100 dark:bg-surface-800 text-surface-500 dark:text-surface-400 rounded-xl text-xs font-bold hover:bg-surface-200 dark:hover:bg-surface-700 transition-colors active:scale-95"
+                                className="flex flex-col items-center gap-1.5 py-3 min-h-[80px] bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors active:scale-95"
                             >
                                 <RefreshCw size={18} aria-hidden="true" />
                                 <span>Poner en 0</span>
@@ -759,11 +793,11 @@ function CustomerDetailSheet({ customer, isOpen, isAdmin, onClose, onAjustar, on
 
                     {/* Historial */}
                     <div>
-                        <h4 className="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5 mb-3">
+                        <h4 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5 mb-3">
                             <Clock size={12} /> Historial
                         </h4>
                         {(!sales || sales.length === 0) ? (
-                            <p className="text-xs text-slate-400 text-center py-6">Sin registros aún</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 text-center py-6">Sin registros aún</p>
                         ) : (
                             <div className="space-y-2">
                                 {sales.slice(0, 10).map(sale => {

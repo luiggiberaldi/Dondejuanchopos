@@ -1,5 +1,5 @@
 // vite.config.js — Configuración de Vite + PWA + Vitest
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
@@ -7,7 +7,10 @@ import { VitePWA } from 'vite-plugin-pwa';
 import pkg from './package.json' with { type: 'json' };
 const APP_VERSION = pkg.version || '1.0.0';
 
-export default defineConfig(({ mode }) => ({
+export default defineConfig(({ mode }) => {
+  // Cargar TODAS las variables del .env (incluyendo las sin prefijo VITE_)
+  const env = loadEnv(mode, process.cwd(), '');
+  return {
   plugins: [
     react(),
     VitePWA({
@@ -63,6 +66,114 @@ export default defineConfig(({ mode }) => ({
         ],
       },
     }),
+
+    // ── Plugin: /api/chat dev proxy (Groq LLM — espeja api/chat.js de Vercel) ──
+    // env.GROQ_KEYS viene de loadEnv() arriba — carga el .env completo en Node.
+    {
+      name: 'api-chat-dev',
+      configureServer(server) {
+        server.middlewares.use('/api/chat', (req, res) => {
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+          if (req.method === 'OPTIONS') {
+            res.statusCode = 200;
+            res.end();
+            return;
+          }
+          if (req.method !== 'POST') {
+            res.statusCode = 405;
+            res.end(JSON.stringify({ error: 'Method not allowed' }));
+            return;
+          }
+
+          let body = '';
+          req.on('data', (chunk) => { body += chunk; });
+          req.on('end', async () => {
+            try {
+              const { messages } = JSON.parse(body);
+              if (!messages || !Array.isArray(messages)) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ error: "El cuerpo debe contener un arreglo 'messages'." }));
+                return;
+              }
+
+              const groqKeysStr = env.GROQ_KEYS || '';
+              const allKeys = groqKeysStr.split(',').map(k => k.trim()).filter(Boolean);
+              if (allKeys.length === 0) {
+                res.statusCode = 500;
+                res.end(JSON.stringify({ error: 'GROQ_KEYS no configuradas en .env' }));
+                return;
+              }
+
+              const requestBody = JSON.stringify({
+                model: 'llama-3.3-70b-versatile',
+                messages,
+                temperature: 0.7,
+                max_tokens: 2048,
+                stream: true,
+              });
+
+              const startIndex = Math.floor(Math.random() * allKeys.length);
+              let lastError = null;
+
+              for (let attempt = 0; attempt < allKeys.length; attempt++) {
+                const apiKey = allKeys[(startIndex + attempt) % allKeys.length];
+                let groqRes;
+                try {
+                  groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                      'Authorization': `Bearer ${apiKey}`,
+                      'Content-Type': 'application/json',
+                    },
+                    body: requestBody,
+                  });
+                } catch (fetchErr) {
+                  lastError = fetchErr.message;
+                  continue;
+                }
+
+                if (groqRes.status === 429 || groqRes.status === 401 || groqRes.status === 403 || groqRes.status >= 500) {
+                  lastError = `Key HTTP ${groqRes.status}`;
+                  continue;
+                }
+
+                if (!groqRes.ok) {
+                  const errText = await groqRes.text();
+                  res.statusCode = groqRes.status;
+                  res.end(JSON.stringify({ error: errText }));
+                  return;
+                }
+
+                // ✅ Clave ok — stream SSE de vuelta al cliente
+                res.setHeader('Content-Type', 'text/event-stream');
+                res.setHeader('Cache-Control', 'no-cache');
+                res.setHeader('Connection', 'keep-alive');
+                const reader = groqRes.body.getReader();
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  res.write(value);
+                }
+                res.end();
+                return;
+              }
+
+              res.statusCode = 503;
+              res.end(JSON.stringify({
+                error: 'Servicio de IA saturado. Intenta en unos segundos.',
+                detail: lastError,
+              }));
+            } catch (err) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ error: err.message }));
+            }
+          });
+        });
+      },
+    },
   ],
 
   // ── Dev server: proxy con CORS restringido (SEC-011 / INFRA-012) ──
@@ -171,6 +282,105 @@ export default defineConfig(({ mode }) => ({
           }
         }
 
+        // ── /api/chat (Groq LLM — mismo handler que api/chat.js de Vercel) ──
+        if (req.url.startsWith('/api/chat')) {
+          if (req.method === 'OPTIONS') {
+            res.setHeader('Access-Control-Allow-Origin', corsOrigin);
+            res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+            res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+            res.statusCode = 200;
+            res.end();
+            return;
+          }
+          if (req.method !== 'POST') {
+            res.statusCode = 405;
+            res.end(JSON.stringify({ error: 'Method not allowed' }));
+            return;
+          }
+
+          let body = '';
+          req.on('data', (chunk) => { body += chunk; });
+          req.on('end', async () => {
+            res.setHeader('Access-Control-Allow-Origin', corsOrigin);
+            res.setHeader('Vary', 'Origin');
+            try {
+              const { messages } = JSON.parse(body);
+              if (!messages || !Array.isArray(messages)) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ error: "El cuerpo debe contener un arreglo 'messages'." }));
+                return;
+              }
+
+              const groqKeysStr = process.env.GROQ_KEYS || '';
+              const allKeys = groqKeysStr.split(',').map(k => k.trim()).filter(Boolean);
+              if (allKeys.length === 0) {
+                res.statusCode = 500;
+                res.end(JSON.stringify({ error: 'GROQ_KEYS no configuradas en .env' }));
+                return;
+              }
+
+              const requestBody = JSON.stringify({
+                model: 'llama-3.3-70b-versatile',
+                messages,
+                temperature: 0.7,
+                max_tokens: 2048,
+                stream: true,
+              });
+
+              const startIndex = Math.floor(Math.random() * allKeys.length);
+              let lastError = null;
+
+              for (let attempt = 0; attempt < allKeys.length; attempt++) {
+                const apiKey = allKeys[(startIndex + attempt) % allKeys.length];
+                let groqRes;
+                try {
+                  groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                    body: requestBody,
+                  });
+                } catch (fetchErr) {
+                  lastError = fetchErr.message;
+                  continue;
+                }
+
+                if (groqRes.status === 429 || groqRes.status === 401 || groqRes.status === 403 || groqRes.status >= 500) {
+                  lastError = `Key HTTP ${groqRes.status}`;
+                  continue;
+                }
+
+                if (!groqRes.ok) {
+                  const errText = await groqRes.text();
+                  res.statusCode = groqRes.status;
+                  res.end(JSON.stringify({ error: errText }));
+                  return;
+                }
+
+                // ✅ Clave ok — stream SSE de vuelta al cliente
+                res.setHeader('Content-Type', 'text/event-stream');
+                res.setHeader('Cache-Control', 'no-cache');
+                res.setHeader('Connection', 'keep-alive');
+                const reader = groqRes.body.getReader();
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  res.write(value);
+                }
+                res.end();
+                return;
+              }
+
+              // Todas las keys fallaron
+              res.statusCode = 503;
+              res.end(JSON.stringify({ error: 'Servicio de IA saturado. Intenta en unos segundos.', detail: lastError }));
+            } catch (err) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ error: err.message }));
+            }
+          });
+          return;
+        }
+
         next();
       });
     },
@@ -205,4 +415,5 @@ export default defineConfig(({ mode }) => ({
       },
     },
   },
-}));
+  };
+});

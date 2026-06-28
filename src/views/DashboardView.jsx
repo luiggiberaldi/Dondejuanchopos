@@ -97,8 +97,8 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
     // Notificar cierre de caja pendiente (>7pm con ventas o cobros sin cerrar)
     useEffect(() => {
         if (todayCashFlow.length > 0) {
-            const ventasHoy = todayCashFlow.filter(s => s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA');
-            const deudasHoy = todayCashFlow.filter(s => s.tipo === 'VENTA_FIADA');
+            const ventasHoy = todayCashFlow.filter(s => s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA');
+            const deudasHoy = todayCashFlow.filter(s => s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA');
             notifyCierrePendiente({
                 salesCount: ventasHoy.length || todayCashFlow.length,
                 totalUsd: todayTotalUsd,
@@ -216,7 +216,7 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
         }
 
         const currentCierreId = new Date().getTime();
-        const validTiposParaCerrar = ['VENTA', 'VENTA_FIADA', 'COBRO_DEUDA', 'PAGO_PROVEEDOR', 'APERTURA_CAJA'];
+        const validTiposParaCerrar = ['VENTA', 'VENTA_FIADA', 'VENTA_CASHEA', 'COBRO_DEUDA', 'PAGO_PROVEEDOR', 'APERTURA_CAJA'];
         const updatedSales = sales.map(s => {
             if (!s.cajaCerrada && validTiposParaCerrar.includes(s.tipo || 'VENTA')) {
                 return { ...s, cajaCerrada: true, cierreId: currentCierreId };
@@ -491,7 +491,7 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
                 sales={sales}
                 recentSales={recentSales}
                 bcvRate={bcvRate}
-                totalSalesCount={sales.length}
+                totalSalesCount={sales.filter(s => s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA').length}
                 isAdmin={!isCajero}
                 onVoidSale={handleVoidSale}
                 onShareWhatsApp={handleShareWhatsApp}

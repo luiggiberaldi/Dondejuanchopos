@@ -19,7 +19,7 @@ export function calculateReportsData(allSales, from, to, bcvRate, products) {
     });
 
     const historySales = allSales.filter(s => {
-        if (s.tipo === 'AJUSTE_ENTRADA' || s.tipo === 'AJUSTE_SALIDA') return false;
+        if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'VENTA_CASHEA') return false;
         const dateStr = getLocalISODate(new Date(s.timestamp));
         return dateStr >= from && dateStr <= to;
     });
