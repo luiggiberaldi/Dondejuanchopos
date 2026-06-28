@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
     Database, Palette, Fingerprint, Upload, Download, Share2,
-    Check, Sun, Moon, ChevronRight, Trash2, AlertTriangle, FileText, ZoomIn, ZoomOut, RotateCcw, QrCode
+    Check, ChevronRight, Trash2, AlertTriangle, FileText, ZoomIn, ZoomOut, RotateCcw, QrCode
 } from 'lucide-react';
-import { SectionCard, Toggle } from '../../SettingsShared';
+import { SectionCard } from '../../SettingsShared';
 import AuditLogViewer from '../AuditLogViewer';
 import PairingManager from '../PairingManager';
 
@@ -85,23 +85,8 @@ export default function SettingsTabSistema({
 
             {/* Apariencia */}
             <SectionCard icon={Palette} title="Apariencia" subtitle="Estilo visual de la app" iconColor="text-pink-500">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        {theme === 'dark' ? <Moon size={18} className="text-brand" /> : <Sun size={18} className="text-amber-500" />}
-                        <div>
-                            <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{theme === 'dark' ? 'Modo Oscuro' : 'Modo Claro'}</p>
-                            <p className="text-[10px] text-slate-400 mt-0.5">Toca para cambiar</p>
-                        </div>
-                    </div>
-                    <Toggle
-                        enabled={theme === 'dark'}
-                        color="indigo"
-                        onChange={() => { toggleTheme(); triggerHaptic?.(); }}
-                    />
-                </div>
-
                 {/* Zoom / Escala de pantalla */}
-                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                <div>
                     <div className="flex items-center gap-3 mb-3">
                         <ZoomIn size={18} className="text-brand" />
                         <div>

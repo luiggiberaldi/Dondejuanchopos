@@ -18,7 +18,6 @@ import SettingsTabVentas from '../components/Settings/tabs/SettingsTabVentas';
 import SettingsTabUsuarios from '../components/Settings/tabs/SettingsTabUsuarios';
 import SettingsTabSistema from '../components/Settings/tabs/SettingsTabSistema';
 import SettingsTabLicencia from '../components/Settings/tabs/SettingsTabLicencia';
-import { Toggle, SectionCard } from '../components/Settings/SettingsUI';
 import { useCloudBackup } from '../hooks/useCloudBackup';
 import { useDataImportExport } from '../hooks/useDataImportExport';
 import { useAuthStore } from '../hooks/store/useAuthStore';
