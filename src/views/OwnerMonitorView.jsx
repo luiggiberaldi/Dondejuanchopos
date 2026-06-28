@@ -5,7 +5,7 @@ import { storageService } from '../utils/storageService';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { showToast } from '../components/Toast';
 import { 
-    TrendingUp, Package, AlertTriangle, Coins, Users, LogOut, 
+    TrendingUp, Package, Coins, Users, LogOut, 
     RefreshCw, Wifi, WifiOff, Clock, FileText, DollarSign,
     Wallet, CreditCard, Smartphone, Banknote, ArrowDownRight,
     ShieldCheck, Hash
@@ -36,7 +36,6 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const { isConnected, lastSync, loading: syncLoading } = useMonitorSync(pairedDeviceId);
 
     const [sales, setSales] = useState([]);
-    const [auditLogs, setAuditLogs] = useState([]);
     const [activeCashier, setActiveCashier] = useState({ nombre: 'Ninguno', rol: '' });
     const [loadingData, setLoadingData] = useState(true);
 
@@ -45,14 +44,12 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     // 1. Cargar datos locales (que son actualizados por useMonitorSync)
     const loadLocalData = async () => {
         try {
-            const [savedSales, savedLogs, savedAuth] = await Promise.all([
+            const [savedSales, savedAuth] = await Promise.all([
                 storageService.getItem('bodega_sales_v1', []),
-                storageService.getItem('abasto_audit_log_v1', []),
                 storageService.getItem('abasto-auth-storage', null)
             ]);
 
             setSales(savedSales);
-            setAuditLogs(savedLogs.slice(-15).reverse()); // Últimos 15 logs
             
             if (savedAuth && savedAuth.state && savedAuth.state.usuarioActivo) {
                 setActiveCashier({
@@ -516,7 +513,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                         </div>
                     </div>
 
-                    {/* Columna Derecha: Stock Crítico y Bitácora */}
+                    {/* Columna Derecha: Stock Crítico */}
                     <div className="space-y-6">
                         {/* Productos Sin Stock */}
                         <div className="bg-white rounded-3xl border border-slate-200/60 p-6 shadow-sm">
@@ -541,32 +538,6 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                             <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-rose-50 text-rose-600 shrink-0">
                                                 Agotado
                                             </span>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Registro de Auditoría (Bitácora) */}
-                        <div className="bg-white rounded-3xl border border-slate-200/60 p-6 shadow-sm">
-                            <h3 className="text-sm font-black text-slate-800 mb-4 flex items-center gap-2">
-                                <AlertTriangle size={18} className="text-amber-500" />
-                                Bitácora de Acciones
-                            </h3>
-
-                            {auditLogs.length === 0 ? (
-                                <div className="py-8 text-center text-slate-400">
-                                    <p className="text-xs font-black">Sin actividad registrada</p>
-                                </div>
-                            ) : (
-                                <div className="space-y-3.5 max-h-[300px] overflow-y-auto pr-1">
-                                    {auditLogs.map(log => (
-                                        <div key={log.id} className="text-[11px] leading-normal border-l-2 border-slate-200 pl-3 space-y-0.5">
-                                            <div className="flex justify-between text-slate-400 font-bold">
-                                                <span>{log.user || 'Sistema'}</span>
-                                                <span>{formatTime(log.timestamp)}</span>
-                                            </div>
-                                            <p className="text-slate-600 font-medium">{log.details}</p>
                                         </div>
                                     ))}
                                 </div>
