@@ -33,7 +33,7 @@ function getMethodIcon(methodId) {
 export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) {
     const pairedDeviceId = localStorage.getItem('pda_paired_device_id');
     const { products, effectiveRate: bcvRate } = useProductContext();
-    const { isConnected, lastSync, loading: syncLoading } = useMonitorSync(pairedDeviceId);
+    const { isConnected, lastSync, loading: syncLoading, triggerRefresh } = useMonitorSync(pairedDeviceId);
 
     const [sales, setSales] = useState([]);
     const [activeCashier, setActiveCashier] = useState({ nombre: 'Ninguno', rol: '' });
@@ -269,6 +269,19 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             </>
                         )}
                     </div>
+
+                    <button 
+                        onClick={async () => { 
+                            triggerHaptic?.(); 
+                            await triggerRefresh(); 
+                            showToast?.('Datos actualizados', 'success');
+                        }}
+                        disabled={syncLoading}
+                        className="p-2.5 rounded-2xl text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 border border-slate-200 bg-white transition-colors disabled:opacity-50"
+                        title="Actualizar Datos"
+                    >
+                        <RefreshCw size={16} className={syncLoading ? "animate-spin text-emerald-500" : ""} />
+                    </button>
 
                     <button 
                         onClick={() => { triggerHaptic?.(); setShowDisconnectConfirm(true); }}
