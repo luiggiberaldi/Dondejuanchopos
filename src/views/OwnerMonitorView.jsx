@@ -87,19 +87,27 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
     // ── TURNO ACTIVO ──
     
+    // Apertura de caja del turno activo
+    const activeShiftApertura = useMemo(() => {
+        const aperturas = sales.filter(s => s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada);
+        if (aperturas.length === 0) return null;
+        return aperturas.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+    }, [sales]);
+
     // Filtrar ventas del turno activo (cajaCerrada !== true)
     const activeShiftSales = useMemo(() => {
         return sales.filter(s => {
             if (s.status === 'ANULADA') return false;
             if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'VENTA_CASHEA') return false;
-            return !s.cajaCerrada;
+            if (s.cajaCerrada) return false;
+            
+            // Restringir a transacciones posteriores a la última apertura activa si existe
+            if (activeShiftApertura) {
+                return new Date(s.timestamp) >= new Date(activeShiftApertura.timestamp);
+            }
+            return true;
         });
-    }, [sales]);
-
-    // Apertura de caja del turno activo
-    const activeShiftApertura = useMemo(() => {
-        return sales.find(s => s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada) || null;
-    }, [sales]);
+    }, [sales, activeShiftApertura]);
 
     // Métricas del turno activo
     const activeShiftMetrics = useMemo(() => {
@@ -139,7 +147,12 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         const activeFlow = sales.filter(s => {
             if (s.status === 'ANULADA') return false;
             if (s.cajaCerrada) return false;
-            return s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA' || s.tipo === 'COBRO_DEUDA' || s.tipo === 'PAGO_PROVEEDOR';
+            
+            // Restringir a transacciones posteriores a la última apertura activa si existe
+            if (activeShiftApertura) {
+                return new Date(s.timestamp) >= new Date(activeShiftApertura.timestamp);
+            }
+            return true;
         });
 
         activeFlow.forEach(sale => {
@@ -181,7 +194,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
         return Object.entries(breakdown)
             .sort(([, a], [, b]) => b.totalUsd - a.totalUsd);
-    }, [sales]);
+    }, [sales, activeShiftApertura]);
 
     // Ticket promedio del turno activo
     const activeShiftAvgTicket = useMemo(() => {
