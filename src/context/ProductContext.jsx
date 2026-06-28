@@ -212,18 +212,49 @@ export function ProductProvider({ children, rates }) {
             }
         };
 
-        // Mantener app_storage_update por si algún componente viejo sigue usándolo para sincronizar
-        // aunque ahora ProductContext centraliza todo.
         const handleAppStorageUpdate = async (e) => {
             if (savingRef.current) return;
+            const key = e.detail?.key;
+            if (!key) return;
 
-            if (e.detail?.key === 'bodega_products_v1') {
+            if (key === 'bodega_products_v1') {
                 const updatedProducts = await storageService.getItem('bodega_products_v1', []);
                 setProducts(updatedProducts);
             }
-            if (e.detail?.key === 'my_categories_v1') {
+            if (key === 'my_categories_v1') {
                 const updatedCategories = await storageService.getItem('my_categories_v1', BODEGA_CATEGORIES);
                 setCategories(updatedCategories);
+            }
+            if (key === 'bodega_rate_mode') {
+                const val = localStorage.getItem('bodega_rate_mode');
+                if (val) setRateMode(val);
+            }
+            if (key === 'bodega_custom_rate') {
+                const val = localStorage.getItem('bodega_custom_rate');
+                if (val && parseFloat(val) > 0) setCustomRate(val);
+            }
+            if (key === 'bodega_use_auto_rate') {
+                const val = localStorage.getItem('bodega_use_auto_rate');
+                try {
+                    const isAuto = val ? JSON.parse(val) : true;
+                    if (isAuto) {
+                        setRateMode(prev => ['bcv', 'euro', 'usdt'].includes(prev) ? prev : 'bcv');
+                    } else {
+                        setRateMode('manual');
+                    }
+                } catch (err) {}
+            }
+            if (key === 'cop_enabled') {
+                setCopEnabled(localStorage.getItem('cop_enabled') === 'true');
+            }
+            if (key === 'auto_cop_enabled') {
+                setAutoCopEnabled(localStorage.getItem('auto_cop_enabled') === 'true');
+            }
+            if (key === 'tasa_cop') {
+                setTasaCopManual(localStorage.getItem('tasa_cop') || '');
+            }
+            if (key === 'cop_primary') {
+                setCopPrimary(localStorage.getItem('cop_primary') === 'true');
             }
         };
 

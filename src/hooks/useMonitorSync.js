@@ -32,6 +32,7 @@ export function useMonitorSync(pairedDeviceId) {
                     newValue: stringPayload,
                     storageArea: localStorage
                 }));
+                window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: docId } }));
             } else {
                 await localforage.setItem(docId, payload);
                 window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: docId } }));

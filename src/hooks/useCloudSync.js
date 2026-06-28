@@ -127,6 +127,7 @@ async function _applyFromCloud(docId, collection, payload) {
                 newValue: stringPayload,
                 storageArea: localStorage
             }));
+            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: docId } }));
         } else {
             // Colección 'store' → IndexedDB directo, sin pasar por storageService.setItem
             const { default: localforage } = await import('localforage');
