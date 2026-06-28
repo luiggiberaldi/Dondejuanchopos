@@ -197,6 +197,8 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
 
     const handleConfirmCashRecon = async (reconData) => {
         let summaryObj = null;
+        const activeUser = useAuthStore.getState().usuarioActivo;
+
         if (todayCashFlow.length > 0 || todaySales.length > 0) {
             const allTodayForReport = sales.filter(s => {
                 const saleLocalDay = s.timestamp ? getLocalISODate(new Date(s.timestamp)) : getLocalISODate(new Date());
@@ -224,12 +226,42 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
 
         const currentCierreId = new Date().getTime();
         const validTiposParaCerrar = ['VENTA', 'VENTA_FIADA', 'VENTA_CASHEA', 'COBRO_DEUDA', 'PAGO_PROVEEDOR', 'APERTURA_CAJA'];
+        
+        // Registrar el cierre formalmente en el log de transacciones para sincronización con el supervisor
+        let registroCierre = null;
+        if (summaryObj) {
+            registroCierre = {
+                id: `cierre_${currentCierreId}`,
+                tipo: 'REGISTRO_CIERRE',
+                cierreId: currentCierreId,
+                timestamp: new Date().toISOString(),
+                cajaCerrada: true,
+                summary: {
+                    todayTotalUsd,
+                    todayTotalBs,
+                    todayProfit,
+                    todayItemsSold,
+                    reconData,
+                    copEnabled,
+                    tasaCop,
+                    cashier: {
+                        nombre: activeUser?.nombre || 'Cajero',
+                        rol: activeUser?.rol || 'CAJERO'
+                    }
+                }
+            };
+        }
+
         const updatedSales = sales.map(s => {
             if (!s.cajaCerrada && validTiposParaCerrar.includes(s.tipo || 'VENTA')) {
                 return { ...s, cajaCerrada: true, cierreId: currentCierreId };
             }
             return s;
         });
+
+        if (registroCierre) {
+            updatedSales.push(registroCierre);
+        }
 
         await storageService.setItem(SALES_KEY, updatedSales);
         setSales(updatedSales);
