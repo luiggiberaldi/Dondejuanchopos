@@ -122,89 +122,91 @@ export default function SalesHeader({
 
             {/* Rate Config Panel */}
             {showRateConfig && (
-                <div className="bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 mb-3 animate-in fade-in slide-in-from-top-2 space-y-4">
-                    {isCopMode ? (
-                        /* COP Mode rate selector */
-                        <div className="space-y-3">
-                            <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold text-slate-500">Tasa COP/USD</span>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-[11px] font-bold text-slate-400">
-                                        {isAuto ? <span className="text-amber-500">Auto TRM</span> : <span>Manual</span>}
-                                    </span>
-                                    <button onClick={handleAutoToggle}
-                                        className={`relative w-10 h-6 rounded-full transition-colors ${isAuto ? 'bg-amber-500' : 'bg-slate-300 dark:bg-slate-600'}`}>
-                                        <span className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${isAuto ? 'translate-x-4' : 'translate-x-0'}`} />
-                                    </button>
-                                </div>
-                            </div>
-                            {!isAuto && (
-                                <input type="number" value={manualValue} onChange={handleManualChange}
-                                    className="w-full p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm font-bold outline-none focus:ring-2 text-amber-600 dark:text-amber-400 focus:border-amber-500 focus:ring-amber-500/20"
-                                    placeholder="Tasa COP por 1 USD (ej: 4150)" autoFocus />
-                            )}
-                        </div>
-                    ) : (
-                        /* Premium compact visual rate selector for BS mode */
-                        <div className="space-y-3">
-                            <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">Tasa de Referencia</span>
-                            </div>
-                            
-                            <div className="bg-slate-100 dark:bg-slate-900 p-1 rounded-xl flex gap-1 w-full border border-slate-200/50 dark:border-slate-800/50">
-                                {[
-                                    { id: 'bcv', label: 'BCV', val: rates?.bcv?.price ? `${formatBs(rates.bcv.price)}` : '...' },
-                                    { id: 'euro', label: 'Euro', val: rates?.euro?.price ? `${formatBs(rates.euro.price)}` : 'No disp.' },
-                                    { id: 'usdt', label: 'USDT', val: rates?.usdt?.price ? `${formatBs(rates.usdt.price)}` : 'No disp.' },
-                                    { id: 'manual', label: 'Manual', val: customRate && parseFloat(customRate) > 0 ? `${formatBs(parseFloat(customRate))}` : 'Manual' },
-                                ].map((opt) => {
-                                    const isActive = rateMode === opt.id;
-                                    return (
-                                        <button
-                                            key={opt.id}
-                                            type="button"
-                                            onClick={() => {
-                                                triggerHaptic && triggerHaptic();
-                                                setRateMode(opt.id);
-                                            }}
-                                            className={`flex-1 py-1.5 px-0.5 rounded-lg text-center transition-all duration-200 active:scale-[0.97] ${
-                                                isActive
-                                                    ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-sm font-bold border border-slate-200/50 dark:border-slate-700/50'
-                                                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-semibold'
-                                            }`}
-                                        >
-                                            <span className={`block text-[8px] font-black uppercase tracking-wider ${isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
-                                                {opt.label}
-                                            </span>
-                                            <span className="block text-[10px] sm:text-[11px] font-black mt-0.5 tabular-nums leading-tight">
-                                                {opt.val} {opt.val !== '...' && opt.val !== 'No disp.' && opt.val !== 'Manual' && 'Bs'}
-                                            </span>
+                <div className="bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 mb-3 animate-in fade-in slide-in-from-top-2">
+                    <div className="max-w-md mx-auto w-full space-y-4">
+                        {isCopMode ? (
+                            /* COP Mode rate selector */
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-slate-500">Tasa COP/USD</span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[11px] font-bold text-slate-400">
+                                            {isAuto ? <span className="text-amber-500">Auto TRM</span> : <span>Manual</span>}
+                                        </span>
+                                        <button onClick={handleAutoToggle}
+                                            className={`relative w-10 h-6 rounded-full transition-colors ${isAuto ? 'bg-amber-500' : 'bg-slate-300 dark:bg-slate-600'}`}>
+                                            <span className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${isAuto ? 'translate-x-4' : 'translate-x-0'}`} />
                                         </button>
-                                    );
-                                })}
-                            </div>
-
-                            {rateMode === 'manual' && (
-                                <div className="space-y-1.5 animate-in fade-in duration-200 pt-1">
-                                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Fijar Tasa Personalizada (Bs)</span>
-                                    <input
-                                        type="number"
-                                        value={customRate}
-                                        onChange={(e) => setCustomRate(e.target.value)}
-                                        className="w-full p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold outline-none focus:ring-2 focus:border-emerald-500 focus:ring-emerald-500/20 text-slate-800 dark:text-white"
-                                        placeholder="Ingresa la tasa manual (ej: 42.50)"
-                                        autoFocus
-                                    />
+                                    </div>
                                 </div>
-                            )}
-                        </div>
-                    )}
-                    <button
-                        onClick={() => { triggerHaptic && triggerHaptic(); setShowRateConfig(false); }}
-                        className={`w-full py-2.5 text-white font-black text-xs rounded-xl shadow-sm active:scale-95 transition-all ${isCopMode ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20'}`}
-                    >
-                        Aceptar
-                    </button>
+                                {!isAuto && (
+                                    <input type="number" value={manualValue} onChange={handleManualChange}
+                                        className="w-full p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm font-bold outline-none focus:ring-2 text-amber-600 dark:text-amber-400 focus:border-amber-500 focus:ring-amber-500/20"
+                                        placeholder="Tasa COP por 1 USD (ej: 4150)" autoFocus />
+                                    )}
+                            </div>
+                        ) : (
+                            /* Premium compact visual rate selector for BS mode */
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">Tasa de Referencia</span>
+                                </div>
+                                
+                                <div className="bg-slate-100 dark:bg-slate-900 p-1 rounded-xl flex gap-1 w-full border border-slate-200/50 dark:border-slate-800/50">
+                                    {[
+                                        { id: 'bcv', label: 'BCV', val: rates?.bcv?.price ? `${formatBs(rates.bcv.price)}` : '...' },
+                                        { id: 'euro', label: 'Euro', val: rates?.euro?.price ? `${formatBs(rates.euro.price)}` : 'No disp.' },
+                                        { id: 'usdt', label: 'USDT', val: rates?.usdt?.price ? `${formatBs(rates.usdt.price)}` : 'No disp.' },
+                                        { id: 'manual', label: 'Manual', val: customRate && parseFloat(customRate) > 0 ? `${formatBs(parseFloat(customRate))}` : 'Manual' },
+                                    ].map((opt) => {
+                                        const isActive = rateMode === opt.id;
+                                        return (
+                                            <button
+                                                key={opt.id}
+                                                type="button"
+                                                onClick={() => {
+                                                    triggerHaptic && triggerHaptic();
+                                                    setRateMode(opt.id);
+                                                }}
+                                                className={`flex-1 py-1.5 px-0.5 rounded-lg text-center transition-all duration-200 active:scale-[0.97] ${
+                                                    isActive
+                                                        ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-sm font-bold border border-slate-200/50 dark:border-slate-700/50'
+                                                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-semibold'
+                                                }`}
+                                            >
+                                                <span className={`block text-[8px] font-black uppercase tracking-wider ${isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
+                                                    {opt.label}
+                                                </span>
+                                                <span className="block text-[10px] sm:text-[11px] font-black mt-0.5 tabular-nums leading-tight">
+                                                    {opt.val} {opt.val !== '...' && opt.val !== 'No disp.' && opt.val !== 'Manual' && 'Bs'}
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+
+                                {rateMode === 'manual' && (
+                                    <div className="space-y-1.5 animate-in fade-in duration-200 pt-1">
+                                        <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Fijar Tasa Personalizada (Bs)</span>
+                                        <input
+                                            type="number"
+                                            value={customRate}
+                                            onChange={(e) => setCustomRate(e.target.value)}
+                                            className="w-full p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold outline-none focus:ring-2 focus:border-emerald-500 focus:ring-emerald-500/20 text-slate-800 dark:text-white"
+                                            placeholder="Ingresa la tasa manual (ej: 42.50)"
+                                            autoFocus
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        <button
+                            onClick={() => { triggerHaptic && triggerHaptic(); setShowRateConfig(false); }}
+                            className={`w-full py-2.5 text-white font-black text-xs rounded-xl shadow-sm active:scale-95 transition-all ${isCopMode ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20'}`}
+                        >
+                            Aceptar
+                        </button>
+                    </div>
                 </div>
             )}
         </div>

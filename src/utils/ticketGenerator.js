@@ -34,7 +34,7 @@ export async function generateTicketPDF(sale, bcvRate) {
     // Altura MUY generosa para que nunca se corte
     const H = 160 + (itemCount * 14) + (paymentCount * 7) + (hasFiado ? 18 : 0);
 
-    const doc = new jsPDF({ unit: 'mm', format: [WIDTH, H] });
+    const doc = new jsPDF('p', 'mm', [WIDTH, H]);
 
     let y = 8;
 

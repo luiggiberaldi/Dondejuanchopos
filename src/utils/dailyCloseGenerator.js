@@ -27,6 +27,7 @@ export async function generateDailyClosePDF({
     // (DashboardView ya los tiene en scope). Fallback a localStorage solo si no se pasan.
     copEnabled: copEnabledParam,
     tasaCop: tasaCopParam,
+    action = 'share', // 'share' | 'print' | 'download'
 }) {
     const WIDTH = 80;
     const M = 5;
@@ -43,7 +44,7 @@ export async function generateDailyClosePDF({
         + (topProdRows * 10)
         + (saleRows * 45);
 
-    const doc = new jsPDF({ unit: 'mm', format: [WIDTH, H] });
+    const doc = new jsPDF('p', 'mm', [WIDTH, H]);
 
     // FIN-025: COP mode detection — preferir parámetros explícitos del caller.
     // Fallback a localStorage con warning (legacy path).
@@ -410,7 +411,7 @@ export async function generateDailyClosePDF({
     doc.setTextColor(...MUTED);
     doc.text('Reporte generado automáticamente · Sin valor fiscal', CX, y, { align: 'center' });
 
-    // ── DESCARGAR / COMPARTIR ──
+    // ── ACCIÓN DE SALIDA (IMPRIMIR / DESCARGAR / COMPARTIR) ──
     const getLocalISODate = (d = new Date()) => {
         const year = d.getFullYear();
         const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -419,13 +420,34 @@ export async function generateDailyClosePDF({
     };
     const dateStr = getLocalISODate(now);
     const filename = `cierre_${dateStr}.pdf`;
-    const blob = doc.output('blob');
-    const file = new File([blob], filename, { type: 'application/pdf' });
 
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        navigator.share({ title: `Cierre del Día ${dateStr}`, files: [file] })
-            .catch(() => doc.save(filename));
-    } else {
+    if (action === 'print') {
+        const iframe = document.createElement('iframe');
+        iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:80mm;height:auto;';
+        document.body.appendChild(iframe);
+        const blob = doc.output('blob');
+        const blobUrl = URL.createObjectURL(blob);
+        iframe.src = blobUrl;
+        iframe.onload = () => {
+            setTimeout(() => {
+                iframe.contentWindow.print();
+                setTimeout(() => {
+                    document.body.removeChild(iframe);
+                    URL.revokeObjectURL(blobUrl);
+                }, 2000);
+            }, 300);
+        };
+    } else if (action === 'download') {
         doc.save(filename);
+    } else {
+        // default: share via native API or fallback to download
+        const blob = doc.output('blob');
+        const file = new File([blob], filename, { type: 'application/pdf' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            navigator.share({ title: `Cierre del Día ${dateStr}`, files: [file] })
+                .catch(() => doc.save(filename));
+        } else {
+            doc.save(filename);
+        }
     }
 }

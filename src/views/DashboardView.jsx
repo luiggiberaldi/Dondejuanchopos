@@ -11,6 +11,7 @@ import SalesHistory from '../components/Dashboard/SalesHistory';
 import SalesChart from '../components/Dashboard/SalesChart';
 import ConfirmModal from '../components/ConfirmModal';
 import CierreCajaWizard from '../components/Dashboard/CierreCajaWizard';
+import CierreCajaSummaryModal from '../components/Dashboard/CierreCajaSummaryModal';
 import { generateTicketPDF, printThermalTicket } from '../utils/ticketGenerator';
 import { shareSaleWhatsApp } from '../utils/dashboardActions';
 import { generateDailyClosePDF } from '../utils/dailyCloseGenerator';
@@ -60,6 +61,8 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [selectedChartDate, setSelectedChartDate] = useState(null);
     const [showTopDeudas, setShowTopDeudas] = useState(false);
+    const [showCierreSummary, setShowCierreSummary] = useState(false);
+    const [cierreSummaryData, setCierreSummaryData] = useState(null);
     const touchStartY = useRef(0);
     const scrollRef = useRef(null);
     // v1.2.0: reveal-on-scroll para cards de stats y secciones principales.
@@ -193,6 +196,7 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
     };
 
     const handleConfirmCashRecon = async (reconData) => {
+        let summaryObj = null;
         if (todayCashFlow.length > 0 || todaySales.length > 0) {
             const allTodayForReport = sales.filter(s => {
                 const saleLocalDay = s.timestamp ? getLocalISODate(new Date(s.timestamp)) : getLocalISODate(new Date());
@@ -200,7 +204,7 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
             });
             const salesForPDF = todayCashFlow.filter(s => s.tipo !== 'APERTURA_CAJA');
 
-            await generateDailyClosePDF({
+            summaryObj = {
                 sales: salesForPDF,
                 allSales: allTodayForReport,
                 bcvRate,
@@ -212,7 +216,10 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
                 todayItemsSold,
                 reconData,
                 apertura: todayApertura,
-            });
+                copEnabled,
+                tasaCop,
+            };
+            setCierreSummaryData(summaryObj);
         }
 
         const currentCierreId = new Date().getTime();
@@ -227,7 +234,13 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
         await storageService.setItem(SALES_KEY, updatedSales);
         setSales(updatedSales);
         setIsCashReconOpen(false);
-        showToast('Cierre de caja completado (Historial conservado)', 'success');
+
+        if (summaryObj) {
+            setShowCierreSummary(true);
+        } else {
+            showToast('Cierre de caja completado (Sin movimientos)', 'success');
+        }
+
         auditLog('VENTA', 'CIERRE_CAJA', 'Cierre de caja completado');
     };
 
@@ -586,6 +599,20 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
                 copEnabled={copEnabled}
                 copPrimary={copPrimary}
                 tasaCop={tasaCop}
+            />
+            <CierreCajaSummaryModal
+                isOpen={showCierreSummary}
+                onClose={() => setShowCierreSummary(false)}
+                summaryData={cierreSummaryData}
+                onPrint={() => {
+                    generateDailyClosePDF({ ...cierreSummaryData, action: 'print' });
+                }}
+                onDownload={() => {
+                    generateDailyClosePDF({ ...cierreSummaryData, action: 'download' });
+                }}
+                onShare={() => {
+                    generateDailyClosePDF({ ...cierreSummaryData, action: 'share' });
+                }}
             />
             {showMonitor && (
                 <div className="fixed inset-0 z-[150] bg-[#080E1C] flex flex-col">
