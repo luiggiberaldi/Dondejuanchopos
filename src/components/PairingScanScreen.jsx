@@ -11,14 +11,14 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
     const [errorMsg, setErrorMsg] = useState('');
     const [cameraState, setCameraState] = useState('idle'); // 'idle', 'requesting', 'active', 'permission_denied', 'error'
     const [cameras, setCameras] = useState([]);
-    const [currentCameraIndex, setCurrentCameraIndex] = useState(null);
+    const [activeCamera, setActiveCamera] = useState(null); // Puede ser 'environment', 'user' o un ID de cámara string
     const scannerRef = useRef(null);
 
-    // 1. Cargar cámaras disponibles e inicializar la cámara trasera por defecto
+    // 1. Cargar cámaras disponibles e inicializar la cámara por defecto
     useEffect(() => {
         if (scanMethod !== 'camera') {
             setCameras([]);
-            setCurrentCameraIndex(null);
+            setActiveCamera(null);
             return;
         }
 
@@ -27,7 +27,7 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
                 const devices = await Html5Qrcode.getCameras();
                 setCameras(devices || []);
                 if (devices && devices.length > 0) {
-                    const backIndex = devices.findIndex(device => {
+                    const backCamera = devices.find(device => {
                         const label = device.label.toLowerCase();
                         return label.includes('back') || 
                                label.includes('rear') || 
@@ -37,24 +37,24 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
                                label.includes('principal') ||
                                label.includes('main');
                     });
-                    // Si se encuentra, usar ese índice. Si no, usar la última cámara (suele ser trasera en móviles)
-                    const defaultIndex = backIndex !== -1 ? backIndex : devices.length - 1;
-                    setCurrentCameraIndex(defaultIndex);
+                    // Si se encuentra, usar ese ID. Si no, usar la última cámara (suele ser trasera en móviles)
+                    const defaultCamera = backCamera ? backCamera.id : devices[devices.length - 1].id;
+                    setActiveCamera(defaultCamera);
                 } else {
-                    setCurrentCameraIndex(-1); // No se detectaron cámaras
+                    setActiveCamera('environment'); // Fallback genérico
                 }
             } catch (e) {
                 console.warn('[PairingScanScreen] Error al listar cámaras:', e);
-                setCurrentCameraIndex(-1);
+                setActiveCamera('environment'); // Fallback genérico
             }
         };
 
         loadCameras();
     }, [scanMethod]);
 
-    // 2. Iniciar/Detener scanner según método e índice de cámara activa
+    // 2. Iniciar/Detener scanner según método y cámara activa
     useEffect(() => {
-        if (scanMethod !== 'camera' || currentCameraIndex === null) {
+        if (scanMethod !== 'camera' || activeCamera === null) {
             stopScanning();
             return;
         }
@@ -64,7 +64,7 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
         return () => {
             stopScanning();
         };
-    }, [scanMethod, currentCameraIndex]);
+    }, [scanMethod, activeCamera]);
 
     const startScanning = async () => {
         setCameraState('requesting');
@@ -113,18 +113,16 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
                 aspectRatio: 1.0
             };
 
-            const activeDevice = cameras[currentCameraIndex];
-            if (activeDevice && currentCameraIndex >= 0) {
+            if (activeCamera === 'environment' || activeCamera === 'user') {
                 await html5QrCode.start(
-                    activeDevice.id,
+                    { facingMode: activeCamera },
                     config,
                     onScanSuccess,
                     () => {}
                 );
             } else {
-                // Fallback por defecto si falló la detección de dispositivos específicos
                 await html5QrCode.start(
-                    { facingMode: "environment" },
+                    activeCamera,
                     config,
                     onScanSuccess,
                     () => {}
@@ -161,9 +159,20 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
     };
 
     const handleSwitchCamera = () => {
-        if (cameras.length <= 1) return;
         triggerHaptic?.();
-        setCurrentCameraIndex(prev => (prev + 1) % cameras.length);
+        if (cameras.length > 1) {
+            const currentIndex = cameras.findIndex(c => c.id === activeCamera);
+            const nextIndex = (currentIndex + 1) % cameras.length;
+            setActiveCamera(cameras[nextIndex].id);
+        } else {
+            // Si la API no retornó múltiples cámaras, alternar entre restricciones genéricas de entorno
+            setActiveCamera(prev => {
+                if (prev === 'environment') return 'user';
+                if (prev === 'user') return 'environment';
+                // Si era un ID y queremos alternar, asumir que venía de la trasera y pasar a la frontal
+                return 'user';
+            });
+        }
     };
 
     // Ejecutar el emparejamiento con el token
@@ -323,8 +332,8 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
                         {/* Contenedor del Feed de Cámara */}
                         <div id="qr-reader-container" className="w-full h-full [&_video]:object-cover [&_video]:w-full [&_video]:h-full [&_video]:rounded-3xl"></div>
 
-                        {/* Botón flotante para cambiar de cámara (si hay más de 1 cámara) */}
-                        {cameras.length > 1 && cameraState === 'active' && (
+                        {/* Botón flotante para cambiar de cámara (se muestra siempre que esté activa) */}
+                        {cameraState === 'active' && (
                             <button
                                 type="button"
                                 onClick={handleSwitchCamera}
