@@ -205,6 +205,22 @@ export function useCloudSync(deviceId) {
                     console.log(`[CloudSync] Pull inicial: ${docs.length} documentos aplicados.`);
                 }
 
+                // ── Auto-recuperación: Purgar/subir datos locales que no llegaron a enviarse debido al bug anterior ──
+                try {
+                    const { default: lf } = await import('localforage');
+                    lf.config({ name: 'BodegaApp', storeName: 'bodega_app_data' });
+                    const criticalKeys = ['bodega_sales_v1', 'bodega_products_v1', 'bodega_customers_v1', 'bodega_accounts_v2'];
+                    for (const key of criticalKeys) {
+                        const localValue = await lf.getItem(key);
+                        if (localValue) {
+                            // Subimos los datos locales a la base de datos para sincronizar el historial
+                            await pushCloudSync(key, localValue);
+                        }
+                    }
+                } catch (e) {
+                    // Silencioso
+                }
+
                 // ── Suscripción WebSocket Realtime ─────────────────────────
                 if (!globalSubscription) {
                     globalSubscription = supabaseCloud
