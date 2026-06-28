@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { showToast } from './Toast';
 import { ArrowLeft, Camera, ShieldAlert, KeyRound, Loader2, ArrowRight } from 'lucide-react';
@@ -9,59 +9,107 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
     const [manualCode, setManualCode] = useState('');
     const [loading, setLoading] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
+    const [cameraState, setCameraState] = useState('idle'); // 'idle', 'requesting', 'active', 'permission_denied', 'error'
     const scannerRef = useRef(null);
 
     // Detección de cámara y render de html5-qrcode
     useEffect(() => {
         if (scanMethod !== 'camera') {
-            if (scannerRef.current) {
-                scannerRef.current.clear().catch(() => {});
-                scannerRef.current = null;
-            }
+            stopScanning();
             return;
         }
 
-        // Crear una instancia de scanner
-        const html5QrcodeScanner = new Html5QrcodeScanner(
-            'qr-reader-container', 
-            { 
-                fps: 10, 
-                qrbox: { width: 250, height: 250 },
-                aspectRatio: 1.0
-            },
-            /* verbose= */ false
-        );
-
-        const onScanSuccess = async (decodedText) => {
-            if (loading) return;
-            triggerHaptic?.();
-            
-            // Detener scanner temporalmente
-            html5QrcodeScanner.pause();
-            
-            const cleanToken = decodedText.trim().toUpperCase();
-            if (cleanToken.length === 6) {
-                await executePairing(cleanToken);
-            } else {
-                showToast('Formato de código QR inválido', 'error');
-                html5QrcodeScanner.resume();
-            }
-        };
-
-        const onScanFailure = (error) => {
-            // Fails silenciosos de lectura (normal durante el escaneo continuo)
-        };
-
-        html5QrcodeScanner.render(onScanSuccess, onScanFailure);
-        scannerRef.current = html5QrcodeScanner;
+        startScanning();
 
         return () => {
-            if (scannerRef.current) {
-                scannerRef.current.clear().catch(() => {});
-                scannerRef.current = null;
-            }
+            stopScanning();
         };
     }, [scanMethod]);
+
+    const startScanning = async () => {
+        setCameraState('requesting');
+        setErrorMsg('');
+
+        try {
+            // Esperar un tick de render para asegurar que el DOM de qr-reader-container exista
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const container = document.getElementById('qr-reader-container');
+            if (!container) return;
+
+            if (scannerRef.current) {
+                await stopScanning();
+            }
+
+            const html5QrCode = new Html5Qrcode("qr-reader-container");
+            scannerRef.current = html5QrCode;
+
+            const onScanSuccess = async (decodedText) => {
+                if (loading) return;
+                triggerHaptic?.();
+                
+                // Detener scanner
+                try {
+                    await html5QrCode.stop();
+                } catch (e) {}
+                
+                const cleanToken = decodedText.trim().toUpperCase();
+                if (cleanToken.length === 6) {
+                    await executePairing(cleanToken);
+                } else {
+                    showToast('Formato de código QR inválido', 'error');
+                    // Reiniciar escaneo después de unos segundos
+                    setTimeout(() => {
+                        startScanning();
+                    }, 2000);
+                }
+            };
+
+            const config = { 
+                fps: 10, 
+                qrbox: (width, height) => {
+                    const size = Math.min(width, height) * 0.7;
+                    return { width: size, height: size };
+                },
+                aspectRatio: 1.0
+            };
+
+            await html5QrCode.start(
+                { facingMode: "environment" },
+                config,
+                onScanSuccess,
+                () => {
+                    // Silencioso
+                }
+            );
+
+            setCameraState('active');
+        } catch (err) {
+            console.error('[PairingScanScreen] Error al iniciar cámara:', err);
+            const errStr = String(err).toLowerCase();
+            const isPermissionError = errStr.includes('permission') || 
+                                     errStr.includes('notallowederror') || 
+                                     errStr.includes('denied');
+            if (isPermissionError) {
+                setCameraState('permission_denied');
+            } else {
+                setCameraState('error');
+                setErrorMsg('No se pudo acceder a la cámara. Revisa tu conexión o usa el código manual.');
+            }
+        }
+    };
+
+    const stopScanning = async () => {
+        if (scannerRef.current) {
+            try {
+                if (scannerRef.current.isScanning) {
+                    await scannerRef.current.stop();
+                }
+            } catch (e) {
+                console.warn('Error al detener scanner:', e);
+            }
+            scannerRef.current = null;
+        }
+    };
 
     // Ejecutar el emparejamiento con el token
     const executePairing = async (token) => {
@@ -102,12 +150,12 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
                 }, 1500);
             } else {
                 setErrorMsg(data?.message || 'Error desconocido al vincular.');
-                if (scannerRef.current) scannerRef.current.resume();
+                startScanning(); // Volver a habilitar cámara
             }
         } catch (err) {
             console.error('[PairingScanScreen] Error al vincular:', err);
             setErrorMsg(err.message || 'Error de conexión con el servidor.');
-            if (scannerRef.current) scannerRef.current.resume();
+            startScanning(); // Volver a habilitar cámara
         } finally {
             setLoading(false);
         }
@@ -172,13 +220,53 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
                 {/* Área de Cámara */}
                 {scanMethod === 'camera' && (
                     <div className="w-full aspect-square bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden flex flex-col justify-center items-center relative group">
+                        
+                        {/* 1. Cargando / Solicitando Permiso */}
+                        {cameraState === 'requesting' && (
+                            <div className="absolute inset-0 bg-slate-50 dark:bg-slate-900 z-10 flex flex-col justify-center items-center text-center p-6 gap-3">
+                                <Loader2 className="animate-spin text-emerald-500" size={32} />
+                                <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Accediendo a la cámara...</p>
+                                <p className="text-[10px] text-slate-400">Por favor, presiona "Permitir" si tu navegador lo solicita.</p>
+                            </div>
+                        )}
+
+                        {/* 2. Permiso Denegado / Bloqueado */}
+                        {cameraState === 'permission_denied' && (
+                            <div className="absolute inset-0 bg-slate-50 dark:bg-slate-900 z-10 flex flex-col justify-center items-center text-center p-6 gap-4">
+                                <div className="p-3 bg-amber-50 dark:bg-amber-950/20 text-amber-500 rounded-full">
+                                    <ShieldAlert size={28} />
+                                </div>
+                                <div className="space-y-1">
+                                    <p className="text-xs font-bold text-slate-800 dark:text-white">Permiso de cámara requerido</p>
+                                    <p className="text-[10px] text-slate-400 leading-relaxed px-2">
+                                        Has bloqueado el acceso a la cámara. Para activar los permisos directamente:
+                                    </p>
+                                </div>
+                                <div className="bg-slate-100 dark:bg-slate-800 p-3 rounded-xl text-[10px] text-slate-500 dark:text-slate-400 text-left w-full space-y-1 font-medium leading-relaxed">
+                                    <p className="font-bold text-slate-700 dark:text-slate-200">En el celular:</p>
+                                    <p>1. Toca el ícono de <strong className="text-slate-800 dark:text-white">ajustes / candado</strong> al lado de la barra de dirección URL.</p>
+                                    <p>2. Activa el interruptor de <strong className="text-slate-800 dark:text-white">Cámara</strong>.</p>
+                                    <p>3. Recarga esta página.</p>
+                                </div>
+                                <button
+                                    onClick={() => { triggerHaptic?.(); startScanning(); }}
+                                    className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[11px] rounded-xl active:scale-95 transition-transform flex items-center gap-1.5 shadow-md shadow-emerald-500/10"
+                                >
+                                    <Camera size={14} /> Reintentar Cámara
+                                </button>
+                            </div>
+                        )}
+
+                        {/* 3. Cargando Vinculación (cuando el QR es leído) */}
                         {loading && (
                             <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm z-10 flex flex-col justify-center items-center text-white gap-2">
                                 <Loader2 className="animate-spin text-emerald-400" size={32} />
                                 <span className="text-xs font-black">Vinculando...</span>
                             </div>
                         )}
-                        <div id="qr-reader-container" className="w-full h-full"></div>
+
+                        {/* Contenedor del Feed de Cámara */}
+                        <div id="qr-reader-container" className="w-full h-full [&_video]:object-cover [&_video]:w-full [&_video]:h-full [&_video]:rounded-3xl"></div>
                     </div>
                 )}
 
