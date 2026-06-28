@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Camera, X, AlertTriangle, Package, Tag, Scale, Droplets, Barcode, Banknote, CheckCircle, Plus, Eye, ShoppingBag } from 'lucide-react';
+import { Camera, X, AlertTriangle, Package, Tag, Scale, Droplets, Barcode, Banknote, CheckCircle, Plus, Eye, ShoppingBag, Search, Link } from 'lucide-react';
 import { useProductContext } from '../../context/ProductContext';
 import CustomSelect from '../CustomSelect';
 
@@ -39,7 +39,9 @@ export default function ProductFormWizard({
     tasaCop,
 
     handleImageUpload,
-    categories
+    categories,
+    isSearchingImage,
+    handleLoadImageFromUrl
 }) {
     const fileInputRef = useRef(null);
     
@@ -100,16 +102,65 @@ export default function ProductFormWizard({
                         <p className="text-[10px] text-slate-400 mt-0.5">Sube una foto y define la información comercial básica.</p>
                     </div>
 
-                    {/* Image Upload */}
-                    <div onClick={() => fileInputRef.current?.click()} className="h-32 bg-slate-50 dark:bg-slate-800 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-emerald-500 transition-colors relative overflow-hidden">
-                        {image ? <img src={image} className="w-full h-full object-cover" alt="Product preview" /> : (
-                            <>
-                                <Camera size={26} className="text-slate-400 mb-2" />
-                                <span className="text-xs font-bold text-slate-500">Toca para subir foto del producto</span>
-                            </>
-                        )}
-                        <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
-                        {image && <button onClick={(e) => { e.stopPropagation(); setImage(null); }} className="absolute top-2 right-2 p-1 bg-black/50 text-white rounded-full"><X size={12} /></button>}
+                    {/* Upload and Smart URL Paste Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 select-none">
+                        {/* File Upload Zone */}
+                        <div onClick={() => fileInputRef.current?.click()} className="sm:col-span-5 h-28 bg-slate-50 dark:bg-slate-800 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-emerald-500 transition-colors relative overflow-hidden">
+                            {image ? <img src={image} className="w-full h-full object-cover" alt="Product preview" /> : (
+                                <>
+                                    <Camera size={22} className="text-slate-400 mb-1" />
+                                    <span className="text-[10px] font-black text-slate-500">Subir foto local</span>
+                                </>
+                            )}
+                            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
+                            {image && <button onClick={(e) => { e.stopPropagation(); setImage(null); }} className="absolute top-2 right-2 p-1 bg-black/50 text-white rounded-full"><X size={12} /></button>}
+                        </div>
+
+                        {/* Web Image Finder & URL Paste Zone */}
+                        <div className="sm:col-span-7 h-28 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-2.5 flex flex-col justify-between">
+                            <div className="flex justify-between items-center">
+                                <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Foto de la Web</span>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (!name || name.trim().length < 3) {
+                                            alert('Ingresa el nombre del producto (mín. 3 letras) para buscar');
+                                            return;
+                                        }
+                                        window.open(`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(name.trim())}`, '_blank');
+                                    }}
+                                    className="flex items-center gap-1 text-[9px] font-extrabold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors uppercase"
+                                >
+                                    <Search size={10} /> Buscar en Google
+                                </button>
+                            </div>
+
+                            <div className="relative mt-1">
+                                <input
+                                    type="url"
+                                    placeholder="Pega la dirección de la imagen..."
+                                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-2 py-1.5 pr-8 rounded-xl text-[11px] text-slate-700 dark:text-white outline-none focus:ring-1 focus:ring-emerald-500 placeholder-slate-400 font-bold"
+                                    onChange={(e) => {
+                                        const url = e.target.value.trim();
+                                        if (url && url.startsWith('http')) {
+                                            handleLoadImageFromUrl(url);
+                                            e.target.value = ''; // limpiar input
+                                        }
+                                    }}
+                                />
+                                {isSearchingImage ? (
+                                    <div className="absolute right-2.5 top-1/2 -translate-y-1/2">
+                                        <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-emerald-500 border-t-transparent" />
+                                    </div>
+                                ) : (
+                                    <Link size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                )}
+                            </div>
+
+                            <span className="text-[8px] text-slate-400 leading-none">
+                                Copia la URL de una foto en Google y pégala aquí para cargar.
+                            </span>
+                        </div>
                     </div>
 
                     {/* Name */}

@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, Clock, Plus, Minus, ShoppingBag, CreditCard, Ar
 import { Modal } from '../Modal';
 import ProductFormQuick from './ProductFormQuick';
 import ProductFormWizard from './ProductFormWizard';
+import { showToast } from '../Toast';
 
 export default function ProductFormModal({
     isOpen,
@@ -46,6 +47,60 @@ export default function ProductFormModal({
     const [formMode, setFormMode] = useState('quick'); // 'quick' o 'wizard'
     const [wizardStep, setWizardStep] = useState(1);
     const [showMovements, setShowMovements] = useState(false);
+    const [isSearchingImage, setIsSearchingImage] = useState(false);
+
+    const compressBase64Image = (dataUri) => {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.src = dataUri;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const MAX_SIZE = 400;
+                let width = img.width, height = img.height;
+                if (width > height) {
+                    if (width > MAX_SIZE) {
+                        height *= MAX_SIZE / width;
+                        width = MAX_SIZE;
+                    }
+                } else {
+                    if (height > MAX_SIZE) {
+                        width *= MAX_SIZE / height;
+                        height = MAX_SIZE;
+                    }
+                }
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+                resolve(canvas.toDataURL('image/webp', 0.7));
+            };
+            img.onerror = () => resolve(dataUri);
+        });
+    };
+
+    const handleLoadImageFromUrl = async (url) => {
+        if (!url || !url.trim().startsWith('http')) {
+            showToast('Ingresa un enlace de imagen válido', 'warning');
+            return;
+        }
+        setIsSearchingImage(true);
+        try {
+            const response = await fetch(`https://preciosaldia.vercel.app/api/image-proxy?url=${encodeURIComponent(url.trim())}`);
+            const data = await response.json();
+            if (data.success && data.dataUri) {
+                const compressed = await compressBase64Image(data.dataUri);
+                setImage(compressed);
+                showToast('¡Imagen web cargada con éxito!', 'success');
+            } else {
+                showToast(data.error || 'No se pudo descargar la imagen', 'error');
+            }
+        } catch (error) {
+            console.error('[LoadImageFromUrl] Error:', error);
+            showToast('Error al conectar con el servidor para descargar la imagen', 'error');
+        } finally {
+            setIsSearchingImage(false);
+        }
+    };
 
     // Resetear paso y modo al abrir/cerrar
     useEffect(() => {
@@ -101,7 +156,9 @@ export default function ProductFormModal({
         copPrimary,
         tasaCop,
         handleImageUpload,
-        categories
+        categories,
+        isSearchingImage,
+        handleLoadImageFromUrl
     };
 
     return (
