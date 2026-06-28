@@ -132,7 +132,7 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
                 >
                     <ArrowLeft size={18} />
                 </button>
-                <span className="text-xs font-black uppercase tracking-wider text-slate-400">Modo Dueño</span>
+                <span className="text-xs font-black uppercase tracking-wider text-slate-400">Modo Supervisor</span>
                 <div className="w-10"></div>
             </div>
 

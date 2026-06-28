@@ -162,9 +162,9 @@ export default function SettingsTabSistema({
                 <p className="text-[9px] text-slate-400">Comparte este ID si necesitas soporte tecnico.</p>
             </SectionCard>
 
-            {/* Celular del Dueño (QR Monitoreo) */}
+            {/* Celular del Supervisor (QR Monitoreo) */}
             {isAdmin && (
-                <SectionCard icon={QrCode} title="Celular del Dueño" subtitle="Monitoreo remoto en tiempo real" iconColor="text-emerald-500">
+                <SectionCard icon={QrCode} title="Celular del Supervisor" subtitle="Monitoreo remoto en tiempo real" iconColor="text-emerald-500">
                     <PairingManager deviceId={deviceId} triggerHaptic={triggerHaptic} />
                 </SectionCard>
             )}

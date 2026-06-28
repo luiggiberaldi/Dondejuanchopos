@@ -167,7 +167,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                         M
                     </div>
                     <div>
-                        <h1 className="text-base font-black leading-tight text-slate-800 dark:text-white">Panel del Dueño</h1>
+                        <h1 className="text-base font-black leading-tight text-slate-800 dark:text-white">Panel de Supervisión</h1>
                         <p className="text-[10px] text-slate-400 font-medium">Monitoreo en vivo • {localStorage.getItem('business_name') || 'Mi Negocio'}</p>
                     </div>
                 </div>

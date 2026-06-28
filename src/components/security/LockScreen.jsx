@@ -71,9 +71,9 @@ export default function LockScreen({ onOpenPairing }) {
 
         <button
           onClick={onOpenPairing}
-          className="mt-1 text-[10px] font-black text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition-colors uppercase tracking-wider"
+          className="mt-2.5 px-4.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 rounded-2xl text-[10px] font-black uppercase tracking-wider transition-all shadow-sm active:scale-95 flex items-center gap-1.5"
         >
-          📱 Conectar como Monitor (Dueño)
+          📱 Entrar en Modo Supervisor
         </button>
       </div>
 

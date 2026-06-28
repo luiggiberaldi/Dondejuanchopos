@@ -106,7 +106,7 @@ export default function PairingManager({ deviceId, triggerHaptic }) {
                         triggerHaptic?.();
                         setPairedDevice(data.monitor_device_id);
                         setPairingState('paired');
-                        showToast('¡Celular del dueño vinculado con éxito!', 'success');
+                        showToast('¡Celular del supervisor vinculado con éxito!', 'success');
                     }
                 } catch (e) {}
             }, 3000);
@@ -150,7 +150,7 @@ export default function PairingManager({ deviceId, triggerHaptic }) {
 
     // 5. Desvincular monitor
     const handleUnpair = async () => {
-        if (!window.confirm('¿Seguro que deseas desvincular el celular del dueño? Perderá el acceso de monitoreo.')) return;
+        if (!window.confirm('¿Seguro que deseas desvincular el celular del supervisor? Perderá el acceso de monitoreo.')) return;
         triggerHaptic?.();
         setCheckingStatus(true);
 
@@ -191,7 +191,7 @@ export default function PairingManager({ deviceId, triggerHaptic }) {
                     <div className="p-4 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-800/30 rounded-2xl flex gap-3 items-start">
                         <CheckCircle2 className="text-emerald-500 shrink-0 mt-0.5" size={20} />
                         <div>
-                            <h4 className="text-sm font-black text-emerald-800 dark:text-emerald-400">Celular del dueño vinculado</h4>
+                            <h4 className="text-sm font-black text-emerald-800 dark:text-emerald-400">Celular del supervisor vinculado</h4>
                             <p className="text-[11px] text-emerald-700 dark:text-emerald-500 leading-normal mt-1">
                                 Un dispositivo externo tiene acceso en tiempo real a las estadísticas y el inventario del negocio en modo solo lectura.
                             </p>
@@ -231,7 +231,7 @@ export default function PairingManager({ deviceId, triggerHaptic }) {
                     <div className="text-center space-y-1">
                         <h4 className="text-xs font-black text-slate-800 dark:text-white">Escanea para Vincular Celular</h4>
                         <p className="text-[10px] text-slate-400 font-bold">
-                            Abre la app en el celular del dueño, ve a "Modo Dueño" y escanea.
+                            Abre la app en el celular del supervisor, ve a "Modo Supervisor" y escanea.
                         </p>
                     </div>
 
@@ -261,7 +261,7 @@ export default function PairingManager({ deviceId, triggerHaptic }) {
                         <div>
                             <h4 className="text-xs font-black text-slate-700 dark:text-slate-200">Monitoreo Remoto por QR</h4>
                             <p className="text-[10px] text-slate-400 leading-normal mt-1">
-                                Vincula el teléfono personal del dueño para ver las ventas y productos en vivo desde cualquier lugar, sin contraseñas.
+                                Vincula el teléfono personal del supervisor para ver las ventas y productos en vivo desde cualquier lugar, sin contraseñas.
                             </p>
                         </div>
                     </div>
@@ -279,7 +279,7 @@ export default function PairingManager({ deviceId, triggerHaptic }) {
                         ) : (
                             <>
                                 <QrCode size={16} />
-                                <span>Vincular Celular del Dueño</span>
+                                <span>Vincular Celular del Supervisor</span>
                             </>
                         )}
                     </button>
