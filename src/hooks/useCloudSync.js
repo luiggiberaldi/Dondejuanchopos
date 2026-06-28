@@ -80,8 +80,6 @@ export const pushCloudSync = async (key, value) => {
     if (key === 'abasto-auth-storage') return;
 
     try {
-        const { data: { session } } = await supabaseCloud.auth.getSession();
-        if (!session) return; // Evitar peticiones si no hay sesión activa (401)
         const collectionType = LOCAL_KEYS.includes(key) ? 'local' : 'store';
 
         await supabaseCloud.from('sync_documents').upsert({
@@ -167,15 +165,24 @@ export function useCloudSync(deviceId) {
 
         const initSync = async () => {
             try {
-                const { data: { session } } = await supabaseCloud.auth.getSession();
-                if (!session) {
-                    console.log('[CloudSync] Omitiendo sincronización: sin sesión cloud activa.');
-                    return;
-                }
-                // Evitar llamadas con token ya expirado (causarían 401)
-                if (session.expires_at && session.expires_at * 1000 < Date.now()) {
-                    console.log('[CloudSync] Omitiendo sincronización: token cloud expirado.');
-                    return;
+                let hasAuth = false;
+                try {
+                    const { data: { session } } = await supabaseCloud.auth.getSession();
+                    hasAuth = session && !(session.expires_at && session.expires_at * 1000 < Date.now());
+                } catch (e) {}
+
+                if (!hasAuth) {
+                    // Si no hay sesión, verificamos si está emparejado para permitir sync sin login
+                    const { data: pairing, error: pairingErr } = await supabaseCloud
+                        .from('device_pairings')
+                        .select('id')
+                        .eq('primary_device_id', deviceId)
+                        .maybeSingle();
+
+                    if (pairingErr || !pairing) {
+                        console.log('[CloudSync] Omitiendo sincronización: sin sesión cloud ni emparejamiento activo.');
+                        return;
+                    }
                 }
 
                 isInitialized.current = true;

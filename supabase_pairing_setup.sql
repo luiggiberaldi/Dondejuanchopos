@@ -109,19 +109,27 @@ $$;
 
 -- 5. Otorgar permisos explícitos a los roles 'anon' y 'authenticated'
 -- Esto soluciona el error 401 / permission denied al conectar dispositivos sin login.
-GRANT SELECT ON public.sync_documents TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.sync_documents TO anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.device_pairings TO anon, authenticated;
 
 GRANT EXECUTE ON FUNCTION public.generate_pairing_token(TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.pair_monitor_device(TEXT, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.unpair_monitor(TEXT) TO anon, authenticated;
 
--- 6. Política RLS para permitir a usuarios anónimos (monitores) leer documentos de la caja vinculada
+-- 6. Política RLS para permitir a usuarios anónimos (cajas y monitores) leer y escribir sus propios documentos de vinculación activa
 DROP POLICY IF EXISTS "sync_documents_monitor_access" ON public.sync_documents;
-CREATE POLICY "sync_documents_monitor_access" ON public.sync_documents
-    FOR SELECT
+DROP POLICY IF EXISTS "sync_documents_anon_write" ON public.sync_documents;
+
+CREATE POLICY "sync_documents_anon_access" ON public.sync_documents
+    FOR ALL
     TO anon
     USING (
+        EXISTS (
+            SELECT 1 FROM public.device_pairings
+            WHERE device_pairings.primary_device_id = sync_documents.device_id
+        )
+    )
+    WITH CHECK (
         EXISTS (
             SELECT 1 FROM public.device_pairings
             WHERE device_pairings.primary_device_id = sync_documents.device_id
