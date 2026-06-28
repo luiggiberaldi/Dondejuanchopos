@@ -310,6 +310,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                         <div className="space-y-0.5 min-w-0">
                             <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400 block">Vendido (Bs)</span>
                             <span className="text-lg sm:text-2xl font-black text-emerald-600 tabular-nums truncate block">{formatBs(metrics.totalBs)} Bs</span>
+                            <span className="text-[9px] sm:text-[10px] text-slate-400 block font-medium mt-0.5">Tasa: {bcvRate ? `${bcvRate.toFixed(2)} Bs/$` : 'N/D'}</span>
                         </div>
                         <div className="w-10 h-10 sm:w-12 sm:h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-500 shrink-0">
                             <Coins size={22} />
