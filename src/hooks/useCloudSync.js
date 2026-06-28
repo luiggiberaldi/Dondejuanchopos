@@ -130,8 +130,8 @@ async function _applyFromCloud(docId, collection, payload) {
         } else {
             // Colección 'store' → IndexedDB directo, sin pasar por storageService.setItem
             const { default: localforage } = await import('localforage');
-            localforage.config({ name: 'BodegaApp', storeName: 'bodega_app_data' });
-            await localforage.setItem(docId, payload);
+            const lf = localforage.createInstance({ name: 'BodegaApp', storeName: 'bodega_app_data' });
+            await lf.setItem(docId, payload);
 
             // Notificar a los componentes React que lean este store
             window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: docId } }));
@@ -207,8 +207,8 @@ export function useCloudSync(deviceId) {
 
                 // ── Auto-recuperación: Purgar/subir datos locales que no llegaron a enviarse debido al bug anterior ──
                 try {
-                    const { default: lf } = await import('localforage');
-                    lf.config({ name: 'BodegaApp', storeName: 'bodega_app_data' });
+                    const { default: localforage } = await import('localforage');
+                    const lf = localforage.createInstance({ name: 'BodegaApp', storeName: 'bodega_app_data' });
                     const criticalKeys = ['bodega_sales_v1', 'bodega_products_v1', 'bodega_customers_v1', 'bodega_accounts_v2'];
                     for (const key of criticalKeys) {
                         const localValue = await lf.getItem(key);
@@ -253,10 +253,56 @@ export function useCloudSync(deviceId) {
 
         initSync();
 
+        // ── MECANISMOS DE SINCRONIZACIÓN AUTOMÁTICA Y CONTINUA ──
+        
+        // 1. Escuchar actualizaciones de almacenamiento locales para subirlas al instante
+        const handleAppStorageUpdate = async (e) => {
+            if (isSyncingFromCloud) return;
+            const key = e.detail?.key;
+            if (!key || !SYNC_KEYS.includes(key)) return;
+
+            try {
+                const { default: localforage } = await import('localforage');
+                const lf = localforage.createInstance({ name: 'BodegaApp', storeName: 'bodega_app_data' });
+                const localValue = await lf.getItem(key);
+                if (localValue !== null) {
+                    await pushCloudSync(key, localValue);
+                }
+            } catch (err) {
+                // Silencioso
+            }
+        };
+
+        // 2. Escuchar evento 'online' y temporizador periódico para sincronizar datos locales pendientes
+        const forcePushLocalData = async () => {
+            if (isSyncingFromCloud || !deviceId) return;
+            try {
+                const { default: localforage } = await import('localforage');
+                const lf = localforage.createInstance({ name: 'BodegaApp', storeName: 'bodega_app_data' });
+                const criticalKeys = ['bodega_sales_v1', 'bodega_products_v1', 'bodega_customers_v1', 'bodega_accounts_v2'];
+                for (const key of criticalKeys) {
+                    const localValue = await lf.getItem(key);
+                    if (localValue) {
+                        await pushCloudSync(key, localValue);
+                    }
+                }
+            } catch (e) {
+                // Silencioso
+            }
+        };
+
+        window.addEventListener('app_storage_update', handleAppStorageUpdate);
+        window.addEventListener('online', forcePushLocalData);
+        
+        // Ejecución periódica cada 20 segundos para asegurar sincronización en tiempo real
+        const intervalId = setInterval(forcePushLocalData, 20000);
+
         return () => {
+            window.removeEventListener('app_storage_update', handleAppStorageUpdate);
+            window.removeEventListener('online', forcePushLocalData);
+            clearInterval(intervalId);
+
             // HOOK-012: limpiar suscripción en cleanup para evitar leaks.
-            // El caller principal monta el hook una sola vez en App; este cleanup
-            // protege el caso de deviceId cambiando a null y volviendo.
             if (globalSubscription && !deviceId) {
                 try { supabaseCloud.removeChannel(globalSubscription).catch(() => {}); } catch { }
                 globalSubscription = null;
