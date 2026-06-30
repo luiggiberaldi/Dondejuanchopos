@@ -48,10 +48,12 @@ export default function ProductFormModal({
     const [wizardStep, setWizardStep] = useState(1);
     const [showMovements, setShowMovements] = useState(false);
     const [isSearchingImage, setIsSearchingImage] = useState(false);
+    const [imageMatches, setImageMatches] = useState([]);
 
     const compressBase64Image = (dataUri) => {
         return new Promise((resolve) => {
             const img = new Image();
+            img.crossOrigin = "anonymous";
             img.src = dataUri;
             img.onload = () => {
                 const canvas = document.createElement('canvas');
@@ -85,7 +87,7 @@ export default function ProductFormModal({
         }
         setIsSearchingImage(true);
         try {
-            const response = await fetch(`https://preciosaldia.vercel.app/api/image-proxy?url=${encodeURIComponent(url.trim())}`);
+            const response = await fetch(`https://preciosaldiaweb.vercel.app/api/image-proxy?url=${encodeURIComponent(url.trim())}`);
             const data = await response.json();
             if (data.success && data.dataUri) {
                 const compressed = await compressBase64Image(data.dataUri);
@@ -108,19 +110,71 @@ export default function ProductFormModal({
             return;
         }
         setIsSearchingImage(true);
+        const isLocal = window.location.hostname === 'localhost';
+        const urls = isLocal 
+            ? [
+                'http://localhost:3000/api/search-image',
+                'https://preciosaldiaweb.vercel.app/api/search-image',
+                'https://preciosaldia.vercel.app/api/search-image'
+              ] 
+            : [
+                'https://preciosaldiaweb.vercel.app/api/search-image',
+                'https://preciosaldia.vercel.app/api/search-image'
+              ];
+
         try {
-            const response = await fetch(`https://preciosaldia.vercel.app/api/search-image?q=${encodeURIComponent(productName.trim())}`);
+            let response = null;
+            let lastErr = null;
+            
+            for (const url of urls) {
+                try {
+                    const res = await fetch(`${url}?q=${encodeURIComponent(productName.trim())}`);
+                    if (res.ok) {
+                        response = res;
+                        break;
+                    }
+                } catch (e) {
+                    lastErr = e;
+                }
+            }
+
+            if (!response) {
+                throw lastErr || new Error('No se pudo conectar con los servidores de búsqueda.');
+            }
+
             const data = await response.json();
-            if (data.success && data.dataUri) {
-                const compressed = await compressBase64Image(data.dataUri);
-                setImage(compressed);
-                showToast(`¡Foto automática de "${productName}" cargada!`, 'success');
+            if (data.success && data.matches && data.matches.length > 0) {
+                if (data.matches.length === 1) {
+                    const compressed = await compressBase64Image(data.matches[0].dataUri);
+                    setImage(compressed);
+                    setImageMatches([]);
+                    showToast(`¡Foto automática de "${productName}" cargada!`, 'success');
+                } else {
+                    setImageMatches(data.matches);
+                    showToast(`Se encontraron ${data.matches.length} opciones de imagen. Elige la correcta.`, 'info');
+                }
             } else {
-                showToast(data.message || 'No se encontró foto automática para este producto', 'info');
+                setImageMatches([]);
+                showToast(data.message || 'No se encontró foto para este producto en el catálogo', 'info');
             }
         } catch (error) {
             console.error('[AutoSearchImage] Error:', error);
             showToast('Error al buscar foto automática del producto', 'error');
+        } finally {
+            setIsSearchingImage(false);
+        }
+    };
+
+    const handleSelectImage = async (dataUri) => {
+        setIsSearchingImage(true);
+        try {
+            const compressed = await compressBase64Image(dataUri);
+            setImage(compressed);
+            setImageMatches([]);
+            showToast('¡Imagen seleccionada con éxito!', 'success');
+        } catch (err) {
+            console.error('[SelectImage] Error:', err);
+            showToast('Error al procesar la imagen seleccionada', 'error');
         } finally {
             setIsSearchingImage(false);
         }
@@ -183,7 +237,10 @@ export default function ProductFormModal({
         categories,
         isSearchingImage,
         handleLoadImageFromUrl,
-        handleAutoSearchImage
+        handleAutoSearchImage,
+        imageMatches,
+        setImageMatches,
+        handleSelectImage
     };
 
     return (

@@ -41,7 +41,10 @@ export default function ProductFormQuick({
     categories,
     isSearchingImage,
     handleLoadImageFromUrl,
-    handleAutoSearchImage
+    handleAutoSearchImage,
+    imageMatches,
+    setImageMatches,
+    handleSelectImage
 }) {
     const fileInputRef = useRef(null);
     const [showSummary, setShowSummary] = useState(false);
@@ -115,66 +118,65 @@ export default function ProductFormQuick({
                 </div>
 
                 {/* Web Image Finder & URL Paste Zone */}
-                <div className="sm:col-span-7 h-28 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-2.5 flex flex-col justify-between">
-                    <div className="flex justify-between items-center">
-                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Foto de la Web</span>
-                        <div className="flex gap-2.5">
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    if (!name || name.trim().length < 3) {
-                                        alert('Ingresa el nombre del producto (mín. 3 letras) para buscar automáticamente');
-                                        return;
-                                    }
-                                    handleAutoSearchImage(name);
-                                }}
-                                className="flex items-center gap-1 text-[9px] font-black text-amber-500 hover:text-amber-600 transition-colors uppercase"
-                            >
-                                <Sparkles size={10} /> Auto-buscar
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    if (!name || name.trim().length < 3) {
-                                        alert('Ingresa el nombre del producto (mín. 3 letras) para buscar');
-                                        return;
-                                    }
-                                    window.open(`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(name.trim())}`, '_blank');
-                                }}
-                                className="flex items-center gap-1 text-[9px] font-extrabold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors uppercase"
-                            >
-                                <Search size={10} /> En Google
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="relative mt-1">
-                        <input
-                            type="url"
-                            placeholder="Pega la dirección de la imagen..."
-                            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-2 py-1.5 pr-8 rounded-xl text-[11px] text-slate-700 dark:text-white outline-none focus:ring-1 focus:ring-emerald-500 placeholder-slate-400 font-bold"
-                            onChange={(e) => {
-                                const url = e.target.value.trim();
-                                if (url && url.startsWith('http')) {
-                                    handleLoadImageFromUrl(url);
-                                    e.target.value = ''; // limpiar input
-                                }
-                            }}
-                        />
-                        {isSearchingImage ? (
-                            <div className="absolute right-2.5 top-1/2 -translate-y-1/2">
-                                <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-emerald-500 border-t-transparent" />
-                            </div>
-                        ) : (
-                            <Link size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                        )}
-                    </div>
-
-                    <span className="text-[8px] text-slate-400 leading-none">
-                        Copia la URL de una foto en Google y pégala aquí para cargar.
-                    </span>
-                </div>
+                <div 
+                    onClick={() => {
+                        if (!name || name.trim().length < 3) {
+                            alert('Ingresa el nombre del producto (mín. 3 letras) para buscar automáticamente');
+                            return;
+                        }
+                        handleAutoSearchImage(name);
+                    }}
+                    className={`sm:col-span-7 h-28 border border-slate-200 dark:border-slate-700 rounded-2xl p-2.5 flex flex-col items-center justify-center cursor-pointer hover:border-amber-500 hover:bg-amber-500/5 transition-all relative overflow-hidden group select-none ${isSearchingImage ? 'bg-amber-500/10' : 'bg-slate-50 dark:bg-slate-800'}`}
+                >
+                    {isSearchingImage ? (
+                        <>
+                            <div className="animate-spin rounded-full h-5 w-5 border-2 border-amber-600 dark:border-amber-400 border-t-transparent mb-1.5" />
+                            <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400">Buscando foto...</span>
+                        </>
+                    ) : (
+                        <>
+                            <Sparkles size={22} className="text-amber-600 dark:text-amber-400 mb-1.5 group-hover:scale-110 transition-transform" />
+                            <span className="text-[10px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-wider">Auto-buscar foto</span>
+                            <span className="text-[8px] text-slate-500 dark:text-slate-400 mt-1 leading-none text-center">
+                                Busca automáticamente la mejor imagen en tu catálogo local y tiendas
+                            </span>
+                        </>
+                    )}
             </div>
+        </div>
+
+            {imageMatches && imageMatches.length > 0 && (
+                <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-150 dark:border-slate-700/50 rounded-2xl p-3 space-y-2 animate-in fade-in slide-in-from-top-1 duration-200 select-none">
+                    <div className="flex justify-between items-center px-0.5">
+                        <span className="text-[10px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1">
+                            <Sparkles size={11} className="animate-pulse" /> Selecciona la foto correcta ({imageMatches.length})
+                        </span>
+                        <button 
+                            type="button" 
+                            onClick={() => setImageMatches([])} 
+                            className="text-[9px] font-extrabold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors uppercase tracking-wider"
+                        >
+                            Cerrar
+                        </button>
+                    </div>
+                    <div className="flex gap-2.5 overflow-x-auto pb-1.5 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700 items-stretch">
+                        {imageMatches.map((m, idx) => (
+                            <div 
+                                key={idx}
+                                onClick={() => handleSelectImage(m.dataUri)}
+                                className="flex-shrink-0 w-28 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1.5 cursor-pointer hover:border-amber-500 hover:scale-102 active:scale-98 transition-all flex flex-col items-center justify-between gap-1.5 text-center group"
+                            >
+                                <div className="w-16 h-16 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-800 flex items-center justify-center relative shrink-0">
+                                    <img src={m.dataUri} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" alt={m.title} crossOrigin="anonymous" />
+                                </div>
+                                <span className="text-[9px] font-bold text-slate-600 dark:text-slate-300 leading-tight uppercase break-words w-full">
+                                    {m.title}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             <div className="space-y-3">
                 {/* Name */}

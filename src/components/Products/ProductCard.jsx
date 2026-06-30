@@ -33,7 +33,7 @@ export default function ProductCard({
     return (
         <div className={`bg-white dark:bg-slate-900 rounded-2xl shadow-sm border flex flex-col overflow-hidden group ${isLowStock ? 'border-amber-300 dark:border-amber-700' : 'border-slate-100 dark:border-slate-800'} ${isSelected ? 'ring-2 ring-brand border-brand shadow-brand/20 bg-brand/5 dark:bg-brand/10' : ''}`}>
             {/* Image */}
-            <div className="w-full h-24 lg:h-20 bg-slate-100 dark:bg-slate-800 overflow-hidden relative shrink-0">
+            <div className="w-full h-24 lg:h-20 bg-white dark:bg-slate-900 overflow-hidden relative shrink-0">
                 {/* Select Checkbox */}
                 <div className="absolute top-1 left-1 z-10 w-6 h-6 flex items-center justify-center bg-white/80 dark:bg-slate-900/80 rounded backdrop-blur-sm">
                     <input type="checkbox" checked={isSelected} onChange={onToggleSelect} className="w-4 h-4 rounded border-slate-300 text-brand focus:ring-brand cursor-pointer shadow-sm" />
@@ -165,10 +165,30 @@ export default function ProductCard({
             </div>
 
             {/* Actions */}
-            <div className="flex border-t border-slate-100 dark:border-slate-800">
-                <button onClick={onPrint} className="flex-1 py-1.5 flex items-center justify-center text-slate-300 dark:text-slate-600 hover:text-brand hover:bg-brand/10 transition-colors" title="Imprimir Etiqueta"><Printer size={12} /></button>
-                {!readOnly && <button onClick={() => onEdit(p)} className="flex-1 py-1.5 flex items-center justify-center text-slate-300 dark:text-slate-600 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"><Pencil size={12} /></button>}
-                {!readOnly && <button onClick={() => onDelete(p.id)} className="flex-1 py-1.5 flex items-center justify-center text-slate-300 dark:text-slate-600 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors"><Trash2 size={12} /></button>}
+            <div className="flex border-t border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-800/20">
+                <button 
+                    onClick={onPrint} 
+                    className="flex-1 py-2 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-brand hover:bg-brand/10 transition-colors border-r border-slate-100 dark:border-slate-800" 
+                    title="Imprimir Etiqueta"
+                >
+                    <Printer size={15} />
+                </button>
+                {!readOnly && (
+                    <button 
+                        onClick={() => onEdit(p)} 
+                        className="flex-1 py-2 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors border-r border-slate-100 dark:border-slate-800"
+                    >
+                        <Pencil size={15} />
+                    </button>
+                )}
+                {!readOnly && (
+                    <button 
+                        onClick={() => onDelete(p.id)} 
+                        className="flex-1 py-2 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+                    >
+                        <Trash2 size={15} />
+                    </button>
+                )}
             </div>
         </div >
     );

@@ -20,14 +20,14 @@ export default function CategoryManagerModal({
             <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1 pb-4">
                 {/* Nueva Categoría */}
                 <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700">
-                    <h4 className="text-xs font-bold text-slate-400 uppercase mb-3">Crear Categoría</h4>
+                    <h4 className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-3">Crear Categoría</h4>
                     <div className="flex gap-2">
                         <input
                             type="text"
                             placeholder="Nombre categoría"
                             value={newCategoryName}
                             onChange={(e) => setNewCategoryName(e.target.value)}
-                            className="flex-1 form-input bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500/50"
+                            className="flex-1 form-input bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500/50 placeholder-slate-500"
                         />
                         <button
                             onClick={onAddCategory}
@@ -41,12 +41,12 @@ export default function CategoryManagerModal({
 
                 {/* Lista de Categorías */}
                 <div>
-                    <h4 className="text-xs font-bold text-slate-400 uppercase mb-3">Tus Categorías</h4>
+                    <h4 className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-3">Tus Categorías</h4>
                     <div className="space-y-2">
                         {categories.map(cat => (
                             <div key={cat.id} className="flex justify-between items-center bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-3 rounded-xl shadow-sm">
                                 <div className="flex items-center gap-3">
-                                    <span className="font-bold text-slate-700 dark:text-slate-200">{cat.label}</span>
+                                    <span className="font-bold text-slate-700 dark:text-slate-200">{cat.label || cat.name || cat.id}</span>
                                 </div>
                                 {cat.id !== 'todos' && cat.id !== 'otros' && (
                                     <button

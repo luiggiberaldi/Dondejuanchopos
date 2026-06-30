@@ -8,13 +8,51 @@ import { pushLocalSync } from '../hooks/useCloudSync';
 
 const ProductContext = createContext();
 
+const normalizeCategories = (cats) => {
+    const list = Array.isArray(cats) ? cats : [];
+    return list.map(cat => {
+        if (!cat) return null;
+        if (typeof cat === 'string') {
+            return {
+                id: cat.toLowerCase().replace(/\s+/g, '_'),
+                label: cat.charAt(0).toUpperCase() + cat.slice(1),
+                icon: '📦',
+                color: 'slate'
+            };
+        }
+        if (typeof cat === 'object') {
+            const label = cat.label || cat.name || cat.id || 'Categoría';
+            const id = cat.id || label.toLowerCase().replace(/\s+/g, '_');
+            return {
+                ...cat,
+                id,
+                label,
+                icon: cat.icon || '📦',
+                color: cat.color || 'slate'
+            };
+        }
+        return null;
+    }).filter(Boolean);
+};
+
 export function ProductProvider({ children, rates }) {
     const [products, setProducts] = useState([]);
-    const [categories, setCategories] = useState(BODEGA_CATEGORIES);
+    const [categories, setRawCategories] = useState(() => normalizeCategories(BODEGA_CATEGORIES));
+    const setCategories = useCallback((cats) => {
+        setRawCategories(prev => {
+            const next = typeof cats === 'function' ? cats(prev) : cats;
+            return normalizeCategories(next);
+        });
+    }, []);
     const [isLoadingProducts, setIsLoadingProducts] = useState(true);
 
     // Guard ref: prevents infinite loop when auto-save fires app_storage_update
     const savingRef = useRef(false);
+    const hasMountedRef = useRef(false);
+    const productsRef = useRef(products);
+    useEffect(() => {
+        productsRef.current = products;
+    }, [products]);
 
     // MARKET LOGIC - Street Rate
     const [streetRate, setStreetRate] = useState(() => {
@@ -130,6 +168,11 @@ export function ProductProvider({ children, rates }) {
     useEffect(() => {
         if (isLoadingProducts) return;
 
+        if (!hasMountedRef.current) {
+            hasMountedRef.current = true;
+            return;
+        }
+
         // Setear el guard ANTES de agendar el timeout (HOOK-018).
         savingRef.current = true;
 
@@ -205,7 +248,11 @@ export function ProductProvider({ children, rates }) {
             }
             if (e.key === 'bodega_products_v1') {
                 // If modified in another tab, fetch it
-                storageService.getItem('bodega_products_v1', []).then(updatedProducts => setProducts(updatedProducts));
+                storageService.getItem('bodega_products_v1', []).then(updatedProducts => {
+                    if (JSON.stringify(updatedProducts) !== JSON.stringify(productsRef.current)) {
+                        setProducts(updatedProducts);
+                    }
+                });
             }
             if (e.key === 'my_categories_v1') {
                 storageService.getItem('my_categories_v1', BODEGA_CATEGORIES).then(updatedCategories => setCategories(updatedCategories));
@@ -219,7 +266,9 @@ export function ProductProvider({ children, rates }) {
 
             if (key === 'bodega_products_v1') {
                 const updatedProducts = await storageService.getItem('bodega_products_v1', []);
-                setProducts(updatedProducts);
+                if (JSON.stringify(updatedProducts) !== JSON.stringify(productsRef.current)) {
+                    setProducts(updatedProducts);
+                }
             }
             if (key === 'my_categories_v1') {
                 const updatedCategories = await storageService.getItem('my_categories_v1', BODEGA_CATEGORIES);
