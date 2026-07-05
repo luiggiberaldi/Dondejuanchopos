@@ -18,6 +18,7 @@ import { useAuthStore } from '../hooks/store/useAuthStore';
 import { useSupplierManagement } from '../hooks/useSupplierManagement';
 import { usePagination } from '../hooks/usePagination';
 import PaginationBar from '../components/PaginationBar';
+import CasheaIcon from '../components/CasheaIcon';
 
 // Importaciones de Proveedores
 import SuppliersList from '../components/Suppliers/SuppliersList';
@@ -613,8 +614,9 @@ function CustomerCard({ customer, bcvRate, tasaCop, copEnabled, copPrimary, onCl
                                 </>
                             )}
                             {customer.casheaDeuda > 0 && (
-                                <div className="text-[10px] font-black text-purple-500 dark:text-purple-400 flex items-center justify-end gap-0.5 mt-0.5">
-                                    <span>⚡ -${formatUsd(customer.casheaDeuda)}</span>
+                                <div className="text-[10px] font-black text-purple-500 dark:text-purple-400 flex items-center justify-end gap-1 mt-0.5">
+                                    <CasheaIcon size={12} />
+                                    <span>-${formatUsd(customer.casheaDeuda)}</span>
                                 </div>
                             )}
                         </>
@@ -730,7 +732,7 @@ function CustomerDetailSheet({ customer, isOpen, isAdmin, onClose, onAjustar, on
                                     )}
                                     {customer.casheaDeuda > 0 && (
                                         <div className="flex-1 bg-purple-100 dark:bg-purple-900/40 border border-purple-300 dark:border-purple-700/50 rounded-xl px-3 py-2.5 text-center animate-in fade-in">
-                                            <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase flex items-center justify-center gap-0.5">⚡ Cashea</p>
+                                            <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase flex items-center justify-center gap-1"><CasheaIcon size={12} /> Cashea</p>
                                             <p className="text-lg font-black text-purple-700 dark:text-purple-300">
                                                 -${formatUsd(customer.casheaDeuda)}
                                             </p>

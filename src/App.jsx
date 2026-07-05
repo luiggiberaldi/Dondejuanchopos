@@ -492,9 +492,11 @@ export default function App() {
 
 function TabButton({ icon, label, isActive, onClick, 'data-tour': dataTour }) {
   return (
-    <button data-tour={dataTour} onClick={onClick} className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2 rounded-xl transition-all duration-300 ${isActive ? 'bg-brand text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>
-      {icon}
-      {isActive && <span className="text-[9px] font-extrabold animate-in zoom-in duration-200">{label}</span>}
+    <button data-tour={dataTour} onClick={onClick} className="flex-1 min-w-0 flex flex-col items-center justify-center gap-1 py-1.5 rounded-xl transition-all duration-300">
+      <span className={`flex items-center justify-center w-9 h-9 rounded-full transition-all duration-300 ${isActive ? 'bg-brand text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>
+        {icon}
+      </span>
+      {isActive && <span className="text-[10px] font-bold tracking-wide text-white leading-none whitespace-nowrap animate-in zoom-in duration-200">{label}</span>}
     </button>
   );
 }
