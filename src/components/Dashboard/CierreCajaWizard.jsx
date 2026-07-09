@@ -78,7 +78,17 @@ export default function CierreCajaWizard({
     };
 
     const handleConfirm = () => {
-        onConfirm({ declaredUsd, declaredBs, declaredCop, diffUsd, diffBs, diffCop });
+        onConfirm({
+            expectedUsd,
+            expectedBs,
+            expectedCop,
+            cashUsd: declaredUsd,
+            cashBs: declaredBs,
+            cashCop: declaredCop,
+            diffUsd,
+            diffBs,
+            diffCop
+        });
         setStep(1);
         setActualUsd('');
         setActualBs('');

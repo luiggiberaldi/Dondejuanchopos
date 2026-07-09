@@ -1,8 +1,8 @@
 import React from 'react';
-import { Printer, CheckCircle, Wallet } from 'lucide-react';
+import { CheckCircle, Wallet } from 'lucide-react';
 
 /**
- * PaymentFooter — Footer del modo POS con botones IMPRIMIR y PAGAR.
+ * PaymentFooter — Footer del modo POS con botón PAGAR.
  */
 export default function PaymentFooter({
     modo,
@@ -21,16 +21,6 @@ export default function PaymentFooter({
 
     return (
         <div className="px-5 py-4 bg-white dark:bg-slate-950 border-t border-slate-100 dark:border-slate-800 flex justify-end items-center gap-3 shrink-0 shadow-[0_-4px_10px_rgba(0,0,0,0.04)] dark:shadow-[0_-4px_10px_rgba(0,0,0,0.2)]">
-            {/* Imprimir */}
-            <button
-                onClick={() => onProcesar(true)}
-                className="px-5 py-3.5 rounded-xl font-bold text-sm text-slate-500 dark:text-slate-400 border-2 border-slate-200 dark:border-slate-700 hover:text-brand hover:border-brand/40 hover:bg-brand/5 transition-all flex items-center gap-2 active:scale-95"
-            >
-                <Printer size={17} />
-                IMPRIMIR
-                <span className="text-[9px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono font-black">F10</span>
-            </button>
-
             {/* Pagar / Fiar */}
             <button
                 onClick={() => onProcesar(false)}
