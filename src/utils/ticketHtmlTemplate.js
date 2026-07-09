@@ -22,6 +22,7 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
         fDisclaimer, fTiny, fSmall, fBase, fTitle, fTotalU, fTotalB,
     } = paperConfig;
 
+    const receiptCurrencyMode = localStorage.getItem('receipt_currency_mode') || 'bs';
     const rate = sale.rate || bcvRate || 1;
     const isCop = sale.copEnabled && sale.tasaCop > 0;
     // FIN-024: formatUsd en vez de parseFloat(v).toFixed(2).
@@ -41,19 +42,37 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
         const sub = mulR(item.priceUsd, item.qty);
         const subBs = mulR(sub, rate);
         const name = escapeHtml(item.name);
-        const importeStr = fmtUsd(sub);
-        const detailStr = isCop
-            ? 'USD ' + formatUsd(item.priceUsd) + ' c/u - ' + formatCop(item.priceCop ? mulR(item.priceCop, item.qty) : mulR(sub, sale.tasaCop)) + ' COP - Bs ' + formatBs(subBs)
-            : '$' + formatUsd(item.priceUsd) + ' c/u - Bs ' + formatBs(subBs);
+        const priceBs = item.priceUsd * rate;
+
+        let totalStr = '';
+        let unitPriceStr = '';
+
+        if (receiptCurrencyMode === 'usd') {
+            totalStr = fmtUsd(sub);
+            unitPriceStr = `$${formatUsd(item.priceUsd)}`;
+        } else if (receiptCurrencyMode === 'bs') {
+            totalStr = 'Bs ' + formatBs(subBs);
+            unitPriceStr = `Bs ${formatBs(priceBs)}`;
+        } else {
+            totalStr = fmtUsd(sub);
+            unitPriceStr = isCop
+                ? 'USD ' + formatUsd(item.priceUsd) + ' (' + formatCop(item.priceCop || Math.round(item.priceUsd * sale.tasaCop)) + ' COP)'
+                : `$${formatUsd(item.priceUsd)}`;
+        }
+
         return `
             <tr>
-                <td style="text-align:left;font-size:${fBase};padding:2px 6px 2px 0;width:15%;white-space:nowrap;vertical-align:top;">${qty}${unit}</td>
-                <td style="text-align:left;font-size:${fBase};padding:2px 4px 2px 0;line-height:1.2;width:55%;vertical-align:top;word-break:break-word;">${name}</td>
-                <td style="text-align:right;font-size:${fBase};font-weight:bold;padding:2px 0;width:30%;vertical-align:top;white-space:nowrap;">${importeStr}</td>
+                <td colspan="2" style="text-align:left;font-size:${fBase};font-weight:bold;padding:6px 0 1px 0;line-height:1.25;word-break:break-word;">
+                    ${name}
+                </td>
             </tr>
             <tr>
-                <td></td>
-                <td colspan="2" style="font-size:${fTiny};color:#888;padding:0 0 4px;word-break:break-word;">${detailStr}</td>
+                <td style="text-align:left;font-size:${fSmall};color:#666;padding:1px 4px 6px 0;width:65%;vertical-align:middle;border-bottom:1px dotted #ccc;">
+                    ${qty}${unit} x ${unitPriceStr}
+                </td>
+                <td style="text-align:right;font-size:${fBase};font-weight:bold;padding:1px 0 6px 0;width:35%;vertical-align:middle;white-space:nowrap;border-bottom:1px dotted #ccc;">
+                    ${totalStr}
+                </td>
             </tr>`;
     }).join('');
 
@@ -69,23 +88,79 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
             : fmtUsd(p.amountUsd || 0);
         return `
             <tr>
-                <td style="font-size:11px;padding:2px 0;">${escapeHtml(p.methodLabel || 'Pago')}</td>
-                <td style="font-size:11px;font-weight:bold;text-align:right;padding:2px 0;">${val}</td>
+                <td style="font-size:11px;padding:2px 4px 2px 0;text-align:left;width:65%;word-break:break-word;vertical-align:top;">${escapeHtml(p.methodLabel || 'Pago')}</td>
+                <td style="font-size:11px;font-weight:bold;text-align:right;width:35%;white-space:nowrap;vertical-align:top;">${val}</td>
             </tr>`;
     }).join('');
 
     const fiadoRate = bcvRate || rate;
     // FIN-024: mulR en vez de multiplicación raw.
-    const fiadoHtml = hasFiado ? `
-        <div style="margin-top:6px;padding:4px 0;border-top:1px dashed #000;">
-            <table style="width:100%"><tr>
-                <td style="color:#000;font-weight:bold;font-size:11px;">Deuda pendiente:</td>
-                <td style="color:#000;font-weight:bold;font-size:11px;text-align:right;">${fmtUsd(sale.fiadoUsd)}</td>
-            </tr><tr>
-                <td></td>
-                <td style="color:#000;font-size:9px;text-align:right;">Bs ${formatBs(mulR(sale.fiadoUsd, fiadoRate))} (tasa actual)</td>
-            </tr></table>
-        </div>` : '';
+    let fiadoHtml = '';
+    if (hasFiado) {
+        let debtVal = '';
+        let debtSub = '';
+
+        if (receiptCurrencyMode === 'usd') {
+            debtVal = fmtUsd(sale.fiadoUsd);
+        } else if (receiptCurrencyMode === 'bs') {
+            debtVal = 'Bs ' + formatBs(mulR(sale.fiadoUsd, fiadoRate));
+        } else {
+            debtVal = fmtUsd(sale.fiadoUsd);
+            debtSub = `<tr><td></td><td style="color:#000;font-size:9px;width:35%;text-align:right;white-space:nowrap;vertical-align:top;">Bs ${formatBs(mulR(sale.fiadoUsd, fiadoRate))} (tasa actual)</td></tr>`;
+        }
+
+        fiadoHtml = `
+            <div style="margin-top:6px;padding:4px 0;border-top:1px dashed #000;">
+                <table style="width:100%"><tr>
+                    <td style="color:#000;font-weight:bold;font-size:11px;width:65%;text-align:left;vertical-align:top;">Deuda pendiente:</td>
+                    <td style="color:#000;font-weight:bold;font-size:11px;width:35%;text-align:right;white-space:nowrap;vertical-align:top;">${debtVal}</td>
+                </tr>${debtSub}</table>
+            </div>`;
+    }
+
+    // Generar bloque de subtotal y descuento dinámico
+    let subtotalBlockHtml = '';
+    if (sale.discountAmountUsd > 0) {
+        let subVal = '';
+        let descVal = '';
+
+        if (receiptCurrencyMode === 'usd') {
+            subVal = fmtUsd(sale.cartSubtotalUsd || (sale.totalUsd + sale.discountAmountUsd));
+            descVal = '-' + fmtUsd(sale.discountAmountUsd);
+        } else if (receiptCurrencyMode === 'bs') {
+            subVal = 'Bs ' + formatBs(mulR(sale.cartSubtotalUsd || (sale.totalUsd + sale.discountAmountUsd), rate));
+            descVal = '-Bs ' + formatBs(mulR(sale.discountAmountUsd, rate));
+        } else {
+            subVal = fmtUsd(sale.cartSubtotalUsd || (sale.totalUsd + sale.discountAmountUsd));
+            descVal = '-' + fmtUsd(sale.discountAmountUsd);
+        }
+
+        subtotalBlockHtml = `
+        <table style="margin-bottom:6px; font-size:${fTiny}; border-bottom: 1px dashed #000; padding-bottom: 4px;">
+            <tr>
+                <td style="text-align:left; color:#000; font-weight:bold;">SUBTOTAL:</td>
+                <td style="text-align:right; color:#000; font-weight:bold;">${subVal}</td>
+            </tr>
+            <tr>
+                <td style="text-align:left; color:#000; font-weight:bold;">${sale.discountType === 'percentage' ? `DESCUENTO (${sale.discountValue}%):` : 'DESCUENTO:'}</td>
+                <td style="text-align:right; color:#000; font-weight:bold;">${descVal}</td>
+            </tr>
+        </table>
+        `;
+    }
+
+    // Generar bloque total dinámico
+    let totalBlockHtml = '';
+    if (receiptCurrencyMode === 'usd') {
+        totalBlockHtml = `<div class="total-usd">${fmtUsd(sale.totalUsd || 0)}</div>`;
+    } else if (receiptCurrencyMode === 'bs') {
+        totalBlockHtml = `<div class="total-usd">Bs ${formatBs(sale.totalBs || 0)}</div>`;
+    } else {
+        totalBlockHtml = `
+        <div class="total-usd">${fmtUsd(sale.totalUsd || 0)}</div>
+        ${isCop ? `<div class="total-bs" style="font-size:${is80 ? '16px' : '13px'};">COP ${formatCop(sale.totalCop || mulR(sale.totalUsd, sale.tasaCop))}</div>` : ''}
+        <div class="total-bs" style="margin-bottom:4px">Bs ${formatBs(sale.totalBs || 0)}</div>`;
+    }
 
     return `<!DOCTYPE html>
 <html>
@@ -105,7 +180,7 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
         color: #000 !important;
     }
     body {
-        font-family: 'Courier New', 'Lucida Console', monospace;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         font-weight: bold;
         width: ${cssBodyWidth};
         max-width: ${cssBodyWidth};
@@ -178,36 +253,20 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
 
     <!-- Productos Header -->
     <table style="margin-bottom:4px;width:100%;">
-        <tr style="font-size:${fTiny};color:#000;font-weight:bold;">
-            <td style="text-align:left;width:15%;">CANT</td>
-            <td style="text-align:left;width:55%;">DESCRIPCION</td>
-            <td style="text-align:right;width:30%;">IMPORTE</td>
+        <tr style="font-size:${fTiny};color:#555;font-weight:bold;">
+            <td style="text-align:left;width:70%;">CONCEPTO</td>
+            <td style="text-align:right;width:30%;">TOTAL</td>
         </tr>
     </table>
 
     <!-- Productos -->
     <table style="width:100%;">${itemsHtml}</table>
 
-
-
     <!-- Total -->
     <div style="margin:8px 0;">
-        ${sale.discountAmountUsd > 0 ? `
-        <table style="margin-bottom:6px; font-size:${fTiny}; border-bottom: 1px dashed #000; padding-bottom: 4px;">
-            <tr>
-                <td style="text-align:left; color:#000; font-weight:bold;">SUBTOTAL:</td>
-                <td style="text-align:right; color:#000; font-weight:bold;">${fmtUsd(sale.cartSubtotalUsd || (sale.totalUsd + sale.discountAmountUsd))}</td>
-            </tr>
-            <tr>
-                <td style="text-align:left; color:#000; font-weight:bold;">${sale.discountType === 'percentage' ? `DESCUENTO (${sale.discountValue}%):` : 'DESCUENTO:'}</td>
-                <td style="text-align:right; color:#000; font-weight:bold;">-${fmtUsd(sale.discountAmountUsd)}</td>
-            </tr>
-        </table>
-        ` : ''}
+        ${subtotalBlockHtml}
         <div class="center bold" style="font-size:${fSmall};color:#000;margin-bottom:4px;">TOTAL A PAGAR</div>
-        <div class="total-usd">${fmtUsd(sale.totalUsd || 0)}</div>
-        ${isCop ? `<div class="total-bs" style="font-size:${is80 ? '16px' : '13px'};">COP ${formatCop(sale.totalCop || mulR(sale.totalUsd, sale.tasaCop))}</div>` : ''}
-        <div class="total-bs" style="margin-bottom:4px">Bs ${formatBs(sale.totalBs || 0)}</div>
+        ${totalBlockHtml}
     </div>
 
     <hr class="dash">
