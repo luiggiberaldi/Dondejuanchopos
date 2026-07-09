@@ -12,7 +12,7 @@ export default function PremiumGuard({ children, featureName = "Esta función", 
     const [demoLoading, setDemoLoading] = useState(false);
 
     // Estado para Modales
-    const [messageModal, setMessageModal] = useState({ open: false, title: '', content: '' });
+    const [messageModal, setMessageModal] = useState({ open: false, isSuccess: false, title: '', content: '' });
 
     if (loading) return <div className="p-10 text-center text-slate-400">Verificando licencia...</div>;
     if (isPremium) return children;
@@ -39,14 +39,30 @@ export default function PremiumGuard({ children, featureName = "Esta función", 
         if (result.success) {
             setMessageModal({
                 open: true,
+                isSuccess: true,
                 title: 'Periodo de Prueba Activado',
                 content: 'Disfruta de todas las funciones de la versión completa durante 3 días. Aprovecha al máximo la herramienta.'
             });
         } else if (result.status === 'DEMO_USED') {
             setMessageModal({
                 open: true,
+                isSuccess: false,
                 title: 'Prueba no disponible',
                 content: 'El periodo de prueba ya fue utilizado en este dispositivo. Contacta a soporte para adquirir tu licencia comercial.'
+            });
+        } else if (result.status === 'RPC_NOT_FOUND') {
+            setMessageModal({
+                open: true,
+                isSuccess: false,
+                title: 'Error de Configuración',
+                content: 'Las funciones de activación no están instaladas en el servidor. Por favor contacta al administrador del sistema para resolver este problema.'
+            });
+        } else if (result.status === 'SERVER_ERROR') {
+            setMessageModal({
+                open: true,
+                isSuccess: false,
+                title: 'Sin Conexión',
+                content: 'No se pudo conectar con el servidor de activación. Verifica tu conexión a internet e inténtalo de nuevo.'
             });
         }
     };
@@ -208,7 +224,7 @@ export default function PremiumGuard({ children, featureName = "Esta función", 
                         <button
                             onClick={() => {
                                 setMessageModal({ ...messageModal, open: false });
-                                if (messageModal.title.includes('Activada')) window.location.reload();
+                                if (messageModal.isSuccess) window.location.reload();
                             }}
                             className="w-full py-3 bg-brand hover:bg-brand-dark text-white dark:text-slate-950 font-bold rounded-xl shadow-lg shadow-brand/20 active:scale-95 transition-all"
                         >

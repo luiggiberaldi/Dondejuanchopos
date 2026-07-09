@@ -535,6 +535,7 @@ export function useSecurity() {
      * El estado `isPremium/isDemo` se mantiene en memoria hasta que el backend confirme.
      */
     const activateDemo = async () => {
+        // Paso 1: Verificar flag local antes de ir al servidor
         const demoRecord = await storageService.getItem('pda_demo_flag_v1', null);
         if (demoRecord?.used) {
             return { success: false, status: 'DEMO_USED' };
@@ -542,40 +543,84 @@ export function useSecurity() {
 
         const currentDeviceId = deviceId || localStorage.getItem('pda_device_id');
 
+        // Paso 2: Consultar estado remoto actual ANTES de activar
+        // Si el servidor ya tiene una demo o licencia activa, no volver a activar.
         try {
             const { data: remoteLicense } = await _fetchRemoteLicense(currentDeviceId);
-            const existingDemo = remoteLicense && remoteLicense.type !== 'registered' ? remoteLicense : null;
-
-            if (existingDemo) {
+            if (remoteLicense && remoteLicense.type !== 'registered') {
+                // El servidor ya tiene una demo o licencia real → quemar flag local y retornar
                 await storageService.setItem('pda_demo_flag_v1', {
-                    used: true,
-                    ts: Date.now(),
-                    deviceId: currentDeviceId,
+                    used: true, ts: Date.now(), deviceId: currentDeviceId,
                 });
+                setDemoUsed(true);
                 return { success: false, status: 'DEMO_USED' };
             }
         } catch (e) {
             if (import.meta.env?.DEV) {
                 console.warn('[Security] Sin red al verificar demo existente:', e?.message ?? e);
             }
+            // Sin red: no bloqueamos, continuamos al intento de activación
         }
 
+        // Paso 3: Llamar al servidor PRIMERO — sin tocar IndexedDB todavía
+        let rpcSuccess = false;
+        let rpcError = null;
+
+        try {
+            const { data: rpcData, error: rpcErr } = await supabase.rpc('activate_demo_secure', {
+                p_device_id: currentDeviceId,
+                p_product_id: PRODUCT_ID
+            });
+
+            if (rpcErr) {
+                // Función no instalada o error de BD
+                rpcError = rpcErr;
+                rpcSuccess = false;
+            } else {
+                // La RPC devuelve TRUE si activó, FALSE si la demo ya fue usada en el servidor
+                rpcSuccess = rpcData === true;
+            }
+        } catch (e) {
+            rpcError = e;
+            rpcSuccess = false;
+        }
+
+        // Paso 4a: RPC falló por razón técnica (función no existe, sin red) → NO quemar el flag
+        if (rpcError) {
+            const isRpcMissing = rpcError?.message?.toLowerCase().includes('could not find the function')
+                || rpcError?.code === 'PGRST202'
+                || rpcError?.message?.toLowerCase().includes('schema cache');
+
+            if (isRpcMissing) {
+                if (import.meta.env?.DEV) {
+                    console.error('[Security] activate_demo_secure no instalada en Supabase. Solicita al admin ejecutar el SQL de setup.');
+                }
+                return { success: false, status: 'RPC_NOT_FOUND' };
+            }
+
+            // Otro error de red / servidor → informar sin quemar el flag
+            if (import.meta.env?.DEV) {
+                console.warn('[Security] activate_demo_secure falló por error de servidor:', rpcError?.message ?? rpcError);
+            }
+            return { success: false, status: 'SERVER_ERROR' };
+        }
+
+        // Paso 4b: RPC retornó FALSE → el servidor dice que la demo ya fue utilizada
+        if (!rpcSuccess) {
+            await storageService.setItem('pda_demo_flag_v1', {
+                used: true, ts: Date.now(), deviceId: currentDeviceId,
+            });
+            setDemoUsed(true);
+            return { success: false, status: 'DEMO_USED' };
+        }
+
+        // Paso 5: Servidor confirmó activación exitosa → ahora sí persistir localmente
         const expires = Date.now() + DEMO_DURATION_MS;
 
-        // SEC-001: No minteamos token local; el backend debe crear la fila en `licenses`.
-        // Optimisticamente activamos el estado en memoria.
         await storageService.setItem('pda_demo_flag_v1', {
-            used: true,
-            ts: Date.now(),
-            deviceId: currentDeviceId,
+            used: true, ts: Date.now(), deviceId: currentDeviceId,
         });
 
-        setIsPremium(true);
-        setIsDemo(true);
-        setDemoExpires(expires);
-        setDemoUsed(true);
- 
-        // Guardar en cache offline
         localStorage.setItem('pda_license_cache', JSON.stringify({
             type: 'demo3',
             isActive: true,
@@ -584,16 +629,10 @@ export function useSecurity() {
             updatedAt: Date.now()
         }));
 
-        try {
-            await supabase.rpc('activate_demo_secure', {
-                p_device_id: currentDeviceId,
-                p_product_id: PRODUCT_ID
-            });
-        } catch (e) {
-            if (import.meta.env?.DEV) {
-                console.warn('[Security] activate_demo_secure falló (estado local ya activado):', e?.message ?? e);
-            }
-        }
+        setIsPremium(true);
+        setIsDemo(true);
+        setDemoExpires(expires);
+        setDemoUsed(true);
 
         return { success: true, status: 'DEMO_ACTIVATED' };
     };
