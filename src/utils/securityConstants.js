@@ -41,16 +41,16 @@ export const PIN_POLICY = Object.freeze({
 
 /** Política de rate-limiting de intentos de login (persistida, SEC-006). */
 export const LOGIN_RATE_LIMIT = Object.freeze({
-  /** Máximo de intentos fallidos antes del lockout. */
-  MAX_ATTEMPTS: 5,
+  /** Máximo de intentos fallidos antes del lockout (desactivado a pedido de negocio). */
+  MAX_ATTEMPTS: 999999,
   /** Duración del primer lockout (ms). */
-  LOCKOUT_MS: 30_000,
-  /** Factor de backoff entre lockouts sucesivos (lockout_n = LOCKOUT_MS * FACTOR^(n-1)). */
-  BACKOFF_FACTOR: 2,
-  /** Tope del lockout (ms) — 15 min. */
-  MAX_LOCKOUT_MS: 15 * 60 * 1000,
-  /** Ventana de reseteo de contador tras login exitoso (ms) — 1h. */
-  RESET_WINDOW_MS: 60 * 60 * 1000,
+  LOCKOUT_MS: 0,
+  /** Factor de backoff entre lockouts sucesivos. */
+  BACKOFF_FACTOR: 1,
+  /** Tope del lockout (ms). */
+  MAX_LOCKOUT_MS: 0,
+  /** Ventana de reseteo de contador tras login exitoso (ms). */
+  RESET_WINDOW_MS: 0,
 });
 
 /** Política de auto-lock por inactividad (HOOK-001 / SEC-004). */

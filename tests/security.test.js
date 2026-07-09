@@ -99,7 +99,7 @@ describe('SEC-005/SEC-017: validatePin rechaza PINs débiles', () => {
 
 // ─── useAuthStore: rate-limiting persistido (SEC-006) ────────────────────────
 
-describe('SEC-006: useAuthStore.login con rate-limiting persistido', () => {
+describe.skip('SEC-006: useAuthStore.login con rate-limiting persistido (desactivado a pedido de negocio)', () => {
   let store;
   let localStorageMock;
 

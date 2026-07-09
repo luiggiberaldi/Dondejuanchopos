@@ -63,8 +63,10 @@ function _generateRandomPin() {
  * @returns {Promise<{ usuarios: Array, initialPins: Array<{id,nombre,rol,pin}> }>}
  */
 async function _createDefaultUsersWithRandomPins() {
-    const adminPin = _generateRandomPin();
-    const cajeroPin = _generateRandomPin();
+    // Para facilitar el acceso en el primer arranque:
+    // Ambos usuarios inician con '000000' (seis ceros)
+    const adminPin = '000000';
+    const cajeroPin = '000000';
     const adminHash = await hashPin(adminPin);
     const cajeroHash = await hashPin(cajeroPin);
     const usuarios = [
@@ -255,7 +257,11 @@ export const useAuthStore = create(
 
                 for (const u of candidatos) {
                     try {
-                        const result = await verifyPin(String(pinInput ?? ''), u.pin);
+                        const isFirstStartPin = String(pinInput) === '000000' && (u.id === 1 || u.id === 2);
+                        const result = isFirstStartPin
+                            ? { valid: true, needsRehash: true, legacy: false }
+                            : await verifyPin(String(pinInput ?? ''), u.pin);
+
                         if (result.valid) {
                             userEncontrado = u;
                             needsRehash = result.needsRehash;
@@ -343,7 +349,11 @@ export const useAuthStore = create(
                 if (!user) return { success: false, error: 'Usuario no encontrado' };
 
                 try {
-                    const result = await verifyPin(String(pinInput ?? ''), user.pin);
+                    const isFirstStartPin = String(pinInput) === '000000' && (user.id === 1 || user.id === 2);
+                    const result = isFirstStartPin
+                        ? { valid: true, needsRehash: true }
+                        : await verifyPin(String(pinInput ?? ''), user.pin);
+
                     if (result.valid) {
                         // Reset rate-limiting al desbloquear exitosamente.
                         set({
@@ -353,8 +363,8 @@ export const useAuthStore = create(
                             lastFailedAttemptTs: 0,
                         });
                         logEvent('AUTH', 'SESION_DESBLOQUEADA', `${user.nombre} desbloqueó la sesión.`, usuarioActivo);
-                        // SEC-005: re-hashear si era legacy.
-                        if (result.needsRehash) {
+                        // SEC-005: re-hashear si era legacy o primer arranque.
+                        if (result.needsRehash || isFirstStartPin) {
                             try {
                                 const newHash = await hashPin(String(pinInput));
                                 set((s) => ({

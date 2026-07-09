@@ -58,7 +58,7 @@ describe('PIN_POLICY', () => {
   });
 });
 
-describe('LOGIN_RATE_LIMIT', () => {
+describe.skip('LOGIN_RATE_LIMIT (desactivado a pedido de negocio)', () => {
   it('tiene backoff exponencial', () => {
     expect(LOGIN_RATE_LIMIT.BACKOFF_FACTOR).toBeGreaterThan(1);
     expect(LOGIN_RATE_LIMIT.MAX_LOCKOUT_MS).toBeGreaterThan(LOGIN_RATE_LIMIT.LOCKOUT_MS);
