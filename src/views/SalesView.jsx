@@ -19,6 +19,7 @@ import CategoryBar from '../components/Sales/CategoryBar';
 import CartPanel from '../components/Sales/CartPanel';
 import ReceiptModal from '../components/Sales/ReceiptModal';
 import CheckoutModal from '../components/Sales/CheckoutModal';
+import CheckoutModalPOS from '../components/Sales/CheckoutModalPOS';
 import CustomAmountModal from '../components/Sales/CustomAmountModal';
 import KeyboardHelpModal from '../components/Sales/KeyboardHelpModal';
 import DiscountModal from '../components/Sales/DiscountModal';
@@ -40,7 +41,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
     const { notifyLowStock, notifySaleComplete } = useNotifications();
 
     // ── Global Context ──────────────────────────────────────
-    const { products, setProducts, isLoadingProducts, rateMode, setRateMode, useAutoRate, setUseAutoRate, customRate, setCustomRate, effectiveRate, rates, copEnabled, copPrimary, tasaCop, autoCopEnabled, setAutoCopEnabled, tasaCopManual, setTasaCopManual, categories } = useProductContext();
+    const { products, setProducts, isLoadingProducts, rateMode, setRateMode, useAutoRate, setUseAutoRate, customRate, setCustomRate, effectiveRate, rates, copEnabled, copPrimary, tasaCop, autoCopEnabled, setAutoCopEnabled, tasaCopManual, setTasaCopManual, categories, checkoutMode, setCheckoutMode } = useProductContext();
 
     // ── State ──────────────────────────────────────
     const [showConfetti, setShowConfetti] = useState(false);
@@ -705,24 +706,26 @@ export default function SalesView({ triggerHaptic, isActive }) {
             </>
             )}
 
-            {/* Checkout Modal */}
-            {showCheckout && (
-                <CheckoutModal
-                    onClose={() => { setShowCheckout(false); setSelectedCustomerId(''); }}
-                    cartSubtotalUsd={cartSubtotalUsd} cartSubtotalBs={cartSubtotalBs}
-                    cartTotalUsd={cartTotalUsd} cartTotalBs={cartTotalBs} cartTotalCop={cartTotalCop}
-                    discountData={discountData} effectiveRate={effectiveRate}
-                    customers={customers} selectedCustomerId={selectedCustomerId} setSelectedCustomerId={setSelectedCustomerId}
-                    paymentMethods={paymentMethods}
-                    onConfirmSale={handleCheckout} onCreateCustomer={handleCreateCustomer}
-                    triggerHaptic={triggerHaptic}
-                    copEnabled={copEnabled}
-                    copPrimary={copPrimary}
-                    tasaCop={tasaCop}
-                    currentFloatUsd={currentFloat.usd}
-                    currentFloatBs={currentFloat.bs}
-                />
-            )}
+            {/* Checkout Modal — modo dinámico según preferencia del usuario */}
+            {showCheckout && (() => {
+                const sharedProps = {
+                    onClose: () => { setShowCheckout(false); setSelectedCustomerId(''); },
+                    cartSubtotalUsd, cartSubtotalBs: cartSubtotalUsd * effectiveRate,
+                    cartTotalUsd, cartTotalBs, cartTotalCop,
+                    discountData, effectiveRate,
+                    customers, selectedCustomerId, setSelectedCustomerId,
+                    paymentMethods,
+                    onConfirmSale: handleCheckout, onCreateCustomer: handleCreateCustomer,
+                    triggerHaptic,
+                    copEnabled, copPrimary, tasaCop,
+                    currentFloatUsd: currentFloat.usd,
+                    currentFloatBs: currentFloat.bs,
+                    onSwitchMode: setCheckoutMode,
+                };
+                return checkoutMode === 'pos'
+                    ? <CheckoutModalPOS {...sharedProps} />
+                    : <CheckoutModal {...sharedProps} />;
+            })()}
 
             {/* Receipt Modal */}
             <ReceiptModal

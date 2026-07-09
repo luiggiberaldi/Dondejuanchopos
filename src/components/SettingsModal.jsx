@@ -13,7 +13,8 @@ export default function SettingsModal({ isOpen, onClose, products, onImport, tri
         copEnabled, setCopEnabled,
         autoCopEnabled, setAutoCopEnabled, 
         tasaCopManual, setTasaCopManual, 
-        tasaCop: calculatedTasaCop 
+        tasaCop: calculatedTasaCop,
+        checkoutMode, setCheckoutMode,
     } = useProductContext();
 
     const [importStatus, setImportStatus] = useState(null);
@@ -421,6 +422,60 @@ export default function SettingsModal({ isOpen, onClose, products, onImport, tri
 
                     {/* Divider */}
                     <div className="border-t border-slate-100 dark:border-slate-800 pt-3">
+                        {/* 🖥️ Experiencia de Cobro */}
+                        <div className="mb-4 p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-xl">
+                            <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500 dark:text-slate-400 mb-3">
+                                🖥️ Experiencia de Cobro
+                            </p>
+                            <div className="grid grid-cols-2 gap-2">
+                                {/* Card Básico */}
+                                <button
+                                    onClick={() => { setCheckoutMode('basic'); showToast('Modo básico activado', 'success'); if (triggerHaptic) triggerHaptic(); }}
+                                    className={`p-3 rounded-xl border-2 text-left transition-all active:scale-95 ${
+                                        checkoutMode === 'basic' || !checkoutMode
+                                            ? 'border-brand bg-brand/5 dark:bg-brand/10'
+                                            : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+                                    }`}
+                                >
+                                    <div className="flex items-center gap-2 mb-1.5">
+                                        <span className="text-lg">📱</span>
+                                        <span className={`text-xs font-black ${
+                                            checkoutMode === 'basic' || !checkoutMode
+                                                ? 'text-brand dark:text-brand'
+                                                : 'text-slate-700 dark:text-slate-300'
+                                        }`}>Básico</span>
+                                        {(checkoutMode === 'basic' || !checkoutMode) && (
+                                            <span className="ml-auto text-[8px] font-black bg-brand text-white px-1.5 py-0.5 rounded-full">ACTIVO</span>
+                                        )}
+                                    </div>
+                                    <p className="text-[9px] text-slate-400 leading-tight">Barras rápidas scroll vertical. Optimizado para móvil.</p>
+                                </button>
+
+                                {/* Card Profesional */}
+                                <button
+                                    onClick={() => { setCheckoutMode('pos'); showToast('Modo profesional (POS) activado', 'success'); if (triggerHaptic) triggerHaptic(); }}
+                                    className={`p-3 rounded-xl border-2 text-left transition-all active:scale-95 ${
+                                        checkoutMode === 'pos'
+                                            ? 'border-brand bg-brand/5 dark:bg-brand/10'
+                                            : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+                                    }`}
+                                >
+                                    <div className="flex items-center gap-2 mb-1.5">
+                                        <span className="text-lg">💼</span>
+                                        <span className={`text-xs font-black ${
+                                            checkoutMode === 'pos'
+                                                ? 'text-brand dark:text-brand'
+                                                : 'text-slate-700 dark:text-slate-300'
+                                        }`}>Profesional</span>
+                                        {checkoutMode === 'pos' && (
+                                            <span className="ml-auto text-[8px] font-black bg-brand text-white px-1.5 py-0.5 rounded-full">ACTIVO</span>
+                                        )}
+                                    </div>
+                                    <p className="text-[9px] text-slate-400 leading-tight">2 columnas, Contado/Crédito, billetes. Estilo Listo POS.</p>
+                                </button>
+                            </div>
+                        </div>
+
                         <PaymentMethodsManager triggerHaptic={triggerHaptic} />
                     </div>
                 </div>

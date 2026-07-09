@@ -97,6 +97,15 @@ export function ProductProvider({ children, rates }) {
         return localStorage.getItem('cop_primary') === 'true';
     });
 
+    // CHECKOUT MODE — 'basic' (barras móviles) | 'pos' (2 columnas, estilo Listo POS)
+    const [checkoutMode, setCheckoutModeState] = useState(() => {
+        return localStorage.getItem('checkout_mode') || 'basic';
+    });
+    const setCheckoutMode = (mode) => {
+        setCheckoutModeState(mode);
+        localStorage.setItem('checkout_mode', mode);
+    };
+
     // effectiveRate según el modo seleccionado
     const effectiveRate = (() => {
         if (rateMode === 'euro') return rates?.euro?.price || rates?.bcv?.price || 1;
@@ -356,6 +365,8 @@ export function ProductProvider({ children, rates }) {
         copPrimary,
         setCopPrimary,
         tasaCop,
+        checkoutMode,
+        setCheckoutMode,
         adjustStock
     }), [
         products,
@@ -370,6 +381,7 @@ export function ProductProvider({ children, rates }) {
         tasaCopManual,
         copPrimary,
         tasaCop,
+        checkoutMode,
         adjustStock,
     ]);
 

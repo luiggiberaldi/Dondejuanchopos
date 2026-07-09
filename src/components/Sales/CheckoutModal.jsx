@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { X, Users, Receipt, Wallet, ArrowLeftRight, AlertTriangle, Smartphone, Lock } from 'lucide-react';
+import { X, Users, Receipt, Wallet, ArrowLeftRight, AlertTriangle, Smartphone, Lock, LayoutGrid } from 'lucide-react';
 import CasheaIcon from '../CasheaIcon';
 import { formatBs, formatCop } from '../../utils/calculatorUtils';
 import { mulR, divR, subR, round2 } from '../../utils/dinero';
@@ -7,6 +7,7 @@ import { useCheckoutCalculations } from '../../hooks/useCheckoutCalculations';
 import CheckoutPaymentBars from './CheckoutPaymentBars';
 import CheckoutCustomerPicker from './CheckoutCustomerPicker';
 import PaymentWarningModal from './PaymentWarningModal';
+import { useProductContext } from '../../context/ProductContext';
 
 /**
  * CheckoutModal — Zona de Cobro con Barras de Pago (Estilo Listo POS)
@@ -35,6 +36,7 @@ export default function CheckoutModal({
     currentFloatBs = 0
 }) {
     const [confirmFiar, setConfirmFiar] = useState(false);
+    const { setCheckoutMode } = useProductContext();
 
     const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
 
@@ -110,9 +112,18 @@ export default function CheckoutModal({
                     <X size={22} />
                 </button>
                 <h2 className="text-base font-black text-slate-800 dark:text-white tracking-wide">COBRAR</h2>
-                <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-900 px-2.5 py-1 rounded-lg">
-                    {formatBs(effectiveRate)} Bs/$
-                </span>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => setCheckoutMode('pos')}
+                        title="Cambiar al modo profesional (Listo POS)"
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold text-slate-400 hover:text-brand hover:bg-brand/5 border border-slate-200 dark:border-slate-700 dark:hover:border-brand/30 transition-all"
+                    >
+                        <LayoutGrid size={12} /> POS
+                    </button>
+                    <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-900 px-2.5 py-1 rounded-lg">
+                        {formatBs(effectiveRate)} Bs/$
+                    </span>
+                </div>
             </div>
 
             {/* --- COMPACT STICKY TOTAL BAR --- */}

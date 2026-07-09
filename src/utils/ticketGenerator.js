@@ -125,16 +125,20 @@ export async function generateTicketPDF(sale, bcvRate) {
             // FIN-024: mulR en vez de multiplicación raw.
             const sub = mulR(item.priceUsd, item.qty);
             const subBs = mulR(sub, rate);
-            const name = item.name.length > 20 ? item.name.substring(0, 20) + '…' : item.name;
 
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(7.5);
             doc.setTextColor(...INK);
             doc.text(`${qty}${unit}`, M, y);
-            doc.text(name, M + 10, y);
+            
+            const nameLines = doc.splitTextToSize(item.name, RIGHT - (M + 10) - 2);
+            doc.text(nameLines, M + 10, y);
+            
             doc.setFont('helvetica', 'bold');
             doc.text(fmtUsd(sub), RIGHT, y, { align: 'right' });
-            y += 4;
+            
+            const textHeight = Math.max(1, nameLines.length) * 3.5;
+            y += textHeight;
 
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(6);
@@ -148,7 +152,7 @@ export async function generateTicketPDF(sale, bcvRate) {
                 detailLine += '  ·  ' + copUnit + ' COP';
             }
             doc.text(detailLine, M + 10, y);
-            y += 6;
+            y += 5;
         });
     }
 

@@ -1,108 +1,126 @@
 /**
- * GENERADOR DE ETIQUETAS "ONE-CLICK"
- * Genera un PDF 58mm continuo con todas las etiquetas apiladas
- * una debajo de la otra en un solo ticket — sin páginas separadas.
- *
- * Migrado a dinero.js (deuda técnica detectada por guardrail ESLint):
- *   - `Math.round(priceUsdRaw * tasaCop)` → `round2(mulR(priceUsdRaw, tasaCop))` (COP entero via toLocaleString)
- *   - `priceUsdRaw.toFixed(2)` → `round2(priceUsdRaw)` + template
- *   - `priceUsdRaw * effectiveRate` → `mulR(priceUsdRaw, effectiveRate)`
- *   - `Math.ceil(priceBsRaw)` → `ceilR(priceBsRaw)` (política Bs a entero)
+ * GENERADOR DE ETIQUETAS "ONE-CLICK" (VERSIÓN CONTINUA ULTRA-COMPATIBLE)
+ * Genera un único ticket de PDF de 58mm de ancho con todas las etiquetas apiladas
+ * una debajo de la otra de forma continua en una sola hoja, ideal para papel térmico.
+ * Utiliza centrado manual exacto y compensación de 4mm a la izquierda para la impresora.
  */
 import { round2, mulR, ceilR } from './dinero';
 
-// Altura por etiqueta en mm
-const LABEL_H = 40;
-// Ancho del papel térmico en mm
+// Dimensiones de la etiqueta individual en mm
 const LABEL_W = 58;
+const LABEL_H = 60; // 60mm de alto para forzar portrait continuo sin inversión de dimensiones
 
 export const generarEtiquetas = async (productos, effectiveRate, copEnabled, tasaCop) => {
-    // Dynamic import for lazy loading jsPDF (no penaliza tiempo de carga inicial)
+    // Importación dinámica de jsPDF para optimizar carga inicial
     const { default: jsPDF } = await import('jspdf');
 
     if (!productos || productos.length === 0) return;
 
-    const marginX = 2;
-    const marginY = 2;
-    const printableWidth = LABEL_W - marginX * 2;
-    const centerX = LABEL_W / 2;
+    const marginX = 4.5; // Margen de seguridad horizontal en mm
+    const marginY = 3.5; // Margen vertical en mm
 
-    // Documento único: 58mm de ancho, alto = N etiquetas apiladas
+    // Altura total de la hoja dinámica según la cantidad de productos
     const totalHeight = LABEL_H * productos.length;
 
-    const doc = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: [LABEL_W, totalHeight],
-    });
+    // Crear un único documento Portrait de 58mm de ancho por totalHeight de alto
+    const doc = new jsPDF('p', 'mm', [LABEL_W, totalHeight]);
+
+    const width = doc.internal.pageSize.getWidth();   // 58 mm
+    const height = doc.internal.pageSize.getHeight(); // totalHeight mm
+    const centerX = (width / 2) - 4;                  // 25 mm (Centro exacto ajustado para hardware de impresión)
+    
+    // Ancho imprimible dinámico para evitar desbordes al estar desplazado el eje central
+    const maxHalfWidth = Math.min(centerX, width - centerX);
+    const printableWidth = (maxHalfWidth - marginX) * 2;
+
+    // Helper ergonómico para centrar texto de forma manual (evita bugs de alineación de jsPDF)
+    const centrarTexto = (texto, y, fontSize, fontStyle = 'normal', color = [0, 0, 0]) => {
+        doc.setFont('helvetica', fontStyle);
+        doc.setFontSize(fontSize);
+        doc.setTextColor(...color);
+        const textWidth = doc.getTextWidth(texto);
+        doc.text(texto, centerX - textWidth / 2, y);
+    };
+
+    // Helper ergonómico para centrar arrays de líneas del título
+    const centrarLineas = (lineas, y, fontSize, lineHeight = 1.3) => {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(fontSize);
+        doc.setTextColor(0, 0, 0);
+        
+        lineas.forEach((line, i) => {
+            const textWidth = doc.getTextWidth(line);
+            doc.text(line, centerX - textWidth / 2, y + i * (fontSize * 0.3527 * lineHeight));
+        });
+    };
 
     productos.forEach((p, index) => {
-        // Offset vertical base para esta etiqueta
+        // Offset vertical base para esta etiqueta individual en la tira continua
         const offsetY = index * LABEL_H;
 
-        // Línea separadora entre etiquetas (no antes de la primera)
+        // Dibujar línea divisoria punteada entre etiquetas consecutivas para facilitar el corte manual
         if (index > 0) {
             doc.setDrawColor(200, 200, 200);
-            doc.setLineWidth(0.2);
-            doc.setLineDashPattern([1, 1], 0);
-            doc.line(marginX, offsetY, LABEL_W - marginX, offsetY);
+            doc.setLineWidth(0.35);
+            doc.setLineDashPattern([2, 2], 0);
+            doc.line(marginX, offsetY, width - marginX, offsetY);
             doc.setLineDashPattern([], 0);
         }
 
-        let safeY = offsetY + marginY + 2;
+        let safeY = offsetY + marginY + 3;
 
         // --- 1. TITULO DEL PRODUCTO ---
+        // Configurar fuente activa para que splitTextToSize calcule basándose en el tamaño real de renderizado
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
-        doc.setTextColor(0, 0, 0);
-
-        const titleLines = doc.splitTextToSize(p.name.toUpperCase(), printableWidth - 2);
-        const safeLines = titleLines.slice(0, 2); // Max 2 líneas
-        doc.text(safeLines, centerX, safeY, { align: 'center', baseline: 'top' });
-
-        const titleHeight = safeLines.length * (11 * 0.3527 * 1.2);
-        safeY += titleHeight + 2;
+        doc.setFontSize(10);
+        const titleLines = doc.splitTextToSize(p.name.toUpperCase(), printableWidth);
+        
+        centrarLineas(titleLines, safeY, 10);
+        
+        const titleHeight = titleLines.length * (10 * 0.3527 * 1.3);
+        safeY += titleHeight + 3;
 
         // --- 2. PRECIO PRINCIPAL (USD o COP) ---
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(26);
-
         const priceUsdRaw = p.priceUsdt || 0;
         const textUsd = copEnabled && tasaCop > 0
             ? `${(p.priceCop || round2(mulR(priceUsdRaw, tasaCop))).toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} COP`
             : `$${round2(priceUsdRaw)}`;
 
-        doc.text(textUsd, centerX, safeY, { align: 'center', baseline: 'top' });
-        safeY += (26 * 0.3527 * 0.8) + 2;
+        // Tamaño de fuente dinámico según longitud del precio para evitar desborde lateral
+        let priceFontSize = 24;
+        if (textUsd.length > 10) priceFontSize = 16;
+        else if (textUsd.length > 7) priceFontSize = 20;
+
+        centrarTexto(textUsd, safeY, priceFontSize, 'bold');
+        
+        const priceHeight = priceFontSize * 0.3527 * 0.8;
+        safeY += priceHeight + 3;
 
         // --- 3. PRECIOS SECUNDARIOS (Bs / COP o USD) ---
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(12);
-
         const priceBsRaw = mulR(priceUsdRaw, effectiveRate);
         const textBs = `Bs ${ceilR(priceBsRaw).toLocaleString('es-VE')}`;
 
-        doc.text(textBs, centerX, safeY, { align: 'center', baseline: 'top' });
-        safeY += (12 * 0.3527 * 0.8) + 1;
+        centrarTexto(textBs, safeY, 10.5, 'normal');
+        
+        const bsHeight = 10.5 * 0.3527 * 0.8;
+        safeY += bsHeight + 2;
 
         if (copEnabled && tasaCop > 0) {
-            doc.setFontSize(10);
             const textSecondary = `USD ${round2(priceUsdRaw)}`;
-            doc.text(textSecondary, centerX, safeY, { align: 'center', baseline: 'top' });
+            centrarTexto(textSecondary, safeY, 8.5, 'normal');
         }
 
-        // --- 4. FOOTER (Fecha y Unidad) ---
-        const footerY = offsetY + LABEL_H - marginY - 1;
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7);
-        doc.setTextColor(80);
-
-        const fechaStr = new Date().toLocaleDateString();
+        // --- 4. FOOTER (Fecha y Unidad/Código) ---
+        const footerY = offsetY + LABEL_H - marginY - 2;
+        
+        const d = new Date();
+        const fechaStr = `${d.getDate()}/${d.getMonth() + 1}/${String(d.getFullYear()).slice(-2)}`;
         const infoExtra = p.barcode || (p.unit ? p.unit.toUpperCase() : 'UND');
-        doc.text(`${infoExtra}  |  ${fechaStr}`, centerX, footerY, { align: 'center', baseline: 'bottom' });
+        
+        centrarTexto(`${infoExtra}  |  ${fechaStr}`, footerY, 6.5, 'normal', [80, 80, 80]);
     });
 
-    // Auto-impresión
+    // Disparar auto-impresión a través de iframe para flujo directo continuo y limpio
     doc.autoPrint();
     const blobUrl = doc.output('bloburl');
     const iframe = document.createElement('iframe');

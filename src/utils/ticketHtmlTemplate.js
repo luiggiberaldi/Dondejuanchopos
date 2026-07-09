@@ -29,21 +29,20 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
         // FIN-024: mulR en vez de multiplicación raw.
         const sub = mulR(item.priceUsd, item.qty);
         const subBs = mulR(sub, rate);
-        const maxLen = is80 ? 32 : 22;
-        const name = item.name.length > maxLen ? item.name.substring(0, maxLen) + '...' : item.name;
+        const name = item.name;
         const importeStr = fmtUsd(sub);
         const detailStr = isCop
             ? 'USD ' + formatUsd(item.priceUsd) + ' c/u - ' + formatCop(item.priceCop ? mulR(item.priceCop, item.qty) : mulR(sub, sale.tasaCop)) + ' COP - Bs ' + formatBs(subBs)
             : '$' + formatUsd(item.priceUsd) + ' c/u - Bs ' + formatBs(subBs);
         return `
             <tr>
-                <td style="text-align:left;font-size:${fBase};padding:2px 0;">${qty}${unit}</td>
-                <td style="text-align:left;font-size:${fBase};padding:2px 0;line-height:1.2;">${name}</td>
-                <td style="text-align:right;font-size:${fBase};font-weight:bold;padding:2px 0;">${importeStr}</td>
+                <td style="text-align:left;font-size:${fBase};padding:2px 6px 2px 0;width:15%;white-space:nowrap;vertical-align:top;">${qty}${unit}</td>
+                <td style="text-align:left;font-size:${fBase};padding:2px 4px 2px 0;line-height:1.2;width:55%;vertical-align:top;word-break:break-word;">${name}</td>
+                <td style="text-align:right;font-size:${fBase};font-weight:bold;padding:2px 0;width:30%;vertical-align:top;white-space:nowrap;">${importeStr}</td>
             </tr>
             <tr>
                 <td></td>
-                <td colspan="2" style="font-size:${fTiny};color:#888;padding:0 0 4px;">${detailStr}</td>
+                <td colspan="2" style="font-size:${fTiny};color:#888;padding:0 0 4px;word-break:break-word;">${detailStr}</td>
             </tr>`;
     }).join('');
 
@@ -157,12 +156,8 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
     <hr class="dash">
 
     <!-- Info -->
-    <table>
-        <tr>
-            <td style="font-size:${fSmall};font-weight:bold;">N: #${saleNum}</td>
-            <td style="font-size:${fTiny};color:#000;text-align:right;">${fecha} ${hora}</td>
-        </tr>
-    </table>
+    <div style="font-size:${fSmall};font-weight:bold;margin-bottom:2px;text-align:left;">N: #${saleNum}</div>
+    <div style="font-size:${fTiny};color:#000;margin-bottom:4px;text-align:left;">Fecha: ${fecha} ${hora}</div>
     <div style="font-size:${fSmall};margin:3px 0 2px;">
         <span style="font-weight:bold;">Cliente:</span> ${sale.customerName || 'Consumidor Final'}
     </div>
@@ -171,16 +166,16 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
     <hr class="dash">
 
     <!-- Productos Header -->
-    <table style="margin-bottom:4px;">
+    <table style="margin-bottom:4px;width:100%;">
         <tr style="font-size:${fTiny};color:#000;font-weight:bold;">
-            <td style="text-align:left;">CANT</td>
-            <td style="text-align:left;">DESCRIPCION</td>
-            <td style="text-align:right;">IMPORTE</td>
+            <td style="text-align:left;width:15%;">CANT</td>
+            <td style="text-align:left;width:55%;">DESCRIPCION</td>
+            <td style="text-align:right;width:30%;">IMPORTE</td>
         </tr>
     </table>
 
     <!-- Productos -->
-    <table>${itemsHtml}</table>
+    <table style="width:100%;">${itemsHtml}</table>
 
     <hr class="dash">
 
