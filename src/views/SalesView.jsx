@@ -170,13 +170,13 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 const pluCode = parseInt(barcode.substring(2, 7), 10).toString();
                 const weightKg = parseInt(barcode.substring(7, 12), 10) / 1000;
                 const p = products.find(p => p.id === pluCode || p.barcode?.includes(pluCode) || p.barcode?.includes(barcode.substring(0, 7)));
-                if (p) { addToCart({ ...p, isWeight: true }, weightKg); return; }
+                if (p) { addToCart({ ...p, isWeight: true }, weightKg, null, true); return; }
             }
 
             // Producto regular
             const product = products.find(p => p.barcode === barcode || p.id === barcode);
             if (product) {
-                addToCart(product);
+                addToCart(product, null, null, true);
             } else {
                 playError();
                 showToast(`Producto no encontrado (${barcode})`, 'warning');
@@ -196,7 +196,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
             const weightKg = parseInt(pastedText.substring(7, 12), 10) / 1000;
             const p = products.find(p => p.id === pluCode || p.barcode?.includes(pluCode) || p.barcode?.includes(pastedText.substring(0, 7)));
             if (p) {
-                addToCart({ ...p, isWeight: true }, weightKg);
+                addToCart({ ...p, isWeight: true }, weightKg, null, true);
                 // Limpiamos el texto que se acaba de pegar
                 setTimeout(() => setSearchTerm(''), 10);
                 return;
@@ -206,7 +206,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
         // Buscar producto regular por código de barras o ID exactamente
         const product = products.find(p => p.barcode === pastedText || p.id === pastedText);
         if (product) {
-            addToCart(product);
+            addToCart(product, null, null, true);
             // Limpiamos la barra tras pegarse
             setTimeout(() => setSearchTerm(''), 10);
         }
@@ -319,7 +319,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
     });
 
     // ── Callbacks ─────────────────────────────────
-    const addToCart = useCallback((product, qtyOverride = null, forceMode = null) => {
+    const addToCart = useCallback((product, qtyOverride = null, forceMode = null, isBarcodeSource = false) => {
         triggerHaptic && triggerHaptic();
 
         // Validación temprana: rechazar productos sin precio válido
@@ -421,10 +421,16 @@ export default function SalesView({ triggerHaptic, isActive }) {
         handleSetSearchTerm('');
         setHierarchyPending(null);
 
-        // --- LISTO POS Flow: blur search to enter cart mode and auto-select ---
+        // --- LISTO POS Flow: blur/focus search dynamic based on source ---
         setTimeout(() => {
-            searchInputRef.current?.blur();
-            setCartSelectedIndex(0); // Ensure cart item is selected and ready for + / -
+            if (isBarcodeSource) {
+                searchInputRef.current?.focus();
+                searchInputRef.current?.select();
+                setCartSelectedIndex(-1); // Resetea navegación en la cesta
+            } else {
+                searchInputRef.current?.blur();
+                setCartSelectedIndex(0); // Enfoca el ítem para +/- rápido
+            }
         }, 50);
     }, [triggerHaptic, effectiveRate, tasaCop]);
 
@@ -507,7 +513,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
             if (trimmedTerm.length >= 3) {
                 const exactMatch = products.find(p => p.barcode === trimmedTerm || p.id === trimmedTerm);
                 if (exactMatch) {
-                    addToCart(exactMatch);
+                    addToCart(exactMatch, null, null, true);
                     handleSetSearchTerm('');
                     return;
                 }
@@ -518,7 +524,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 const pluCode = parseInt(trimmedTerm.substring(2, 7), 10).toString();
                 const weightKg = parseInt(trimmedTerm.substring(7, 12), 10) / 1000;
                 const p = products.find(p => p.id === pluCode || p.barcode?.includes(pluCode) || p.barcode?.includes(trimmedTerm.substring(0, 7)));
-                if (p) { addToCart({ ...p, isWeight: true }, weightKg); handleSetSearchTerm(''); return; }
+                if (p) { addToCart({ ...p, isWeight: true }, weightKg, null, true); handleSetSearchTerm(''); return; }
             }
 
             // 3. Fallbacks de selección
