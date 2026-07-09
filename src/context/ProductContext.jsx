@@ -99,7 +99,11 @@ export function ProductProvider({ children, rates }) {
 
     // CHECKOUT MODE — 'basic' (barras móviles) | 'pos' (2 columnas, estilo Listo POS)
     const [checkoutMode, setCheckoutModeState] = useState(() => {
-        return localStorage.getItem('checkout_mode') || 'basic';
+        const saved = localStorage.getItem('checkout_mode');
+        if (saved) return saved;
+        // Detectar por defecto basado en viewport (PC/Escritorio: >= 1024px)
+        const isPC = typeof window !== 'undefined' && window.innerWidth >= 1024;
+        return isPC ? 'pos' : 'basic';
     });
     const setCheckoutMode = (mode) => {
         setCheckoutModeState(mode);
