@@ -69,8 +69,18 @@ export function useAutoBackup(isPremium, isDemo, deviceId) {
                 // Guardar copia local
                 await storageService.setItem(BACKUP_KEY, fullBackup);
 
-                // Subir a la nube (usar configRef, no props directas — HOOK-043)
+                // Subir a la nube si hay sesión activa (para evitar 401 en consola)
                 if (devId && supabaseCloud) {
+                    let hasAuth = false;
+                    try {
+                        const { data: { session } } = await supabaseCloud.auth.getSession();
+                        hasAuth = !!(session && !(session.expires_at && session.expires_at * 1000 < Date.now()));
+                    } catch (e) {
+                        hasAuth = false;
+                    }
+
+                    if (!hasAuth) return; // Omitir subida cloud si no está logueado
+
                     const todayStr = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
                     const lastDailyBackup = localStorage.getItem('bodega_last_daily_backup_date');
 
