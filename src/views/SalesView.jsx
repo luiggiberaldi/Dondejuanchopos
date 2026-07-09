@@ -501,18 +501,31 @@ export default function SalesView({ triggerHaptic, isActive }) {
         }
         else if (e.key === 'Enter') {
             e.preventDefault();
-            // Barcode scanner (prefix 21)
-            if (searchTerm.startsWith('21') && searchTerm.length >= 13) {
-                const pluCode = parseInt(searchTerm.substring(2, 7), 10).toString();
-                const weightKg = parseInt(searchTerm.substring(7, 12), 10) / 1000;
-                const p = products.find(p => p.id === pluCode || p.barcode?.includes(pluCode) || p.barcode?.includes(searchTerm.substring(0, 7)));
+            const trimmedTerm = searchTerm.trim();
+
+            // 1. Coincidencia exacta de código de barras o ID primero (pistola enfocada)
+            if (trimmedTerm.length >= 3) {
+                const exactMatch = products.find(p => p.barcode === trimmedTerm || p.id === trimmedTerm);
+                if (exactMatch) {
+                    addToCart(exactMatch);
+                    handleSetSearchTerm('');
+                    return;
+                }
+            }
+
+            // 2. Barcode de balanza/pesa electrónica (prefijo 21)
+            if (trimmedTerm.startsWith('21') && trimmedTerm.length >= 13) {
+                const pluCode = parseInt(trimmedTerm.substring(2, 7), 10).toString();
+                const weightKg = parseInt(trimmedTerm.substring(7, 12), 10) / 1000;
+                const p = products.find(p => p.id === pluCode || p.barcode?.includes(pluCode) || p.barcode?.includes(trimmedTerm.substring(0, 7)));
                 if (p) { addToCart({ ...p, isWeight: true }, weightKg); handleSetSearchTerm(''); return; }
             }
-            if (searchResults[selectedIndex]) addToCart(searchResults[selectedIndex]);
-            else if (searchResults.length === 1) addToCart(searchResults[0]);
-            else if (searchTerm.length >= 3 && searchResults.length === 0) {
-                const exactMatch = products.find(p => p.barcode === searchTerm);
-                if (exactMatch) addToCart(exactMatch);
+
+            // 3. Fallbacks de selección
+            if (searchResults[selectedIndex]) {
+                addToCart(searchResults[selectedIndex]);
+            } else if (searchResults.length === 1) {
+                addToCart(searchResults[0]);
             }
         }
     };
