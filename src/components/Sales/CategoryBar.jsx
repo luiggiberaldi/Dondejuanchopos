@@ -25,6 +25,7 @@ export default function CategoryBar({
     pendingCartsCount,
     onRestoreHold,
     pendingCarts = [],
+    onOpenHelp,
 }) {
     const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
     const categoryScrollRef = useRef(null);
@@ -112,52 +113,10 @@ export default function CategoryBar({
             <div className="shrink-0 flex items-center justify-between gap-2 mb-2 relative">
                 {/* Izquierda: acciones de venta */}
                 <div className="flex items-center gap-2">
-                    <div className="relative">
-                        <button
-                            onClick={() => {
-                                triggerHaptic && triggerHaptic();
-                                if (pendingCartsCount > 0) {
-                                    setShowHoldsDropdown(v => !v);
-                                } else {
-                                    onHoldCart?.();
-                                }
-                            }}
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-orange-200 dark:border-orange-800/50 bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 text-[10px] font-black uppercase tracking-wide hover:bg-orange-100 transition-all active:scale-95"
-                        >
-                            <Clock size={11} /> ESPERA
-                            {pendingCartsCount > 0 && (
-                                <span className="bg-orange-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[8px] font-black">
-                                    {pendingCartsCount}
-                                </span>
-                            )}
-                        </button>
-
-                        {/* Holds Dropdown */}
-                        {showHoldsDropdown && pendingCartsCount > 0 && (
-                            <div className="absolute left-0 top-full mt-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-30 min-w-[200px] overflow-hidden py-1">
-                                <div className="px-2.5 py-1.5 border-b border-slate-100 dark:border-slate-800 text-[9px] font-bold text-slate-400 uppercase tracking-widest flex justify-between items-center">
-                                    <span>Ventas en espera</span>
-                                    <button onClick={() => { onHoldCart?.(); setShowHoldsDropdown(false); }} className="text-orange-500 hover:text-orange-600 font-black">+ GUARDAR</button>
-                                </div>
-                                {pendingCarts.map((h, i) => (
-                                    <button
-                                        key={h.id}
-                                        onClick={() => {
-                                            onRestoreHold(h.id);
-                                            setShowHoldsDropdown(false);
-                                        }}
-                                        className="w-full text-left px-3 py-2 text-xs hover:bg-orange-50 dark:hover:bg-orange-950/20 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-50 dark:border-slate-800/30 last:border-0 flex items-center justify-between"
-                                    >
-                                        <span>Cola #{i + 1} ({h.items.length} prod.)</span>
-                                        <span className="text-[10px] text-slate-400 font-normal">
-                                            {new Date(h.id).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                        </span>
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                    <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800/50 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 text-[10px] font-black uppercase tracking-wide hover:bg-blue-100 transition-all active:scale-95">
+                    <button
+                        onClick={() => { triggerHaptic && triggerHaptic(); onOpenHelp && onOpenHelp(); }}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800/50 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 text-[10px] font-black uppercase tracking-wide hover:bg-blue-100 transition-all active:scale-95"
+                    >
                         <HelpCircle size={11} /> AYUDA (?)
                     </button>
                 </div>

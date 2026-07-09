@@ -266,28 +266,15 @@ export default function CartPanel({
                 {/* Botones de acción */}
                 <div className="flex gap-2">
                     <button
-                        onClick={onClearCart}
-                        disabled={cart.length === 0}
-                        title="Pausar venta / Vaciar cesta (F4)"
-                        className="w-11 h-11 shrink-0 flex items-center justify-center rounded-xl bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-900/50 text-orange-500 hover:bg-orange-100 dark:hover:bg-orange-900/30 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        <Pause size={16} />
-                    </button>
-                    <button
                         disabled={cart.length === 0}
                         onClick={onCheckout}
-                        className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-[0.98] transition-all"
+                        className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-[0.98] transition-all"
                     >
                         <CheckCircle size={18} className="opacity-80" />
                         COBRAR
                         <kbd className="bg-white/20 px-1.5 py-0.5 rounded text-[9px] font-mono leading-none">F9</kbd>
                     </button>
                 </div>
-
-                {/* Disclaimer legal */}
-                <p className="text-[9px] text-slate-400 text-center leading-tight mt-1 px-1">
-                    ⚠️ PreciosAlDía es una herramienta de gestión interna. No sustituye la facturación fiscal SENIAT.
-                </p>
             </div>
         </div>
     );

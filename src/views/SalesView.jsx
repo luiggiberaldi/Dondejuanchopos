@@ -597,20 +597,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 />
             ) : (
                 <>
-                    {/* ── APERTURA DE CAJA BANNER — v1.2.0: brand cian en vez de emerald ── */}
-                    <div className="shrink-0 mb-3">
-                        <div className="w-full bg-brand-light dark:bg-surface-700/40 border border-brand/30 dark:border-brand/40 rounded-2xl sm:rounded-3xl p-3 sm:p-4 flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 sm:w-10 sm:h-10 bg-brand/20 dark:bg-brand/30 rounded-xl flex items-center justify-center">
-                                    <CheckCircle2 size={18} className="text-brand" />
-                                </div>
-                                <div>
-                                    <p className="text-xs sm:text-sm font-bold text-brand-dark dark:text-brand">Apertura Registrada</p>
-                                    <p className="text-[10px] sm:text-xs text-brand/70 dark:text-brand/60">${todayAperturaData.openingUsd?.toFixed(2)} · Bs {formatBs(todayAperturaData.openingBs || 0)}</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+
 
                     {/* ── Split Layout: Products (left) + Cart Sidebar (right) on desktop ── */}
                     <div className="flex-1 min-h-0 flex flex-col lg:flex-row lg:gap-4">
@@ -675,6 +662,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
                                     pendingCartsCount={pendingCarts.length}
                                     onRestoreHold={handleRestoreHold}
                                     pendingCarts={pendingCarts}
+                                    onOpenHelp={() => setShowKeyboardHelp(true)}
                                 />
                     )}
                 </div>
