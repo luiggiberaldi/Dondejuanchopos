@@ -475,6 +475,7 @@ export async function generateDailyClosePDF({
     const RIGHT = is80 ? 74 : 44.5;
     const CX = WIDTH / 2;
     const HEADER_CX = is80 ? CX : (CX - 5.5);
+    const VALUE_RIGHT = is80 ? (RIGHT - 5) : RIGHT; // Para el de 80mm, desplazar las cifras 5mm a la izquierda para evitar recortes físicos
 
     const fTitle = is80 ? 11 : 8.5;
     const fSection = is80 ? 7.5 : 7;
@@ -555,7 +556,7 @@ export async function generateDailyClosePDF({
             doc.text(label, M, y);
             doc.setFont('helvetica', 'bold');
             doc.setTextColor(...INK);
-            doc.text(value, RIGHT, y, { align: 'right' });
+            doc.text(value, VALUE_RIGHT, y, { align: 'right' });
             y += 5;
         });
 
@@ -588,7 +589,7 @@ export async function generateDailyClosePDF({
         doc.text(label, M, y);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(...INK);
-        doc.text(value, RIGHT, y, { align: 'right' });
+        doc.text(value, VALUE_RIGHT, y, { align: 'right' });
         y += 5;
     });
 
@@ -613,7 +614,7 @@ export async function generateDailyClosePDF({
             doc.text(label, M, y);
             doc.setFont('helvetica', 'bold');
             doc.setTextColor(...INK);
-            doc.text(val, RIGHT, y, { align: 'right' });
+            doc.text(val, VALUE_RIGHT, y, { align: 'right' });
             y += 5;
         });
 
@@ -653,7 +654,7 @@ export async function generateDailyClosePDF({
             } else {
                 doc.setTextColor(...INK);
             }
-            doc.text(value, RIGHT, y, { align: 'right' });
+            doc.text(value, VALUE_RIGHT, y, { align: 'right' });
             y += 5;
         });
 

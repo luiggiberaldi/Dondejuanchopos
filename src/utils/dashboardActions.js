@@ -35,7 +35,7 @@ export function shareSaleWhatsApp(sale, saleCustomer, bcvRate) {
         text += `\n===================================\n`;
     }
 
-    text += `*TOTAL A PAGAR: ${fmtUsd(sale.totalUsd || 0)}*\n`;
+    text += `*TOTAL: ${fmtUsd(sale.totalUsd || 0)}*\n`;
     text += ` Ref: ${formatBs(sale.totalBs || 0)} Bs a ${formatBs(sale.rate || bcvRate)} Bs/${isCop ? 'USD' : '$'}\n`;
     if (isCop) {
         // COP: mulR para conversión (tasaCop puede ser grande, drift significativo).

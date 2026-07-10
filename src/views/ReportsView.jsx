@@ -13,6 +13,7 @@ import { processVoidSale } from '../utils/voidSaleProcessor';
 import { useReportExport } from '../hooks/useReportExport';
 import ReportsMetricsTab from '../components/Reports/ReportsMetricsTab';
 import ReportsHistoryTab from '../components/Reports/ReportsHistoryTab';
+import { printThermalTicket } from '../utils/ticketGenerator';
 
 const SALES_KEY = 'bodega_sales_v1';
 
@@ -120,6 +121,11 @@ export default function ReportsView({ rates, triggerHaptic, onNavigate, isActive
             profit,
             totalItems,
         });
+    };
+
+    const handlePrintTicket = (sale) => {
+        triggerHaptic && triggerHaptic();
+        printThermalTicket(sale, bcvRate);
     };
 
     if (isLoading) {
@@ -258,6 +264,7 @@ export default function ReportsView({ rates, triggerHaptic, onNavigate, isActive
                     setVoidSaleTarget={setVoidSaleTarget}
                     setRecycleOffer={setRecycleOffer}
                     hideHistory={true}
+                    onPrintTicket={handlePrintTicket}
                 />
             )}
 
@@ -294,6 +301,7 @@ export default function ReportsView({ rates, triggerHaptic, onNavigate, isActive
                     setRecycleOffer={setRecycleOffer}
                     hideHistory={false}
                     onlyHistory={true}
+                    onPrintTicket={handlePrintTicket}
                 />
             )}
 

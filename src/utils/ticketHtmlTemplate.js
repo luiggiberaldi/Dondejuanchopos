@@ -265,7 +265,7 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
     <!-- Total -->
     <div style="margin:8px 0;">
         ${subtotalBlockHtml}
-        <div class="center bold" style="font-size:${fSmall};color:#000;margin-bottom:4px;">TOTAL A PAGAR</div>
+        <div class="center bold" style="font-size:${fSmall};color:#000;margin-bottom:4px;">TOTAL</div>
         ${totalBlockHtml}
     </div>
 

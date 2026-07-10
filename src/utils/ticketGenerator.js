@@ -194,7 +194,7 @@ export async function generateTicketPDF(sale, bcvRate) {
     }
 
     doc.setTextColor(...BODY);
-    doc.text('TOTAL A PAGAR', CX, y, { align: 'center' });
+    doc.text('TOTAL', CX, y, { align: 'center' });
     y += 8;
 
     const receiptCurrencyMode = localStorage.getItem('receipt_currency_mode') || 'bs';

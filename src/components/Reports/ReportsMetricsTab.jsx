@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Calendar, DollarSign, TrendingUp, ShoppingBag, Package, ChevronDown, ChevronUp, Clock, Send, Ban, Shuffle, Search, X, Recycle, LockIcon, CornerDownLeft } from 'lucide-react';
+import { Calendar, DollarSign, TrendingUp, ShoppingBag, Package, ChevronDown, ChevronUp, Clock, Send, Ban, Shuffle, Search, X, Recycle, LockIcon, CornerDownLeft, Printer } from 'lucide-react';
 import { formatBs, formatCop } from '../../utils/calculatorUtils';
 import { getPaymentLabel, getPaymentMethod, PAYMENT_ICONS, toTitleCase, getPaymentIcon } from '../../config/paymentMethods';
-import { generateTicketPDF } from '../../utils/ticketGenerator';
+import { generateTicketPDF, printThermalTicket } from '../../utils/ticketGenerator';
 import EmptyState from '../EmptyState';
 import { BarChart3 } from 'lucide-react';
 import CasheaIcon from '../CasheaIcon';
@@ -35,7 +35,7 @@ function StatCard({ icon: Icon, label, value, sub, color }) {
     );
 }
 
-function TransactionRow({ sale: s, bcvRate, isExpanded, onToggle, onVoidSale, onRecycleSale, copEnabled, copPrimary, tasaCop }) {
+function TransactionRow({ sale: s, bcvRate, isExpanded, onToggle, onVoidSale, onRecycleSale, copEnabled, copPrimary, tasaCop, onPrintTicket }) {
     const d = new Date(s.timestamp);
     let methodLabel = 'Efectivo';
     let payMethodIconId = 'efectivo_bs';
@@ -211,6 +211,16 @@ function TransactionRow({ sale: s, bcvRate, isExpanded, onToggle, onVoidSale, on
                         >
                             PDF
                         </button>
+                        {onPrintTicket && (
+                            <button
+                                onClick={(e) => { e.stopPropagation(); onPrintTicket(s); }}
+                                className="py-2 px-3 bg-slate-800 dark:bg-slate-700 text-white hover:bg-slate-700 dark:hover:bg-slate-600 font-bold rounded-lg transition-colors flex justify-center items-center gap-1.5 text-xs shadow-sm active:scale-95"
+                                title="Imprimir ticket"
+                            >
+                                <Printer size={14} />
+                                <span>Imprimir</span>
+                            </button>
+                        )}
                         {!isCanceled && onVoidSale && !s.cajaCerrada && (
                             <button
                                 onClick={(e) => { e.stopPropagation(); onVoidSale(s); }}
@@ -275,6 +285,7 @@ export default function ReportsMetricsTab({
     setRecycleOffer,
     hideHistory = false,
     onlyHistory = false,
+    onPrintTicket,
 }) {
     return (
         <>
@@ -582,6 +593,7 @@ export default function ReportsMetricsTab({
                                     copEnabled={copEnabled}
                                     copPrimary={copPrimary}
                                     tasaCop={tasaCop}
+                                    onPrintTicket={onPrintTicket}
                                 />
                             ))}
 
