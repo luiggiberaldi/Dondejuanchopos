@@ -63,10 +63,10 @@ export const generarEtiquetas = async (productos, effectiveRate, copEnabled, tas
     const defFooterX = isMixto ? '-1.5' : '1';
     const defFooterY = isMixto ? '-1' : '1';
 
-    const defFontName = isMixto ? '5' : '1';
-    const defFontPrice = isMixto ? '10' : '6';
+    const defFontName = isMixto ? '5' : '5';
+    const defFontPrice = isMixto ? '10' : '10';
     const defFontSecPrice = isMixto ? '12.5' : '0';
-    const defFontFooter = isMixto ? '4' : '2';
+    const defFontFooter = isMixto ? '4' : '4';
 
     // Cargar offsets personalizados de calibración desde localStorage
     const offsetNameX = parseFloat(localStorage.getItem(`label_offset_name_x${modeSuffix}`) || defNameX);

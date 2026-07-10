@@ -81,10 +81,10 @@ export default function SettingsView({ onClose, theme, toggleTheme, triggerHapti
     const [labelOffsetSecPriceY, setLabelOffsetSecPriceY] = useState(() => getInitialOffset('label_offset_sec_price_y', '-3', '2'));
     const [labelOffsetFooterX, setLabelOffsetFooterX] = useState(() => getInitialOffset('label_offset_footer_x', '-1.5', '1'));
     const [labelOffsetFooterY, setLabelOffsetFooterY] = useState(() => getInitialOffset('label_offset_footer_y', '-1', '1'));
-    const [labelOffsetFontName, setLabelOffsetFontName] = useState(() => getInitialOffset('label_offset_font_name', '5', '1'));
-    const [labelOffsetFontPrice, setLabelOffsetFontPrice] = useState(() => getInitialOffset('label_offset_font_price', '10', '6'));
+    const [labelOffsetFontName, setLabelOffsetFontName] = useState(() => getInitialOffset('label_offset_font_name', '5', '5'));
+    const [labelOffsetFontPrice, setLabelOffsetFontPrice] = useState(() => getInitialOffset('label_offset_font_price', '10', '10'));
     const [labelOffsetFontSecPrice, setLabelOffsetFontSecPrice] = useState(() => getInitialOffset('label_offset_font_sec_price', '12.5', '0'));
-    const [labelOffsetFontFooter, setLabelOffsetFontFooter] = useState(() => getInitialOffset('label_offset_font_footer', '4', '2'));
+    const [labelOffsetFontFooter, setLabelOffsetFontFooter] = useState(() => getInitialOffset('label_offset_font_footer', '4', '4'));
     const [allowNegativeStock, setAllowNegativeStock] = useState(() => localStorage.getItem('allow_negative_stock') === 'true');
 
     // Sincronizar offsets en React cuando cambia el modo de moneda
@@ -101,10 +101,10 @@ export default function SettingsView({ onClose, theme, toggleTheme, triggerHapti
         const defFooterX = isMixto ? '-1.5' : '1';
         const defFooterY = isMixto ? '-1' : '1';
 
-        const defFontName = isMixto ? '5' : '1';
-        const defFontPrice = isMixto ? '10' : '6';
+        const defFontName = isMixto ? '5' : '5';
+        const defFontPrice = isMixto ? '10' : '10';
         const defFontSecPrice = isMixto ? '12.5' : '0';
-        const defFontFooter = isMixto ? '4' : '2';
+        const defFontFooter = isMixto ? '4' : '4';
 
         setLabelOffsetNameX(localStorage.getItem(`label_offset_name_x${suffix}`) || defNameX);
         setLabelOffsetNameY(localStorage.getItem(`label_offset_name_y${suffix}`) || defNameY);

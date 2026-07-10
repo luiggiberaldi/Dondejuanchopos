@@ -28,11 +28,26 @@ const CalibratorSlider = ({ label, value, setValue, baseKey, mode, min, max, ste
 
     return (
         <div className="space-y-1">
-            <div className="flex justify-between items-center text-[8px] text-slate-400 font-bold">
+            <div className="flex justify-between items-center text-[10px] text-slate-400 font-bold w-full">
                 <span>{label}</span>
-                <span className="text-[9px] font-extrabold text-brand bg-brand/5 px-1.5 py-0.5 rounded">
-                    {valFloat > 0 ? `+${value}` : value} {unit}
-                </span>
+                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded px-1.5 py-0.5 shadow-sm">
+                    <input
+                        type="number"
+                        step={step}
+                        min={min}
+                        max={max}
+                        value={value}
+                        onChange={e => {
+                            const rawVal = e.target.value;
+                            setValue(rawVal);
+                            if (rawVal !== '' && !isNaN(parseFloat(rawVal))) {
+                                localStorage.setItem(storageKey, rawVal);
+                            }
+                        }}
+                        className="w-10 bg-transparent text-[10px] font-black text-brand text-right focus:outline-none focus:ring-0 p-0 border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <span className="text-[9px] font-black text-slate-400/80 dark:text-slate-500 select-none">{unit}</span>
+                </div>
             </div>
             <div className="flex items-center gap-1.5">
                 <button

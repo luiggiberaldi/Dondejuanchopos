@@ -46,10 +46,10 @@ export default function ProductCard({
         const defFooterX = isMixto ? '-1.5' : '1';
         const defFooterY = isMixto ? '-1' : '1';
 
-        const defFontName = isMixto ? '5' : '1';
-        const defFontPrice = isMixto ? '10' : '6';
+        const defFontName = isMixto ? '5' : '5';
+        const defFontPrice = isMixto ? '10' : '10';
         const defFontSecPrice = isMixto ? '12.5' : '0';
-        const defFontFooter = isMixto ? '4' : '2';
+        const defFontFooter = isMixto ? '4' : '4';
 
         const nameX = parseFloat(localStorage.getItem(`label_offset_name_x${suffix}`) || defNameX);
         const nameY = parseFloat(localStorage.getItem(`label_offset_name_y${suffix}`) || defNameY);
