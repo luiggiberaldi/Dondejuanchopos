@@ -7,6 +7,8 @@ import CasheaIcon from '../CasheaIcon';
 export default function ReceiptModal({ receipt, onClose, onShareWhatsApp, currentRate, copPrimary }) {
     if (!receipt) return null;
 
+    const receiptCurrencyMode = localStorage.getItem('receipt_currency_mode') || 'bs';
+
     return (
         <div className="fixed inset-0 z-[60] bg-slate-900/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4">
             <div className="bg-white w-full sm:max-w-sm sm:rounded-[2rem] rounded-t-[2rem] shadow-2xl animate-in zoom-in-95 duration-300 overflow-hidden relative flex flex-col max-h-[95vh] sm:max-h-[90vh]">
@@ -38,7 +40,6 @@ export default function ReceiptModal({ receipt, onClose, onShareWhatsApp, curren
                             </p>
                         )}
                         {(() => {
-                            const receiptCurrencyMode = localStorage.getItem('receipt_currency_mode') || 'bs';
                             const isCop = receipt.copEnabled && receipt.tasaCop > 0;
                             
                             if (receiptCurrencyMode === 'usd') {
@@ -87,7 +88,6 @@ export default function ReceiptModal({ receipt, onClose, onShareWhatsApp, curren
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Detalle de Consumo</p>
                         <div className="space-y-3">
                             {receipt.items.map((item, i) => {
-                                const receiptCurrencyMode = localStorage.getItem('receipt_currency_mode') || 'bs';
                                 const isCop = receipt.copEnabled && receipt.tasaCop > 0;
                                 const priceBs = item.priceUsd * (receipt.rate || 0);
                                 const totalBs = item.priceUsd * item.qty * (receipt.rate || 0);

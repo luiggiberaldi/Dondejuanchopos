@@ -8,7 +8,7 @@ import {
     TrendingUp, Package, Coins, Users, LogOut, 
     RefreshCw, Wifi, WifiOff, Clock, FileText, DollarSign,
     Wallet, CreditCard, Smartphone, Banknote, ArrowDownRight,
-    ShieldCheck, Hash, AlertTriangle
+    ShieldCheck, Hash, AlertTriangle, Search, X, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
 import { getLocalISODate } from '../utils/dateHelpers';
@@ -41,6 +41,80 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
     const [viewTab, setViewTab] = useState('activo'); // 'activo' o 'cierres'
     const [selectedCierreId, setSelectedCierreId] = useState(null);
+    const [searchTermInventario, setSearchTermInventario] = useState('');
+    const [filterStockInventario, setFilterStockInventario] = useState('todos'); // 'todos', 'bajo', 'agotado'
+
+    const filteredProducts = useMemo(() => {
+        if (!products) return [];
+        return products.filter(p => {
+            const matchesSearch = (p.name || '').toLowerCase().includes(searchTermInventario.toLowerCase()) || 
+                                 (p.barcode && p.barcode.includes(searchTermInventario));
+            
+            if (!matchesSearch) return false;
+            
+            if (filterStockInventario === 'bajo') {
+                return p.stock > 0 && p.stock <= (p.minStock || 5);
+            }
+            if (filterStockInventario === 'agotado') {
+                return p.stock <= 0;
+            }
+            return true;
+        });
+    }, [products, searchTermInventario, filterStockInventario]);
+
+    const [currentPageInventario, setCurrentPageInventario] = useState(1);
+    const ITEMS_PER_PAGE_INVENTARIO = 15;
+
+    useEffect(() => {
+        setCurrentPageInventario(1);
+    }, [searchTermInventario, filterStockInventario]);
+
+    const totalPagesInventario = Math.ceil(filteredProducts.length / ITEMS_PER_PAGE_INVENTARIO);
+
+    const paginatedProducts = useMemo(() => {
+        const start = (currentPageInventario - 1) * ITEMS_PER_PAGE_INVENTARIO;
+        return filteredProducts.slice(start, start + ITEMS_PER_PAGE_INVENTARIO);
+    }, [filteredProducts, currentPageInventario]);
+
+    const inventoryMetrics = useMemo(() => {
+        if (!products) {
+            return { totalCost: 0, totalRetail: 0, totalQty: 0, lowStockCount: 0, outOfStockCount: 0, expectedProfit: 0, count: 0 };
+        }
+        let totalCost = 0;
+        let totalRetail = 0;
+        let totalQty = 0;
+        let lowStockCount = 0;
+        let outOfStockCount = 0;
+
+        products.forEach(p => {
+            const stock = p.stock || 0;
+            const cost = p.costPrice || 0;
+            const retail = p.priceUsd || 0;
+            const minStock = p.minStock || 5;
+
+            totalCost += cost * stock;
+            totalRetail += retail * stock;
+            totalQty += stock;
+
+            if (stock <= 0) {
+                outOfStockCount++;
+            } else if (stock <= minStock) {
+                lowStockCount++;
+            }
+        });
+
+        const expectedProfit = Math.max(0, totalRetail - totalCost);
+
+        return {
+            totalCost,
+            totalRetail,
+            totalQty,
+            lowStockCount,
+            outOfStockCount,
+            expectedProfit,
+            count: products.length
+        };
+    }, [products]);
 
     const today = getLocalISODate();
 
@@ -421,10 +495,10 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             {/* Contenido Principal */}
             <main className="max-w-7xl mx-auto px-4 mt-6 space-y-6">
                 {/* Selector de Pestañas */}
-                <div className="flex bg-slate-200/60 dark:bg-slate-900/60 p-1 rounded-2xl w-full max-w-xs shadow-sm">
+                <div className="flex bg-slate-200/60 dark:bg-slate-900/60 p-1 rounded-2xl w-full max-w-sm shadow-sm">
                     <button
                         onClick={() => { triggerHaptic?.(); setViewTab('activo'); }}
-                        className={`flex-1 py-2 text-xs font-black rounded-xl transition-all ${
+                        className={`flex-1 py-2 text-[10px] sm:text-xs font-black rounded-xl transition-all ${
                             viewTab === 'activo' 
                                 ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
                                 : 'text-slate-400 hover:text-slate-650 dark:hover:text-slate-200'
@@ -434,13 +508,23 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                     </button>
                     <button
                         onClick={() => { triggerHaptic?.(); setViewTab('cierres'); }}
-                        className={`flex-1 py-2 text-xs font-black rounded-xl transition-all ${
+                        className={`flex-1 py-2 text-[10px] sm:text-xs font-black rounded-xl transition-all ${
                             viewTab === 'cierres' 
                                 ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
                                 : 'text-slate-400 hover:text-slate-650 dark:hover:text-slate-200'
                         }`}
                     >
                         Cierres de Caja
+                    </button>
+                    <button
+                        onClick={() => { triggerHaptic?.(); setViewTab('inventario'); }}
+                        className={`flex-1 py-2 text-[10px] sm:text-xs font-black rounded-xl transition-all ${
+                            viewTab === 'inventario' 
+                                ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
+                                : 'text-slate-400 hover:text-slate-650 dark:hover:text-slate-200'
+                        }`}
+                    >
+                        Inventario
                     </button>
                 </div>
 
@@ -960,6 +1044,244 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                         );
                                     })()}
                                 </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* ── SECCIÓN 3: INVENTARIO EN TIEMPO REAL ── */}
+                {viewTab === 'inventario' && (
+                    <div className="space-y-6 animate-fade-in">
+                        {/* Fila de Resumen de Inventario */}
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                            {/* Total Productos */}
+                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800/80 shadow-sm flex flex-col justify-between min-h-[90px] sm:min-h-[110px]">
+                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">Total Artículos</span>
+                                <div className="flex items-end justify-between mt-1">
+                                    <span className="font-outfit text-xl sm:text-2xl font-black text-slate-800 dark:text-white tabular-nums leading-none">
+                                        {inventoryMetrics.count}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 font-bold">{inventoryMetrics.totalQty} unds</span>
+                                </div>
+                            </div>
+
+                            {/* Valorización Costo */}
+                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800/80 shadow-sm flex flex-col justify-between min-h-[90px] sm:min-h-[110px]">
+                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">Valor Inventario (Costo)</span>
+                                <div className="flex items-end justify-between mt-1">
+                                    <span className="font-outfit text-xl sm:text-2xl font-black text-slate-800 dark:text-white tabular-nums leading-none">
+                                        ${inventoryMetrics.totalCost.toFixed(2)}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Valorización Venta */}
+                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800/80 shadow-sm flex flex-col justify-between min-h-[90px] sm:min-h-[110px]">
+                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">Valor Estimado (Venta)</span>
+                                <div className="flex items-end justify-between mt-1">
+                                    <span className="font-outfit text-xl sm:text-2xl font-black text-slate-800 dark:text-white tabular-nums leading-none">
+                                        ${inventoryMetrics.totalRetail.toFixed(2)}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Ganancia Potencial */}
+                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800/80 shadow-sm flex flex-col justify-between min-h-[90px] sm:min-h-[110px]">
+                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">Ganancia en Stock</span>
+                                <div className="flex items-end justify-between mt-1">
+                                    <span className="font-outfit text-xl sm:text-2xl font-black text-blue-600 dark:text-blue-400 tabular-nums leading-none">
+                                        ${inventoryMetrics.expectedProfit.toFixed(2)}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Barra de Filtro y Búsqueda */}
+                        <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col md:flex-row gap-4 items-stretch md:items-center justify-between">
+                            {/* Input de Búsqueda */}
+                            <div className="relative flex-1">
+                                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-450">
+                                    <Search size={14} />
+                                </span>
+                                <input
+                                    type="text"
+                                    placeholder="Buscar producto por nombre o código..."
+                                    value={searchTermInventario}
+                                    onChange={(e) => setSearchTermInventario(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-2.5 text-xs rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500/70 transition-colors"
+                                />
+                                {searchTermInventario && (
+                                    <button 
+                                        onClick={() => setSearchTermInventario('')}
+                                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-650"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Filtro de Segmentación de Stock */}
+                            <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200/60 dark:border-slate-850 self-start md:self-auto shrink-0 shadow-inner">
+                                <button
+                                    onClick={() => { triggerHaptic?.(); setFilterStockInventario('todos'); }}
+                                    className={`px-3 py-1.5 text-[10px] sm:text-xs font-black rounded-xl transition-all ${
+                                        filterStockInventario === 'todos'
+                                            ? 'bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm'
+                                            : 'text-slate-450 hover:text-slate-650 dark:hover:text-slate-350'
+                                    }`}
+                                >
+                                    Todos ({inventoryMetrics.count})
+                                </button>
+                                <button
+                                    onClick={() => { triggerHaptic?.(); setFilterStockInventario('bajo'); }}
+                                    className={`px-3 py-1.5 text-[10px] sm:text-xs font-black rounded-xl transition-all flex items-center gap-1 ${
+                                        filterStockInventario === 'bajo'
+                                            ? 'bg-amber-500 text-white shadow-sm'
+                                            : 'text-amber-600 dark:text-amber-400 hover:text-amber-700'
+                                    }`}
+                                >
+                                    Bajo Stock ({inventoryMetrics.lowStockCount})
+                                </button>
+                                <button
+                                    onClick={() => { triggerHaptic?.(); setFilterStockInventario('agotado'); }}
+                                    className={`px-3 py-1.5 text-[10px] sm:text-xs font-black rounded-xl transition-all flex items-center gap-1 ${
+                                        filterStockInventario === 'agotado'
+                                            ? 'bg-rose-500 text-white shadow-sm'
+                                            : 'text-rose-600 dark:text-rose-400 hover:text-rose-700'
+                                    }`}
+                                >
+                                    Agotados ({inventoryMetrics.outOfStockCount})
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Listado de Productos */}
+                        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm overflow-hidden">
+                            {filteredProducts.length === 0 ? (
+                                <div className="py-16 text-center text-slate-400 flex flex-col items-center justify-center space-y-3">
+                                    <div className="p-4 bg-slate-50 dark:bg-slate-800/50 text-slate-300 dark:text-slate-600 rounded-full">
+                                        <Package size={36} />
+                                    </div>
+                                    <div className="space-y-0.5">
+                                        <p className="text-xs font-black text-slate-700 dark:text-slate-200">No se encontraron productos</p>
+                                        <p className="text-[10px] text-slate-450">Intenta buscando con otro término o cambiando los filtros.</p>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                                    {paginatedProducts.map((p) => {
+                                        const stock = p.stock || 0;
+                                        const minStock = p.minStock || 5;
+                                        const isAgotado = stock <= 0;
+                                        const isBajo = !isAgotado && stock <= minStock;
+                                        const profitUsd = Math.max(0, p.priceUsd - (p.costPrice || 0));
+                                        const profitPct = p.priceUsd > 0 ? Math.round((profitUsd / p.priceUsd) * 100) : 0;
+
+                                        return (
+                                            <div key={p.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition-colors">
+                                                {/* Izquierda: Info de Producto */}
+                                                <div className="flex-1 min-w-0 pr-2">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <h4 className="text-xs font-black text-slate-800 dark:text-white uppercase leading-tight truncate">{p.name}</h4>
+                                                        <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${
+                                                            isAgotado 
+                                                                ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400' 
+                                                                : isBajo 
+                                                                    ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400' 
+                                                                    : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400'
+                                                        }`}>
+                                                            {isAgotado ? 'Agotado' : isBajo ? 'Bajo Stock' : 'Disponible'}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-1 font-medium">
+                                                        {p.barcode && (
+                                                            <span className="flex items-center gap-1">
+                                                                <Hash size={10} /> {p.barcode}
+                                                            </span>
+                                                        )}
+                                                        <span>Categoría: {toTitleCase(p.category || 'Varios')}</span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Derecha: Valores y Stock */}
+                                                <div className="flex items-center justify-between sm:justify-end gap-6 shrink-0">
+                                                    {/* Costo, Venta, Margen */}
+                                                    <div className="grid grid-cols-3 gap-4 text-right">
+                                                        {/* Costo */}
+                                                        <div>
+                                                            <span className="text-[8px] text-slate-400 uppercase font-black block">Costo</span>
+                                                            <span className="font-outfit text-xs font-black text-slate-500 tabular-nums">${(p.costPrice || 0).toFixed(2)}</span>
+                                                        </div>
+                                                        {/* Venta */}
+                                                        <div>
+                                                            <span className="text-[8px] text-slate-400 uppercase font-black block">Venta (USD/Bs)</span>
+                                                            <span className="font-outfit text-xs font-black text-slate-800 dark:text-white tabular-nums block">${p.priceUsd.toFixed(2)}</span>
+                                                            <span className="font-outfit text-[8px] text-slate-400 block tabular-nums leading-none mt-0.5">{bcvRate ? `${formatBs(p.priceUsd * bcvRate)} Bs` : 'N/D'}</span>
+                                                        </div>
+                                                        {/* Ganancia */}
+                                                        <div>
+                                                            <span className="text-[8px] text-slate-400 uppercase font-black block">Ganancia</span>
+                                                            <span className="font-outfit text-xs font-black text-blue-600 dark:text-blue-400 tabular-nums block">${profitUsd.toFixed(2)}</span>
+                                                            <span className="text-[8px] text-slate-400 block font-medium leading-none mt-0.5">{profitPct}%</span>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Stock */}
+                                                    <div className={`w-20 text-center py-2 px-2.5 rounded-2xl border ${
+                                                        isAgotado 
+                                                            ? 'bg-rose-50/50 border-rose-150/70 text-rose-700 dark:bg-rose-950/20 dark:border-rose-900/30 dark:text-rose-455' 
+                                                            : isBajo 
+                                                                ? 'bg-amber-50/50 border-amber-150/70 text-amber-700 dark:bg-amber-950/20 dark:border-amber-900/30 dark:text-amber-455' 
+                                                                : 'bg-slate-50 border-slate-150/70 text-slate-700 dark:bg-slate-850/60 dark:border-slate-800 dark:text-slate-300'
+                                                    }`}>
+                                                        <span className="text-[8px] uppercase font-black block leading-none mb-0.5">Stock</span>
+                                                        <span className="font-outfit text-xs sm:text-sm font-black tabular-nums leading-none">
+                                                            {p.isWeight ? `${stock.toFixed(3)} Kg` : `${stock} u`}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Controles de Paginación */}
+                        {totalPagesInventario > 1 && (
+                            <div className="flex items-center justify-between bg-white dark:bg-slate-900 px-4 py-3 sm:px-6 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm mt-4">
+                                <button
+                                    onClick={() => {
+                                        if (currentPageInventario > 1) {
+                                            triggerHaptic?.();
+                                            setCurrentPageInventario(prev => prev - 1);
+                                        }
+                                    }}
+                                    disabled={currentPageInventario === 1}
+                                    className="p-2 rounded-xl text-slate-500 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-slate-800 dark:hover:text-emerald-450 border border-slate-200 dark:border-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors duration-150"
+                                >
+                                    <ChevronLeft size={16} />
+                                </button>
+
+                                <span className="text-xs font-black text-slate-500 dark:text-slate-400">
+                                    Página {currentPageInventario} de {totalPagesInventario}
+                                    <span className="text-[10px] text-slate-450 font-medium ml-2">
+                                        ({filteredProducts.length} productos)
+                                    </span>
+                                </span>
+
+                                <button
+                                    onClick={() => {
+                                        if (currentPageInventario < totalPagesInventario) {
+                                            triggerHaptic?.();
+                                            setCurrentPageInventario(prev => prev + 1);
+                                        }
+                                    }}
+                                    disabled={currentPageInventario === totalPagesInventario}
+                                    className="p-2 rounded-xl text-slate-500 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-slate-800 dark:hover:text-emerald-450 border border-slate-200 dark:border-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors duration-150"
+                                >
+                                    <ChevronRight size={16} />
+                                </button>
                             </div>
                         )}
                     </div>
