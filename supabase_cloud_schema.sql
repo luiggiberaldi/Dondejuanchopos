@@ -31,7 +31,10 @@ CREATE TABLE IF NOT EXISTS public.sync_documents (
 CREATE INDEX IF NOT EXISTS idx_sync_documents_device_id ON public.sync_documents (device_id);
 
 -- Realtime: necesario para suscripciones WebSocket.
-ALTER TABLE public.sync_documents REPLICA IDENTITY FULL;
+-- EGRESS: DEFAULT (no FULL) — el cliente (useCloudSync.js) solo lee payload.new,
+-- nunca payload.old, así que REPLICA IDENTITY FULL solo duplicaba bytes en cada
+-- broadcast de Realtime sin aportar nada. Ver supabase_egress_optimization.sql.
+ALTER TABLE public.sync_documents REPLICA IDENTITY DEFAULT;
 
 -- ── 2. cloud_backups ─────────────────────────────────────────
 -- Backup completo del dispositivo (blob JSON con toda la data).
