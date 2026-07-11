@@ -13,6 +13,7 @@ export default function PairingManager({ deviceId, triggerHaptic }) {
     const [token, setToken] = useState('');
     const [timeLeft, setTimeLeft] = useState(0);
     const [checkingStatus, setCheckingStatus] = useState(false);
+    const [showConfirmUnpair, setShowConfirmUnpair] = useState(false);
     
     const canvasRef = useRef(null);
     const timerRef = useRef(null);
@@ -149,8 +150,13 @@ export default function PairingManager({ deviceId, triggerHaptic }) {
     };
 
     // 5. Desvincular monitor
-    const handleUnpair = async () => {
-        if (!window.confirm('¿Seguro que deseas desvincular el celular del supervisor? Perderá el acceso de monitoreo.')) return;
+    const handleUnpair = () => {
+        triggerHaptic?.();
+        setShowConfirmUnpair(true);
+    };
+
+    const handleUnpairConfirm = async () => {
+        setShowConfirmUnpair(false);
         triggerHaptic?.();
         setCheckingStatus(true);
 
