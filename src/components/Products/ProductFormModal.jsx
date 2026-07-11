@@ -119,18 +119,11 @@ export default function ProductFormModal({
 
             const data = await response.json();
             if (data.success && data.matches && data.matches.length > 0) {
-                if (data.matches.length === 1) {
-                    const compressed = await compressBase64Image(data.matches[0].dataUri);
-                    setImage(compressed);
-                    setImageMatches([]);
-                    showToast(`¡Foto automática de "${productName}" cargada!`, 'success');
-                } else {
-                    setImageMatches(data.matches);
-                    showToast(`Se encontraron ${data.matches.length} opciones de imagen. Elige la correcta.`, 'info');
-                }
+                setImageMatches(data.matches);
+                showToast(`Se encontraron ${data.matches.length} opciones de imagen. Elige la correcta.`, 'info');
             } else {
                 setImageMatches([]);
-                showToast(data.message || 'No se encontró foto para este producto en el catálogo', 'info');
+                showToast('No se encontró foto para este producto en el catálogo', 'info');
             }
         } catch (error) {
             console.error('[AutoSearchImage] Error:', error);
