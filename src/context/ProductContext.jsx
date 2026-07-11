@@ -4,7 +4,7 @@ import { BODEGA_CATEGORIES } from '../config/categories';
 // HOOK-011: Tras la eliminación del monkeypatch global de localStorage por el Agente B
 // (SEC-009), los callers que escriben claves `LOCAL_KEYS` deben invocar `pushLocalSync`
 // explícitamente para que el cambio se propague a `sync_documents` (colección 'local').
-import { pushLocalSync } from '../hooks/useCloudSync';
+import { pushLocalSync, pushCloudSync } from '../hooks/useCloudSync';
 
 const ProductContext = createContext();
 

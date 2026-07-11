@@ -352,22 +352,33 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
 
     const _commitSave = (productData) => {
         setHighPriceConfirm(null);
+
+        let updatedProducts;
         if (editingId) {
-            setProducts(products.map(p =>
+            updatedProducts = products.map(p =>
                 p.id === editingId ? { ...p, ...productData, image: image || p.image } : p
-            ));
+            );
             auditLog('INVENTARIO', 'PRODUCTO_EDITADO', `Producto "${name}" editado`);
         } else {
-            setProducts([{
+            updatedProducts = [{
                 id: crypto.randomUUID(),
                 ...productData,
                 image,
                 createdAt: new Date().toISOString()
-            }, ...products]);
+            }, ...products];
             auditLog('INVENTARIO', 'PRODUCTO_CREADO', `Producto "${name}" creado - $${priceUsd || '0'}`);
         }
+
+        // FIX-SAVE-001: Persistir INMEDIATAMENTE antes de cerrar el modal.
+        // El debounce del useEffect en ProductContext puede ser cancelado por el
+        // clearTimeout cuando handleClose() dispara un re-render antes de que el
+        // timer de 1s se ejecute, haciendo que el guardado se pierda silenciosamente.
+        storageService.setItem('bodega_products_v1', updatedProducts);
+
+        setProducts(updatedProducts);
         handleClose();
     };
+
 
     const handleEdit = async (product) => {
         triggerHaptic && triggerHaptic();
