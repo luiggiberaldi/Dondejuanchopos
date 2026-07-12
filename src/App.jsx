@@ -52,6 +52,13 @@ export default function App() {
   const { logout } = useAuthStore();
   useAutoLock();
 
+  // Forzar siempre la pestaña de inicio al iniciar sesión
+  useEffect(() => {
+    if (usuarioActivo) {
+      setActiveTab('inicio');
+    }
+  }, [usuarioActivo]);
+
   // Al recargar la página, cerrar sesión si el login está activado
   useEffect(() => {
     if (requireLogin) logout();
