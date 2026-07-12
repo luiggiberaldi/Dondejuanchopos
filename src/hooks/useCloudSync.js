@@ -220,7 +220,7 @@ export function useCloudSync(deviceId) {
                 isInitialized.current = true;
 
                 // ── Pull Inicial / Sincronización de Importación ──
-                const backupImported = localStorage.getItem('pda_backup_imported_flag') === 'true';
+                const backupImported = localStorage.getItem('dj_backup_imported_flag') === 'true';
                 
                 if (backupImported) {
                     console.log('[CloudSync] Detectado backup importado localmente. Subiendo datos locales a la nube...');
@@ -234,7 +234,7 @@ export function useCloudSync(deviceId) {
                             localStorage.setItem(hashKey, quickHash(localValue));
                         }
                     }
-                    localStorage.removeItem('pda_backup_imported_flag');
+                    localStorage.removeItem('dj_backup_imported_flag');
                     console.log('[CloudSync] Sincronización de importación completada.');
                 } else {
                     const { data: docs } = await supabaseCloud

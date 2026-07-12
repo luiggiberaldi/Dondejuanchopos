@@ -320,14 +320,14 @@ export const ManualMode = ({ rates, accounts, theme, triggerHaptic, isKeyboardOp
             <Modal isOpen={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} title="👑 Función Premium">
                 <div className="text-center py-2">
                     <p className="text-sm text-slate-600 dark:text-slate-300 mb-4 leading-relaxed">
-                        El envío directo a WhatsApp es una función exclusiva de <strong>PreciosAlDía Business</strong>.
+                        El envío directo a WhatsApp es una función exclusiva de <strong>Donde Juancho Business</strong>.
                     </p>
                     <p className="text-xs text-slate-400 mb-5">
                         Puedes seguir usando <strong>Copiar</strong> para pegar manualmente en cualquier chat.
                     </p>
                     <button
                         onClick={() => {
-                            const msg = `Hola! Me interesa la licencia Premium de PreciosAlDía para enviar cotizaciones por WhatsApp.`;
+                            const msg = `Hola! Me interesa la licencia Premium de Donde Juancho para enviar cotizaciones por WhatsApp.`;
                             window.open(`https://wa.me/584124051793?text=${encodeURIComponent(msg)}`, '_blank');
                         }}
                         className="w-full py-3 bg-brand hover:bg-brand-dark text-white dark:text-slate-950 font-bold rounded-xl shadow-lg shadow-brand/20 active:scale-95 transition-all text-sm"

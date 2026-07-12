@@ -50,7 +50,7 @@ export async function generateDailyClosePDF({
     const MUTED = [134, 142, 150];
     const GREEN = [16, 124, 65];
     const RED = [220, 53, 69];
-    const BLUE = [1, 105, 111]; // Tono brand "Precios Al Día"
+    const BLUE = [1, 105, 111]; // Tono brand "Donde Juancho"
     const RULE = [222, 226, 230];
     const BG_CARD = [248, 249, 250];
     const BORDER_CARD = [233, 236, 239];
@@ -81,7 +81,7 @@ export async function generateDailyClosePDF({
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(8);
             doc.setTextColor(...MUTED);
-            doc.text(`Precios Al Día Bodega · Reporte de Cierre de Caja · Página ${pNum}`, WIDTH / 2, HEIGHT - 10, { align: 'center' });
+            doc.text(`Donde Juancho Bodega · Reporte de Cierre de Caja · Página ${pNum}`, WIDTH / 2, HEIGHT - 10, { align: 'center' });
         };
 
         // Helper para controlar saltos de página
@@ -110,7 +110,7 @@ export async function generateDailyClosePDF({
                 doc.setFont('helvetica', 'bold');
                 doc.setFontSize(14);
                 doc.setTextColor(...BLUE);
-                doc.text('Precios Al Día', M, y + 9);
+                doc.text('Donde Juancho', M, y + 9);
             }
 
             // Título y Subtítulo
@@ -693,7 +693,7 @@ export async function generateDailyClosePDF({
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(fBody + 1);
     doc.setTextColor(...INK);
-    doc.text('Precios Al Día', HEADER_CX, y, { align: 'center' });
+    doc.text('Donde Juancho', HEADER_CX, y, { align: 'center' });
     y += 4.5;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(fMuted);

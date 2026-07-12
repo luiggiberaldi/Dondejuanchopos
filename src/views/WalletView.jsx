@@ -487,7 +487,7 @@ export default function WalletView({ rates }) {
                         </div>
                         <h3 className="text-lg font-black text-slate-800 dark:text-white mb-2">Límite Alcanzado</h3>
                         <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
-                            La versión gratuita permite <strong>2 cuentas</strong>. Con <strong>PreciosAlDía Business</strong> puedes agregar cuentas ilimitadas.
+                            La versión gratuita permite <strong>2 cuentas</strong>. Con <strong>Donde Juancho Business</strong> puedes agregar cuentas ilimitadas.
                         </p>
                         <div className="flex gap-2">
                             <button
@@ -498,7 +498,7 @@ export default function WalletView({ rates }) {
                             </button>
                             <button
                                 onClick={() => {
-                                    const msg = `Hola! Me interesa la licencia Premium de PreciosAlDía para agregar más cuentas de pago.`;
+                                    const msg = `Hola! Me interesa la licencia Premium de Donde Juancho para agregar más cuentas de pago.`;
                                     window.open(`https://wa.me/584124051793?text=${encodeURIComponent(msg)}`, '_blank');
                                 }}
                                 className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white bg-[#10B981] shadow-lg shadow-emerald-500/20 active:scale-95 transition-transform"

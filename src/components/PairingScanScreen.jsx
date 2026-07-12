@@ -187,11 +187,11 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
 
         try {
             // Obtener el device_id local para registrarlo como monitor
-            let monitorId = localStorage.getItem('pda_device_id');
+            let monitorId = localStorage.getItem('dj_device_id');
             if (!monitorId) {
                 // Generar uno de respaldo si por algún motivo no existe
                 monitorId = 'mon_' + Math.random().toString(36).substring(2, 15);
-                localStorage.setItem('pda_device_id', monitorId);
+                localStorage.setItem('dj_device_id', monitorId);
             }
 
             // Llamar al RPC en Supabase
@@ -204,8 +204,8 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
 
             if (data && data.success) {
                 // Éxito: Guardar credenciales de emparejamiento
-                localStorage.setItem('pda_paired_device_id', data.primary_device_id);
-                localStorage.setItem('pda_pairing_mode', 'monitor');
+                localStorage.setItem('dj_paired_device_id', data.primary_device_id);
+                localStorage.setItem('dj_pairing_mode', 'monitor');
                 showToast('¡Vinculado con éxito! Cargando monitor...', 'success');
                 
                 // Forzar reinicio de la app para cargar la nueva vista limpia

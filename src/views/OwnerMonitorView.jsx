@@ -31,7 +31,7 @@ function getMethodIcon(methodId) {
 }
 
 export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) {
-    const pairedDeviceId = localStorage.getItem('pda_paired_device_id');
+    const pairedDeviceId = localStorage.getItem('dj_paired_device_id');
     const { products, effectiveRate: bcvRate, copEnabled, tasaCop } = useProductContext();
     const { isConnected, lastSync, loading: syncLoading, triggerRefresh } = useMonitorSync(pairedDeviceId);
 
@@ -393,8 +393,8 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             console.warn('[OwnerMonitorView] Error al llamar unpair RPC:', err);
         }
 
-        localStorage.removeItem('pda_paired_device_id');
-        localStorage.removeItem('pda_pairing_mode');
+        localStorage.removeItem('dj_paired_device_id');
+        localStorage.removeItem('dj_pairing_mode');
         localStorage.removeItem('monitor_last_sync');
         localStorage.removeItem('business_name');
         localStorage.removeItem('business_rif');

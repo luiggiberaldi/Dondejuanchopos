@@ -7,7 +7,7 @@ export default function LockScreen({ onOpenPairing }) {
   const { usuarios, login } = useAuthStore();
   const [selectedUser, setSelectedUser] = useState(null);
   const [showWelcome, setShowWelcome] = useState(() => {
-    return localStorage.getItem('pda_welcome_dismissed') !== 'true';
+    return localStorage.getItem('dj_welcome_dismissed') !== 'true';
   });
 
   const handlePinSubmit = async (pin, userId) => {
@@ -19,7 +19,7 @@ export default function LockScreen({ onOpenPairing }) {
   };
 
   const handleDismissWelcome = () => {
-    localStorage.setItem('pda_welcome_dismissed', 'true');
+    localStorage.setItem('dj_welcome_dismissed', 'true');
     setShowWelcome(false);
   };
 

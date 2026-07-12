@@ -184,7 +184,7 @@ export const runAudit = async (rates, logCallback) => {
     logCallback(`📊 Score Final: ${round0(finalScore)}% (${passed}/${standardTests.length})`);
 
     if (finalScore === 100) {
-        logCallback('🏆 SISTEMA CERTIFICADO: PreciosAlDía es apto para despliegue.');
+        logCallback('🏆 SISTEMA CERTIFICADO: Donde Juancho es apto para despliegue.');
     } else {
         logCallback('⚠️ ATENCIÓN: Se requieren ajustes en el prompt o lógica del sistema.');
     }

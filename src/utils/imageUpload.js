@@ -57,7 +57,7 @@ export async function uploadProductImage(dataUri, opts = {}) {
         const blob = dataUriToBlob(dataUri);
         if (blob.size === 0 || blob.size > MAX_BYTES) return null;
 
-        const deviceId = localStorage.getItem('pda_device_id') || 'shared';
+        const deviceId = localStorage.getItem('dj_device_id') || 'shared';
         const ext = extFromMime(blob.type);
         const id = opts.id
             || (typeof crypto !== 'undefined' && crypto.randomUUID

@@ -10,7 +10,7 @@
  * Notas:
  *   - La sal mezcla características del navegador con una sal por despliegue. Esto NO
  *     evita fingerprints cruzados entre navegadores del mismo dispositivo, pero sí
- *     dificulta la falsificación sencilla vía DevTools (`localStorage.setItem('pda_device_id', 'PDA-DEAD')`).
+ *     dificulta la falsificación sencilla vía DevTools (`localStorage.setItem('dj_device_id', 'PDA-DEAD')`).
  *   - La fuente autoritativa de identidad es la fila `licenses.device_id` en el backend.
  *
  * @module security/deviceFingerprint
@@ -125,7 +125,7 @@ export async function generateFingerprint() {
  *
  * NOTA: Para evitar que actualizaciones de navegadores, cambios de zona horaria o de idioma
  * revoquen e invaliden de manera destructiva la licencia premium de usuarios legítimos,
- * permitimos cualquier ID almacenado que tenga el formato válido de instalación de PreciosAlDía.
+ * permitimos cualquier ID almacenado que tenga el formato válido de instalación de Donde Juancho.
  *
  * @param {string} storedId - ID almacenado en localStorage.
  * @param {string} [currentFp] - Fingerprint ya calculado (opcional, para ahorrar cómputo).

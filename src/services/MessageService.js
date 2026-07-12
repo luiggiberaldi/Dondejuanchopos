@@ -34,7 +34,7 @@ export const MessageService = {
         if (!selectedAccount) {
             const valTop = safeParse(amountTop);
             const greeting = clientName ? `Hola ${clientName},` : 'Hola,';
-            return `${greeting} el total es $${valTop.toFixed(2)}.\n\n[Datos de cuenta no cargados]\n\nGenerado con PreciosAlDía`;
+            return `${greeting} el total es $${valTop.toFixed(2)}.\n\n[Datos de cuenta no cargados]\n\nGenerado con Donde Juancho`;
         }
 
         const isBsAccount = selectedAccount.currency === 'VES';
@@ -135,9 +135,9 @@ export const MessageService = {
 
         // Final Assembly
         if (tone === 'direct') {
-            return `${greeting}\n\n${intro}\n\n${details}\n\nPreciosAlDía`;
+            return `${greeting}\n\n${intro}\n\n${details}\n\nDonde Juancho`;
         }
 
-        return `${greeting} ${intro}\n\n${details}\n\nGenerado con PreciosAlDía`;
+        return `${greeting} ${intro}\n\n${details}\n\nGenerado con Donde Juancho`;
     }
 };

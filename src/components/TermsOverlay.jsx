@@ -3,7 +3,7 @@ import { Check, FileText, ChevronDown, Store } from 'lucide-react';
 
 export default function TermsOverlay({ onAccept }) {
     const [hasAccepted, setHasAccepted] = useState(
-        () => localStorage.getItem('pda_terms_accepted') === 'true'
+        () => localStorage.getItem('dj_terms_accepted') === 'true'
     );
     const [step, setStep] = useState(1); // 1 = Términos, 2 = Configuración negocio
     const [businessName, setBusinessName] = useState('');
@@ -30,7 +30,7 @@ export default function TermsOverlay({ onAccept }) {
         const trimmedEmail = marketingEmail.trim();
         localStorage.setItem('business_name', trimmedName);
         localStorage.setItem('marketing_email', trimmedEmail);
-        localStorage.setItem('pda_terms_accepted', 'true');
+        localStorage.setItem('dj_terms_accepted', 'true');
         setHasAccepted(true);
         if (onAccept) onAccept();
     };
@@ -72,7 +72,7 @@ export default function TermsOverlay({ onAccept }) {
                             style={{ scrollbarWidth: 'thin' }}
                         >
                             <div>
-                                <h1 className="font-display text-3xl text-surface-700 mb-2 leading-tight">Términos y Condiciones de Uso — PreciosAlDía</h1>
+                                <h1 className="font-display text-3xl text-surface-700 mb-2 leading-tight">Términos y Condiciones de Uso — Donde Juancho</h1>
                                 <p className="text-[10px] text-surface-500 font-bold mb-4">Última actualización: Julio 2026</p>
                             </div>
 
@@ -82,14 +82,14 @@ export default function TermsOverlay({ onAccept }) {
                                 <section>
                                     <h2 className="font-display text-lg text-surface-700 mb-1.5">1. Aceptación de los Términos</h2>
                                     <p className="text-xs text-surface-700 leading-relaxed">
-                                        Al acceder y utilizar la aplicación <strong>PreciosAlDía</strong> (en adelante, "la Aplicación"), usted acepta estar sujeto a estos Términos y Condiciones. Si no está de acuerdo con alguna parte de estos términos, no debe utilizar la Aplicación.
+                                        Al acceder y utilizar la aplicación <strong>Donde Juancho</strong> (en adelante, "la Aplicación"), usted acepta estar sujeto a estos Términos y Condiciones. Si no está de acuerdo con alguna parte de estos términos, no debe utilizar la Aplicación.
                                     </p>
                                 </section>
 
                                 <section>
                                     <h2 className="font-display text-lg text-surface-700 mb-1.5">2. Descripción del Servicio</h2>
                                     <p className="text-xs text-surface-700 leading-relaxed mb-1.5">
-                                        PreciosAlDía es una aplicación web progresiva (PWA) de gestión comercial y punto de venta local e inteligente para bodegas y comercios independientes. La Aplicación proporciona:
+                                        Donde Juancho es una aplicación web progresiva (PWA) de gestión comercial y punto de venta local e inteligente para bodegas y comercios independientes. La Aplicación proporciona:
                                     </p>
                                     <ul className="text-xs text-surface-700 space-y-1 pl-4 list-disc">
                                         <li><strong>Gestión de inventario local</strong> con precios en múltiples monedas (USD, Bolívares, Pesos COP).</li>
@@ -106,7 +106,7 @@ export default function TermsOverlay({ onAccept }) {
                                     
                                     <h3 className="text-xs font-bold text-surface-700 mt-2 mb-1">3.1 Información No Vinculante</h3>
                                     <p className="text-xs text-surface-700 leading-relaxed">
-                                        <strong className="text-red-600 dark:text-red-400">TODA LA INFORMACIÓN PROPORCIONADA EN LA APLICACIÓN ES ESTRICTAMENTE INFORMATIVA Y DE REFERENCIA.</strong> PreciosAlDía no garantiza la exactitud, vigencia o fiabilidad absoluta de las tasas de cambio o conversiones comerciales automáticas del mercado.
+                                        <strong className="text-red-600 dark:text-red-400">TODA LA INFORMACIÓN PROPORCIONADA EN LA APLICACIÓN ES ESTRICTAMENTE INFORMATIVA Y DE REFERENCIA.</strong> Donde Juancho no garantiza la exactitud, vigencia o fiabilidad absoluta de las tasas de cambio o conversiones comerciales automáticas del mercado.
                                     </p>
 
                                     <h3 className="text-xs font-bold text-surface-700 mt-2 mb-1">3.2 Operatividad y Caja</h3>
@@ -115,7 +115,7 @@ export default function TermsOverlay({ onAccept }) {
                                     </p>
 
                                     <h3 className="text-xs font-bold text-surface-700 mt-2 mb-1">3.3 Limitación de Responsabilidad</h3>
-                                    <p className="text-xs text-surface-700 leading-relaxed mb-1">PreciosAlDía y sus creadores no serán responsables bajo ninguna circunstancia por:</p>
+                                    <p className="text-xs text-surface-700 leading-relaxed mb-1">Donde Juancho y sus creadores no serán responsables bajo ninguna circunstancia por:</p>
                                     <ul className="text-xs text-surface-700 space-y-0.5 pl-4 list-disc">
                                         <li>Pérdidas comerciales directas o indirectas derivadas del uso de la información de tasas.</li>
                                         <li>Discrepancias en el redondeo inteligente de vuelto físico.</li>
@@ -125,7 +125,7 @@ export default function TermsOverlay({ onAccept }) {
 
                                     <h3 className="text-xs font-bold text-surface-700 mt-2 mb-1">3.4 Uso Bajo Propio Riesgo</h3>
                                     <p className="text-xs text-surface-700 leading-relaxed">
-                                        Al usar PreciosAlDía, usted acepta que lo hace bajo su propio riesgo y responsabilidad.
+                                        Al usar Donde Juancho, usted acepta que lo hace bajo su propio riesgo y responsabilidad.
                                     </p>
                                 </section>
 
@@ -139,7 +139,7 @@ export default function TermsOverlay({ onAccept }) {
                                 <section>
                                     <h2 className="font-display text-lg text-surface-700 mb-1.5">5. Privacidad y Datos</h2>
                                     <p className="text-xs text-surface-700 leading-relaxed">
-                                        PreciosAlDía opera bajo privacidad por diseño. Todos los datos comerciales se guardan localmente en el dispositivo. En caso de activar Cloud Sync, los datos se sincronizan de manera encriptada y segura directamente en los servidores Supabase del cliente. Sus datos jamás serán compartidos ni comercializados.
+                                        Donde Juancho opera bajo privacidad por diseño. Todos los datos comerciales se guardan localmente en el dispositivo. En caso de activar Cloud Sync, los datos se sincronizan de manera encriptada y segura directamente en los servidores Supabase del cliente. Sus datos jamás serán compartidos ni comercializados.
                                     </p>
                                 </section>
 
@@ -161,7 +161,7 @@ export default function TermsOverlay({ onAccept }) {
 
                                 <div className="text-center pt-2 pb-2">
                                     <p className="text-xs font-bold text-surface-700 m-0">
-                                        PreciosAlDía — Tu Bodega Inteligente 🇻🇪
+                                        Donde Juancho — Tu Bodega Inteligente 🇻🇪
                                     </p>
                                     <p className="text-[10px] text-surface-500 m-0">
                                         Tecnología local para el comerciante venezolano

@@ -122,7 +122,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
     // en la próxima sesión (el flag solo se fija si migró todo sin fallos).
     useEffect(() => {
         if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
-        if (localStorage.getItem('pda_images_migrated_v1') === 'true') return;
+        if (localStorage.getItem('dj_images_migrated_v1') === 'true') return;
 
         let cancelled = false;
         const timer = setTimeout(async () => {
@@ -131,7 +131,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 const hasBase64 = Array.isArray(current)
                     && current.some(p => typeof p?.image === 'string' && p.image.startsWith('data:'));
                 if (!hasBase64) {
-                    localStorage.setItem('pda_images_migrated_v1', 'true');
+                    localStorage.setItem('dj_images_migrated_v1', 'true');
                     return;
                 }
 
@@ -141,7 +141,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 });
 
                 if (res.failed === 0) {
-                    localStorage.setItem('pda_images_migrated_v1', 'true');
+                    localStorage.setItem('dj_images_migrated_v1', 'true');
                 }
                 if (res.migrated > 0) {
                     showToast(`${res.migrated} imágenes movidas a la nube`, 'success');

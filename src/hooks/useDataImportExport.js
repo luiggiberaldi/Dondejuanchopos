@@ -51,7 +51,7 @@ export function useDataImportExport({
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `backup_tasasaldia_completo_${new Date().toISOString().slice(0, 10)}.json`;
+            a.download = `backup_dondejuancho_completo_${new Date().toISOString().slice(0, 10)}.json`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -83,7 +83,7 @@ export function useDataImportExport({
 
                 // ── FASE 1: LIMPIEZA SELECTIVA (HOOK-025) ─────────────────────────
                 // HOOK-025: NO usar `localforage.clear()` — borraría flags críticos
-                // como `pda_demo_flag_v1` y `bodega_autobackup_v1`. Borramos solo
+                // como `dj_demo_flag_v1` y `bodega_autobackup_v1`. Borramos solo
                 // las claves explícitas del catálogo canónico (IDB_KEYS / LS_KEYS),
                 // preservando las que estén en PROTECTED_KEYS.
                 setStatusMessage('Limpiando datos del dispositivo...');
@@ -134,7 +134,7 @@ export function useDataImportExport({
 
                 setImportStatus('success');
                 setStatusMessage('Restauracion completa. Sincronizando con la nube...');
-                localStorage.setItem('pda_backup_imported_flag', 'true');
+                localStorage.setItem('dj_backup_imported_flag', 'true');
                 auditLog('SISTEMA', 'BACKUP_IMPORTADO', `Backup restaurado (${json.source || 'archivo'}) — ${Object.keys(json.data.idb || {}).join(', ')}`);
                 triggerHaptic?.();
 

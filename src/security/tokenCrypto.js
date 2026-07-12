@@ -4,7 +4,7 @@
  * Fixes de seguridad:
  *   - SEC-001 / SEC-007: Se ELIMINÓ la rama XOR legacy de `verifyLicenseToken`.
  *     Cualquier token sin `.` (sin firma RSA) es rechazado. Antes, un atacante con
- *     DevTools podía hacer `localStorage.setItem('pda_premium_token', encodeToken(...))`
+ *     DevTools podía hacer `localStorage.setItem('dj_premium_token', encodeToken(...))`
  *     y recargar para obtener premium gratis. Ahora la única forma de tener premium es
  *     que el backend firme un token con la clave privada RSA correspondiente a
  *     `PUBLIC_KEY_JWK`, o que la fila en `licenses` del servidor tenga `active === true`.

@@ -1,7 +1,7 @@
 /**
  * Service responsible for determining appropriate exchange rates and contexts.
  * Decouples rate logic from UI/Chat components.
- * NOTE: USDT support removed — PreciosAlDía only uses BCV rates.
+ * NOTE: USDT support removed — Donde Juancho only uses BCV rates.
  */
 export const RateService = {
     /**

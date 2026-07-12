@@ -12,7 +12,7 @@ if (window.location.protocol === 'file:') {
   const originalFetch = window.fetch;
   window.fetch = function (input, init) {
     if (typeof input === 'string' && input.startsWith('/api/')) {
-      const baseUrl = import.meta.env.VITE_API_URL || 'https://preciosaldiaoficial.vercel.app';
+      const baseUrl = import.meta.env.VITE_API_URL || 'https://donde-juancho-pos.vercel.app';
       input = `${baseUrl}${input}`;
     }
     return originalFetch(input, init);
