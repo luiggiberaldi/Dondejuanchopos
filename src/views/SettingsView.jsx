@@ -160,6 +160,13 @@ export default function SettingsView({ onClose, theme, toggleTheme, triggerHapti
         setLabelOffsetFontFooter(localStorage.getItem(`label_offset_font_footer${suffix}`) || defFontFooter);
     }, [labelCurrencyMode, paperWidth]);
 
+    // Corregir de forma automática cualquier valor antiguo en localStorage
+    useEffect(() => {
+        if (localStorage.getItem('business_name') !== 'Donde Juancho') {
+            localStorage.setItem('business_name', 'Donde Juancho');
+        }
+    }, []);
+
     const visibleTabs = TABS;
 
     // ─── Cloud backup hook ────────────────────────────────

@@ -124,6 +124,7 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
 
     // Top productos vendidos (todas las ventas netas)
     // FIN-019: usar mulR + round2 en vez de multiplicación raw.
+    // FIN-SANE: si item.priceUsd > 50 y el producto real vale < 20, usar priceUsdt del inventario.
     const topProducts = useMemo(() => {
         const productSalesMap = {};
         sales.filter(s => s.tipo !== 'COBRO_DEUDA' && s.tipo !== 'AJUSTE_ENTRADA' && s.tipo !== 'AJUSTE_SALIDA' && s.status !== 'ANULADA').forEach(s => {
@@ -131,12 +132,16 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
                 s.items.forEach(item => {
                     if (!productSalesMap[item.name]) productSalesMap[item.name] = { name: item.name, qty: 0, revenue: 0 };
                     productSalesMap[item.name].qty += item.qty;
-                    productSalesMap[item.name].revenue = sumR(productSalesMap[item.name].revenue, mulR(item.priceUsd, item.qty));
+                    const prod = products.find(p => p.id === item.id || p.name === item.name);
+                    const effectivePrice = (prod && item.priceUsd > 50 && prod.priceUsdt && parseFloat(prod.priceUsdt) < 20)
+                        ? parseFloat(prod.priceUsdt)
+                        : item.priceUsd;
+                    productSalesMap[item.name].revenue = sumR(productSalesMap[item.name].revenue, mulR(effectivePrice, item.qty));
                 });
             }
         });
         return Object.values(productSalesMap).sort((a, b) => b.qty - a.qty).slice(0, 5);
-    }, [sales]);
+    }, [sales, products]);
 
     // Payment method breakdown (today)
     const paymentBreakdown = useMemo(() => {
@@ -145,6 +150,7 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
 
     // Top productos vendidos HOY (para cierre del día)
     // FIN-019: usar mulR + round2 en vez de multiplicación raw.
+    // FIN-SANE: si item.priceUsd > 50 y el producto real vale < 20, usar priceUsdt del inventario.
     const todayTopProducts = useMemo(() => {
         const todayProductMap = {};
         todaySales.forEach(s => {
@@ -152,12 +158,16 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
                 s.items.forEach(item => {
                     if (!todayProductMap[item.name]) todayProductMap[item.name] = { name: item.name, qty: 0, revenue: 0 };
                     todayProductMap[item.name].qty += item.qty;
-                    todayProductMap[item.name].revenue = sumR(todayProductMap[item.name].revenue, mulR(item.priceUsd, item.qty));
+                    const prod = products.find(p => p.id === item.id || p.name === item.name);
+                    const effectivePrice = (prod && item.priceUsd > 50 && prod.priceUsdt && parseFloat(prod.priceUsdt) < 20)
+                        ? parseFloat(prod.priceUsdt)
+                        : item.priceUsd;
+                    todayProductMap[item.name].revenue = sumR(todayProductMap[item.name].revenue, mulR(effectivePrice, item.qty));
                 });
             }
         });
         return Object.values(todayProductMap).sort((a, b) => b.qty - a.qty).slice(0, 10);
-    }, [todaySales]);
+    }, [todaySales, products]);
 
     return {
         today,

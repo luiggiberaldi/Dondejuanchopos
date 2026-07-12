@@ -59,6 +59,7 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
     const [recycleOffer, setRecycleOffer] = useState(null);
     const [pullDistance, setPullDistance] = useState(0);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [isScrolled, setIsScrolled] = useState(false);
     const [selectedChartDate, setSelectedChartDate] = useState(null);
     const [showTopDeudas, setShowTopDeudas] = useState(false);
     const [showCierreSummary, setShowCierreSummary] = useState(false);
@@ -72,6 +73,72 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
         scrollRef.current = node;
         revealRef.current = node;
     };
+
+    // Escuchar el scroll del contenedor <main> abuelo
+    useEffect(() => {
+        const mainEl = document.querySelector('main');
+        const handleScroll = (e) => {
+            if (mainEl) {
+                setIsScrolled(mainEl.scrollTop > 10);
+            }
+        };
+        if (mainEl) {
+            mainEl.addEventListener('scroll', handleScroll);
+        }
+        return () => {
+            if (mainEl) {
+                mainEl.removeEventListener('scroll', handleScroll);
+            }
+        };
+    }, []);
+
+    // Saneamiento de ventas para corregir de forma retroactiva precios erróneos (COP asignados como USD por bug heredado)
+    useEffect(() => {
+        try {
+            const rawSales = localStorage.getItem('bodega_sales_v1');
+            const rawProducts = localStorage.getItem('bodega_products_v1');
+            if (!rawSales || !rawProducts) return;
+            const sales = JSON.parse(rawSales);
+            const products = JSON.parse(rawProducts);
+            let changed = false;
+
+            const fixedSales = sales.map(sale => {
+                if (!sale.items) return sale;
+                let saleChanged = false;
+                const fixedItems = sale.items.map(item => {
+                    const prod = products.find(p => p.id === item.id || p.name === item.name);
+                    if (prod && item.priceUsd > 50 && prod.priceUsdt && parseFloat(prod.priceUsdt) < 20) {
+                        saleChanged = true;
+                        changed = true;
+                        return {
+                            ...item,
+                            priceUsd: parseFloat(prod.priceUsdt)
+                        };
+                    }
+                    return item;
+                });
+
+                if (saleChanged) {
+                    const totalUsd = fixedItems.reduce((sum, i) => sum + (i.priceUsd * i.qty), 0);
+                    const totalBs = sale.rate ? totalUsd * sale.rate : sale.totalBs;
+                    return {
+                        ...sale,
+                        items: fixedItems,
+                        totalUsd: parseFloat(totalUsd.toFixed(2)),
+                        totalBs: parseFloat(totalBs.toFixed(2))
+                    };
+                }
+                return sale;
+            });
+
+            if (changed) {
+                localStorage.setItem('bodega_sales_v1', JSON.stringify(fixedSales));
+                window.location.reload();
+            }
+        } catch (e) {
+            console.error('Error al sanear ventas:', e);
+        }
+    }, []);
 
     // Reloj digital y fecha en tiempo real
     const [currentTime, setCurrentTime] = useState(new Date());
@@ -321,7 +388,7 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
     return (
         <div
             ref={setRootRef}
-            className="flex flex-col h-full bg-surface-50 dark:bg-surface-950 p-3 sm:p-5 lg:p-6 xl:p-8 overflow-y-auto scrollbar-hide"
+            className="flex flex-col bg-surface-50 dark:bg-surface-950 p-3 sm:p-5 lg:p-6 xl:p-8"
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
@@ -335,54 +402,99 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
                 </div>
             )}
 
-            {/* Header */}
-            <div className="flex md:grid md:grid-cols-3 items-center justify-between mb-4 pt-2">
-                {/* Reloj y fecha en PC */}
-                <div className="hidden md:flex flex-col items-start gap-1">
-                    <span className="text-xl font-display font-bold italic text-slate-800 dark:text-white leading-none">
-                        {timeString}
-                    </span>
-                    <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider leading-none">
-                        {formattedDate}
-                    </span>
+            {/* Header / Top Bar adaptativo */}
+            <div className={`sticky top-0 z-20 flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-5 pb-3 pt-2 transition-all duration-200 -mx-3 sm:-mx-5 lg:-mx-6 xl:-mx-8 px-3 sm:px-5 lg:px-6 xl:px-8 bg-surface-50/95 dark:bg-surface-950/95 backdrop-blur-md border-b ${isScrolled ? 'border-slate-200/80 dark:border-slate-800/80 shadow-md' : 'border-slate-100 dark:border-slate-800/60'}`}>
+                {/* Lado Izquierdo: Logo (alineado a la izquierda en PC, centrado en móviles) */}
+                <div className="flex items-center justify-between md:justify-start gap-4">
+                    <div className="flex items-center gap-3">
+                        <img 
+                            src={theme === 'dark' ? './logodark.png' : './logo.png'} 
+                            alt="Donde Juancho" 
+                            className="h-14 md:h-[150px] w-auto object-contain drop-shadow-sm -my-2 md:-my-[38px]" 
+                        />
+                    </div>
+                    {/* Estatus Sync a la derecha sólo en móvil */}
+                    <div className="md:hidden">
+                        <SyncStatus />
+                    </div>
                 </div>
-                <div className="flex flex-col items-start md:items-center justify-center gap-0.5">
-                    <img src={theme === 'dark' ? './logodark.png' : './logo.png'} alt="Donde Juancho" className="h-14 md:h-[85px] w-auto object-contain drop-shadow-sm" />
+
+                {/* Centro en PC: Menú de Navegación Compacto (Acciones Rápidas) */}
+                <div className="hidden md:flex items-center justify-center gap-2 bg-slate-100/80 dark:bg-slate-900/50 p-1.5 rounded-2xl border border-slate-200/30 dark:border-slate-800/30">
+                    <button 
+                        onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('ventas'); } }} 
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-[#01696f] dark:text-[#1ce2ee] font-black text-sm shadow-sm transition-all hover:scale-[1.02] active:scale-95 cursor-pointer border border-slate-200/50 dark:border-slate-700/50"
+                    >
+                        <ShoppingCart size={18} />
+                        <span>Vender</span>
+                    </button>
+                    <button 
+                        onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('catalogo'); } }} 
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-800/50 font-bold text-sm transition-all hover:scale-[1.02] active:scale-95 cursor-pointer"
+                    >
+                        <Store size={18} />
+                        <span>Inventario</span>
+                    </button>
+                    <button 
+                        onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('clientes'); } }} 
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-800/50 font-bold text-sm transition-all hover:scale-[1.02] active:scale-95 cursor-pointer"
+                    >
+                        <Users size={18} />
+                        <span>Clientes</span>
+                    </button>
+                    <button 
+                        onClick={() => { triggerHaptic(); setShowMonitor(true); }} 
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-800/50 font-bold text-sm transition-all hover:scale-[1.02] active:scale-95 cursor-pointer"
+                    >
+                        <TrendingUp size={18} />
+                        <span>Monitor</span>
+                    </button>
                 </div>
-                <div className="flex items-center justify-end gap-2">
+
+                {/* Lado Derecho en PC: Reloj, fecha y Sincronización */}
+                <div className="hidden md:flex items-center justify-end gap-4">
+                    <div className="flex flex-col items-end gap-0.5">
+                        <span className="text-lg font-display font-black text-slate-800 dark:text-white leading-none">
+                            {timeString}
+                        </span>
+                        <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider leading-none">
+                            {formattedDate}
+                        </span>
+                    </div>
+                    <div className="h-6 w-[1px] bg-slate-200 dark:bg-slate-800" />
                     <SyncStatus />
                 </div>
             </div>
 
-            {/* Acciones Rápidas — v1.2.0: shadow-tone-sm tone-matched */}
-            <div className="grid grid-cols-4 lg:grid-cols-6 gap-3 mb-5">
+            {/* Acciones Rápidas en Móvil (Ocultas en PC) */}
+            <div className="grid grid-cols-4 gap-2 mb-5 md:hidden">
                 <button 
                     onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('ventas'); } }} 
-                    className="bg-[#01696f] hover:bg-[#00575d] dark:bg-[#1ce2ee] dark:hover:bg-[#0bc2cd] text-white dark:text-slate-950 rounded-2xl p-3 flex flex-col items-center justify-center gap-2 shadow-tone-sm hover:shadow-primary-tone hover:scale-[1.02] active:scale-95 transition-all"
+                    className="bg-[#01696f] hover:bg-[#00575d] dark:bg-[#1ce2ee] dark:hover:bg-[#0bc2cd] text-white dark:text-slate-950 rounded-xl p-2.5 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
                 >
-                    <ShoppingCart size={22} />
-                    <span className="text-xs font-bold">Vender</span>
+                    <ShoppingCart size={18} />
+                    <span className="text-[10px] font-bold">Vender</span>
                 </button>
                 <button 
                     onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('catalogo'); } }} 
-                    className="bg-[#01696f] hover:bg-[#00575d] dark:bg-[#1ce2ee] dark:hover:bg-[#0bc2cd] text-white dark:text-slate-950 rounded-2xl p-3 flex flex-col items-center justify-center gap-2 shadow-tone-sm hover:scale-[1.02] active:scale-95 transition-all"
+                    className="bg-[#01696f] hover:bg-[#00575d] dark:bg-[#1ce2ee] dark:hover:bg-[#0bc2cd] text-white dark:text-slate-950 rounded-xl p-2.5 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
                 >
-                    <Store size={22} />
-                    <span className="text-xs font-bold">Inventario</span>
+                    <Store size={18} />
+                    <span className="text-[10px] font-bold">Inventario</span>
                 </button>
                 <button 
                     onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('clientes'); } }} 
-                    className="bg-[#01696f] hover:bg-[#00575d] dark:bg-[#1ce2ee] dark:hover:bg-[#0bc2cd] text-white dark:text-slate-950 rounded-2xl p-3 flex flex-col items-center justify-center gap-2 shadow-tone-sm hover:scale-[1.02] active:scale-95 transition-all"
+                    className="bg-[#01696f] hover:bg-[#00575d] dark:bg-[#1ce2ee] dark:hover:bg-[#0bc2cd] text-white dark:text-slate-950 rounded-xl p-2.5 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
                 >
-                    <Users size={22} />
-                    <span className="text-xs font-bold">Clientes</span>
+                    <Users size={18} />
+                    <span className="text-[10px] font-bold">Clientes</span>
                 </button>
                 <button 
                     onClick={() => { triggerHaptic(); setShowMonitor(true); }} 
-                    className="bg-[#01696f] hover:bg-[#00575d] dark:bg-[#1ce2ee] dark:hover:bg-[#0bc2cd] text-white dark:text-slate-950 rounded-2xl p-3 flex flex-col items-center justify-center gap-2 shadow-tone-sm hover:scale-[1.02] active:scale-95 transition-all"
+                    className="bg-[#01696f] hover:bg-[#00575d] dark:bg-[#1ce2ee] dark:hover:bg-[#0bc2cd] text-white dark:text-slate-950 rounded-xl p-2.5 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
                 >
-                    <TrendingUp size={22} />
-                    <span className="text-xs font-bold">Monitor</span>
+                    <TrendingUp size={18} />
+                    <span className="text-[10px] font-bold">Monitor</span>
                 </button>
             </div>
 

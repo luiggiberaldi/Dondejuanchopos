@@ -38,7 +38,7 @@ export async function generateTicketPDF(sale, bcvRate) {
 
     const doc = new jsPDF('p', 'mm', [WIDTH, H]);
 
-    let y = 8;
+    let y = 1;
 
     // ── Helper: linea punteada ──
     const dash = (yy) => {
@@ -59,10 +59,10 @@ export async function generateTicketPDF(sale, bcvRate) {
         const originalW = img.naturalWidth || img.width || 1;
         const originalH = img.naturalHeight || img.height || 1;
         const aspectRatio = originalW / originalH;
-        const logoW = 40;
+        const logoW = 45;
         const logoH = logoW / aspectRatio;
-        doc.addImage(img, 'PNG', CX - logoW / 2, y, logoW, logoH);
-        y += logoH + 4;
+        doc.addImage(img, 'PNG', CX - logoW / 2 - 1, y, logoW, logoH);
+        y += logoH - 5;
     } catch (_) { y += 2; }
 
     dash(y); y += 5;
@@ -348,7 +348,7 @@ export function printThermalTicket(sale, bcvRate) {
 
     // ── OBTENER CONFIGURACION DEL NEGOCIO ──
     const settings = {
-        name: localStorage.getItem('business_name') || 'Bodega Sin Nombre',
+        name: 'Donde Juancho',
         rif: localStorage.getItem('business_rif') || '',
         address: localStorage.getItem('business_address') || '',
         phone: localStorage.getItem('business_phone') || '',

@@ -225,9 +225,8 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
 </style>
 </head>
 <body>
-    <!-- Logo -->
-    <div class="center" style="margin-bottom:6px;">
-        <img src="./logo.png" alt="Logo" style="max-width:${cssLogoW};max-height:16mm;" onerror="this.style.display='none'">
+    <div class="center" style="margin-bottom:0;">
+        <img src="./logo.png" alt="Logo" style="width:45mm;height:auto;display:block;margin:-5mm auto -9mm auto;position:relative;left:-1mm;" onerror="this.style.display='none'">
     </div>
 
     <!-- Info del Negocio -->

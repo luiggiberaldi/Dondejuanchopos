@@ -50,7 +50,7 @@ export async function generateDailyClosePDF({
     const MUTED = [134, 142, 150];
     const GREEN = [16, 124, 65];
     const RED = [220, 53, 69];
-    const BLUE = [1, 105, 111]; // Tono brand "Donde Juancho"
+    const BLUE = [25, 50, 117]; // Color principal #193275
     const RULE = [222, 226, 230];
     const BG_CARD = [248, 249, 250];
     const BORDER_CARD = [233, 236, 239];
@@ -81,7 +81,7 @@ export async function generateDailyClosePDF({
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(8);
             doc.setTextColor(...MUTED);
-            doc.text(`Donde Juancho Bodega · Reporte de Cierre de Caja · Página ${pNum}`, WIDTH / 2, HEIGHT - 10, { align: 'center' });
+            doc.text(`Donde Juancho · Reporte de Cierre de Caja · Página ${pNum}`, WIDTH / 2, HEIGHT - 10, { align: 'center' });
         };
 
         // Helper para controlar saltos de página
@@ -103,9 +103,12 @@ export async function generateDailyClosePDF({
 
             // Logo
             if (imgLogo) {
+                const originalW = imgLogo.naturalWidth || imgLogo.width || 1;
+                const originalH = imgLogo.naturalHeight || imgLogo.height || 1;
+                const aspectRatio = originalW / originalH;
                 const logoW = 38;
-                const logoH = 9;
-                doc.addImage(imgLogo, 'PNG', M, y + 4, logoW, logoH);
+                const logoH = logoW / aspectRatio;
+                doc.addImage(imgLogo, 'PNG', M, y - 11, logoW, logoH);
             } else {
                 doc.setFont('helvetica', 'bold');
                 doc.setFontSize(14);
@@ -113,16 +116,11 @@ export async function generateDailyClosePDF({
                 doc.text('Donde Juancho', M, y + 9);
             }
 
-            // Título y Subtítulo
+            // Título principal centrado
             doc.setFont('helvetica', 'bold');
-            doc.setFontSize(14);
+            doc.setFontSize(12.5);
             doc.setTextColor(...BLUE);
-            doc.text('DONDE JUANCHO BODEGA', M + 45, y + 8);
-
-            doc.setFontSize(8.5);
-            doc.setFont('helvetica', 'normal');
-            doc.setTextColor(...BODY);
-            doc.text('REPORTE DETALLADO DE CIERRE DE CAJA', M + 45, y + 13);
+            doc.text('REPORTE DETALLADO DE CIERRE DE CAJA', (RIGHT + M) / 2, y + 10, { align: 'center' });
 
             // Metadatos
             doc.setFont('helvetica', 'bold');
@@ -491,7 +489,7 @@ export async function generateDailyClosePDF({
         + (reconData ? 32 : 0);
 
     const doc = new jsPDF('p', 'mm', [WIDTH, H]);
-    let y = 6;
+    let y = 2;
 
     const dash = (yy) => {
         doc.setDrawColor(...RULE);
@@ -512,10 +510,13 @@ export async function generateDailyClosePDF({
     // Logo
     try {
         if (imgLogo) {
-            const logoW = is80 ? 46 : 38;
-            const logoH = is80 ? 11 : 9;
-            doc.addImage(imgLogo, 'PNG', HEADER_CX - logoW / 2, y, logoW, logoH);
-            y += logoH + 3;
+            const originalW = imgLogo.naturalWidth || imgLogo.width || 1;
+            const originalH = imgLogo.naturalHeight || imgLogo.height || 1;
+            const aspectRatio = originalW / originalH;
+            const logoW = 45;
+            const logoH = logoW / aspectRatio;
+            doc.addImage(imgLogo, 'PNG', HEADER_CX - logoW / 2 + 0.5, y, logoW, logoH);
+            y += logoH - 9;
         } else {
             y += 2;
         }
@@ -529,7 +530,7 @@ export async function generateDailyClosePDF({
     y += 5;
 
     // Fecha y hora
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('helvetica', 'bold');
     doc.setFontSize(fMuted);
     doc.setTextColor(...MUTED);
     doc.text(now.toLocaleDateString('es-VE', {
@@ -550,7 +551,7 @@ export async function generateDailyClosePDF({
         if (apertura.sellerName) aperturaRows.push(['Cajero de Apertura', apertura.sellerName]);
 
         aperturaRows.forEach(([label, value]) => {
-            doc.setFont('helvetica', 'normal');
+            doc.setFont('helvetica', 'bold');
             doc.setFontSize(fBody);
             doc.setTextColor(...BODY);
             doc.text(label, M, y);
@@ -583,7 +584,7 @@ export async function generateDailyClosePDF({
     }
 
     statsRows.forEach(([label, value]) => {
-        doc.setFont('helvetica', 'normal');
+        doc.setFont('helvetica', 'bold');
         doc.setFontSize(fBody);
         doc.setTextColor(...BODY);
         doc.text(label, M, y);
@@ -608,7 +609,7 @@ export async function generateDailyClosePDF({
                 ? `${data.total.toLocaleString('es-CO')} COP`
                 : `Bs ${formatBs(data.total)}`;
 
-            doc.setFont('helvetica', 'normal');
+            doc.setFont('helvetica', 'bold');
             doc.setFontSize(fBody);
             doc.setTextColor(...BODY);
             doc.text(label, M, y);
@@ -639,7 +640,7 @@ export async function generateDailyClosePDF({
         }
 
         reconRows.forEach(([label, value, key]) => {
-            doc.setFont('helvetica', 'normal');
+            doc.setFont('helvetica', 'bold');
             doc.setFontSize(fBody);
             doc.setTextColor(...BODY);
             doc.text(label, M, y);
@@ -668,17 +669,21 @@ export async function generateDailyClosePDF({
 
         topProducts.forEach((p, i) => {
             const rank = `${i + 1}.`;
-            const maxLen = is80 ? 22 : 12;
-            const name = p.name.length > maxLen ? p.name.substring(0, maxLen) + '…' : p.name;
+            const printableWidth = RIGHT - (M + 4);
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(fBody);
+            const lines = doc.splitTextToSize(p.name, printableWidth);
+
             doc.setTextColor(...INK);
             doc.text(rank, M, y);
-            doc.setFont('helvetica', 'normal');
-            doc.setTextColor(...BODY);
-            doc.text(name, M + 4, y);
-            y += 4;
 
+            doc.setTextColor(...BODY);
+            lines.forEach((line) => {
+                doc.text(line, M + 4, y);
+                y += 4;
+            });
+
+            doc.setFont('helvetica', 'bold');
             doc.setFontSize(fMuted);
             doc.setTextColor(...MUTED);
             doc.text(`${p.qty} vend. · ${fmtUsd(p.revenue)} · Bs ${formatBs(mulR(p.revenue, bcvRate))}`, M + 4, y);
@@ -695,7 +700,7 @@ export async function generateDailyClosePDF({
     doc.setTextColor(...INK);
     doc.text('Donde Juancho', HEADER_CX, y, { align: 'center' });
     y += 4.5;
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('helvetica', 'bold');
     doc.setFontSize(fMuted);
     doc.setTextColor(...MUTED);
     doc.text('Reporte de Cierre de Caja · Sin valor fiscal', HEADER_CX, y, { align: 'center' });

@@ -344,7 +344,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
         if ((product.unit === 'kg' || product.unit === 'litro') && !qtyOverride) { setWeightPending(product); return; }
 
         // When priceCop is the source of truth, derive USD from COP at current rate
-        let priceToUse = (product.priceCop && tasaCop > 0)
+        let priceToUse = (copEnabled && product.priceCop && tasaCop > 0)
             ? product.priceCop / tasaCop
             : (parseFloat(product.priceUsdt) || 0);
         let cartId = product.id;
@@ -353,7 +353,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
 
         if (forceMode === 'unit') {
             const unitCop = product.unitPriceCop || (product.priceCop ? Math.round(product.priceCop / (product.unitsPerPackage || 1)) : null);
-            priceToUse = (unitCop && tasaCop > 0) ? unitCop / tasaCop : product.unitPriceUsd;
+            priceToUse = (copEnabled && unitCop && tasaCop > 0) ? unitCop / tasaCop : product.unitPriceUsd;
             cartId = product.id + '_unit';
             cartName = product.name + ' (Ud.)';
         }
