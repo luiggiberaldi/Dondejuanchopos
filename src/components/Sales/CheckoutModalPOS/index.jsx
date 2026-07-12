@@ -343,6 +343,10 @@ export default function CheckoutModalPOS({
         parseFloat(distVueltoUSD || 0) + parseFloat(distVueltoBS || 0) / tasaSegura <= cambioUSD + 0.001
     );
 
+    // Calcular si el vuelto físico asignado está incompleto (no iguala cambioUSD y no se abona a saldo a favor)
+    const sumaVueltoAsignado = parseFloat(distVueltoUSD || 0) + parseFloat(distVueltoBS || 0) / tasaSegura;
+    const vueltoIncompleto = cambioUSD > 0.01 && !isChangeCredited && Math.abs(sumaVueltoAsignado - cambioUSD) > 0.01;
+
     // Switch rápido al modo básico
     const handleSwitchToBasic = () => {
         setCheckoutMode('basic');
@@ -452,6 +456,7 @@ export default function CheckoutModalPOS({
                             clienteSeleccionado={clienteSeleccionado}
                             totalPagadoGlobalUSD={totalPagadoGlobalUSD}
                             onProcesar={procesarPago}
+                            vueltoIncompleto={vueltoIncompleto}
                         />
                     </div>
                 </div>

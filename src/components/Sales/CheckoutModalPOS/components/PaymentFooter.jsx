@@ -10,14 +10,15 @@ export default function PaymentFooter({
     clienteSeleccionado,
     totalPagadoGlobalUSD,
     onProcesar,
+    vueltoIncompleto = false,
 }) {
     const canPay = modo === 'contado'
         ? faltaPorPagar <= 0.01
         : (clienteSeleccionado && faltaPorPagar <= 0.01) || (clienteSeleccionado);
 
-    const disabled = modo === 'contado'
+    const disabled = (modo === 'contado'
         ? faltaPorPagar > 0.01
-        : !clienteSeleccionado;
+        : !clienteSeleccionado) || vueltoIncompleto;
 
     return (
         <div className="px-5 py-4 bg-white dark:bg-slate-950 border-t border-slate-100 dark:border-slate-800 flex justify-end items-center gap-3 shrink-0 shadow-[0_-4px_10px_rgba(0,0,0,0.04)] dark:shadow-[0_-4px_10px_rgba(0,0,0,0.2)]">
@@ -33,10 +34,13 @@ export default function PaymentFooter({
                             : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/25'
                     }`}
             >
-                {modo === 'credito'
-                    ? <><Wallet size={20} /> {totalPagadoGlobalUSD > 0.01 ? 'PROCESAR CON ABONO' : 'FIAR TOTALMENTE'}</>
-                    : <><CheckCircle size={20} /> PAGAR (LISTO)</>
-                }
+                {vueltoIncompleto ? (
+                    <><Wallet size={20} /> REGISTRE EL VUELTO</>
+                ) : modo === 'credito' ? (
+                    <><Wallet size={20} /> {totalPagadoGlobalUSD > 0.01 ? 'PROCESAR CON ABONO' : 'FIAR TOTALMENTE'}</>
+                ) : (
+                    <><CheckCircle size={20} /> PAGAR (LISTO)</>
+                )}
             </button>
         </div>
     );
