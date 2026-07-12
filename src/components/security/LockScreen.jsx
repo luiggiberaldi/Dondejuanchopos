@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../../hooks/store/useAuthStore';
 import UserCard from './UserCard';
 import LoginPinModal from './LoginPinModal';
@@ -9,6 +9,29 @@ export default function LockScreen({ onOpenPairing }) {
   const [showWelcome, setShowWelcome] = useState(() => {
     return localStorage.getItem('dj_welcome_dismissed') !== 'true';
   });
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      console.log('[PWA] El usuario aceptó la instalación.');
+    }
+    setDeferredPrompt(null);
+  };
 
   const handlePinSubmit = async (pin, userId) => {
     const result = await login(pin, userId);
@@ -36,6 +59,16 @@ export default function LockScreen({ onOpenPairing }) {
 
   return (
     <div className="fixed inset-0 z-[250] bg-slate-50 text-slate-800 font-sans overflow-hidden flex flex-col">
+      {/* Botón flotante para instalar PWA */}
+      {deferredPrompt && (
+        <button
+          onClick={handleInstallClick}
+          className="absolute top-4 right-4 z-[280] px-4 py-2.5 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md hover:bg-white dark:hover:bg-slate-900 border border-slate-200/50 dark:border-slate-850 rounded-2xl text-[10px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-200 flex items-center gap-2.5 shadow-lg shadow-slate-200/40 dark:shadow-none hover:scale-[1.02] active:scale-95 transition-all animate-in fade-in slide-in-from-top-4 duration-300 select-none cursor-pointer"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-500 animate-bounce"><rect x="2" y="3" width="20" height="14" rx="2" ry="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /><polyline points="17 10 12 15 7 10" /><line x1="12" y1="15" x2="12" y2="5" /></svg>
+          <span>Instalar Aplicación POS</span>
+        </button>
+      )}
       {/* Background glow */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
         <div className="absolute -top-[30%] -left-[15%] w-[600px] h-[600px] bg-sky-500/10 rounded-full blur-[120px]" />

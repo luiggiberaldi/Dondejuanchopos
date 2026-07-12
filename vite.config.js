@@ -60,9 +60,9 @@ export default defineConfig(({ mode }) => {
         ],
       },
       manifest: {
-        name: 'Precios Al Día — Bodegas',
-        short_name: 'PreciosAlDía Bodegas',
-        description: 'Punto de venta bimoneda y gestor de inventario para bodegas de Venezuela',
+        name: 'Donde Juancho — POS & Licorería',
+        short_name: 'Donde Juancho',
+        description: 'Punto de venta bimoneda y sistema de inventario para Donde Juancho POS & Licorería',
         theme_color: '#193275',
         background_color: '#193275',
         display: 'standalone',
@@ -74,6 +74,22 @@ export default defineConfig(({ mode }) => {
           { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' },
           { src: 'pwa-maskable-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
           { src: 'pwa-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
+        screenshots: [
+          {
+            src: 'logo.png',
+            sizes: '512x512',
+            type: 'image/png',
+            form_factor: 'wide',
+            label: 'Donde Juancho POS & Licorería'
+          },
+          {
+            src: 'logo.png',
+            sizes: '512x512',
+            type: 'image/png',
+            form_factor: 'narrow',
+            label: 'Donde Juancho POS & Licorería'
+          }
         ],
         shortcuts: [
           { name: 'Vender Rápido', short_name: 'Vender', description: 'Abrir directamente el Punto de Venta', url: '/?view=ventas', icons: [{ src: 'pwa-192x192.png', sizes: '192x192' }] },
