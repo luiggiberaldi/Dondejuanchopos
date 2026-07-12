@@ -4,6 +4,7 @@ import { useMonitorSync } from '../hooks/useMonitorSync';
 import { storageService } from '../utils/storageService';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { showToast } from '../components/Toast';
+import SupervisorRateModal from '../components/SupervisorRateModal';
 import { 
     TrendingUp, Package, Coins, Users, LogOut, 
     RefreshCw, Wifi, WifiOff, Clock, FileText, DollarSign,
@@ -32,13 +33,14 @@ function getMethodIcon(methodId) {
 
 export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) {
     const pairedDeviceId = localStorage.getItem('dj_paired_device_id');
-    const { products, effectiveRate: bcvRate, copEnabled, tasaCop } = useProductContext();
+    const { products, effectiveRate: bcvRate, copEnabled, tasaCop, rates } = useProductContext();
     const { isConnected, lastSync, loading: syncLoading, triggerRefresh } = useMonitorSync(pairedDeviceId);
 
     const [sales, setSales] = useState([]);
     const [activeCashier, setActiveCashier] = useState({ nombre: 'Ninguno', rol: '' });
     const [loadingData, setLoadingData] = useState(true);
     const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+    const [showRateModal, setShowRateModal] = useState(false);
     const [viewTab, setViewTab] = useState('activo'); // 'activo' o 'cierres'
     const [selectedCierreId, setSelectedCierreId] = useState(null);
     const [searchTermInventario, setSearchTermInventario] = useState('');
@@ -470,6 +472,14 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                         title="Actualizar Datos"
                     >
                         <RefreshCw size={16} className={syncLoading ? "animate-spin text-emerald-500" : ""} />
+                    </button>
+
+                    <button 
+                        onClick={() => { triggerHaptic?.(); setShowRateModal(true); }}
+                        className="p-2.5 rounded-2xl text-slate-400 hover:text-brand hover:bg-brand-light border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-brand transition-colors"
+                        title="Cambiar Tasa Remota"
+                    >
+                        <TrendingUp size={16} />
                     </button>
 
                     <button 
@@ -1321,6 +1331,14 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                     </div>
                 </div>
             )}
+            {/* Modal de Cambio de Tasa */}
+            <SupervisorRateModal
+                isOpen={showRateModal}
+                onClose={() => setShowRateModal(false)}
+                rates={rates}
+                primaryDeviceId={pairedDeviceId}
+                triggerHaptic={triggerHaptic}
+            />
         </div>
     );
 }

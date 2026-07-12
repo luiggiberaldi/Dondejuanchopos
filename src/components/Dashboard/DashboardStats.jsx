@@ -14,7 +14,14 @@ export default function DashboardStats({
     triggerHaptic, onDailyClose,
     copEnabled, copPrimary, tasaCop,
     onTasaClick,
+    rateMode,
 }) {
+    const getRateLabel = () => {
+        if (rateMode === 'bcv') return 'Tasa BCV';
+        if (rateMode === 'euro') return 'Tasa Euro BCV';
+        if (rateMode === 'usdt') return 'Tasa Paralelo';
+        return 'Tasa Manual';
+    };
     return (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
 
@@ -150,7 +157,7 @@ export default function DashboardStats({
                     </div>
                 </div>
                 <p className="text-2xl font-outfit font-semibold text-slate-800 dark:text-white leading-none">{formatBs(bcvRate)} <span className="text-xs font-bold text-slate-400">Bs/$</span></p>
-                <p className="text-[11px] text-slate-400 mt-0.5">Tasa BCV</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">{getRateLabel()}</p>
                 {copEnabled && tasaCop > 0 && (
                     <>
                         <div className="border-t border-slate-100 dark:border-slate-800 my-2"></div>

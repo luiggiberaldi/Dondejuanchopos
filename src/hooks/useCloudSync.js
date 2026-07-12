@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import localforage from 'localforage';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { useAuthStore } from './store/useAuthStore';
+import { useSupervisorCommands } from './useSupervisorCommands';
 
 const SYNC_KEYS = [
     'bodega_products_v1',
@@ -167,6 +168,9 @@ async function _applyFromCloud(docId, collection, payload) {
 // ─── Hook de React ─────────────────────────────────────────────────────────
 export function useCloudSync(deviceId) {
     const isInitialized = useRef(false);
+    
+    // Escuchar comandos del supervisor en tiempo real
+    useSupervisorCommands(deviceId);
 
     useEffect(() => {
         if (!supabaseCloud || !deviceId) {

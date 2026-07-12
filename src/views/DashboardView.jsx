@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { processVoidSale } from '../utils/voidSaleProcessor';
 import { storageService } from '../utils/storageService';
 import { showToast } from '../components/Toast';
-import { BarChart3, TrendingUp, Package, AlertTriangle, ShoppingCart, Store, Users, Settings, LogOut } from 'lucide-react';
+import { BarChart3, TrendingUp, Package, AlertTriangle, ShoppingCart, Store, Users, Settings, LogOut, Bell, BellOff } from 'lucide-react';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
 import DashboardStats from '../components/Dashboard/DashboardStats';
 import DashboardPaymentBreakdown from '../components/Dashboard/DashboardPaymentBreakdown';
@@ -38,7 +38,7 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
     const isAdmin = true;
     const isCajero = useAuthStore(s => s.requireLogin && s.usuarioActivo?.rol === 'CAJERO');
     const { log: auditLog } = useAudit();
-    const { products, setProducts, isLoadingProducts, effectiveRate: bcvRate, copEnabled, copPrimary, tasaCop } = useProductContext();
+    const { products, setProducts, isLoadingProducts, effectiveRate: bcvRate, copEnabled, copPrimary, tasaCop, rateMode } = useProductContext();
     const { loadCart } = useCart();
     
     // Auth actions
@@ -52,6 +52,58 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
 
     // UI state
     const [showMonitor, setShowMonitor] = useState(false);
+    const [notificationsEnabled, setNotificationsEnabled] = useState(() => {
+        if (typeof window !== 'undefined' && 'Notification' in window) {
+            return Notification.permission === 'granted';
+        }
+        return false;
+    });
+
+    useEffect(() => {
+        if (typeof window !== 'undefined' && 'Notification' in window) {
+            const checkPermission = () => {
+                setNotificationsEnabled(Notification.permission === 'granted');
+            };
+            const interval = setInterval(checkPermission, 3000);
+            return () => clearInterval(interval);
+        }
+    }, []);
+
+    const toggleNotifications = () => {
+        triggerHaptic && triggerHaptic();
+        
+        if (!('Notification' in window)) {
+            showToast('Tu navegador no soporta notificaciones de sistema', 'error');
+            return;
+        }
+
+        if (Notification.permission === 'granted') {
+            showToast('Las notificaciones del sistema ya están activadas 🔔', 'info');
+            setNotificationsEnabled(true);
+        } else if (Notification.permission === 'denied') {
+            showToast('Notificaciones bloqueadas. Actívalas en la configuración de la página.', 'warning');
+            setNotificationsEnabled(false);
+        } else {
+            // Solicitar permisos de notificación nativos por primera vez
+            Notification.requestPermission().then(permission => {
+                const isGranted = permission === 'granted';
+                setNotificationsEnabled(isGranted);
+                if (isGranted) {
+                    showToast('¡Notificaciones del sistema activadas! 🔔', 'success');
+                    try {
+                        new Notification('Donde Juancho POS', {
+                            body: 'Las notificaciones del sistema están listas y activas.',
+                            icon: '/apple-touch-icon.png'
+                        });
+                    } catch (e) {}
+                } else {
+                    showToast('Permiso de notificaciones denegado', 'error');
+                }
+            }).catch(() => {
+                showToast('Error al solicitar permisos de notificación', 'error');
+            });
+        }
+    };
     const { isOnline } = useOfflineQueue();
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [deleteConfirmText, setDeleteConfirmText] = useState('');
@@ -486,6 +538,19 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
 
                 {/* Lado Derecho en PC: Reloj, fecha y Sincronización */}
                 <div className="hidden md:flex items-center justify-end gap-4">
+                    {/* Botón Activar/Silenciar Notificaciones Visuales */}
+                    <button
+                        onClick={toggleNotifications}
+                        className={`flex items-center justify-center p-2 rounded-xl transition-all duration-200 active:scale-95 cursor-pointer ${
+                            notificationsEnabled 
+                                ? 'text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/20' 
+                                : 'text-slate-400 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800/50'
+                        }`}
+                        title={notificationsEnabled ? 'Desactivar notificaciones de tasa' : 'Activar notificaciones de tasa'}
+                    >
+                        {notificationsEnabled ? <Bell size={18} strokeWidth={2} /> : <BellOff size={18} strokeWidth={2} />}
+                    </button>
+
                     {/* Botón de Cerrar Sesión en PC (izquierda de hora y fecha) */}
                     {requireLogin && usuarioActivo && (
                         <button
@@ -580,6 +645,7 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
                 todayExpensesUsd={todayExpensesUsd}
                 todayProfit={todayProfit}
                 bcvRate={bcvRate}
+                rateMode={rateMode}
                 todayCashFlow={todayCashFlow}
                 totalDeudas={totalDeudas}
                 showTopDeudas={showTopDeudas}

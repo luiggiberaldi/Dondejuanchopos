@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
     Database, Palette, Fingerprint, Upload, Download, Share2,
-    Check, ChevronRight, Trash2, AlertTriangle, FileText, ZoomIn, ZoomOut, RotateCcw, QrCode
+    Check, ChevronRight, Trash2, AlertTriangle, FileText, ZoomIn, ZoomOut, RotateCcw, QrCode, Volume2
 } from 'lucide-react';
 import { SectionCard } from '../../SettingsShared';
 import AuditLogViewer from '../AuditLogViewer';
 import PairingManager from '../PairingManager';
 import QRCode from 'qrcode';
+import { soundService } from '../../../utils/soundService';
 
 export default function SettingsTabSistema({
     theme, toggleTheme,
@@ -22,6 +23,24 @@ export default function SettingsTabSistema({
         const saved = parseInt(localStorage.getItem('ui_scale'));
         return saved >= 60 && saved <= 140 ? saved : 100;
     });
+
+    const [soundsEnabled, setSoundsEnabled] = useState(() => localStorage.getItem('dj_sound_enabled') !== 'false');
+
+    const handleToggleSounds = () => {
+        setSoundsEnabled(prev => {
+            const next = !prev;
+            localStorage.setItem('dj_sound_enabled', String(next));
+            triggerHaptic?.();
+            
+            // Si activa, hacer una prueba de sonido de éxito
+            if (next) {
+                setTimeout(() => {
+                    soundService.playSuccess();
+                }, 100);
+            }
+            return next;
+        });
+    };
     
     const qrCanvasRef = useRef(null);
 
@@ -159,6 +178,65 @@ export default function SettingsTabSistema({
                                 <RotateCcw size={12} /> Restablecer
                             </button>
                         )}
+                    </div>
+                </div>
+            </SectionCard>
+
+            {/* Sonidos del Sistema */}
+            <SectionCard icon={Volume2} title="Sonidos del Sistema" subtitle="Efectos de audio interactivos" iconColor="text-brand">
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Efectos de Sonido</p>
+                            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Sonidos para cobros, agregar al carrito, alertas, etc.</p>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                            <input 
+                                type="checkbox" 
+                                checked={soundsEnabled}
+                                onChange={handleToggleSounds}
+                                className="sr-only peer"
+                            />
+                            <div className="w-11 h-6 bg-slate-200 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#193275]"></div>
+                        </label>
+                    </div>
+
+                    <div className="border-t border-slate-100 dark:border-slate-800/80 pt-3">
+                        <p className="text-[10px] text-slate-400 dark:text-slate-500 font-black uppercase tracking-wider mb-2">Probar Efectos</p>
+                        <div className="grid grid-cols-2 gap-2">
+                            <button 
+                                onClick={() => { triggerHaptic?.(); soundService.playSuccess(); }}
+                                disabled={!soundsEnabled}
+                                className="py-2.5 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200/50 dark:border-slate-700 rounded-xl text-[10px] font-black text-slate-650 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-30 active:scale-95 transition-all text-left flex items-center gap-1.5"
+                            >
+                                <span>🎉</span>
+                                <span>Éxito Cobro</span>
+                            </button>
+                            <button 
+                                onClick={() => { triggerHaptic?.(); soundService.playCartAdd(); }}
+                                disabled={!soundsEnabled}
+                                className="py-2.5 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200/50 dark:border-slate-700 rounded-xl text-[10px] font-black text-slate-650 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-30 active:scale-95 transition-all text-left flex items-center gap-1.5"
+                            >
+                                <span>🛒</span>
+                                <span>Carrito Click</span>
+                            </button>
+                            <button 
+                                onClick={() => { triggerHaptic?.(); soundService.playError(); }}
+                                disabled={!soundsEnabled}
+                                className="py-2.5 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200/50 dark:border-slate-700 rounded-xl text-[10px] font-black text-slate-650 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-30 active:scale-95 transition-all text-left flex items-center gap-1.5"
+                            >
+                                <span>⚠️</span>
+                                <span>Error Buzz</span>
+                            </button>
+                            <button 
+                                onClick={() => { triggerHaptic?.(); soundService.playAlert(); }}
+                                disabled={!soundsEnabled}
+                                className="py-2.5 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200/50 dark:border-slate-700 rounded-xl text-[10px] font-black text-slate-650 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-30 active:scale-95 transition-all text-left flex items-center gap-1.5"
+                            >
+                                <span>📢</span>
+                                <span>Supervisor Tasa</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </SectionCard>
