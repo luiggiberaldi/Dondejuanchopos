@@ -12,6 +12,8 @@ import { ShoppingCart, X, DollarSign, CheckCircle2 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useProductContext } from '../context/ProductContext';
 
+import { useAuthStore } from '../hooks/store/useAuthStore';
+
 // Components
 import SalesHeader from '../components/Sales/SalesHeader';
 import SearchBar from '../components/Sales/SearchBar';
@@ -646,8 +648,24 @@ export default function SalesView({ triggerHaptic, isActive }) {
 
                                 {/* Tasa de Referencia Flotante (estilo Listo POS 2026) — solo visible en desktop (lg:flex) */}
                                 <button
-                                    onClick={() => setShowRateConfig(v => !v)}
-                                    className="hidden lg:flex shrink-0 flex-col items-center justify-center bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl px-5 border border-slate-100 dark:border-slate-800 shadow-sm hover:border-brand/40 transition-all min-w-[100px] gap-0.5"
+                                    onClick={() => {
+                                        const activeUser = useAuthStore.getState().usuarioActivo;
+                                        const allowCajeroEditRate = localStorage.getItem('allow_cajero_edit_rate') === 'true';
+                                        const isCajero = activeUser?.rol === 'CAJERO';
+                                        if (isCajero && !allowCajeroEditRate) {
+                                            showToast('Acceso denegado: Solo administradores pueden cambiar la tasa.', 'warning');
+                                            return;
+                                        }
+                                        setShowRateConfig(v => !v);
+                                    }}
+                                    className={`hidden lg:flex shrink-0 flex-col items-center justify-center bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl px-5 border border-slate-100 dark:border-slate-800 shadow-sm transition-all min-w-[100px] gap-0.5 ${
+                                        (() => {
+                                            const activeUser = useAuthStore.getState().usuarioActivo;
+                                            const allowCajeroEditRate = localStorage.getItem('allow_cajero_edit_rate') === 'true';
+                                            const isCajero = activeUser?.rol === 'CAJERO';
+                                            return !(isCajero && !allowCajeroEditRate);
+                                        })() ? 'hover:border-brand/40 cursor-pointer' : 'cursor-not-allowed opacity-80'
+                                    }`}
                                 >
                                     <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
                                         {copEnabled && copPrimary ? 'TASA COP' : 'TASA BCV'}

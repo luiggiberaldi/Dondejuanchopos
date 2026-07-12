@@ -100,7 +100,16 @@ export default function SalesHeader({
                     <div>
                         <button
                             onClick={handleRateToggle}
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border transition-all bg-slate-50 border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 active:scale-95 dark:bg-slate-800 dark:border-slate-700"
+                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border transition-all ${
+                                (() => {
+                                    const activeUser = useAuthStore.getState().usuarioActivo;
+                                    const allowCajeroEditRate = localStorage.getItem('allow_cajero_edit_rate') === 'true';
+                                    const isCajero = activeUser?.rol === 'CAJERO';
+                                    return !(isCajero && !allowCajeroEditRate);
+                                })()
+                                    ? 'bg-slate-50 border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 active:scale-95 dark:bg-slate-800 dark:border-slate-700 cursor-pointer'
+                                    : 'bg-slate-100 border-slate-200 dark:bg-slate-900 dark:border-slate-800 cursor-not-allowed opacity-80'
+                            }`}
                         >
                             <RefreshCw size={12} className={showRateConfig ? (isCopMode ? "text-amber-500" : "text-emerald-500") : "text-slate-400"} />
                             {isCopMode
