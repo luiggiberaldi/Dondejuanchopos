@@ -420,7 +420,7 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
             )}
 
             {/* Header / Top Bar adaptativo */}
-            <div className={`sticky top-0 z-20 flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-5 pb-3 pt-2 transition-all duration-200 -mx-3 sm:-mx-5 lg:-mx-6 xl:-mx-8 px-3 sm:px-5 lg:px-6 xl:px-8 bg-surface-50/95 dark:bg-surface-950/95 backdrop-blur-md border-b ${isScrolled ? 'border-slate-200/80 dark:border-slate-800/80 shadow-md' : 'border-slate-100 dark:border-slate-800/60'}`}>
+            <div className={`sticky top-0 z-20 flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-3 md:mb-5 py-1.5 md:pb-3 md:pt-2 transition-all duration-200 -mx-3 sm:-mx-5 lg:-mx-6 xl:-mx-8 px-3 sm:px-5 lg:px-6 xl:px-8 bg-surface-50/95 dark:bg-surface-950/95 backdrop-blur-md border-b ${isScrolled ? 'border-slate-200/80 dark:border-slate-800/80 shadow-md' : 'border-slate-100 dark:border-slate-800/60'}`}>
                 {/* Lado Izquierdo: Logo (centrado en móviles con el doble de tamaño, alineado a la izquierda en PC) */}
                 <div className="w-full flex justify-center md:w-auto md:justify-start relative items-center">
                     {/* Botón de Cerrar Sesión — izquierda absoluta en móvil (oculto en PC) */}
@@ -443,7 +443,7 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
                         <img 
                             src={theme === 'dark' ? './logodark.png' : './logo.png'} 
                             alt="Donde Juancho" 
-                            className="h-[123px] md:h-[150px] w-auto object-contain drop-shadow-sm md:-my-[38px] translate-y-[2px] md:translate-y-[4px]" 
+                            className="h-14 md:h-[150px] w-auto object-contain drop-shadow-sm md:-my-[38px] md:translate-y-[4px]" 
                         />
                     </div>
                     {/* Estatus Sync a la derecha absoluta en móvil, relativo normal en PC */}
