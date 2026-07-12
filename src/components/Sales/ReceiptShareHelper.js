@@ -118,7 +118,7 @@ export function buildReceiptWhatsAppUrl(receipt, currentRate) {
         headerBlocks.push(sep2);
         headerBlocks.push(`COMPROBANTE DE VENTA`);
     } else {
-        headerBlocks.push(`COMPROBANTE DE VENTA | PRECIOS AL DIA`);
+        headerBlocks.push(`COMPROBANTE DE VENTA | DONDE JUANCHO`);
     }
 
     const text = [
@@ -141,7 +141,7 @@ export function buildReceiptWhatsAppUrl(receipt, currentRate) {
         `Gracias por su compra!`,
         ``,
         `_Este documento no constituye factura fiscal. Comprobante de control interno._`,
-        `Precios Al Dia - Sistema POS`,
+        `Donde Juancho - Sistema POS`,
     ].filter(Boolean).join('\n');
 
     const formatVzlaPhone = (phone) => {

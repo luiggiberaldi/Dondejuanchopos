@@ -117,7 +117,7 @@ export async function generateDailyClosePDF({
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(14);
             doc.setTextColor(...BLUE);
-            doc.text('PRECIOS AL DÍA BODEGA', M + 45, y + 8);
+            doc.text('DONDE JUANCHO BODEGA', M + 45, y + 8);
 
             doc.setFontSize(8.5);
             doc.setFont('helvetica', 'normal');

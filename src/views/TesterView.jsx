@@ -116,7 +116,7 @@ export const TesterView = ({ onBack }) => {
     }, []);
 
     const handleCopyAll = useCallback(() => {
-        let text = '═══ AUDITOR FINANCIERO v5.0 — Precios al Día ═══\n\n';
+        let text = '═══ AUDITOR FINANCIERO v5.0 — Donde Juancho ═══\n\n';
         text += logs.map(l => `[${l.time}] ${l.msg}`).join('\n');
 
         if (summary?.suites?.length) {
@@ -451,7 +451,7 @@ export const TesterView = ({ onBack }) => {
 
             {/* ── Footer ── */}
             <p className="text-center text-[7px] sm:text-[9px] text-slate-700 font-mono uppercase pb-20 mt-4">
-                Precios al Día — Bodega • Auditor Financiero v6.1 • {new Date().getFullYear()} • 23 Suites Deterministas
+                Donde Juancho — Bodega • Auditor Financiero v6.1 • {new Date().getFullYear()} • 23 Suites Deterministas
             </p>
         </div>
     );

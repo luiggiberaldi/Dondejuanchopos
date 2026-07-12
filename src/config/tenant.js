@@ -52,7 +52,7 @@ export const getTenantTheme = () => {
         case TENANTS.REVENDEDOR:
         default:
             return {
-                appName: 'Precios al Día',
+                appName: 'Donde Juancho',
                 primaryColor: 'brand',
                 themeMode: 'dark', // Legacy preference
                 features: {

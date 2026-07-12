@@ -674,7 +674,7 @@ function buildCustomerStatementWhatsAppUrl(customer, sales, bcvRate) {
         ? customer.name.trim().toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
         : '';
         
-    let msg = `*ESTADO DE CUENTA - PRECIOS AL DÍA*\n`;
+    let msg = `*ESTADO DE CUENTA - DONDE JUANCHO*\n`;
     msg += `----------------------------------\n`;
     msg += `*Cliente:* ${formattedName}\n`;
     if (customer.documentId) msg += `*C.I:* ${customer.documentId}\n`;

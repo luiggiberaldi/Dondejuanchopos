@@ -64,7 +64,7 @@ function TransactionRow({ sale: s, bcvRate, isExpanded, onToggle, onVoidSale, on
     const handleShare = (e) => {
         e.stopPropagation();
         const useCop = copEnabled && copPrimary && tasaCop > 0;
-        let text = `*COMPROBANTE | PRECIOS AL DIA*\n`;
+        let text = `*COMPROBANTE | DONDE JUANCHO*\n`;
         text += `Orden: #${s.id.substring(0, 6).toUpperCase()}\n`;
         text += `Fecha: ${d.toLocaleString('es-VE')}\n`;
         text += `================================\n`;

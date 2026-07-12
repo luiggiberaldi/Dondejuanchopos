@@ -56,8 +56,11 @@ export async function generateTicketPDF(sale, bcvRate) {
         const img = new Image();
         img.src = './logo.png';
         await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
-        const logoW = 50;
-        const logoH = 12; // ~4:1 aspect ratio matching original
+        const originalW = img.naturalWidth || img.width || 1;
+        const originalH = img.naturalHeight || img.height || 1;
+        const aspectRatio = originalW / originalH;
+        const logoW = 40;
+        const logoH = logoW / aspectRatio;
         doc.addImage(img, 'PNG', CX - logoW / 2, y, logoW, logoH);
         y += logoH + 4;
     } catch (_) { y += 2; }

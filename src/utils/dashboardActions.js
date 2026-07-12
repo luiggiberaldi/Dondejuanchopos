@@ -16,7 +16,7 @@ export function shareSaleWhatsApp(sale, saleCustomer, bcvRate) {
     const isCop = sale.copEnabled && sale.tasaCop > 0;
     // Display de USD: round2 + template (no toFixed).
     const fmtUsd = (v) => isCop ? `USD ${round2(v)}` : `$${round2(v)}`;
-    let text = `*COMPROBANTE DE VENTA | PRECIOS AL DÍA*\n`;
+    let text = `*COMPROBANTE DE VENTA | DONDE JUANCHO*\n`;
     text += `--------------------------------\n`;
     text += `*Orden:* #${sale.id.substring(0, 6).toUpperCase()}\n`;
     text += `Cliente: ${sale.customerName || 'Consumidor Final'}\n`;
