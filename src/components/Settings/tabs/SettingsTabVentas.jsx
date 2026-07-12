@@ -6,6 +6,7 @@ import CasheaIcon from '../../CasheaIcon';
 
 export default function SettingsTabVentas({
     allowNegativeStock, setAllowNegativeStock,
+    allowCajeroEditRate, setAllowCajeroEditRate,
     forceHeartbeat, showToast, triggerHaptic
 }) {
     const [casheaEnabled, setCasheaEnabled] = useState(localStorage.getItem('cashea_enabled') === 'true');
@@ -28,6 +29,26 @@ export default function SettingsTabVentas({
                             localStorage.setItem('allow_negative_stock', newVal.toString());
                             forceHeartbeat();
                             showToast(newVal ? 'Se permite vender sin stock' : 'No se permite vender sin stock', 'success');
+                            triggerHaptic?.();
+                        }}
+                    />
+                </div>
+            </SectionCard>
+
+            <SectionCard icon={CreditCard} title="Permisos Cambiarios" subtitle="Configuración de tasas" iconColor="text-amber-500">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Cajeros editan tasa</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Permitir a los operadores CAJERO modificar la tasa cambiaria</p>
+                    </div>
+                    <Toggle
+                        enabled={allowCajeroEditRate}
+                        onChange={() => {
+                            const newVal = !allowCajeroEditRate;
+                            setAllowCajeroEditRate(newVal);
+                            localStorage.setItem('allow_cajero_edit_rate', newVal.toString());
+                            forceHeartbeat();
+                            showToast(newVal ? 'Los cajeros ahora pueden cambiar la tasa' : 'Acceso restringido: cajeros no pueden cambiar la tasa', 'success');
                             triggerHaptic?.();
                         }}
                     />

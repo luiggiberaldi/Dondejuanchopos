@@ -423,7 +423,7 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
                 <div className="hidden md:flex items-center justify-center gap-2 bg-slate-100/80 dark:bg-slate-900/50 p-1.5 rounded-2xl border border-slate-200/30 dark:border-slate-800/30">
                     <button 
                         onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('ventas'); } }} 
-                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-[#01696f] dark:text-[#1ce2ee] font-black text-sm shadow-sm transition-all hover:scale-[1.02] active:scale-95 cursor-pointer border border-slate-200/50 dark:border-slate-700/50"
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-800/50 font-bold text-sm transition-all hover:scale-[1.02] active:scale-95 cursor-pointer"
                     >
                         <ShoppingCart size={18} />
                         <span>Vender</span>

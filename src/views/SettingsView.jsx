@@ -107,6 +107,14 @@ export default function SettingsView({ onClose, theme, toggleTheme, triggerHapti
     const [labelOffsetFontSecPrice, setLabelOffsetFontSecPrice] = useState(() => getInitialOffset('label_offset_font_sec_price', '12.5', '0'));
     const [labelOffsetFontFooter, setLabelOffsetFontFooter] = useState(() => getInitialOffset('label_offset_font_footer', '4', '4'));
     const [allowNegativeStock, setAllowNegativeStock] = useState(() => localStorage.getItem('allow_negative_stock') === 'true');
+    const [allowCajeroEditRate, setAllowCajeroEditRate] = useState(() => {
+        const val = localStorage.getItem('allow_cajero_edit_rate');
+        if (val === null) {
+            localStorage.setItem('allow_cajero_edit_rate', 'false');
+            return false;
+        }
+        return val === 'true';
+    });
 
     // Sincronizar offsets en React cuando cambia el modo de moneda o el ancho de papel
     useEffect(() => {
@@ -325,6 +333,7 @@ export default function SettingsView({ onClose, theme, toggleTheme, triggerHapti
                         {activeTab === 'ventas' && (
                             <SettingsTabVentas
                                 allowNegativeStock={allowNegativeStock} setAllowNegativeStock={setAllowNegativeStock}
+                                allowCajeroEditRate={allowCajeroEditRate} setAllowCajeroEditRate={setAllowCajeroEditRate}
                                 forceHeartbeat={forceHeartbeat}
                                 showToast={showToast}
                                 triggerHaptic={triggerHaptic}

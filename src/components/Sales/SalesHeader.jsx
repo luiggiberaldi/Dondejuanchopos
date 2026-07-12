@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { RefreshCw, ShoppingCart, Keyboard } from 'lucide-react';
 import Tooltip from '../Tooltip';
 import { pushLocalSync } from '../../hooks/useCloudSync';
+import { useAuthStore } from '../../hooks/store/useAuthStore';
+import { showToast } from '../Toast';
 
 const formatBs = (n) => new Intl.NumberFormat('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
@@ -44,6 +46,12 @@ export default function SalesHeader({
     }, [showRateConfig, rateMode, customRate, tasaCopManual]);
 
     const handleRateToggle = () => {
+        const activeUser = useAuthStore.getState().usuarioActivo;
+        const allowCajeroEditRate = localStorage.getItem('allow_cajero_edit_rate') === 'true';
+        if (activeUser?.rol === 'CAJERO' && !allowCajeroEditRate) {
+            showToast('Acceso denegado: Solo administradores pueden cambiar la tasa.', 'warning');
+            return;
+        }
         setShowRateConfig(!showRateConfig);
     };
 
