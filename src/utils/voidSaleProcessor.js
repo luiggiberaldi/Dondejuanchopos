@@ -1,7 +1,7 @@
 import { storageService } from './storageService';
 import { logEvent } from '../services/auditService';
 import { useAuthStore } from '../hooks/store/useAuthStore';
-import { divR, subR, sumR, round2 } from './dinero';
+import { divR, subR, sumR, mulR, round2 } from './dinero';
 import { withLock } from './withLock';          // FIN-007: feature detection + fallback.
 import { deepFreeze } from './deepFreeze';      // FIN-008: deep-freeze antes de retornar.
 
@@ -40,17 +40,42 @@ export async function processVoidSale(sale, currentSales, currentProducts) {
         // FIN-027: re-leer productos fresco dentro del lock en vez de usar currentProducts stale.
         const freshProducts = await storageService.getItem(PRODUCTS_KEY, currentProducts || []);
         let updatedProducts = freshProducts;
+        const restauracionesMap = {}; // { [productId]: totalQtyToRestore }
+        const addRestauracion = (productId, qtyToRestore) => {
+            restauracionesMap[productId] = sumR(restauracionesMap[productId] || 0, qtyToRestore);
+        };
+
         if (sale.items && sale.items.length > 0) {
+            sale.items.forEach(item => {
+                const itemId = item._originalId || item.id;
+                const itemQty = item.qty;
+                const isWeight = item.isWeight;
+                const isUnitMode = item._mode === 'unit';
+                const unitsPerPackage = item._unitsPerPackage || 1;
+
+                let physicalQty = itemQty;
+                if (isWeight) {
+                    physicalQty = itemQty;
+                } else if (isUnitMode) {
+                    physicalQty = divR(itemQty, unitsPerPackage);
+                }
+
+                const prodObj = freshProducts.find(p => p.id === itemId);
+                if (prodObj && prodObj.isCombo && prodObj.comboItems?.length > 0) {
+                    prodObj.comboItems.forEach(ci => {
+                        const compRestoration = mulR(ci.qty, physicalQty);
+                        addRestauracion(ci.productId, compRestoration);
+                    });
+                } else {
+                    addRestauracion(itemId, physicalQty);
+                }
+            });
+
             updatedProducts = freshProducts.map(p => {
-                // Un producto puede estar múltiples veces (como unidad y paquete)
-                const itemsInSale = sale.items.filter(i => (i._originalId || i.id) === p.id);
-                if (itemsInSale.length > 0) {
-                    const totalToRestore = itemsInSale.reduce((sum, item) => {
-                        if (item.isWeight) return sumR(sum, item.qty);
-                        if (item._mode === 'unit') return sumR(sum, divR(item.qty, item._unitsPerPackage || 1));
-                        return sumR(sum, item.qty);
-                    }, 0);
-                    return { ...p, stock: sumR(p.stock || 0, totalToRestore) };
+                const restoration = restauracionesMap[p.id];
+                if (restoration && restoration > 0) {
+                    if (p.isCombo) return p; // Los combos no tienen stock fisico directo
+                    return { ...p, stock: sumR(p.stock || 0, restoration) };
                 }
                 return p;
             });

@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { processVoidSale } from '../utils/voidSaleProcessor';
 import { storageService } from '../utils/storageService';
 import { showToast } from '../components/Toast';
-import { BarChart3, TrendingUp, Package, AlertTriangle, ShoppingCart, Store, Users, Settings } from 'lucide-react';
+import { BarChart3, TrendingUp, Package, AlertTriangle, ShoppingCart, Store, Users, Settings, LogOut } from 'lucide-react';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
 import DashboardStats from '../components/Dashboard/DashboardStats';
 import DashboardPaymentBreakdown from '../components/Dashboard/DashboardPaymentBreakdown';
@@ -40,6 +40,11 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
     const { log: auditLog } = useAudit();
     const { products, setProducts, isLoadingProducts, effectiveRate: bcvRate, copEnabled, copPrimary, tasaCop } = useProductContext();
     const { loadCart } = useCart();
+    
+    // Auth actions
+    const logout = useAuthStore(s => s.logout);
+    const requireLogin = useAuthStore(s => s.requireLogin);
+    const usuarioActivo = useAuthStore(s => s.usuarioActivo);
 
     // Data loading
     const { sales, setSales, customers, setCustomers, isLoadingLocal, refreshData } = useDashboardData(isActive, requestPermission);
@@ -164,6 +169,13 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
 
     const recentSales = useMemo(() => getRecentSales(selectedChartDate), [getRecentSales, selectedChartDate]);
 
+    // Limpiar filtro de fecha al salir de la pestaña de Inicio
+    useEffect(() => {
+        if (!isActive) {
+            setSelectedChartDate(null);
+        }
+    }, [isActive]);
+
     // Notificar cierre de caja pendiente (>7pm con ventas o cobros sin cerrar)
     useEffect(() => {
         if (todayCashFlow.length > 0) {
@@ -196,6 +208,9 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
             setCustomers(updatedCustomers);
             showToast('Venta anulada con éxito', 'success');
             setRecycleOffer(sale);
+            
+            // Notificar a toda la app para refrescar métricas
+            window.dispatchEvent(new CustomEvent('sales-updated'));
         } catch (error) {
             console.error('Error anulando venta:', error);
             showToast('Hubo un problema anulando la venta', 'error');
@@ -404,17 +419,28 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
 
             {/* Header / Top Bar adaptativo */}
             <div className={`sticky top-0 z-20 flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-5 pb-3 pt-2 transition-all duration-200 -mx-3 sm:-mx-5 lg:-mx-6 xl:-mx-8 px-3 sm:px-5 lg:px-6 xl:px-8 bg-surface-50/95 dark:bg-surface-950/95 backdrop-blur-md border-b ${isScrolled ? 'border-slate-200/80 dark:border-slate-800/80 shadow-md' : 'border-slate-100 dark:border-slate-800/60'}`}>
-                {/* Lado Izquierdo: Logo (alineado a la izquierda en PC, centrado en móviles) */}
-                <div className="flex items-center justify-between md:justify-start gap-4">
-                    <div className="flex items-center gap-3">
+                {/* Lado Izquierdo: Logo (centrado en móviles con el doble de tamaño, alineado a la izquierda en PC) */}
+                <div className="w-full flex justify-center md:w-auto md:justify-start relative items-center">
+                    {/* Botón de Cambiar Sesión a la izquierda absoluta en móvil (oculto en PC) */}
+                    {requireLogin && usuarioActivo && (
+                        <button
+                            onClick={() => { triggerHaptic && triggerHaptic(); logout(); }}
+                            className="absolute left-0 top-1/2 -translate-y-1/2 md:hidden w-10 h-10 rounded-xl bg-slate-100/70 dark:bg-slate-800/60 border border-slate-200/50 dark:border-slate-700/50 flex items-center justify-center text-slate-500 dark:text-slate-400 shadow-sm active:scale-90 hover:bg-slate-200/50 dark:hover:bg-slate-800/80 transition-all cursor-pointer"
+                            title={`Cerrar sesión (${usuarioActivo.nombre})`}
+                        >
+                            <LogOut size={16} strokeWidth={2.5} className="text-slate-500 dark:text-slate-350 translate-x-[0.5px]" />
+                        </button>
+                    )}
+
+                    <div className="flex items-center justify-center gap-3">
                         <img 
                             src={theme === 'dark' ? './logodark.png' : './logo.png'} 
                             alt="Donde Juancho" 
-                            className="h-14 md:h-[150px] w-auto object-contain drop-shadow-sm -my-2 md:-my-[38px]" 
+                            className="h-28 md:h-[150px] w-auto object-contain drop-shadow-sm -my-6 md:-my-[38px] transform translate-y-[2px] md:translate-y-[4px]" 
                         />
                     </div>
-                    {/* Estatus Sync a la derecha sólo en móvil */}
-                    <div className="md:hidden">
+                    {/* Estatus Sync a la derecha absoluta en móvil, relativo normal en PC */}
+                    <div className="absolute right-0 top-1/2 -translate-y-1/2 md:relative md:right-auto md:top-auto md:translate-y-0 md:hidden">
                         <SyncStatus />
                     </div>
                 </div>
@@ -453,6 +479,17 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
 
                 {/* Lado Derecho en PC: Reloj, fecha y Sincronización */}
                 <div className="hidden md:flex items-center justify-end gap-4">
+                    {/* Botón de Cerrar Sesión en PC (izquierda de hora y fecha) */}
+                    {requireLogin && usuarioActivo && (
+                        <button
+                            onClick={() => { triggerHaptic && triggerHaptic(); logout(); }}
+                            className="flex items-center justify-center p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors active:scale-95 cursor-pointer"
+                            title={`Cerrar sesión (${usuarioActivo.nombre})`}
+                        >
+                            <LogOut size={18} strokeWidth={2} />
+                        </button>
+                    )}
+
                     <div className="flex flex-col items-end gap-0.5">
                         <span className="text-lg font-display font-black text-slate-800 dark:text-white leading-none">
                             {timeString}
@@ -470,28 +507,28 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
             <div className="grid grid-cols-4 gap-2 mb-5 md:hidden">
                 <button 
                     onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('ventas'); } }} 
-                    className="bg-[#01696f] hover:bg-[#00575d] dark:bg-[#1ce2ee] dark:hover:bg-[#0bc2cd] text-white dark:text-slate-950 rounded-xl p-2.5 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
+                    className="bg-brand hover:bg-brand-dark text-white dark:text-slate-950 rounded-xl p-2.5 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
                 >
                     <ShoppingCart size={18} />
                     <span className="text-[10px] font-bold">Vender</span>
                 </button>
                 <button 
                     onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('catalogo'); } }} 
-                    className="bg-[#01696f] hover:bg-[#00575d] dark:bg-[#1ce2ee] dark:hover:bg-[#0bc2cd] text-white dark:text-slate-950 rounded-xl p-2.5 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
+                    className="bg-brand hover:bg-brand-dark text-white dark:text-slate-950 rounded-xl p-2.5 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
                 >
                     <Store size={18} />
                     <span className="text-[10px] font-bold">Inventario</span>
                 </button>
                 <button 
                     onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('clientes'); } }} 
-                    className="bg-[#01696f] hover:bg-[#00575d] dark:bg-[#1ce2ee] dark:hover:bg-[#0bc2cd] text-white dark:text-slate-950 rounded-xl p-2.5 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
+                    className="bg-brand hover:bg-brand-dark text-white dark:text-slate-950 rounded-xl p-2.5 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
                 >
                     <Users size={18} />
                     <span className="text-[10px] font-bold">Clientes</span>
                 </button>
                 <button 
                     onClick={() => { triggerHaptic(); setShowMonitor(true); }} 
-                    className="bg-[#01696f] hover:bg-[#00575d] dark:bg-[#1ce2ee] dark:hover:bg-[#0bc2cd] text-white dark:text-slate-950 rounded-xl p-2.5 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
+                    className="bg-brand hover:bg-brand-dark text-white dark:text-slate-950 rounded-xl p-2.5 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
                 >
                     <TrendingUp size={18} />
                     <span className="text-[10px] font-bold">Monitor</span>
@@ -649,6 +686,9 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
                 sales={sales}
                 recentSales={recentSales}
                 bcvRate={bcvRate}
+                selectedDate={selectedChartDate}
+                selectedChartDate={selectedChartDate}
+                onClearDateFilter={() => setSelectedChartDate(null)}
                 totalSalesCount={sales.filter(s => s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA').length}
                 isAdmin={!isCajero}
                 onVoidSale={handleVoidSale}

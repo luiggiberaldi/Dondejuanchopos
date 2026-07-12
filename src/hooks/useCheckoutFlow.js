@@ -51,6 +51,9 @@ export function useCheckoutFlow({
         notifyLowStock(result.updatedProducts);
         notifySaleComplete && notifySaleComplete(result.sale);
 
+        // Despachar evento para que el Dashboard se entere en caliente
+        window.dispatchEvent(new CustomEvent('sales-updated'));
+
         setCart([]);
         setShowCheckout(false);
         setSelectedCustomerId('');
@@ -113,6 +116,9 @@ export function useCheckoutFlow({
             setIsAperturaOpen(false);
             showToast('Caja abierta exitosamente', 'success');
             if (triggerHaptic) triggerHaptic();
+
+            // Despachar evento para notificar al Dashboard
+            window.dispatchEvent(new CustomEvent('sales-updated'));
 
         } catch (error) {
             console.error('Error al guardar apertura:', error);

@@ -31,6 +31,7 @@ import { buildProductPayload } from '../utils/productProcessor';
 import { uploadProductImage, migrateProductImagesToStorage } from '../utils/imageUpload';
 // useAuthStore removed - single-user app
 import { useAudit } from '../hooks/useAudit';
+import ComboFormModal from '../components/Products/ComboFormModal';
 
 export const ProductsView = ({ rates, triggerHaptic }) => {
     // v1.2.0: reveal-on-scroll para banners y secciones de cabecera (NO en grid paginado para evitar re-trigger).
@@ -52,6 +53,47 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
     } = useProductContext();
     const isCajero = useAuthStore(s => s.requireLogin && s.usuarioActivo?.rol === 'CAJERO');
     const { log: auditLog } = useAudit();
+
+    // ─── FUNCIONES DE COMBOS VIRTUALES ────────────────────────
+    const getProductStock = (p) => {
+        if (p.isCombo) {
+            if (!p.comboItems || p.comboItems.length === 0) return 0;
+            const avails = p.comboItems.map(ci => {
+                const component = products.find(prod => prod.id === ci.productId);
+                if (!component || ci.qty <= 0) return 0;
+                return Math.floor((component.stock || 0) / ci.qty);
+            });
+            return Math.min(...avails);
+        }
+        return p.stock ?? 0;
+    };
+
+    const handleComboSave = async (comboProduct) => {
+        triggerHaptic && triggerHaptic();
+        let finalImage = comboProduct.image;
+        if (typeof comboProduct.image === 'string' && comboProduct.image.startsWith('data:')) {
+            const url = await uploadProductImage(comboProduct.image, { id: comboProduct.id });
+            if (url) finalImage = url;
+        }
+
+        const cleanCombo = { ...comboProduct, image: finalImage };
+
+        let updatedProducts;
+        if (editingCombo) {
+            updatedProducts = products.map(p =>
+                p.id === editingCombo.id ? cleanCombo : p
+            );
+            auditLog('INVENTARIO', 'COMBO_EDITADO', `Combo "${comboProduct.name}" editado`);
+        } else {
+            updatedProducts = [cleanCombo, ...products];
+            auditLog('INVENTARIO', 'COMBO_CREADO', `Combo "${comboProduct.name}" creado`);
+        }
+
+        storageService.setItem('bodega_products_v1', updatedProducts);
+        setProducts(updatedProducts);
+        setIsComboModalOpen(false);
+        setEditingCombo(null);
+    };
 
     // Envolver adjustStock para incluir registro de movimiento + haptic
     const adjustStock = async (productId, delta) => {
@@ -79,6 +121,8 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
     // Modal UI States
     const [isCategoryManagerOpen, setIsCategoryManagerOpen] = useState(false);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isComboModalOpen, setIsComboModalOpen] = useState(false);
+    const [editingCombo, setEditingCombo] = useState(null);
     const [highPriceConfirm, setHighPriceConfirm] = useState(null); // { price, pendingData }
 
     const [isShareOpen, setIsShareOpen] = useState(false);
@@ -442,6 +486,11 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
 
     const handleEdit = async (product) => {
         triggerHaptic && triggerHaptic();
+        if (product.isCombo) {
+            setEditingCombo(product);
+            setIsComboModalOpen(true);
+            return;
+        }
         populateForm(product, effectiveRate);
         // Set COP price for editing: use stored priceCop if available, otherwise derive
         if (copEnabled && tasaCop > 0) {
@@ -589,6 +638,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 toggleViewMode={toggleViewMode}
                 setSelectedIds={setSelectedIds}
                 setIsModalOpen={setIsModalOpen}
+                setIsComboModalOpen={setIsComboModalOpen}
                 setIsBulkPriceOpen={setIsBulkPriceOpen}
                 setIsDeleteAllModalOpen={setIsDeleteAllModalOpen}
                 setIsCategoryManagerOpen={setIsCategoryManagerOpen}
@@ -717,7 +767,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                                     triggerHaptic={triggerHaptic}
                                 >
                                     <ProductCard
-                                        product={p}
+                                        product={p.isCombo ? { ...p, stock: getProductStock(p) } : p}
                                         effectiveRate={effectiveRate}
                                         streetRate={streetRate}
                                         categories={categories}
@@ -769,8 +819,9 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                             {/* Rows */}
                             <div className="divide-y divide-slate-100 dark:divide-slate-800">
                                 {paginatedProducts.map(p => {
+                                    const actualStock = getProductStock(p);
                                     const valBs = p.priceUsdt * effectiveRate;
-                                    const isLowStock = (p.stock ?? 0) <= (p.lowStockAlert ?? 5);
+                                    const isLowStock = !p.isCombo && actualStock <= (p.lowStockAlert ?? 5);
                                     const margin = p.costBs > 0 ? ((valBs - p.costBs) / p.costBs * 100) : null;
                                     const catInfo = categories.find(c => c.id === p.category);
                                     return (
@@ -788,8 +839,12 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                                                 <div className="min-w-0">
                                                     <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{p.name}</p>
                                                     <div className="flex items-center gap-2 mt-0.5">
-                                                        {catInfo && catInfo.id !== 'todos' && (
-                                                            <span className="text-[9px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{catInfo.label}</span>
+                                                        {p.isCombo ? (
+                                                            <span className="text-[9px] font-bold text-violet-600 bg-violet-100 dark:bg-violet-950/30 px-1.5 py-0.5 rounded">Combo</span>
+                                                        ) : (
+                                                            catInfo && catInfo.id !== 'todos' && (
+                                                                <span className="text-[9px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{catInfo.label}</span>
+                                                            )
                                                         )}
                                                         {isLowStock && <span className="text-[9px] font-bold text-amber-500 flex items-center gap-0.5"><AlertTriangle size={9} /> Bajo</span>}
                                                         {/* Mobile: show price inline */}
@@ -802,14 +857,15 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                                             {/* v1.2.0: aria-label + aria-hidden en icon-only buttons (a11y). */}
                                             <div className="flex items-center gap-1.5 sm:hidden">
                                                 <button onClick={() => handlePrintSingle(p)} aria-label={`Imprimir etiqueta de ${p.name}`} className="p-2 min-h-[40px] min-w-[40px] flex items-center justify-center text-surface-300 hover:text-brand transition-colors"><Printer size={14} aria-hidden="true" /></button>
-                                                {!isCajero && (
+                                                {!isCajero && !p.isCombo ? (
                                                 <div className="flex items-center bg-surface-50 dark:bg-surface-800 rounded-lg">
                                                     <button onClick={() => adjustStock(p.id, -1)} aria-label={`Restar 1 unidad de ${p.name}`} className="p-2 min-h-[40px] min-w-[40px] flex items-center justify-center text-surface-400 hover:text-red-500 transition-colors"><Minus size={14} aria-hidden="true" /></button>
-                                                    <span className={`text-xs font-black min-w-[28px] text-center ${isLowStock ? 'text-amber-500' : 'text-surface-700 dark:text-surface-200'}`}>{p.stock ?? 0}</span>
+                                                    <span className={`text-xs font-black min-w-[28px] text-center ${isLowStock ? 'text-amber-500' : 'text-surface-700 dark:text-surface-200'}`}>{actualStock}</span>
                                                     <button onClick={() => adjustStock(p.id, 1)} aria-label={`Sumar 1 unidad de ${p.name}`} className="p-2 min-h-[40px] min-w-[40px] flex items-center justify-center text-surface-400 hover:text-emerald-500 transition-colors"><Plus size={14} aria-hidden="true" /></button>
                                                 </div>
+                                                ) : (
+                                                    <span className={`text-xs font-black min-w-[28px] text-center ${isLowStock ? 'text-amber-500' : 'text-surface-700 dark:text-surface-200'}`}>{actualStock}</span>
                                                 )}
-                                                {isCajero && <span className={`text-xs font-black ${isLowStock ? 'text-amber-500' : 'text-surface-700 dark:text-surface-200'}`}>{p.stock ?? 0}</span>}
                                                 {!isCajero && <button onClick={() => handleEdit(p)} aria-label={`Editar ${p.name}`} className="p-2 min-h-[40px] min-w-[40px] flex items-center justify-center text-surface-300 hover:text-amber-500 transition-colors"><Pencil size={14} aria-hidden="true" /></button>}
                                             </div>
 
@@ -845,9 +901,9 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                                                 ) : <span className="text-[10px] text-slate-300">-</span>) : <span className="text-[10px] text-slate-300">-</span>}
                                             </div>
                                             <div className="hidden sm:flex items-center gap-1">
-                                                {!isCajero && <button onClick={() => adjustStock(p.id, -1)} aria-label={`Restar 1 unidad de ${p.name}`} className="w-9 h-9 rounded-lg bg-surface-50 dark:bg-surface-800 flex items-center justify-center text-surface-400 hover:text-red-500 transition-colors active:scale-90"><Minus size={14} aria-hidden="true" /></button>}
-                                                <span className={`text-sm font-black min-w-[32px] text-center ${isLowStock ? 'text-amber-500' : 'text-surface-700 dark:text-surface-200'}`}>{p.stock ?? 0}</span>
-                                                {!isCajero && <button onClick={() => adjustStock(p.id, 1)} aria-label={`Sumar 1 unidad de ${p.name}`} className="w-9 h-9 rounded-lg bg-surface-50 dark:bg-surface-800 flex items-center justify-center text-surface-400 hover:text-emerald-500 transition-colors active:scale-90"><Plus size={14} aria-hidden="true" /></button>}
+                                                {!isCajero && !p.isCombo && <button onClick={() => adjustStock(p.id, -1)} aria-label={`Restar 1 unidad de ${p.name}`} className="w-9 h-9 rounded-lg bg-surface-50 dark:bg-surface-800 flex items-center justify-center text-surface-400 hover:text-red-500 transition-colors active:scale-90"><Minus size={14} aria-hidden="true" /></button>}
+                                                <span className={`text-sm font-black min-w-[32px] text-center ${isLowStock ? 'text-amber-500' : 'text-surface-700 dark:text-surface-200'}`}>{actualStock}</span>
+                                                {!isCajero && !p.isCombo && <button onClick={() => adjustStock(p.id, 1)} aria-label={`Sumar 1 unidad de ${p.name}`} className="w-9 h-9 rounded-lg bg-surface-50 dark:bg-surface-800 flex items-center justify-center text-surface-400 hover:text-emerald-500 transition-colors active:scale-90"><Plus size={14} aria-hidden="true" /></button>}
                                             </div>
                                             <div className="hidden sm:flex items-center justify-end gap-1">
                                                 <button onClick={() => handlePrintSingle(p)} aria-label={`Imprimir etiqueta de ${p.name}`} className="p-2 min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-surface-300 hover:text-brand hover:bg-brand/10 transition-all" title="Imprimir Etiqueta"><Printer size={14} aria-hidden="true" /></button>
@@ -1068,6 +1124,19 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 message="¿Seguro que deseas borrar esta categoría? Los productos no se eliminarán, pero quedarán sin categoría asignada."
                 confirmText="Sí, eliminar"
                 variant="warning"
+            />
+
+            {/* Modal de Combos */}
+            <ComboFormModal
+                isOpen={isComboModalOpen}
+                onClose={() => { setIsComboModalOpen(false); setEditingCombo(null); }}
+                products={products}
+                categories={categories}
+                effectiveRate={effectiveRate}
+                copEnabled={copEnabled}
+                tasaCop={tasaCop}
+                onSave={handleComboSave}
+                editingCombo={editingCombo}
             />
         </div>
     );

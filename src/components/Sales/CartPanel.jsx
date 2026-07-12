@@ -2,6 +2,7 @@ import React from 'react';
 import { ShoppingCart, Plus, Minus, X, CheckCircle, Package, Trash2, DollarSign, Percent, Search, Pause } from 'lucide-react';
 import { formatBs, formatCop, getCop, formatUsd } from '../../utils/calculatorUtils';
 import { mulR } from '../../utils/dinero';
+import { useAuthStore } from '../../hooks/store/useAuthStore';
 
 export default function CartPanel({
     cart,
@@ -24,6 +25,7 @@ export default function CartPanel({
     copPrimary,
     tasaCop
 }) {
+    const isCajero = useAuthStore(s => s.requireLogin && s.usuarioActivo?.rol === 'CAJERO');
     const [editingQtyId, setEditingQtyId] = React.useState(null);
     const [tempQty, setTempQty] = React.useState('');
     const inputRef = React.useRef(null);
@@ -184,39 +186,41 @@ export default function CartPanel({
             {/* Footer — shrink-0, always visible at bottom of flex container */}
             <div className="shrink-0 p-3 sm:p-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 rounded-b-2xl sm:rounded-b-3xl space-y-2.5">
                 
-                {/* Botón de Descuento */}
-                <button
-                    onClick={() => { triggerHaptic && triggerHaptic(); onOpenDiscount(); }}
-                    disabled={cart.length === 0}
-                    className={`w-full py-2 sm:py-2.5 px-3 sm:px-4 rounded-xl flex items-center justify-between transition-all outline-none focus:ring-2 focus:ring-brand/50 ${discountData?.active ? 'bg-amber-100/80 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60' : 'bg-slate-50 dark:bg-slate-800/50 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 border border-slate-200 dark:border-slate-700 disabled:opacity-50 disabled:cursor-not-allowed'}`}
-                >
-                    <div className="flex items-center gap-2">
-                        <Percent size={15} className={discountData?.active ? 'text-amber-600 dark:text-amber-500' : ''} />
-                        <span className="text-xs font-bold">
-                            {discountData?.active ? 'Descuento Aplicado' : 'Añadir Descuento'}
-                        </span>
-                    </div>
-                    {discountData?.active && (
+                {/* Botón de Descuento (oculto para cajeros) */}
+                {!isCajero && (
+                    <button
+                        onClick={() => { triggerHaptic && triggerHaptic(); onOpenDiscount(); }}
+                        disabled={cart.length === 0}
+                        className={`w-full py-2 sm:py-2.5 px-3 sm:px-4 rounded-xl flex items-center justify-between transition-all outline-none focus:ring-2 focus:ring-brand/50 ${discountData?.active ? 'bg-amber-100/80 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60' : 'bg-slate-50 dark:bg-slate-800/50 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 border border-slate-200 dark:border-slate-700 disabled:opacity-50 disabled:cursor-not-allowed'}`}
+                    >
                         <div className="flex items-center gap-2">
-                            <span className="text-[10px] sm:text-xs font-bold bg-amber-200 dark:bg-amber-800/80 px-2 py-0.5 rounded-md">
-                                {discountData.type === 'percentage' ? `${discountData.value}%` : 'Fijo'}
+                            <Percent size={15} className={discountData?.active ? 'text-amber-600 dark:text-amber-500' : ''} />
+                            <span className="text-xs font-bold">
+                                {discountData?.active ? 'Descuento Aplicado' : 'Añadir Descuento'}
                             </span>
-                            {copEnabled && tasaCop > 0 && copPrimary ? (
-                                <>
-                                    <span className="font-black text-amber-600 dark:text-amber-400">{`-${formatCop(discountData.amountUsd * tasaCop)} COP`}</span>
-                                    <span className="text-[9px] font-medium text-amber-600/70 dark:text-amber-400/70 ml-1">-${discountData.amountUsd.toFixed(2)}</span>
-                                </>
-                            ) : (
-                                <>
-                                    <span className="font-black text-xs">{`-$${discountData.amountUsd.toFixed(2)}`}</span>
-                                    {copEnabled && tasaCop > 0 && (
-                                        <span className="text-[9px] font-medium text-amber-600/70 dark:text-amber-400/70 ml-1">-{formatCop(discountData.amountUsd * tasaCop)} COP</span>
-                                    )}
-                                </>
-                            )}
                         </div>
-                    )}
-                </button>
+                        {discountData?.active && (
+                            <div className="flex items-center gap-2">
+                                <span className="text-[10px] sm:text-xs font-bold bg-amber-200 dark:bg-amber-800/80 px-2 py-0.5 rounded-md">
+                                    {discountData.type === 'percentage' ? `${discountData.value}%` : 'Fijo'}
+                                </span>
+                                {copEnabled && tasaCop > 0 && copPrimary ? (
+                                    <>
+                                        <span className="font-black text-amber-600 dark:text-amber-400">{`-${formatCop(discountData.amountUsd * tasaCop)} COP`}</span>
+                                        <span className="text-[9px] font-medium text-amber-600/70 dark:text-amber-400/70 ml-1">-${discountData.amountUsd.toFixed(2)}</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <span className="font-black text-xs">{`-$${discountData.amountUsd.toFixed(2)}`}</span>
+                                        {copEnabled && tasaCop > 0 && (
+                                            <span className="text-[9px] font-medium text-amber-600/70 dark:text-amber-400/70 ml-1">-{formatCop(discountData.amountUsd * tasaCop)} COP</span>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        )}
+                    </button>
+                )}
 
                 {/* Subtotal simple */}
                 <div className="flex justify-between items-center text-xs font-bold text-slate-500 px-1 pt-1">

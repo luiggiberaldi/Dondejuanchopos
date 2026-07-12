@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 // v1.2.0: useReveal hook para animaciones reveal-on-scroll (design system "Precios al Día")
 import { useReveal } from '../hooks/useReveal';
-import { Users, Plus, Search, User, X, Trash2, Pencil, Phone, RefreshCw, Save, ArrowDownRight, ArrowUpRight, Clock, CheckCircle2, CreditCard, ShoppingBag, Truck, Smartphone } from 'lucide-react';
+import { Users, Plus, Search, User, X, Trash2, Pencil, Phone, RefreshCw, Save, ArrowDownRight, ArrowUpRight, Clock, CheckCircle2, CreditCard, ShoppingBag, Truck, Smartphone, Calendar } from 'lucide-react';
 import { storageService } from '../utils/storageService';
 import { showToast } from '../components/Toast';
 import { formatBs, formatUsd, formatCop } from '../utils/calculatorUtils';
@@ -40,8 +40,8 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
     // Modal de Abono / Crédito
     const [transactionModal, setTransactionModal] = useState({ isOpen: false, type: null, customer: null }); // type: 'ABONO' | 'CREDITO'
     const [transactionAmount, setTransactionAmount] = useState('');
-    const [currencyMode, setCurrencyMode] = useState('BS'); // 'BS' | 'USD'
-    const [paymentMethod, setPaymentMethod] = useState('efectivo_bs');
+    const [currencyMode, setCurrencyMode] = useState('USD'); // 'USD' | 'BS'
+    const [paymentMethod, setPaymentMethod] = useState('efectivo_usd');
     const [activePaymentMethods, setActivePaymentMethods] = useState([]);
     const [resetBalanceCustomer, setResetBalanceCustomer] = useState(null);
     const { effectiveRate: bcvRate, tasaCop, copEnabled, copPrimary } = useProductContext();
@@ -112,6 +112,7 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
     const saveCustomers = async (updatedCustomers) => {
         setCustomers(updatedCustomers);
         await storageService.setItem('bodega_customers_v1', updatedCustomers);
+        window.dispatchEvent(new CustomEvent('sales-updated'));
     };
 
     const filteredCustomers = customers.filter(c => {
@@ -200,8 +201,8 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
         // Cerrar modal
         setTransactionModal({ isOpen: false, type: null, customer: null });
         setTransactionAmount('');
-        setCurrencyMode('BS');
-        setPaymentMethod('efectivo_bs');
+        setCurrencyMode('USD');
+        setPaymentMethod('efectivo_usd');
     };
 
     if (activeTab === 'proveedores') {
@@ -771,36 +772,48 @@ function CustomerDetailSheet({ customer, isOpen, isAdmin, onClose, onAjustar, on
                 </div>
 
                 <div className="px-5 pb-6 space-y-5">
-                    {/* Header */}
-                    <div className="flex items-center gap-4">
-                        <div className="w-14 h-14 rounded-full bg-gradient-to-br from-brand/20 to-emerald-500/10 dark:from-brand/30 dark:to-emerald-500/20 flex items-center justify-center shrink-0 border border-emerald-100 dark:border-slate-700 shadow-sm animate-in fade-in">
-                            <span className="text-2xl font-black text-brand-dark dark:text-brand">
+                    {/* Header Premium de Ficha de Cliente */}
+                    <div className="flex items-center gap-4.5 bg-slate-50/50 dark:bg-slate-800/10 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/30">
+                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-slate-100 to-slate-200/60 dark:from-slate-800 dark:to-slate-900/40 flex items-center justify-center shrink-0 border border-slate-200/60 dark:border-slate-800 shadow-sm relative overflow-hidden group">
+                            <span className="text-2xl font-black text-slate-700 dark:text-slate-250 font-outfit select-none">
                                 {customer.name.charAt(0).toUpperCase()}
                             </span>
+                            <div className="absolute inset-0 bg-brand/5 opacity-0 group-hover:opacity-100 transition-opacity" />
                         </div>
-                        <div>
-                            <h3 className="text-lg font-black text-surface-700 dark:text-white capitalize leading-tight">{customer.name}</h3>
-                            <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                        <div className="flex-1 min-w-0">
+                            <h3 className="text-xl font-bold text-slate-800 dark:text-white capitalize leading-tight tracking-tight font-outfit truncate">
+                                {customer.name}
+                            </h3>
+                            
+                            <div className="flex flex-wrap items-center gap-2 mt-2">
                                 {customer.documentId && (
-                                    <span className="font-mono text-[9px] font-black text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-950/20 border border-cyan-100/60 dark:border-cyan-900/30 px-2 py-0.5 rounded-md leading-none shrink-0">
-                                        C.I: {customer.documentId}
+                                    <span className="inline-flex items-center gap-1 font-mono text-[10px] font-extrabold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 px-2.5 py-1 rounded-lg leading-none shrink-0 shadow-sm">
+                                        <User size={10} className="text-slate-400 dark:text-slate-500 shrink-0" />
+                                        <span>C.I: {customer.documentId}</span>
                                     </span>
                                 )}
                                 {customer.phone ? (
-                                    <span className="text-[9px] font-bold text-slate-500 dark:text-slate-355 flex items-center gap-0.5 bg-slate-50 dark:bg-slate-800/40 border border-slate-200/50 dark:border-slate-800/50 px-1.5 py-0.5 rounded-md leading-none shrink-0">
-                                        <Phone size={9} aria-hidden="true" /> {customer.phone}
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 px-2.5 py-1 rounded-lg leading-none shrink-0 shadow-sm">
+                                        <Phone size={10} className="text-slate-400 dark:text-slate-500 shrink-0" />
+                                        <span>{customer.phone}</span>
                                     </span>
                                 ) : (
                                     <button
                                         onClick={onEdit}
-                                        className="text-[9px] font-black text-emerald-800 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/50 px-2 py-1 rounded-md leading-none flex items-center gap-1 hover:bg-emerald-200/80 dark:hover:bg-emerald-900/50 transition-all shrink-0 active:scale-95 shadow-sm"
+                                        className="inline-flex items-center gap-1 text-[10px] font-bold text-brand hover:text-white bg-brand/10 hover:bg-brand border border-brand/25 dark:border-brand/40 px-2.5 py-1 rounded-lg transition-all shrink-0 active:scale-95 shadow-sm cursor-pointer"
+                                        title="Agregar teléfono al cliente"
                                     >
-                                        <Phone size={9} aria-hidden="true" /> Añadir Teléfono
+                                        <Phone size={10} className="shrink-0" />
+                                        <span>Añadir Teléfono</span>
                                     </button>
                                 )}
                             </div>
+                            
                             {createdDate && (
-                                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5">Cliente desde {createdDate}</p>
+                                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mt-2 flex items-center gap-1 uppercase tracking-wider">
+                                    <Calendar size={10} className="text-slate-350 dark:text-slate-600 shrink-0" />
+                                    <span>Miembro desde {createdDate}</span>
+                                </p>
                             )}
                         </div>
                     </div>
@@ -912,7 +925,7 @@ function CustomerDetailSheet({ customer, isOpen, isAdmin, onClose, onAjustar, on
                         </button>
                         {!customer.phone && (
                             <div className="bg-amber-500/[0.06] dark:bg-amber-500/[0.08] border border-amber-200/60 dark:border-amber-900/40 text-amber-800 dark:text-amber-300 rounded-xl px-3 py-2 flex items-center justify-center gap-1.5 text-[10px] font-bold mt-1 shadow-sm">
-                                <span>\u26A0\uFE0F Asigna un teléfono arriba para habilitar WhatsApp</span>
+                                <span>⚠️ Asigna un teléfono arriba para habilitar WhatsApp</span>
                             </div>
                         )}
                     </div>

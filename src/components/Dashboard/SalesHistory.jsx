@@ -23,7 +23,9 @@ export default function SalesHistory({
     isAdmin,
     copEnabled,
     copPrimary,
-    tasaCop
+    tasaCop,
+    selectedChartDate,
+    onClearDateFilter,
 }) {
     const [expandedSaleId, setExpandedSaleId] = useState(null);
     const [printingId, setPrintingId] = useState(null);
@@ -81,6 +83,16 @@ export default function SalesHistory({
                     <Clock size={12} /> Historial de Ventas
                 </h3>
                 <div className="flex items-center gap-2">
+                    {selectedChartDate && (
+                        <button
+                            onClick={onClearDateFilter}
+                            className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-full font-bold flex items-center gap-1 border border-amber-200/50 hover:bg-amber-100 transition-colors cursor-pointer"
+                            title="Quitar filtro de fecha"
+                        >
+                            <span>Día: {new Date(selectedChartDate + 'T00:00:00').toLocaleDateString('es-ES', {day: 'numeric', month: 'short'})}</span>
+                            <span className="font-extrabold text-amber-800 dark:text-amber-500">×</span>
+                        </button>
+                    )}
                     <span className="text-[10px] text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">{totalSalesCount} histórico</span>
                     {isAdmin && (
                         <button

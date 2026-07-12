@@ -5,7 +5,7 @@ import CustomSelect from '../CustomSelect';
 import { showToast } from '../Toast';
 
 const PACKAGING_TYPES = [
-    { id: 'suelto', label: 'Suelto', Icon: Tag, desc: 'Unidad individual', color: 'emerald' },
+    { id: 'suelto', label: 'Suelto', Icon: Tag, desc: 'Unidad individual', color: 'indigo' },
     { id: 'lote', label: 'Bulto', Icon: Package, desc: 'Caja, bulto o paquete', color: 'indigo' },
     { id: 'granel', label: 'Granel', Icon: Scale, desc: 'Por Kg o Litro', color: 'amber' },
 ];
@@ -102,7 +102,7 @@ export default function ProductFormWizard({
             {wizardStep === 1 && (
                 <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-200">
                     <div className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-center">
-                        <span className="text-xs font-black text-emerald-500 uppercase tracking-widest block mb-1">Paso 1 de 4</span>
+                        <span className="text-xs font-black text-brand uppercase tracking-widest block mb-1">Paso 1 de 4</span>
                         <h4 className="text-sm font-black text-slate-800 dark:text-white">Identidad del Producto</h4>
                         <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Sube una foto y define la información comercial básica.</p>
                     </div>
@@ -110,7 +110,7 @@ export default function ProductFormWizard({
                     {/* Upload and Smart URL Paste Grid */}
                     <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 select-none">
                         {/* File Upload Zone */}
-                        <div onClick={() => fileInputRef.current?.click()} className="sm:col-span-5 h-28 bg-slate-50 dark:bg-slate-800 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-emerald-500 transition-colors relative overflow-hidden">
+                        <div onClick={() => fileInputRef.current?.click()} className="sm:col-span-5 h-28 bg-slate-50 dark:bg-slate-800 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-brand transition-colors relative overflow-hidden">
                             {image ? <img src={image} className="w-full h-full object-cover" alt="Product preview" /> : (
                                 <>
                                     <Camera size={22} className="text-slate-400 mb-1" />
@@ -195,10 +195,10 @@ export default function ProductFormWizard({
                                     handleAutoSearchImage(name);
                                 }
                             }}
-                            className="w-full bg-slate-50 dark:bg-slate-800 p-3.5 pr-10 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/50 capitalize text-sm" 
+                            className="w-full bg-slate-50 dark:bg-slate-800 p-3.5 pr-10 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/40 capitalize text-sm" 
                         />
                         {name && name.trim().length >= 3 && (
-                            <CheckCircle size={18} className="absolute right-3 top-[38px] text-emerald-500 transition-all duration-300" />
+                            <CheckCircle size={18} className="absolute right-3 top-[38px] text-brand transition-all duration-300" />
                         )}
                     </div>
 
@@ -207,7 +207,7 @@ export default function ProductFormWizard({
                         <label className="text-xs font-bold text-slate-400 ml-1 mb-1 block uppercase">Código de barras (Opcional)</label>
                         <div className="relative">
                             <input value={barcode} onChange={e => setBarcode(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') e.preventDefault(); }} placeholder="Ej: 7591111222233"
-                                className="w-full bg-slate-50 dark:bg-slate-800 p-3.5 pl-10 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/50 text-sm" />
+                                className="w-full bg-slate-50 dark:bg-slate-800 p-3.5 pl-10 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/40 text-sm" />
                             <Barcode size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                         </div>
                     </div>
@@ -218,7 +218,7 @@ export default function ProductFormWizard({
                             <label className="text-xs font-bold text-slate-400 ml-1 block uppercase">Categoría</label>
                             <button 
                                 onClick={() => setIsAddingCategory(!isAddingCategory)}
-                                className="text-[10px] font-bold text-emerald-500 hover:text-emerald-600 flex items-center gap-1 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 rounded-md transition-colors"
+                                className="text-[10px] font-bold text-brand hover:text-brand-dark flex items-center gap-1 bg-brand-light/60 dark:bg-surface-850 px-2 py-0.5 rounded-md transition-colors"
                             >
                                 {isAddingCategory ? <X size={12} /> : <Plus size={12} />}
                                 {isAddingCategory ? 'Cancelar' : 'Nueva'}
@@ -232,12 +232,12 @@ export default function ProductFormWizard({
                                     onChange={e => setNewCategoryName(e.target.value)}
                                     onKeyDown={e => e.key === 'Enter' && handleAddCategory()}
                                     placeholder="Nombre de categoría..."
-                                    className="flex-1 bg-slate-50 dark:bg-slate-800 p-3.5 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/50 text-sm"
+                                    className="flex-1 bg-slate-50 dark:bg-slate-800 p-3.5 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/40 text-sm"
                                 />
                                 <button 
                                     onClick={handleAddCategory}
                                     disabled={!newCategoryName.trim()}
-                                    className="bg-emerald-500 text-white px-4 rounded-xl font-bold disabled:opacity-50 hover:bg-emerald-600 transition-colors text-sm"
+                                    className="bg-brand text-white px-4 rounded-xl font-bold disabled:opacity-50 hover:bg-brand-dark transition-colors text-sm"
                                 >
                                     Guardar
                                 </button>
@@ -342,7 +342,7 @@ export default function ProductFormWizard({
                                 <>
                                     <label className="text-xs font-bold text-slate-400 ml-1 mb-1 block uppercase">¿Cuántos bultos?</label>
                                     <input type="number" inputMode="numeric" value={stockInLotes} onChange={e => setStockInLotes(e.target.value)} placeholder="0"
-                                        className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/50 text-sm" />
+                                        className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/40 text-sm" />
                                     {parsedStockLotes > 0 && parsedUnits > 0 && (
                                         <p className="text-[9px] text-brand font-bold mt-1 ml-1">= {stockUnitsCalc} unidades</p>
                                     )}
@@ -351,7 +351,7 @@ export default function ProductFormWizard({
                                 <>
                                     <label className="text-xs font-bold text-slate-400 ml-1 mb-1 block uppercase">Stock Inicial</label>
                                     <input type="number" inputMode="numeric" value={stock} onChange={e => setStock(e.target.value)} placeholder="0"
-                                        className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/50 text-sm" />
+                                        className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/40 text-sm" />
                                 </>
                             )}
                         </div>
@@ -433,19 +433,19 @@ export default function ProductFormWizard({
                     )}
 
                     {/* Selling prices USD / Bs */}
-                    <div className="bg-emerald-500/5 dark:bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/15">
-                        <span className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest block mb-2 ml-1">
+                    <div className="bg-brand-light/30 dark:bg-surface-800/10 p-3 rounded-xl border border-brand/10 dark:border-surface-800/30">
+                        <span className="text-[9px] font-black text-brand-dark dark:text-brand uppercase tracking-widest block mb-2 ml-1">
                             Precio de Venta ({priceSuffix ? priceSuffix.replace(' / ', '') : 'Unidad'})
                         </span>
                         <div className="grid grid-cols-2 gap-3 items-center">
                             <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-emerald-500">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-brand-dark dark:text-brand">
                                     {copEnabled ? 'USD' : '$'}
                                 </span>
                                 <input type="number" inputMode="decimal" value={priceUsd} onChange={e => handlePriceUsdChange(e.target.value)} placeholder="1.50"
-                                    className="w-full bg-white dark:bg-slate-900 p-2.5 pl-11 pr-10 rounded-xl font-black text-emerald-800 dark:text-emerald-400 outline-none border border-emerald-100 dark:border-emerald-800/30 focus:ring-2 focus:ring-emerald-500/40 transition-all text-xs" />
+                                    className="w-full bg-white dark:bg-slate-900 p-2.5 pl-11 pr-10 rounded-xl font-black text-surface-800 dark:text-brand outline-none border border-surface-200 dark:border-surface-800/30 focus:ring-2 focus:ring-brand/40 transition-all text-xs" />
                                 {parseFloat(priceUsd) > 0 && (
-                                    <CheckCircle size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-500 transition-all duration-300" />
+                                    <CheckCircle size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-brand transition-all duration-300" />
                                 )}
                             </div>
                             <div className="relative">
@@ -506,8 +506,8 @@ export default function ProductFormWizard({
                                     </div>
                                     <div className="grid grid-cols-2 gap-2 text-xs">
                                         <div>
-                                            <label className="text-[8px] font-bold text-emerald-500 ml-0.5 block">USD ($)</label>
-                                            <div className="w-full bg-emerald-50/50 dark:bg-slate-900 border border-emerald-100 dark:border-emerald-900/30 p-2 rounded-lg font-black text-emerald-700 dark:text-emerald-400">
+                                            <label className="text-[8px] font-bold text-brand ml-0.5 block">USD ($)</label>
+                                            <div className="w-full bg-brand-light/50 dark:bg-slate-900 border border-surface-200 dark:border-surface-800/30 p-2 rounded-lg font-black text-brand-dark dark:text-brand">
                                                 {effectiveUnitPrice > 0 ? effectiveUnitPrice.toFixed(2) : '—'}
                                             </div>
                                         </div>
@@ -524,7 +524,7 @@ export default function ProductFormWizard({
                             ) : (
                                 <div className="grid grid-cols-2 gap-2 text-xs">
                                     <div>
-                                        <label className="text-[8px] font-bold text-emerald-500 ml-0.5 block">USD ($)</label>
+                                        <label className="text-[8px] font-bold text-brand ml-0.5 block">USD ($)</label>
                                         <input type="number" inputMode="decimal" value={unitPriceUsd}
                                             onChange={e => setUnitPriceUsd(e.target.value)}
                                             placeholder={parsedPrice > 0 && parsedUnits > 0 ? (parsedPrice / parsedUnits).toFixed(2) : '0.00'}
@@ -596,7 +596,7 @@ export default function ProductFormWizard({
                             )}
                         </div>
                         <div className="flex-1 min-w-0">
-                            <span className="bg-emerald-100 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full inline-block mb-1">
+                            <span className="bg-brand-light/60 dark:bg-surface-800/30 text-brand text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full inline-block mb-1">
                                 {categories.find(c => c.id === category)?.label || category || 'Sin categoría'}
                             </span>
                             <h3 className="font-black text-slate-800 dark:text-white text-base sm:text-lg truncate capitalize leading-tight">

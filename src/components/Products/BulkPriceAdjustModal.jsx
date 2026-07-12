@@ -128,8 +128,8 @@ export default function BulkPriceAdjustModal({
                 {/* Header */}
                 <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
                     <div className="flex items-center gap-2.5">
-                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${isUp ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-red-100 dark:bg-red-900/30'} transition-colors duration-300`}>
-                            <Percent size={16} className={`${isUp ? 'text-emerald-600' : 'text-red-500'} transition-colors duration-300`} />
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${isUp ? 'bg-brand-light dark:bg-surface-800/20' : 'bg-red-100 dark:bg-red-900/30'} transition-colors duration-300`}>
+                            <Percent size={16} className={`${isUp ? 'text-brand' : 'text-red-500'} transition-colors duration-300`} />
                         </div>
                         <h3 className="font-black text-slate-800 dark:text-white text-lg tracking-tight">Ajuste Masivo</h3>
                     </div>
@@ -144,8 +144,8 @@ export default function BulkPriceAdjustModal({
                     {/* Success overlay */}
                     {showSuccess && (
                         <div className="absolute inset-0 bg-white/90 dark:bg-slate-900/90 z-10 flex flex-col items-center justify-center animate-in fade-in duration-300">
-                            <div className="w-20 h-20 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mb-4 animate-in zoom-in duration-300">
-                                <Check size={40} className="text-emerald-500" strokeWidth={3} />
+                            <div className="w-20 h-20 rounded-full bg-brand-light dark:bg-surface-800/20 flex items-center justify-center mb-4 animate-in zoom-in duration-300">
+                                <Check size={40} className="text-brand" strokeWidth={3} />
                             </div>
                             <p className="text-lg font-black text-slate-800 dark:text-white">Precios Actualizados</p>
                         </div>
@@ -159,7 +159,7 @@ export default function BulkPriceAdjustModal({
                                 onClick={() => { setDirection('up'); triggerHaptic && triggerHaptic(); }}
                                 className={`flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${
                                     isUp
-                                        ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/25'
+                                        ? 'bg-brand text-white shadow-lg shadow-brand/25'
                                         : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
                                 }`}
                             >
@@ -191,7 +191,7 @@ export default function BulkPriceAdjustModal({
                                     onChange={e => setPercent(parseInt(e.target.value))}
                                     className="w-full h-2 rounded-full appearance-none cursor-pointer"
                                     style={{
-                                        background: `linear-gradient(to right, ${isUp ? '#10b981' : '#ef4444'} 0%, ${isUp ? '#10b981' : '#ef4444'} ${(percent / (direction === 'down' ? 50 : 100)) * 100}%, #e2e8f0 ${(percent / (direction === 'down' ? 50 : 100)) * 100}%, #e2e8f0 100%)`,
+                                        background: `linear-gradient(to right, ${isUp ? 'var(--primary)' : '#ef4444'} 0%, ${isUp ? 'var(--primary)' : '#ef4444'} ${(percent / (direction === 'down' ? 50 : 100)) * 100}%, #e2e8f0 ${(percent / (direction === 'down' ? 50 : 100)) * 100}%, #e2e8f0 100%)`,
                                     }}
                                 />
                             </div>
@@ -208,11 +208,11 @@ export default function BulkPriceAdjustModal({
                                     }}
                                     className={`w-20 text-center bg-white dark:bg-slate-800 border-2 rounded-xl py-2.5 text-lg font-black outline-none transition-colors duration-300 ${
                                         isUp
-                                            ? 'border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 focus:border-emerald-500'
+                                            ? 'border-brand/20 dark:border-slate-800 text-brand focus:border-brand'
                                             : 'border-red-200 dark:border-red-800 text-red-500 dark:text-red-400 focus:border-red-500'
                                     }`}
                                 />
-                                <span className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>%</span>
+                                <span className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold ${isUp ? 'text-brand/60' : 'text-red-400'}`}>%</span>
                             </div>
                         </div>
                         {/* Quick presets */}
@@ -223,7 +223,7 @@ export default function BulkPriceAdjustModal({
                                     onClick={() => { setPercent(p); triggerHaptic && triggerHaptic(); }}
                                     className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold transition-all active:scale-95 ${
                                         percent === p
-                                            ? (isUp ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-red-100 dark:bg-red-900/30 text-red-500 dark:text-red-400')
+                                            ? (isUp ? 'bg-brand-light dark:bg-surface-800/20 text-brand' : 'bg-red-100 dark:bg-red-900/30 text-red-500 dark:text-red-400')
                                             : 'bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
                                     }`}
                                 >
@@ -247,7 +247,7 @@ export default function BulkPriceAdjustModal({
                     {affectedProducts.length > 0 && (
                         <div className={`rounded-2xl p-4 border transition-colors duration-300 ${
                             isUp
-                                ? 'bg-emerald-50/50 dark:bg-emerald-900/10 border-emerald-100 dark:border-emerald-900/30'
+                                ? 'bg-brand-light/20 dark:bg-surface-800/10 border-brand/10 dark:border-slate-800'
                                 : 'bg-red-50/50 dark:bg-red-900/10 border-red-100 dark:border-red-900/30'
                         }`}>
                             <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">
@@ -260,7 +260,7 @@ export default function BulkPriceAdjustModal({
                                         <div className="flex items-center gap-2 shrink-0">
                                             <span className="text-xs text-slate-400 line-through">{copEnabled && copPrimary && tasaCop > 0 ? `${Math.round(s.oldPrice * tasaCop).toLocaleString('es-CO')} COP` : `$${s.oldPrice.toFixed(2)}`}</span>
                                             <span className="text-xs font-bold">&rarr;</span>
-                                            <span className={`text-sm font-black ${isUp ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'}`}>
+                                            <span className={`text-sm font-black ${isUp ? 'text-brand' : 'text-red-500 dark:text-red-400'}`}>
                                                 {copEnabled && copPrimary && tasaCop > 0 ? `${Math.round(s.newPrice * tasaCop).toLocaleString('es-CO')} COP` : `$${s.newPrice.toFixed(2)}`}
                                             </span>
                                         </div>
@@ -305,7 +305,7 @@ export default function BulkPriceAdjustModal({
                         disabled={affectedProducts.length === 0 || isApplying}
                         className={`flex-1 py-3.5 text-white font-bold rounded-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed shadow-lg ${
                             isUp
-                                ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/25'
+                                ? 'bg-brand hover:bg-brand-dark shadow-brand/25'
                                 : 'bg-red-500 hover:bg-red-600 shadow-red-500/25'
                         }`}
                     >
@@ -330,7 +330,7 @@ export default function BulkPriceAdjustModal({
                     height: 22px;
                     border-radius: 50%;
                     background: white;
-                    border: 3px solid ${isUp ? '#10b981' : '#ef4444'};
+                    border: 3px solid ${isUp ? 'var(--primary)' : '#ef4444'};
                     cursor: pointer;
                     box-shadow: 0 2px 6px rgba(0,0,0,0.15);
                     transition: border-color 0.3s;
@@ -340,7 +340,7 @@ export default function BulkPriceAdjustModal({
                     height: 22px;
                     border-radius: 50%;
                     background: white;
-                    border: 3px solid ${isUp ? '#10b981' : '#ef4444'};
+                    border: 3px solid ${isUp ? 'var(--primary)' : '#ef4444'};
                     cursor: pointer;
                     box-shadow: 0 2px 6px rgba(0,0,0,0.15);
                     transition: border-color 0.3s;

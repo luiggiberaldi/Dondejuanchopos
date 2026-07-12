@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Store, Plus, Trash2, Pencil, Search, LayoutGrid, List, Percent, CheckSquare } from 'lucide-react';
+import { Store, Plus, Trash2, Pencil, Search, LayoutGrid, List, Percent, CheckSquare, Gift } from 'lucide-react';
 import { CATEGORY_COLORS } from '../../config/categories';
 
 const ProductsToolbar = ({
@@ -18,6 +18,7 @@ const ProductsToolbar = ({
     toggleViewMode,
     setSelectedIds,
     setIsModalOpen,
+    setIsComboModalOpen,
     setIsBulkPriceOpen,
     setIsDeleteAllModalOpen,
     setIsCategoryManagerOpen,
@@ -81,11 +82,18 @@ const ProductsToolbar = ({
                             </>
                         )}
                         {!isCajero && (
-                            <button onClick={() => { triggerHaptic && triggerHaptic(); setIsModalOpen(true); }}
-                                className="flex items-center gap-1 px-2.5 py-1.5 bg-brand hover:bg-brand-dark text-white rounded-lg transition-all active:scale-95 font-bold text-xs" title="Agregar">
-                                <Plus size={14} strokeWidth={2.5} />
-                                <span>Nuevo</span>
-                            </button>
+                            <>
+                                <button onClick={() => { triggerHaptic && triggerHaptic(); setIsComboModalOpen(true); }}
+                                    className="flex items-center gap-1 px-2.5 py-1.5 bg-violet-100 hover:bg-violet-200 dark:bg-violet-950/30 text-violet-750 dark:text-violet-400 rounded-lg transition-all active:scale-95 font-bold text-xs" title="Crear Combo">
+                                    <Gift size={14} strokeWidth={2.5} />
+                                    <span>Combo</span>
+                                </button>
+                                <button onClick={() => { triggerHaptic && triggerHaptic(); setIsModalOpen(true); }}
+                                    className="flex items-center gap-1 px-2.5 py-1.5 bg-brand hover:bg-brand-dark text-white rounded-lg transition-all active:scale-95 font-bold text-xs" title="Agregar Producto">
+                                    <Plus size={14} strokeWidth={2.5} />
+                                    <span>Nuevo</span>
+                                </button>
+                            </>
                         )}
                         <button
                             onClick={toggleViewMode}
@@ -124,11 +132,18 @@ const ProductsToolbar = ({
                         </>
                     )}
                     {!isCajero && (
-                        <button onClick={() => { triggerHaptic && triggerHaptic(); setIsModalOpen(true); }}
-                            className="flex items-center gap-1 px-3 py-1.5 bg-brand hover:bg-brand-dark text-white rounded-lg shadow-sm transition-all active:scale-95 font-bold text-xs" title="Agregar">
-                            <Plus size={14} strokeWidth={2.5} />
-                            <span>Nuevo</span>
-                        </button>
+                        <>
+                            <button onClick={() => { triggerHaptic && triggerHaptic(); setIsComboModalOpen(true); }}
+                                className="flex items-center gap-1 px-3 py-1.5 bg-violet-100 hover:bg-violet-200 dark:bg-violet-950/30 text-violet-750 dark:text-violet-400 rounded-lg shadow-sm transition-all active:scale-95 font-bold text-xs" title="Crear Combo">
+                                <Gift size={14} strokeWidth={2.5} />
+                                <span>Combo</span>
+                            </button>
+                            <button onClick={() => { triggerHaptic && triggerHaptic(); setIsModalOpen(true); }}
+                                className="flex items-center gap-1 px-3 py-1.5 bg-brand hover:bg-brand-dark text-white rounded-lg shadow-sm transition-all active:scale-95 font-bold text-xs" title="Agregar Producto">
+                                <Plus size={14} strokeWidth={2.5} />
+                                <span>Nuevo</span>
+                            </button>
+                        </>
                     )}
                     <button
                         onClick={toggleViewMode}

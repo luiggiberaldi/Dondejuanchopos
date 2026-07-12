@@ -161,20 +161,47 @@ export async function processSaleTransaction({
         let negativeStockUsed = false;
         const negativeItems = [];
 
-        const updatedProducts = freshProducts.map(p => {
-            const cartItemsForThisProduct = cart.filter(i => (i._originalId || i.id) === p.id);
-            if (cartItemsForThisProduct.length > 0) {
-                const totalDeducted = cartItemsForThisProduct.reduce((sum, item) => {
-                    if (item.isWeight)        return sumR(sum, item.qty);
-                    if (item._mode === 'unit') return sumR(sum, divR(item.qty, item._unitsPerPackage || 1));
-                    return sumR(sum, item.qty);
-                }, 0);
+        // ── Calcular mapa de deducciones de stock ──
+        const deduccionesMap = {}; // { [productId]: totalQtyToDeduct }
+        const addDeduccion = (productId, qtyToDeduct) => {
+            deduccionesMap[productId] = sumR(deduccionesMap[productId] || 0, qtyToDeduct);
+        };
 
-                const newStock = subR(p.stock ?? 0, totalDeducted);
+        cart.forEach(item => {
+            const itemId = item._originalId || item.id;
+            const itemQty = item.qty;
+            const isWeight = item.isWeight;
+            const isUnitMode = item._mode === 'unit';
+            const unitsPerPackage = item._unitsPerPackage || 1;
+
+            let physicalQty = itemQty;
+            if (isWeight) {
+                physicalQty = itemQty;
+            } else if (isUnitMode) {
+                physicalQty = divR(itemQty, unitsPerPackage);
+            }
+
+            const prodObj = freshProducts.find(p => p.id === itemId);
+            if (prodObj && prodObj.isCombo && prodObj.comboItems?.length > 0) {
+                prodObj.comboItems.forEach(ci => {
+                    const compDeduction = mulR(ci.qty, physicalQty);
+                    addDeduccion(ci.productId, compDeduction);
+                });
+            } else {
+                addDeduccion(itemId, physicalQty);
+            }
+        });
+
+        const updatedProducts = freshProducts.map(p => {
+            const deduction = deduccionesMap[p.id];
+            if (deduction && deduction > 0) {
+                if (p.isCombo) return p; // Los combos no tienen stock fisico directo
+
+                const newStock = subR(p.stock ?? 0, deduction);
                 // FIN-014: auditar uso de stock negativo (no mover el flag, solo loguear).
                 if (newStock < 0 && allowNeg) {
                     negativeStockUsed = true;
-                    negativeItems.push({ productId: p.id, name: p.name, stockBefore: p.stock ?? 0, deducted: totalDeducted, stockAfter: newStock });
+                    negativeItems.push({ productId: p.id, name: p.name, stockBefore: p.stock ?? 0, deducted: deduction, stockAfter: newStock });
                 }
                 return { ...p, stock: allowNeg ? newStock : Math.max(0, newStock) };
             }

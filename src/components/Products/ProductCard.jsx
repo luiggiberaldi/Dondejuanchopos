@@ -25,7 +25,7 @@ export default function ProductCard({
     const effectiveUsd = getUsd(p, tasaCop);
     const valBs = effectiveUsd * effectiveRate;
     const valCop = getCop(p, tasaCop);
-    const isLowStock = (p.stock ?? 0) <= (p.lowStockAlert ?? 5);
+    const isLowStock = !p.isCombo && (p.stock ?? 0) <= (p.lowStockAlert ?? 5);
     const margin = p.costBs > 0 ? ((valBs - p.costBs) / p.costBs * 100) : null;
     const catInfo = categories.find(c => c.id === p.category);
     const unitInfo = UNITS.find(u => u.id === p.unit);
@@ -209,10 +209,16 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                     </div>
                 )}
                 {/* Category badge */}
-                {catInfo && catInfo.id !== 'otros' && (
-                    <div className={`absolute top-1 left-8 text-[9px] font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5 ${CATEGORY_COLORS[catInfo.color] || ''}`}>
-                        {(() => { const CatIcon = CATEGORY_ICONS[catInfo.id]; return CatIcon ? <CatIcon size={9} /> : catInfo.icon; })()} {catInfo.label}
+                {p.isCombo ? (
+                    <div className="absolute top-1 left-8 text-[9px] font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5 bg-violet-100 dark:bg-violet-950/30 text-violet-750 dark:text-violet-400">
+                        <Gift size={9} /> Combo
                     </div>
+                ) : (
+                    catInfo && catInfo.id !== 'otros' && (
+                        <div className={`absolute top-1 left-8 text-[9px] font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5 ${CATEGORY_COLORS[catInfo.color] || ''}`}>
+                            {(() => { const CatIcon = CATEGORY_ICONS[catInfo.id]; return CatIcon ? <CatIcon size={9} /> : catInfo.icon; })()} {catInfo.label}
+                        </div>
+                    )
                 )}
                 {/* Low stock alert */}
                 {isLowStock && (
@@ -286,8 +292,8 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
 
                 {/* Stock Control Prominente */}
                 <div className="mt-auto pt-2 border-t border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-800/50 rounded-xl p-1">
-                        {!readOnly && (
+                    <div className={`flex items-center justify-between bg-slate-50 dark:bg-slate-800/50 rounded-xl p-1 ${p.isCombo ? 'justify-center py-2' : ''}`}>
+                        {!readOnly && !p.isCombo && (
                         <button onClick={() => onAdjustStock(p.id, -1)} className="w-10 h-10 rounded-lg bg-white dark:bg-slate-700 flex items-center justify-center text-slate-500 hover:text-red-500 shadow-sm active:scale-95 transition-all">
                             <Minus size={18} strokeWidth={2.5} />
                         </button>
@@ -301,7 +307,7 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                                 <span className="text-[8px] text-slate-400 leading-none">= {Math.floor((p.stock ?? 0) / p.unitsPerPackage)} bultos</span>
                             )}
                         </div>
-                        {!readOnly && (
+                        {!readOnly && !p.isCombo && (
                         <button onClick={() => onAdjustStock(p.id, 1)} className="w-10 h-10 rounded-lg bg-white dark:bg-slate-700 flex items-center justify-center text-slate-500 hover:text-emerald-500 shadow-sm active:scale-95 transition-all">
                             <Plus size={18} strokeWidth={2.5} />
                         </button>

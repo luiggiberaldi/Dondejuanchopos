@@ -53,7 +53,7 @@ export default function TransactionModal({
 
     return (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-t-3xl sm:rounded-3xl shadow-xl overflow-hidden animate-in slide-in-from-bottom-10 sm:zoom-in-95 duration-200">
+            <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-t-3xl sm:rounded-3xl shadow-xl overflow-visible animate-in slide-in-from-bottom-10 sm:zoom-in-95 duration-200">
                 <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
                     <h3 className="text-xl font-black text-slate-800 dark:text-white">Ajustar Cuenta</h3>
                     <button onClick={() => setTransactionModal({ isOpen: false, type: null, customer: null })} className="p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
@@ -92,17 +92,17 @@ export default function TransactionModal({
                     <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
                         <button
                             type="button"
-                            onClick={() => { setCurrencyMode('BS'); setTransactionAmount(''); setPaymentMethod('efectivo_bs'); }}
-                            className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${currencyMode === 'BS' ? 'bg-white dark:bg-slate-900 shadow-sm text-brand' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
-                        >
-                            Bs
-                        </button>
-                        <button
-                            type="button"
                             onClick={() => { setCurrencyMode('USD'); setTransactionAmount(''); setPaymentMethod('efectivo_usd'); }}
                             className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${currencyMode === 'USD' ? 'bg-white dark:bg-slate-900 shadow-sm text-emerald-500' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                         >
                             USD
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setCurrencyMode('BS'); setTransactionAmount(''); setPaymentMethod('efectivo_bs'); }}
+                            className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${currencyMode === 'BS' ? 'bg-white dark:bg-slate-900 shadow-sm text-brand' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+                        >
+                            Bs
                         </button>
                         {copEnabled && (
                             <button
@@ -201,14 +201,14 @@ export default function TransactionModal({
                         return (
                         <div>
                             <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Metodo de Pago</label>
-                            <CustomSelect
+                             <CustomSelect
                                 value={filteredMethods.some(m => m.id === paymentMethod) ? paymentMethod : (filteredMethods[0]?.id || '')}
                                 onChange={setPaymentMethod}
                                 options={filteredMethods.map(method => {
-                                    const emoji = typeof method.icon === 'string' && method.icon.length <= 2 ? method.icon : '';
                                     return {
                                         value: method.id,
-                                        label: emoji ? `${emoji} ${method.label}` : method.label
+                                        label: method.label,
+                                        icon: method.Icon // Componente Lucide de alta calidad
                                     };
                                 })}
                             />
