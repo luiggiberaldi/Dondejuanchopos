@@ -1,5 +1,5 @@
 import React from 'react';
-import { Tag, Banknote, AlertTriangle, Box, Minus, Plus, Pencil, Trash2, Package, Layers, Clock, Printer, FileText } from 'lucide-react';
+import { Tag, Banknote, AlertTriangle, Box, Minus, Plus, Pencil, Trash2, Package, Layers, Clock, Printer, FileText, Gift } from 'lucide-react';
 import { CATEGORY_COLORS, CATEGORY_ICONS, UNITS } from '../../config/categories';
 import { formatUsd, formatBs, formatCop, smartCashRounding, getCop, getUsd } from '../../utils/calculatorUtils';
 import { showToast } from '../Toast';

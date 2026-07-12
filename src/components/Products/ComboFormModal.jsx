@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Gift, Search, X, Plus, Minus, Camera, Tag, Percent, Package, CheckCircle, Sparkles, AlertTriangle } from 'lucide-react';
 import { Modal } from '../Modal';
 
@@ -20,26 +20,46 @@ export default function ComboFormModal({
     const [comboItems, setComboItems] = useState([]); // [{ productId, qty, _product }]
     const [priceUsd, setPriceUsd] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
     const [isSearchFocused, setIsSearchFocused] = useState(false);
     const [isFormShaking, setIsFormShaking] = useState(false);
 
     const searchRef = useRef(null);
     const fileInputRef = useRef(null);
+    const debounceRef = useRef(null);
+
+    // ── Debounce: actualizar el término de búsqueda real con 150ms de delay ──
+    const handleSearchChange = useCallback((val) => {
+        setSearchTerm(val);
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => {
+            setDebouncedSearch(val);
+        }, 150);
+    }, []);
+
+    useEffect(() => () => {
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+    }, []);
 
     // ── Productos que no son combos ──
     const nonComboProducts = useMemo(() =>
         products?.filter(p => !p.isCombo) || [],
     [products]);
 
-    // ── Búsqueda de productos ──
+    // ── IDs ya en el combo (memoizado por separado para no recomputar en cada tecla) ──
+    const alreadyAddedIds = useMemo(
+        () => new Set(comboItems.map(ci => ci.productId)),
+        [comboItems]
+    );
+
+    // ── Búsqueda de productos (usa debouncedSearch para no filtrar en cada tecla) ──
     const searchResults = useMemo(() => {
-        if (!searchTerm.trim()) return [];
-        const term = searchTerm.toLowerCase();
-        const alreadyAdded = new Set(comboItems.map(ci => ci.productId));
+        if (!debouncedSearch.trim()) return [];
+        const term = debouncedSearch.toLowerCase();
         return nonComboProducts
-            .filter(p => !alreadyAdded.has(p.id) && p.name.toLowerCase().includes(term))
-            .slice(0, 6);
-    }, [searchTerm, nonComboProducts, comboItems]);
+            .filter(p => !alreadyAddedIds.has(p.id) && p.name.toLowerCase().includes(term))
+            .slice(0, 8);
+    }, [debouncedSearch, nonComboProducts, alreadyAddedIds]);
 
     // ── Totales individuales acumulados en USD ──
     const individualTotal = useMemo(() =>
@@ -113,6 +133,7 @@ export default function ComboFormModal({
     const addProduct = (product) => {
         setComboItems(prev => [...prev, { productId: product.id, qty: 1, _product: product }]);
         setSearchTerm('');
+        setDebouncedSearch('');
         setIsSearchFocused(false);
     };
 
@@ -229,14 +250,14 @@ export default function ComboFormModal({
                                 ref={searchRef}
                                 type="text"
                                 value={searchTerm}
-                                onChange={e => setSearchTerm(e.target.value)}
+                                onChange={e => handleSearchChange(e.target.value)}
                                 onFocus={() => setIsSearchFocused(true)}
                                 onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
                                 placeholder="Buscar producto para agregar..."
                                 className="flex-1 bg-transparent p-3 font-bold text-slate-700 dark:text-white outline-none text-sm placeholder:text-slate-400/60"
                             />
                             {searchTerm && (
-                                <button type="button" onClick={() => setSearchTerm('')} className="mr-2 p-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-650 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all">
+                                <button type="button" onClick={() => { setSearchTerm(''); setDebouncedSearch(''); }} className="mr-2 p-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-650 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all">
                                     <X size={12} strokeWidth={3} />
                                 </button>
                             )}
