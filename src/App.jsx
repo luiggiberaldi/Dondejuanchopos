@@ -17,7 +17,7 @@ import { useSecurity } from './hooks/useSecurity';
 import { ProductProvider } from './context/ProductContext';
 import { CartProvider } from './context/CartContext';
 import PremiumGuard from './components/security/PremiumGuard';
-import TermsOverlay from './components/TermsOverlay';
+
 import ErrorBoundary from './components/ErrorBoundary';
 import { useOfflineQueue } from './hooks/useOfflineQueue';
 import { useAutoBackup } from './hooks/useAutoBackup';
@@ -80,7 +80,13 @@ export default function App() {
   const { rates } = useRates();
 
   // Purge old audit log entries on startup
-  useEffect(() => { purgeOldEntries(); }, []);
+  useEffect(() => { 
+    purgeOldEntries(); 
+    if (!localStorage.getItem('business_name')) {
+      localStorage.setItem('business_name', 'Donde Juancho');
+    }
+    localStorage.setItem('dj_terms_accepted', 'true');
+  }, []);
 
   // Cache rates whenever they update
   useEffect(() => { if (rates) cacheRates(rates); }, [rates, cacheRates]);
@@ -214,8 +220,7 @@ export default function App() {
   return (
     <div className="font-sans antialiased bg-slate-50 dark:bg-black h-[100dvh] flex flex-col overflow-clip transition-colors duration-300">
 
-      {/* Terms and Conditions Overlay (First Use) */}
-      <TermsOverlay onAccept={forceHeartbeat} />
+
 
 
       {/* Lock Screen — solo si login está activado y no hay sesión activa */}

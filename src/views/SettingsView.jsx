@@ -17,7 +17,6 @@ import SettingsTabNegocio from '../components/Settings/tabs/SettingsTabNegocio';
 import SettingsTabVentas from '../components/Settings/tabs/SettingsTabVentas';
 import SettingsTabUsuarios from '../components/Settings/tabs/SettingsTabUsuarios';
 import SettingsTabSistema from '../components/Settings/tabs/SettingsTabSistema';
-import SettingsTabLicencia from '../components/Settings/tabs/SettingsTabLicencia';
 import { useCloudBackup } from '../hooks/useCloudBackup';
 import { useDataImportExport } from '../hooks/useDataImportExport';
 import { useAuthStore } from '../hooks/store/useAuthStore';
@@ -30,7 +29,6 @@ const TABS = [
     { id: 'ventas', label: 'Ventas', icon: CreditCard },
     // { id: 'cuentas', label: 'Cuentas', icon: Coins }, // Ocultado por solicitud del usuario
     { id: 'usuarios', label: 'Usuarios', icon: Users },
-    { id: 'licencia', label: 'Licencia', icon: Key },
     { id: 'sistema', label: 'Sistema', icon: Database },
 ];
 
@@ -353,13 +351,7 @@ export default function SettingsView({ onClose, theme, toggleTheme, triggerHapti
                             />
                         )}
 
-                        {/* ═══ TAB: LICENCIA ═══ */}
-                        {activeTab === 'licencia' && (
-                            <SettingsTabLicencia
-                                deviceId={deviceId}
-                                triggerHaptic={triggerHaptic}
-                            />
-                        )}
+
 
                         {/* ═══ TAB: CUENTAS ═══ */}
                         {activeTab === 'cuentas' && (
