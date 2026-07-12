@@ -382,6 +382,8 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
 
     // Pull-to-refresh handlers
     const handleTouchStart = (e) => {
+        // No iniciar pull-to-refresh si el toque viene del botón de logout
+        if (e.target.closest('[data-logout-btn]')) return;
         if (scrollRef.current?.scrollTop === 0) {
             touchStartY.current = e.touches[0].clientY;
         }
@@ -421,10 +423,15 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
             <div className={`sticky top-0 z-20 flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-5 pb-3 pt-2 transition-all duration-200 -mx-3 sm:-mx-5 lg:-mx-6 xl:-mx-8 px-3 sm:px-5 lg:px-6 xl:px-8 bg-surface-50/95 dark:bg-surface-950/95 backdrop-blur-md border-b ${isScrolled ? 'border-slate-200/80 dark:border-slate-800/80 shadow-md' : 'border-slate-100 dark:border-slate-800/60'}`}>
                 {/* Lado Izquierdo: Logo (centrado en móviles con el doble de tamaño, alineado a la izquierda en PC) */}
                 <div className="w-full flex justify-center md:w-auto md:justify-start relative items-center">
-                    {/* Botón de Cambiar Sesión a la izquierda absoluta en móvil (oculto en PC) */}
+                    {/* Botón de Cerrar Sesión — izquierda absoluta en móvil (oculto en PC) */}
                     {requireLogin && usuarioActivo && (
                         <button
-                            onClick={() => { triggerHaptic && triggerHaptic(); logout(); }}
+                            data-logout-btn
+                            onPointerDown={(e) => {
+                                e.stopPropagation();
+                                triggerHaptic && triggerHaptic();
+                                logout();
+                            }}
                             className="absolute left-0 top-1/2 -translate-y-1/2 z-30 md:hidden w-10 h-10 rounded-xl bg-slate-100/70 dark:bg-slate-800/60 border border-slate-200/50 dark:border-slate-700/50 flex items-center justify-center text-slate-500 dark:text-slate-400 shadow-sm active:scale-90 hover:bg-slate-200/50 dark:hover:bg-slate-800/80 transition-all cursor-pointer"
                             title={`Cerrar sesión (${usuarioActivo.nombre})`}
                         >
@@ -436,7 +443,7 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
                         <img 
                             src={theme === 'dark' ? './logodark.png' : './logo.png'} 
                             alt="Donde Juancho" 
-                            className="h-28 md:h-[150px] w-auto object-contain drop-shadow-sm -my-6 md:-my-[38px] transform translate-y-[2px] md:translate-y-[4px]" 
+                            className="h-[123px] md:h-[150px] w-auto object-contain drop-shadow-sm md:-my-[38px] translate-y-[2px] md:translate-y-[4px]" 
                         />
                     </div>
                     {/* Estatus Sync a la derecha absoluta en móvil, relativo normal en PC */}

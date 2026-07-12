@@ -143,7 +143,7 @@ export default function App() {
 
     // Update theme-color meta: cian #01696f (light) / carbón #1a1917 (dark)
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', theme === 'dark' ? '#1a1917' : '#01696f');
+    if (meta) meta.setAttribute('content', theme === 'dark' ? '#1a1917' : '#193275');
   }, [theme]);
 
   const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');
