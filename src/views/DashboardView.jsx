@@ -443,7 +443,7 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
                         <img 
                             src={theme === 'dark' ? './logodark.png' : './logo.png'} 
                             alt="Donde Juancho" 
-                            className="h-14 md:h-[150px] w-auto object-contain drop-shadow-sm md:-my-[38px] md:translate-y-[4px]" 
+                            className="h-[100px] -my-[21px] md:h-[150px] w-auto object-contain drop-shadow-sm md:-my-[38px] md:translate-y-[4px]" 
                         />
                     </div>
                     {/* Estatus Sync a la derecha absoluta en móvil, relativo normal en PC */}
