@@ -425,7 +425,7 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
                     {requireLogin && usuarioActivo && (
                         <button
                             onClick={() => { triggerHaptic && triggerHaptic(); logout(); }}
-                            className="absolute left-0 top-1/2 -translate-y-1/2 md:hidden w-10 h-10 rounded-xl bg-slate-100/70 dark:bg-slate-800/60 border border-slate-200/50 dark:border-slate-700/50 flex items-center justify-center text-slate-500 dark:text-slate-400 shadow-sm active:scale-90 hover:bg-slate-200/50 dark:hover:bg-slate-800/80 transition-all cursor-pointer"
+                            className="absolute left-0 top-1/2 -translate-y-1/2 z-30 md:hidden w-10 h-10 rounded-xl bg-slate-100/70 dark:bg-slate-800/60 border border-slate-200/50 dark:border-slate-700/50 flex items-center justify-center text-slate-500 dark:text-slate-400 shadow-sm active:scale-90 hover:bg-slate-200/50 dark:hover:bg-slate-800/80 transition-all cursor-pointer"
                             title={`Cerrar sesión (${usuarioActivo.nombre})`}
                         >
                             <LogOut size={16} strokeWidth={2.5} className="text-slate-500 dark:text-slate-350 translate-x-[0.5px]" />
