@@ -314,7 +314,7 @@ export default function BulkPriceAdjustModal({
                         ) : (
                             <>
                                 {isUp ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-                                {isUp ? '+' : '-'}{percent}% a {affectedProducts.length} productos
+                                <span>Aplicar {isUp ? '+' : '-'}{percent}%</span>
                             </>
                         )}
                     </button>
