@@ -58,7 +58,7 @@ export default function SettingsView({ onClose, theme, toggleTheme, triggerHapti
     const [isShareOpen, setIsShareOpen] = useState(false);
 
     // Business Data
-    const [businessName, setBusinessName] = useState(() => localStorage.getItem('business_name') || '');
+    const [businessName, setBusinessName] = useState('Donde Juancho');
     const [businessRif, setBusinessRif] = useState(() => localStorage.getItem('business_rif') || '');
     const [paperWidth, setPaperWidth] = useState(() => localStorage.getItem('printer_paper_width') || '58');
     const [labelCurrencyMode, setLabelCurrencyMode] = useState(() => localStorage.getItem('label_currency_mode') || 'mixto');
@@ -196,12 +196,12 @@ export default function SettingsView({ onClose, theme, toggleTheme, triggerHapti
 
     // ─── HANDLERS ─────────────────────────────────────────
     const handleSaveBusinessData = () => {
-        localStorage.setItem('business_name', businessName);
+        localStorage.setItem('business_name', 'Donde Juancho');
         localStorage.setItem('business_rif', businessRif);
         localStorage.setItem('printer_paper_width', paperWidth);
         forceHeartbeat();
         showToast('Datos del negocio guardados', 'success');
-        auditLog('CONFIG', 'NEGOCIO_ACTUALIZADO', `Datos negocio: ${businessName || 'sin nombre'}`);
+        auditLog('CONFIG', 'NEGOCIO_ACTUALIZADO', 'Datos negocio: Donde Juancho');
         triggerHaptic?.();
     };
 

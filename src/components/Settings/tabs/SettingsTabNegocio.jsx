@@ -197,9 +197,9 @@ export default function SettingsTabNegocio({
                             <input
                                 type="text"
                                 placeholder="Ej: Mi Bodega C.A."
-                                value={businessName}
-                                onChange={e => setBusinessName(e.target.value)}
-                                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand/30 transition-all"
+                                value="Donde Juancho"
+                                disabled={true}
+                                className="w-full bg-slate-150 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-sm text-slate-500 dark:text-slate-400 focus:outline-none cursor-not-allowed transition-all font-medium"
                             />
                         </div>
                         <div>
