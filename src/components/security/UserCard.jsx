@@ -70,6 +70,11 @@ export default function UserCard({ user, onClick }) {
             <span className={`block text-[9px] font-black uppercase tracking-[0.2em] ${isAdmin ? 'text-brand' : 'text-emerald-600'}`}>
               {user.rol === 'ADMIN' ? 'Administrador' : 'Cajero'}
             </span>
+            {user.bypassPin && (
+              <span className="block text-[8px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-1">
+                Acceso sin PIN
+              </span>
+            )}
           </CardItem>
 
         </CardBody>

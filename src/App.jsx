@@ -10,7 +10,7 @@ const SettingsView = lazy(() => import('./views/SettingsView'));
 const CustomersView = lazy(() => import('./views/CustomersView'));
 const ReportsView = lazy(() => import('./views/ReportsView'));
 const TesterView = lazy(() => import('./views/TesterView').then(m => ({ default: m.TesterView })));
-const AIAssistantWidget = lazy(() => import('./components/AIAssistantWidget'));
+
 
 import { useRates } from './hooks/useRates';
 import { useSecurity } from './hooks/useSecurity';
@@ -328,11 +328,7 @@ export default function App() {
             </div>
           )}
         </Suspense>
-        {activeTab === 'inicio' && (
-          <Suspense fallback={null}>
-            <AIAssistantWidget />
-          </Suspense>
-        )}
+
       </main>
 
       </ProductProvider>

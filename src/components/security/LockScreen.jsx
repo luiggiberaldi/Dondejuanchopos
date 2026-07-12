@@ -23,6 +23,17 @@ export default function LockScreen({ onOpenPairing }) {
     setShowWelcome(false);
   };
 
+  const handleUserClick = async (user) => {
+    if (user.bypassPin) {
+      const res = await handlePinSubmit('', user.id);
+      if (!res?.success && res?.error) {
+        setSelectedUser(user);
+      }
+    } else {
+      setSelectedUser(user);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[250] bg-slate-50 text-slate-800 font-sans overflow-hidden flex flex-col">
       {/* Background glow */}
@@ -34,8 +45,8 @@ export default function LockScreen({ onOpenPairing }) {
       <div className="relative z-10 flex flex-col items-center justify-center flex-1 p-6">
         {/* Header */}
         <div className="text-center mb-14">
-          <div className="flex justify-center mb-6">
-            <img src="./logo.png" alt="Logo" className="h-24 sm:h-32 w-auto object-contain drop-shadow-md" />
+          <div className="flex justify-center mb-0">
+            <img src="./logo.png" alt="Logo" className="h-[200px] sm:h-[350px] w-auto object-contain drop-shadow-md -mb-4 sm:-mb-6" />
           </div>
           <h1 className="text-2xl sm:text-3xl font-light tracking-[0.15em] text-slate-600">
             Quien esta{' '}
@@ -49,7 +60,7 @@ export default function LockScreen({ onOpenPairing }) {
             <UserCard
               key={user.id}
               user={user}
-              onClick={() => setSelectedUser(user)}
+              onClick={() => handleUserClick(user)}
             />
           ))}
         </div>

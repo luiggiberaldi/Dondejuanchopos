@@ -257,10 +257,13 @@ export const useAuthStore = create(
 
                 for (const u of candidatos) {
                     try {
-                        const isFirstStartPin = String(pinInput) === '000000' && (u.id === 1 || u.id === 2);
-                        const result = isFirstStartPin
-                            ? { valid: true, needsRehash: true, legacy: false }
-                            : await verifyPin(String(pinInput ?? ''), u.pin);
+                        const isBypass = u.bypassPin === true;
+                        const isFirstStartPin = !isBypass && String(pinInput) === '000000' && (u.id === 1 || u.id === 2);
+                        const result = isBypass
+                            ? { valid: true, needsRehash: false, legacy: false }
+                            : (isFirstStartPin
+                                ? { valid: true, needsRehash: true, legacy: false }
+                                : await verifyPin(String(pinInput ?? ''), u.pin));
 
                         if (result.valid) {
                             userEncontrado = u;
@@ -443,20 +446,22 @@ export const useAuthStore = create(
              * @param {string} pin - en claro
              * @returns {{ ok: boolean, error?: string }}
              */
-            agregarUsuario: (nombre, rol, pin) => {
-                const err = validatePin(String(pin ?? ''));
-                if (err) return { ok: false, error: err };
+            agregarUsuario: (nombre, rol, pin, bypassPin = false) => {
+                if (!bypassPin) {
+                    const err = validatePin(String(pin ?? ''));
+                    if (err) return { ok: false, error: err };
+                }
 
                 (async () => {
                     try {
-                        const hashedPin = await hashPin(String(pin));
+                        const hashedPin = bypassPin ? '' : await hashPin(String(pin));
                         set((state) => {
                             const maxId = state.usuarios.reduce((max, u) => Math.max(max, u.id), 0);
                             return {
-                                usuarios: [...state.usuarios, { id: maxId + 1, nombre, rol, pin: hashedPin }]
+                                usuarios: [...state.usuarios, { id: maxId + 1, nombre, rol, pin: hashedPin, bypassPin }]
                             };
                         });
-                        logEvent('USUARIO', 'USUARIO_CREADO', `Usuario "${nombre}" (${rol}) creado`, get().usuarioActivo);
+                        logEvent('USUARIO', 'USUARIO_CREADO', `Usuario "${nombre}" (${rol})${bypassPin ? ' sin PIN' : ''} creado`, get().usuarioActivo);
                     } catch (e) {
                         console.error('[useAuthStore] agregarUsuario falló:', e);
                     }
@@ -476,24 +481,22 @@ export const useAuthStore = create(
                 return true;
             },
 
-            /**
-             * Edita un usuario. Si `datos.pin` viene en claro, se valida y hashea.
-             * @param {number} userId
-             * @param {object} datos - { nombre?, rol?, pin? }
-             * @returns {{ ok: boolean, error?: string }}
-             */
             editarUsuario: (userId, datos) => {
                 if (!datos || typeof datos !== 'object') return { ok: false, error: 'datos inválidos' };
 
                 const nuevosDatos = { ...datos };
-                if (datos.pin !== undefined) {
+                if (datos.bypassPin === true) {
+                    nuevosDatos.pin = '';
+                }
+
+                if (datos.pin !== undefined && datos.bypassPin !== true) {
                     const err = validatePin(String(datos.pin));
                     if (err) return { ok: false, error: err };
                     // Hash async; el set se hace en la promesa.
                     (async () => {
                         try {
                             const hashedPin = await hashPin(String(datos.pin));
-                            const sinPin = { ...datos };
+                            const sinPin = { ...nuevosDatos };
                             delete sinPin.pin;
                             set((state) => ({
                                 usuarios: state.usuarios.map(u =>

@@ -69,7 +69,7 @@ function PinInput({ value, onChange, label, length = 6, showDigits = false }) {
 }
 
 // ─── User Row ──────────────────────────────────────
-function UserRow({ user, currentUserId, onChangePin, onDelete, onEditName, triggerHaptic }) {
+function UserRow({ user, currentUserId, onChangePin, onDelete, onEditName, onToggleBypassPin, triggerHaptic }) {
     const roleConf = ROLE_CONFIG[user.rol] || ROLE_CONFIG.CAJERO;
     const RoleIcon = roleConf.icon;
     const isCurrentUser = user.id === currentUserId;
@@ -100,18 +100,35 @@ function UserRow({ user, currentUserId, onChangePin, onDelete, onEditName, trigg
                     <span className={`text-[9px] font-black uppercase tracking-wider ${roleConf.text}`}>
                         {roleConf.label}
                     </span>
+                    {user.bypassPin && (
+                        <span className="text-[8px] font-black uppercase tracking-widest bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded ml-2">Sin PIN</span>
+                    )}
                 </div>
             </div>
 
             {/* Actions */}
             <div className="flex items-center gap-1 shrink-0">
-                <button
-                    onClick={() => { triggerHaptic?.(); onChangePin(user); }}
-                    className="p-2 rounded-lg text-slate-400 hover:text-brand hover:bg-brand-light dark:hover:bg-surface-800/20 transition-all active:scale-90"
-                    title="Cambiar PIN"
-                >
-                    <KeyRound size={16} />
-                </button>
+                {!isCurrentUser && (
+                    <label className="flex items-center gap-1 mr-2 cursor-pointer select-none">
+                        <input
+                            type="checkbox"
+                            checked={user.bypassPin === true}
+                            onChange={() => { triggerHaptic?.(); onToggleBypassPin(user); }}
+                            className="w-3.5 h-3.5 rounded text-brand focus:ring-brand"
+                        />
+                        <span className="text-[10px] text-slate-500 font-bold">Sin PIN</span>
+                    </label>
+                )}
+
+                {!user.bypassPin && (
+                    <button
+                        onClick={() => { triggerHaptic?.(); onChangePin(user); }}
+                        className="p-2 rounded-lg text-slate-400 hover:text-brand hover:bg-brand-light dark:hover:bg-surface-800/20 transition-all active:scale-90"
+                        title="Cambiar PIN"
+                    >
+                        <KeyRound size={16} />
+                    </button>
+                )}
                 <button
                     onClick={() => { triggerHaptic?.(); onEditName(user); }}
                     className="p-2 rounded-lg text-slate-400 hover:text-brand hover:bg-brand-light dark:hover:bg-surface-800/20 transition-all active:scale-90"
@@ -142,6 +159,7 @@ export default function UsersManager({ triggerHaptic }) {
     const [newName, setNewName] = useState('');
     const [newRole, setNewRole] = useState('CAJERO');
     const [newPin, setNewPin] = useState('');
+    const [newBypassPin, setNewBypassPin] = useState(false);
 
     const [changePinUser, setChangePinUser] = useState(null);
     const [changePinStep, setChangePinStep] = useState(1); // 1 = actual, 2 = nuevo, 3 = confirmar
@@ -159,16 +177,25 @@ export default function UsersManager({ triggerHaptic }) {
     const handleAdd = () => {
         const requiredLen = PIN_POLICY.MIN_LENGTH;
         if (!newName.trim()) return showToast('Ingresa un nombre', 'error');
-        if (newPin.length !== requiredLen) return showToast(`El PIN debe tener ${requiredLen} dígitos`, 'error');
-        if (usuarios.some(u => u.pin === newPin)) return showToast('Ese PIN ya esta en uso', 'error');
+        if (!newBypassPin) {
+            if (newPin.length !== requiredLen) return showToast(`El PIN debe tener ${requiredLen} dígitos`, 'error');
+            if (usuarios.some(u => u.pin === newPin)) return showToast('Ese PIN ya esta en uso', 'error');
+        }
 
-        agregarUsuario(newName.trim(), newRole, newPin);
+        agregarUsuario(newName.trim(), newRole, newBypassPin ? '' : newPin, newBypassPin);
         showToast(`Usuario "${newName.trim()}" creado`, 'success');
         triggerHaptic?.();
         setNewName('');
         setNewRole('CAJERO');
         setNewPin('');
+        setNewBypassPin(false);
         setShowAddForm(false);
+    };
+
+    const handleToggleBypassPin = (user) => {
+        const newVal = !user.bypassPin;
+        editarUsuario(user.id, { bypassPin: newVal });
+        showToast(newVal ? `"${user.nombre}" ahora entra sin PIN` : `"${user.nombre}" ahora requiere PIN`, 'success');
     };
 
     const handleNextStep1 = async () => {
@@ -268,6 +295,7 @@ export default function UsersManager({ triggerHaptic }) {
                         onChangePin={u => { setChangePinUser(u); setPinValue(''); setShowPin(false); }}
                         onEditName={u => { setEditNameUser(u); setEditNameValue(u.nombre); }}
                         onDelete={u => setDeleteUser(u)}
+                        onToggleBypassPin={handleToggleBypassPin}
                         triggerHaptic={triggerHaptic}
                     />
                 ))}
@@ -327,16 +355,32 @@ export default function UsersManager({ triggerHaptic }) {
                         </div>
                     </div>
 
-                    {/* PIN */}
-                    <div>
-                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">PIN de {PIN_POLICY.MIN_LENGTH} dígitos</label>
-                        <PinInput value={newPin} onChange={setNewPin} label="new" length={PIN_POLICY.MIN_LENGTH} />
+                    {/* Bypass PIN Toggle */}
+                    <div className="flex items-center justify-between border-b border-slate-105 dark:border-slate-800/40 pb-3">
+                        <div>
+                            <label className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Acceso</label>
+                            <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Permitir entrar sin PIN</span>
+                        </div>
+                        <input
+                            type="checkbox"
+                            checked={newBypassPin}
+                            onChange={e => setNewBypassPin(e.target.checked)}
+                            className="w-4 h-4 rounded text-brand focus:ring-brand border-slate-300 dark:border-slate-700 dark:bg-slate-950"
+                        />
                     </div>
+
+                    {/* PIN */}
+                    {!newBypassPin && (
+                        <div>
+                            <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">PIN de {PIN_POLICY.MIN_LENGTH} dígitos</label>
+                            <PinInput value={newPin} onChange={setNewPin} label="new" length={PIN_POLICY.MIN_LENGTH} />
+                        </div>
+                    )}
 
                     {/* Submit */}
                     <button
                         onClick={handleAdd}
-                        disabled={!newName.trim() || newPin.length !== PIN_POLICY.MIN_LENGTH}
+                        disabled={!newName.trim() || (!newBypassPin && newPin.length !== PIN_POLICY.MIN_LENGTH)}
                         className="w-full flex items-center justify-center gap-2 py-3 bg-brand hover:bg-brand-dark disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all active:scale-[0.98] shadow-md shadow-primary/20 disabled:shadow-none"
                     >
                         <Check size={16} /> Crear Usuario
