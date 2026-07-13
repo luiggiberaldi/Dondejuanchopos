@@ -398,6 +398,36 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
             return showToast('Nombre y precio en USD son requeridos', 'warning');
         }
 
+        // Validación de unicidad de los 3 barcodes (Unidad, Caja, Media Caja)
+        const currentBarcodes = [barcode, sellByBox ? boxBarcode : '', sellByHalfBox ? halfBoxBarcode : '']
+            .map(b => b?.trim())
+            .filter(Boolean);
+
+        // 1. Colisión interna
+        const hasInternalDuplicate = new Set(currentBarcodes).size !== currentBarcodes.length;
+        if (hasInternalDuplicate) {
+            setIsFormShaking(true);
+            setTimeout(() => setIsFormShaking(false), 500);
+            return showToast('No puedes usar el mismo código de barras para diferentes formatos del producto', 'warning');
+        }
+
+        // 2. Colisión externa
+        for (const p of products) {
+            if (editingId && p.id === editingId) continue;
+            
+            const otherBarcodes = [p.barcode, p.boxBarcode, p.halfBoxBarcode]
+                .map(b => b?.trim())
+                .filter(Boolean);
+
+            for (const bc of currentBarcodes) {
+                if (otherBarcodes.includes(bc)) {
+                    setIsFormShaking(true);
+                    setTimeout(() => setIsFormShaking(false), 500);
+                    return showToast(`El código de barras "${bc}" ya está asignado al producto "${p.name}" o a uno de sus formatos`, 'warning');
+                }
+            }
+        }
+
         const productData = buildProductPayload({
             name, barcode, priceUsd, priceBsManual, costUsd, costBs, stock,
             category, lowStockAlert,
