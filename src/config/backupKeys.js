@@ -50,6 +50,7 @@ export const LS_KEYS = Object.freeze([
   'catalog_use_auto_usdt',
   'cop_enabled',
   'cop_primary',
+  'dj_granel_enabled',
   'monitor_rates_v12',
   'premium_token',
   'printer_paper_width',

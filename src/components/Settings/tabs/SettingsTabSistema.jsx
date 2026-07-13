@@ -25,6 +25,7 @@ export default function SettingsTabSistema({
     });
 
     const [soundsEnabled, setSoundsEnabled] = useState(() => localStorage.getItem('dj_sound_enabled') !== 'false');
+    const [granelEnabled, setGranelEnabled] = useState(() => localStorage.getItem('dj_granel_enabled') !== 'false');
 
     const handleToggleSounds = () => {
         setSoundsEnabled(prev => {
@@ -38,6 +39,15 @@ export default function SettingsTabSistema({
                     soundService.playSuccess();
                 }, 100);
             }
+            return next;
+        });
+    };
+
+    const handleToggleGranel = () => {
+        setGranelEnabled(prev => {
+            const next = !prev;
+            localStorage.setItem('dj_granel_enabled', String(next));
+            triggerHaptic?.();
             return next;
         });
     };
@@ -133,7 +143,7 @@ export default function SettingsTabSistema({
                         <button
                             onClick={() => adjustScale(-5)}
                             disabled={uiScale <= 60}
-                            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-brand-light hover:text-brand-dark dark:hover:bg-surface-800/20 dark:hover:text-brand transition-all active:scale-90 disabled:opacity-30 disabled:cursor-not-allowed"
+                            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-650 dark:text-slate-300 hover:bg-brand-light hover:text-brand-dark dark:hover:bg-surface-800/20 dark:hover:text-brand transition-all active:scale-90 disabled:opacity-30 disabled:cursor-not-allowed"
                         >
                             <ZoomOut size={16} />
                         </button>
@@ -156,7 +166,7 @@ export default function SettingsTabSistema({
                         <button
                             onClick={() => adjustScale(5)}
                             disabled={uiScale >= 140}
-                            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-brand-light hover:text-brand-dark dark:hover:bg-surface-800/20 dark:hover:text-brand transition-all active:scale-90 disabled:opacity-30 disabled:cursor-not-allowed"
+                            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-650 dark:text-slate-300 hover:bg-brand-light hover:text-brand-dark dark:hover:bg-surface-800/20 dark:hover:text-brand transition-all active:scale-90 disabled:opacity-30 disabled:cursor-not-allowed"
                         >
                             <ZoomIn size={16} />
                         </button>
@@ -175,8 +185,8 @@ export default function SettingsTabSistema({
                 </div>
             </SectionCard>
 
-            {/* Sonidos del Sistema */}
-            <SectionCard icon={Volume2} title="Sonidos del Sistema" subtitle="Efectos de audio interactivos" iconColor="text-brand">
+            {/* Opciones y Sonidos */}
+            <SectionCard icon={Volume2} title="Configuración y Sonidos" subtitle="Interacción y venta fraccionada" iconColor="text-brand">
                 <div className="space-y-4">
                     <div className="flex items-center justify-between">
                         <div>
@@ -188,6 +198,22 @@ export default function SettingsTabSistema({
                                 type="checkbox" 
                                 checked={soundsEnabled}
                                 onChange={handleToggleSounds}
+                                className="sr-only peer"
+                            />
+                            <div className="w-11 h-6 bg-slate-200 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#193275]"></div>
+                        </label>
+                    </div>
+
+                    <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-800/80 pt-3">
+                        <div>
+                            <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Venta a Granel / Fraccionada</p>
+                            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Permite ingresar peso decimal y fracciones al vender.</p>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                            <input 
+                                type="checkbox" 
+                                checked={granelEnabled}
+                                onChange={handleToggleGranel}
                                 className="sr-only peer"
                             />
                             <div className="w-11 h-6 bg-slate-200 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#193275]"></div>
