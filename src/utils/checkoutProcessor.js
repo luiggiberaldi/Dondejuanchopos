@@ -97,7 +97,11 @@ export async function processSaleTransaction({
             priceCop: i.priceCop || null,
             costBs: i.costBs || 0,
             costUsd: i.costUsd || 0,
-            isWeight: i.isWeight
+            isWeight: i.isWeight,
+            _mode: i._mode || i.mode || 'unit',
+            boxUnits: i.boxUnits || null,
+            halfBoxUnits: i.halfBoxUnits || null,
+            priceBsManual: i.priceBsManual || null
         })),
         cartSubtotalUsd: cartSubtotalUsd,
         discountType:       discountData?.type      || null,

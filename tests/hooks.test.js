@@ -397,7 +397,7 @@ describe('HOOK-041: backupKeys.js — listas canónicas', () => {
   });
 
   it('PROTECTED_KEYS incluye los flags que NO se deben borrar en import', () => {
-    expect(PROTECTED_KEYS).toContain('pda_demo_flag_v1');
+    expect(PROTECTED_KEYS).toContain('dj_demo_flag_v1');
     expect(PROTECTED_KEYS).toContain('bodega_autobackup_v1');
   });
 
