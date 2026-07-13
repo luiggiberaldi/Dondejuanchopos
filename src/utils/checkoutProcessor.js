@@ -45,10 +45,18 @@ export async function processSaleTransaction({
     if (!effectiveRate || effectiveRate <= 0) {
         return { success: false, error: 'Tasa de cambio BCV inválida (<= 0). Configura la tasa antes de cobrar.' };
     }
-    const expectedBs = mulR(cartTotalUsd, effectiveRate);
-    const bsDrift = Math.abs(subR(cartTotalBs, expectedBs));
-    if (bsDrift > FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_BS) {
-        return { success: false, error: `Inconsistencia USD/Bs: drift de ${round2(bsDrift)} Bs (tasa ${effectiveRate}).` };
+    
+    const is100PercentBs = payments.length > 0 && payments.every(p => ['efectivo_bs', 'pago_movil', 'punto_venta'].includes(p.methodId));
+
+    if (!is100PercentBs) {
+        const allPaymentsUsd = payments.every(p => ['efectivo_usd', 'zelle', 'binance', 'cashea'].includes(p.methodId));
+        if (allPaymentsUsd) {
+            const expectedBs = mulR(cartTotalUsd, effectiveRate);
+            const bsDrift = Math.abs(subR(cartTotalBs, expectedBs));
+            if (bsDrift > FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_BS) {
+                return { success: false, error: `Inconsistencia USD/Bs: drift de ${round2(bsDrift)} Bs (tasa ${effectiveRate}).` };
+            }
+        }
     }
 
     // ── Aritmética precisa con dinero.js (elimina IEEE 754 drift) ──
@@ -171,14 +179,17 @@ export async function processSaleTransaction({
             const itemId = item._originalId || item.id;
             const itemQty = item.qty;
             const isWeight = item.isWeight;
-            const isUnitMode = item._mode === 'unit';
-            const unitsPerPackage = item._unitsPerPackage || 1;
+            const mode = item._mode || 'unit';
 
             let physicalQty = itemQty;
             if (isWeight) {
                 physicalQty = itemQty;
-            } else if (isUnitMode) {
-                physicalQty = divR(itemQty, unitsPerPackage);
+            } else if (mode === 'box') {
+                const boxUnits = parseInt(item.boxUnits, 10) || 1;
+                physicalQty = mulR(itemQty, boxUnits);
+            } else if (mode === 'halfBox') {
+                const halfBoxUnits = parseInt(item.halfBoxUnits, 10) || 1;
+                physicalQty = mulR(itemQty, halfBoxUnits);
             }
 
             const prodObj = freshProducts.find(p => p.id === itemId);

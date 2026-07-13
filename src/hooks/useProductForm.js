@@ -1,37 +1,32 @@
 import { useReducer, useCallback } from 'react';
 
-/**
- * Hook para el formulario de producto.
- *
- * HOOK-029: Antes tenía 22 `useState` individuales. Cada `setState` causa un
- * re-render del componente. Cuando `populateForm` seteaba 17 campos en
- * secuencia, se disparaban 17 re-renders. Ahora usamos `useReducer` con un
- * único estado; las acciones batchean los cambios en una sola actualización.
- *
- * API pública: idéntica a la versión anterior (mismos `[value, setter]` pares
- * en el return), para no romper a los callers.
- */
-
 const INITIAL_STATE = {
     editingId: null,
     name: '',
     barcode: '',
     priceUsd: '',
-    priceBs: '',
+    priceBsManual: '', // Precio unidad en Bs (Manual)
     costUsd: '',
     costBs: '',
     stock: '',
-    unit: 'unidad',
-    unitsPerPackage: '',
-    sellByUnit: false,
-    unitPriceUsd: '',
     category: 'otros',
     lowStockAlert: '5',
     image: undefined,
-    packagingType: 'suelto',
-    stockInLotes: '',
-    granelUnit: 'kg',
     isFormShaking: false,
+
+    // Caja
+    sellByBox: false,
+    boxUnits: '',
+    boxBarcode: '',
+    boxPriceUsd: '',
+    boxPriceBs: '',
+
+    // Media Caja
+    sellByHalfBox: false,
+    halfBoxUnits: '',
+    halfBoxBarcode: '',
+    halfBoxPriceUsd: '',
+    halfBoxPriceBs: '',
 };
 
 function reducer(state, action) {
@@ -42,7 +37,6 @@ function reducer(state, action) {
         return { ...INITIAL_STATE };
     }
     if (action.type === 'PATCH') {
-        // Batch update — usado por populateForm para evitar N re-renders.
         return { ...state, ...action.patch };
     }
     return state;
@@ -51,113 +45,102 @@ function reducer(state, action) {
 export function useProductForm() {
     const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
 
-    // HOOK-029: factory de setters estables (no se re-crean en cada render).
-    // Cada setter es una función que hace `dispatch({ type: 'SET', field, value })`.
-    const makeSetter = useCallback((field) => (value) => {
-        dispatch({ type: 'SET', field, value });
-    }, []);
-
     const setEditingId = useCallback((v) => dispatch({ type: 'SET', field: 'editingId', value: v }), []);
     const setName = useCallback((v) => dispatch({ type: 'SET', field: 'name', value: v }), []);
     const setBarcode = useCallback((v) => dispatch({ type: 'SET', field: 'barcode', value: v }), []);
     const setPriceUsd = useCallback((v) => dispatch({ type: 'SET', field: 'priceUsd', value: v }), []);
-    const setPriceBs = useCallback((v) => dispatch({ type: 'SET', field: 'priceBs', value: v }), []);
+    const setPriceBsManual = useCallback((v) => dispatch({ type: 'SET', field: 'priceBsManual', value: v }), []);
     const setCostUsd = useCallback((v) => dispatch({ type: 'SET', field: 'costUsd', value: v }), []);
     const setCostBs = useCallback((v) => dispatch({ type: 'SET', field: 'costBs', value: v }), []);
     const setStock = useCallback((v) => dispatch({ type: 'SET', field: 'stock', value: v }), []);
-    const setUnit = useCallback((v) => dispatch({ type: 'SET', field: 'unit', value: v }), []);
-    const setUnitsPerPackage = useCallback((v) => dispatch({ type: 'SET', field: 'unitsPerPackage', value: v }), []);
-    const setSellByUnit = useCallback((v) => dispatch({ type: 'SET', field: 'sellByUnit', value: v }), []);
-    const setUnitPriceUsd = useCallback((v) => dispatch({ type: 'SET', field: 'unitPriceUsd', value: v }), []);
     const setCategory = useCallback((v) => dispatch({ type: 'SET', field: 'category', value: v }), []);
     const setLowStockAlert = useCallback((v) => dispatch({ type: 'SET', field: 'lowStockAlert', value: v }), []);
     const setImage = useCallback((v) => dispatch({ type: 'SET', field: 'image', value: v }), []);
-    const setPackagingType = useCallback((v) => dispatch({ type: 'SET', field: 'packagingType', value: v }), []);
-    const setStockInLotes = useCallback((v) => dispatch({ type: 'SET', field: 'stockInLotes', value: v }), []);
-    const setGranelUnit = useCallback((v) => dispatch({ type: 'SET', field: 'granelUnit', value: v }), []);
     const setIsFormShaking = useCallback((v) => dispatch({ type: 'SET', field: 'isFormShaking', value: v }), []);
+
+    // Setters Caja
+    const setSellByBox = useCallback((v) => dispatch({ type: 'SET', field: 'sellByBox', value: v }), []);
+    const setBoxUnits = useCallback((v) => dispatch({ type: 'SET', field: 'boxUnits', value: v }), []);
+    const setBoxBarcode = useCallback((v) => dispatch({ type: 'SET', field: 'boxBarcode', value: v }), []);
+    const setBoxPriceUsd = useCallback((v) => dispatch({ type: 'SET', field: 'boxPriceUsd', value: v }), []);
+    const setBoxPriceBs = useCallback((v) => dispatch({ type: 'SET', field: 'boxPriceBs', value: v }), []);
+
+    // Setters Media Caja
+    const setSellByHalfBox = useCallback((v) => dispatch({ type: 'SET', field: 'sellByHalfBox', value: v }), []);
+    const setHalfBoxUnits = useCallback((v) => dispatch({ type: 'SET', field: 'halfBoxUnits', value: v }), []);
+    const setHalfBoxBarcode = useCallback((v) => dispatch({ type: 'SET', field: 'halfBoxBarcode', value: v }), []);
+    const setHalfBoxPriceUsd = useCallback((v) => dispatch({ type: 'SET', field: 'halfBoxPriceUsd', value: v }), []);
+    const setHalfBoxPriceBs = useCallback((v) => dispatch({ type: 'SET', field: 'halfBoxPriceBs', value: v }), []);
 
     const resetForm = useCallback(() => {
         dispatch({ type: 'RESET' });
     }, []);
 
     const populateForm = useCallback((product, effectiveRate) => {
-        // HOOK-029: usar PATCH para actualizar todos los campos en una sola
-        // dispatch (un único re-render en vez de 17).
-        const currentPriceUsd = product.priceUsdt || 0;
+        const currentPriceUsd = product.priceUsd || product.priceUsdt || 0;
         const currentCostUsd = product.costUsd || (product.costBs ? product.costBs / effectiveRate : 0);
         const currentCostBs = product.costBs || (product.costUsd ? product.costUsd * effectiveRate : 0);
-
-        const u = product.unit || 'unidad';
 
         const patch = {
             editingId: product.id,
             name: product.name,
             barcode: product.barcode || '',
             priceUsd: currentPriceUsd > 0 ? currentPriceUsd.toString() : '',
-            priceBs: currentPriceUsd > 0 ? (currentPriceUsd * effectiveRate).toFixed(2) : '',
+            priceBsManual: product.priceBsManual ? product.priceBsManual.toString() : (product.priceBs ? product.priceBs.toString() : ''),
             costUsd: currentCostUsd > 0 ? currentCostUsd.toFixed(2) : '',
             costBs: currentCostBs > 0 ? currentCostBs.toFixed(2) : '',
             stock: product.stock ?? '',
-            unit: product.unit || 'unidad',
-            unitsPerPackage: product.unitsPerPackage || '',
-            sellByUnit: product.sellByUnit || false,
-            unitPriceUsd: product.unitPriceUsd ? product.unitPriceUsd.toString() : '',
             category: product.category || 'otros',
             lowStockAlert: product.lowStockAlert ?? 5,
             image: product.image,
+
+            // Caja
+            sellByBox: !!product.sellByBox,
+            boxUnits: product.boxUnits ? product.boxUnits.toString() : '',
+            boxBarcode: product.boxBarcode || '',
+            boxPriceUsd: product.boxPriceUsd ? product.boxPriceUsd.toString() : '',
+            boxPriceBs: product.boxPriceBs ? product.boxPriceBs.toString() : '',
+
+            // Media Caja
+            sellByHalfBox: !!product.sellByHalfBox,
+            halfBoxUnits: product.halfBoxUnits ? product.halfBoxUnits.toString() : '',
+            halfBoxBarcode: product.halfBoxBarcode || '',
+            halfBoxPriceUsd: product.halfBoxPriceUsd ? product.halfBoxPriceUsd.toString() : '',
+            halfBoxPriceBs: product.halfBoxPriceBs ? product.halfBoxPriceBs.toString() : '',
         };
-
-        // Derive packagingType from legacy unit
-        if (product.packagingType) {
-            patch.packagingType = product.packagingType;
-        } else if (u === 'paquete') {
-            patch.packagingType = 'lote';
-        } else if (u === 'kg' || u === 'litro') {
-            patch.packagingType = 'granel';
-            patch.granelUnit = u;
-        } else {
-            patch.packagingType = 'suelto';
-        }
-
-        // Stock in lotes
-        if (product.stockInLotes) {
-            patch.stockInLotes = product.stockInLotes.toString();
-        } else if (u === 'paquete' && product.unitsPerPackage && product.stock) {
-            patch.stockInLotes = Math.floor(product.stock / (product.unitsPerPackage || 1)).toString();
-        } else {
-            patch.stockInLotes = '';
-        }
-
-        if (u === 'kg' || u === 'litro') patch.granelUnit = u;
 
         dispatch({ type: 'PATCH', patch });
     }, []);
 
-    // `makeSetter` se exporta para callers que quieran setters dinámicos (raro).
     return {
         editingId: state.editingId, setEditingId,
         name: state.name, setName,
         barcode: state.barcode, setBarcode,
         priceUsd: state.priceUsd, setPriceUsd,
-        priceBs: state.priceBs, setPriceBs,
+        priceBsManual: state.priceBsManual, setPriceBsManual,
         costUsd: state.costUsd, setCostUsd,
         costBs: state.costBs, setCostBs,
         stock: state.stock, setStock,
-        unit: state.unit, setUnit,
-        unitsPerPackage: state.unitsPerPackage, setUnitsPerPackage,
-        sellByUnit: state.sellByUnit, setSellByUnit,
-        unitPriceUsd: state.unitPriceUsd, setUnitPriceUsd,
         category: state.category, setCategory,
         lowStockAlert: state.lowStockAlert, setLowStockAlert,
         image: state.image, setImage,
-        packagingType: state.packagingType, setPackagingType,
-        stockInLotes: state.stockInLotes, setStockInLotes,
-        granelUnit: state.granelUnit, setGranelUnit,
         isFormShaking: state.isFormShaking, setIsFormShaking,
+
+        // Caja
+        sellByBox: state.sellByBox, setSellByBox,
+        boxUnits: state.boxUnits, setBoxUnits,
+        boxBarcode: state.boxBarcode, setBoxBarcode,
+        boxPriceUsd: state.boxPriceUsd, setBoxPriceUsd,
+        boxPriceBs: state.boxPriceBs, setBoxPriceBs,
+
+        // Media Caja
+        sellByHalfBox: state.sellByHalfBox, setSellByHalfBox,
+        halfBoxUnits: state.halfBoxUnits, setHalfBoxUnits,
+        halfBoxBarcode: state.halfBoxBarcode, setHalfBoxBarcode,
+        halfBoxPriceUsd: state.halfBoxPriceUsd, setHalfBoxPriceUsd,
+        halfBoxPriceBs: state.halfBoxPriceBs, setHalfBoxPriceBs,
+
         resetForm,
         populateForm,
-        // Exponer para tests / devtools.
-        _makeSetter: makeSetter,
     };
 }

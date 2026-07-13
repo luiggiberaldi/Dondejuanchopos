@@ -328,6 +328,9 @@ export class FinancialEngine {
         const subtotalUsd = sumR(lineItemsUsd);
 
         const lineItemsBs = cartItems.map(item => {
+            if (item.priceBsManual != null && item.priceBsManual > 0) {
+                return mulR(item.priceBsManual, item.qty);
+            }
             if (item.exactBs != null) {
                 return mulR(item.exactBs, item.qty);
             }

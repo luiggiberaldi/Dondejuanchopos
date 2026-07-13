@@ -226,69 +226,52 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                         <AlertTriangle size={9} /> Bajo
                     </div>
                 )}
-            </div>
-
-            {/* Info */}
+              {/* Info */}
             <div className="p-3 lg:p-2.5 flex flex-col flex-1">
                 <h3 className="font-bold text-slate-700 dark:text-slate-200 text-[13px] lg:text-[12px] leading-tight line-clamp-2 mb-2">{p.name}</h3>
 
-                {/* Units per package info */}
-                {p.unit === 'paquete' && p.unitsPerPackage && (
-                    <div className="flex items-center gap-1 text-[10px] font-bold text-brand dark:text-brand mb-2 mt-[-4px]">
-                        <Package size={11} /> Bulto · {p.unitsPerPackage} uds
+                {/* Precios de la Unidad */}
+                <div className="space-y-1 mb-2.5">
+                    <p className="text-base font-black text-emerald-600 dark:text-emerald-400 leading-none">
+                        ${formatUsd(p.priceUsd)} <span className="text-[9px] font-bold text-slate-400">USD</span>
+                    </p>
+                    <p className="text-[11px] font-extrabold text-slate-500 dark:text-slate-450 leading-none">
+                        {p.priceBsManual ? `${parseFloat(p.priceBsManual).toFixed(2)}` : formatBs(p.priceUsd * effectiveRate)} Bs
+                        {p.priceBsManual && <span className="text-[7px] bg-[#193275]/10 dark:bg-brand/10 text-[#193275] dark:text-brand px-1.5 py-0.5 rounded font-black ml-1.5">MANUAL</span>}
+                    </p>
+                </div>
+
+                {/* Formatos Disponibles (Caja / ½ Caja) */}
+                {(p.sellByBox || p.sellByHalfBox) && (
+                    <div className="space-y-1.5 mb-3 border-t border-slate-100/50 dark:border-slate-800/40 pt-2">
+                        {p.sellByBox && (
+                            <div className="flex items-center justify-between text-[10px] font-bold text-[#193275] dark:text-brand bg-[#193275]/5 dark:bg-brand/5 px-2 py-1 rounded-lg">
+                                <span className="flex items-center gap-1"><Package size={10} /> Caja ({p.boxUnits} Uds)</span>
+                                <span className="font-black">
+                                    ${(p.boxPriceUsd ? parseFloat(p.boxPriceUsd) : 0).toFixed(2)} | {p.boxPriceBs ? `${parseFloat(p.boxPriceBs).toFixed(0)} Bs` : `${((p.boxPriceUsd || 0) * effectiveRate).toFixed(0)} Bs`}
+                                </span>
+                            </div>
+                        )}
+                        {p.sellByHalfBox && (
+                            <div className="flex items-center justify-between text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/20 px-2 py-1 rounded-lg">
+                                <span className="flex items-center gap-1"><Package size={10} /> ½ Caja ({p.halfBoxUnits} Uds)</span>
+                                <span className="font-black">
+                                    ${(p.halfBoxPriceUsd ? parseFloat(p.halfBoxPriceUsd) : 0).toFixed(2)} | {p.halfBoxPriceBs ? `${parseFloat(p.halfBoxPriceBs).toFixed(0)} Bs` : `${((p.halfBoxPriceUsd || 0) * effectiveRate).toFixed(0)} Bs`}
+                                </span>
+                            </div>
+                        )}
                     </div>
                 )}
 
-                <div className="flex justify-between items-end mb-3">
-                    <div>
-                        {copEnabled && tasaCop > 0 ? (
-                            copPrimary ? (
-                                <>
-                                    <p className="text-lg lg:text-base font-black text-amber-600 dark:text-amber-400 leading-none">
-                                        {formatCop(valCop)} <span className="text-[10px] font-bold text-amber-600/50 dark:text-amber-400/50">COP {(p.unit === 'kg' || p.unit === 'litro') ? `/ ${unitInfo?.short || 'ud'}` : ''}</span>
-                                    </p>
-                                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-1.5 py-0.5 rounded">{formatUsd(effectiveUsd)} USD</span>
-                                        <span className="text-[10px] font-bold text-brand-dark dark:text-brand bg-brand-light dark:bg-surface-800/20 px-1.5 py-0.5 rounded">{formatBs(valBs)} Bs</span>
-                                    </div>
-                                </>
-                            ) : (
-                                <>
-                                    <p className="text-lg lg:text-base font-black text-emerald-600 dark:text-emerald-400 leading-none">
-                                        {formatUsd(effectiveUsd)} <span className="text-[10px] font-bold text-emerald-600/50 dark:text-emerald-400/50">USD {(p.unit === 'kg' || p.unit === 'litro') ? `/ ${unitInfo?.short || 'ud'}` : ''}</span>
-                                    </p>
-                                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                                        <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded">{formatCop(valCop)} COP</span>
-                                        <span className="text-[10px] font-bold text-brand-dark dark:text-brand bg-brand-light dark:bg-surface-800/20 px-1.5 py-0.5 rounded">{formatBs(valBs)} Bs</span>
-                                    </div>
-                                </>
-                            )
-                        ) : (
-                            <>
-                                <p className="text-lg lg:text-base font-black text-emerald-600 dark:text-emerald-400 leading-none">
-                                    {formatUsd(effectiveUsd)} <span className="text-[10px] font-bold text-emerald-600/50 dark:text-emerald-400/50">USD {(p.unit === 'kg' || p.unit === 'litro') ? `/ ${unitInfo?.short || 'ud'}` : ''}</span>
-                                </p>
-                                <p className="text-[11px] font-bold text-slate-400 mt-1">{formatBs(valBs)} Bs</p>
-                            </>
-                        )}
-                        {p.unit === 'paquete' && p.sellByUnit && (
-                            <p className="text-[10px] font-bold text-brand dark:text-brand mt-0.5 flex items-center gap-0.5">
-                                <Layers size={10} />
-                                {copEnabled && tasaCop > 0
-                                    ? copPrimary
-                                        ? `${formatCop(p.unitPriceCop || (p.priceCop ? Math.round(p.priceCop / (p.unitsPerPackage || 1)) : Math.round((p.unitPriceUsd ?? effectiveUsd / (p.unitsPerPackage || 1)) * tasaCop)))} COP / ud · $${(p.unitPriceUsd ?? effectiveUsd / (p.unitsPerPackage || 1)).toFixed(2)}`
-                                        : `$${(p.unitPriceUsd ?? effectiveUsd / (p.unitsPerPackage || 1)).toFixed(2)} / ud · ${formatCop(p.unitPriceCop || (p.priceCop ? Math.round(p.priceCop / (p.unitsPerPackage || 1)) : Math.round((p.unitPriceUsd ?? effectiveUsd / (p.unitsPerPackage || 1)) * tasaCop)))} COP`
-                                    : `$${(p.unitPriceUsd ?? effectiveUsd / (p.unitsPerPackage || 1)).toFixed(2)} / ud`
-                                }
-                            </p>
-                        )}
-                    </div>
-                    {!readOnly && margin !== null && (
-                        <span className={`text-[10px] font-black px-2 py-1 rounded-lg ${margin >= 0 ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400' : 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'}`}>
+                {/* Margen */}
+                {!readOnly && margin !== null && (
+                    <div className="flex justify-between items-center text-[10px] text-slate-400 mb-2">
+                        <span>Margen unidad:</span>
+                        <span className={`font-black px-1.5 py-0.5 rounded ${margin >= 0 ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30' : 'bg-red-50 text-red-650'}`}>
                             {margin >= 0 ? '+' : ''}{margin.toFixed(0)}%
                         </span>
-                    )}
-                </div>
+                    </div>
+                )}               </div>
 
                 {/* Stock Control Prominente */}
                 <div className="mt-auto pt-2 border-t border-slate-100 dark:border-slate-800">

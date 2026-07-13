@@ -175,10 +175,29 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 if (p) { addToCart({ ...p, isWeight: true }, weightKg, null, true); return; }
             }
 
-            // Producto regular
-            const product = products.find(p => p.barcode === barcode || p.id === barcode);
-            if (product) {
-                addToCart(product, null, null, true);
+            // Buscar producto y formato por código de barra
+            let foundProduct = null;
+            let foundMode = null;
+            for (const p of products) {
+                if (p.barcode === barcode || p.id === barcode) {
+                    foundProduct = p;
+                    foundMode = (p.sellByBox || p.sellByHalfBox) ? null : 'unit'; // Preguntar si tiene formatos, si no, es unidad
+                    break;
+                }
+                if (p.sellByBox && p.boxBarcode === barcode) {
+                    foundProduct = p;
+                    foundMode = 'box';
+                    break;
+                }
+                if (p.sellByHalfBox && p.halfBoxBarcode === barcode) {
+                    foundProduct = p;
+                    foundMode = 'halfBox';
+                    break;
+                }
+            }
+
+            if (foundProduct) {
+                addToCart(foundProduct, null, foundMode, true);
             } else {
                 playError();
                 showToast(`Producto no encontrado (${barcode})`, 'warning');
@@ -187,9 +206,8 @@ export default function SalesView({ triggerHaptic, isActive }) {
         enabled: !isLoading && isActive && !!todayAperturaData
     });
 
-    // Paste Barcode Handler (Para cuando el usuario hace Ctrl+V en la barra de búsqueda)
+    // Paste Barcode Handler (Ctrl+V)
     const handlePasteBarcode = (pastedText) => {
-        // Ignoramos si hay popups activos
         if (showCheckout || showReceipt || showClearCartConfirm) return;
 
         // Intentar Pesa Electrónica
@@ -199,17 +217,34 @@ export default function SalesView({ triggerHaptic, isActive }) {
             const p = products.find(p => p.id === pluCode || p.barcode?.includes(pluCode) || p.barcode?.includes(pastedText.substring(0, 7)));
             if (p) {
                 addToCart({ ...p, isWeight: true }, weightKg, null, true);
-                // Limpiamos el texto que se acaba de pegar
                 setTimeout(() => setSearchTerm(''), 10);
                 return;
             }
         }
 
-        // Buscar producto regular por código de barras o ID exactamente
-        const product = products.find(p => p.barcode === pastedText || p.id === pastedText);
-        if (product) {
-            addToCart(product, null, null, true);
-            // Limpiamos la barra tras pegarse
+        // Buscar producto y formato por código de barra pegado
+        let foundProduct = null;
+        let foundMode = null;
+        for (const p of products) {
+            if (p.barcode === pastedText || p.id === pastedText) {
+                foundProduct = p;
+                foundMode = (p.sellByBox || p.sellByHalfBox) ? null : 'unit';
+                break;
+            }
+            if (p.sellByBox && p.boxBarcode === pastedText) {
+                foundProduct = p;
+                foundMode = 'box';
+                break;
+            }
+            if (p.sellByHalfBox && p.halfBoxBarcode === pastedText) {
+                foundProduct = p;
+                foundMode = 'halfBox';
+                break;
+            }
+        }
+
+        if (foundProduct) {
+            addToCart(foundProduct, null, foundMode, true);
             setTimeout(() => setSearchTerm(''), 10);
         }
         // Si no es un código exacto, no hacemos nada extra, el navegador lo pegará como texto normal para buscar.
@@ -324,102 +359,94 @@ export default function SalesView({ triggerHaptic, isActive }) {
     const addToCart = useCallback((product, qtyOverride = null, forceMode = null, isBarcodeSource = false) => {
         triggerHaptic && triggerHaptic();
 
-        // Validación temprana: rechazar productos sin precio válido
-        if (!product.priceUsdt || isNaN(product.priceUsdt) || product.priceUsdt <= 0) {
-            playError();
-            showToast('Este producto no tiene precio válido. Edítalo primero.', 'warning');
+        // Si tiene formatos habilitados y no hay modo forzado, mostrar selector
+        if ((product.sellByBox || product.sellByHalfBox) && !forceMode && !qtyOverride) {
+            setHierarchyPending(product);
             return;
         }
 
-        // Validación temprana de stock (si la configuración lo exige)
-        const allowNegativeStock = localStorage.getItem('allow_negative_stock') === 'true';
-        const currentStock = parseFloat(product.stock) || 0;
-        if (!allowNegativeStock && currentStock <= 0) {
-            playError();
-            showToast(`${product.name}: sin stock`, 'warning');
+        // Si es a granel
+        if ((product.unit === 'kg' || product.unit === 'litro') && !qtyOverride) {
+            setWeightPending(product);
             return;
         }
 
-        playAdd();
-
-        if (product.sellByUnit && product.unitPriceUsd && !forceMode && !qtyOverride) { setHierarchyPending(product); return; }
-        if ((product.unit === 'kg' || product.unit === 'litro') && !qtyOverride) { setWeightPending(product); return; }
-
-        // When priceCop is the source of truth, derive USD from COP at current rate
-        let priceToUse = (copEnabled && product.priceCop && tasaCop > 0)
-            ? product.priceCop / tasaCop
-            : (parseFloat(product.priceUsdt) || 0);
+        const mode = forceMode || 'unit';
+        let priceToUse = parseFloat(product.priceUsd) || 0;
+        let priceBsToUse = product.priceBsManual ? parseFloat(product.priceBsManual) : null;
         let cartId = product.id;
         let cartName = product.name;
-        let qtyToAdd = qtyOverride || 1;
+        let unitsMultiplier = 1;
 
-        if (forceMode === 'unit') {
-            const unitCop = product.unitPriceCop || (product.priceCop ? Math.round(product.priceCop / (product.unitsPerPackage || 1)) : null);
-            priceToUse = (copEnabled && unitCop && tasaCop > 0) ? unitCop / tasaCop : product.unitPriceUsd;
-            cartId = product.id + '_unit';
-            cartName = product.name + ' (Ud.)';
+        if (mode === 'box') {
+            priceToUse = parseFloat(product.boxPriceUsd) || 0;
+            priceBsToUse = product.boxPriceBs ? parseFloat(product.boxPriceBs) : null;
+            cartId = product.id + '_box';
+            cartName = product.name + ' (Caja)';
+            unitsMultiplier = parseInt(product.boxUnits, 10) || 1;
+        } else if (mode === 'halfBox') {
+            priceToUse = parseFloat(product.halfBoxPriceUsd) || 0;
+            priceBsToUse = product.halfBoxPriceBs ? parseFloat(product.halfBoxPriceBs) : null;
+            cartId = product.id + '_half';
+            cartName = product.name + ' (½ Caja)';
+            unitsMultiplier = parseInt(product.halfBoxUnits, 10) || 1;
         }
 
-        // Pre-calculate stock check BEFORE setCart to avoid React StrictMode double-firing
+        // Validación de precio
+        if (priceToUse <= 0) {
+            playError();
+            showToast('Este formato no tiene un precio válido asignado', 'warning');
+            return;
+        }
+
+        const allowNegativeStock = localStorage.getItem('allow_negative_stock') === 'true';
+        const currentStock = parseFloat(product.stock) || 0;
+        const qtyToAdd = qtyOverride || 1;
+
+        // Validación de stock
         if (!allowNegativeStock) {
             const currentCart = cartRef.current;
-            const existingInCart = currentCart.find(i => i.id === cartId && i.priceUsd === priceToUse);
-            const addingQty = existingInCart ? (qtyOverride || 1) : qtyToAdd;
-            const existingQtyForThis = existingInCart ? existingInCart.qty : 0;
-            const newQty = existingQtyForThis + addingQty;
-            const stockNeeded = forceMode === 'unit' ? newQty / (product.unitsPerPackage || 1) : newQty;
+            const existingInCart = currentCart.find(i => i.id === cartId);
+            const existingQty = existingInCart ? existingInCart.qty : 0;
+            const stockNeeded = (existingQty + qtyToAdd) * unitsMultiplier;
 
+            // Calcular stock usado por otros formatos del mismo producto en el carrito
             const otherCartItems = currentCart.filter(i => (i._originalId || i.id) === product.id && i.id !== cartId);
             const otherStockUsed = otherCartItems.reduce((sum, item) => {
-                if (item._mode === 'unit') return sum + (item.qty / (item._unitsPerPackage || 1));
-                return sum + item.qty;
+                const mult = item._mode === 'box' ? (item.boxUnits || 1) : item._mode === 'halfBox' ? (item.halfBoxUnits || 1) : 1;
+                return sum + (item.qty * mult);
             }, 0);
 
             if (stockNeeded + otherStockUsed > currentStock) {
                 playError();
-                showToast(`${product.name}: stock maximo alcanzado`, 'warning');
+                showToast(`${product.name}: stock máximo alcanzado`, 'warning');
                 return;
             }
         }
 
-        // Soft warning when allowNegativeStock is ON but stock just ran out
-        if (allowNegativeStock && currentStock > 0) {
-            const currentCart = cartRef.current;
-            const existingInCart = currentCart.find(i => i.id === cartId && i.priceUsd === priceToUse);
-            const existingQtyForThis = existingInCart ? existingInCart.qty : 0;
-            const newQty = existingQtyForThis + (qtyOverride || 1);
-            const stockNeeded = forceMode === 'unit' ? newQty / (product.unitsPerPackage || 1) : newQty;
-
-            const otherCartItems = currentCart.filter(i => (i._originalId || i.id) === product.id && i.id !== cartId);
-            const otherStockUsed = otherCartItems.reduce((sum, item) => {
-                if (item._mode === 'unit') return sum + (item.qty / (item._unitsPerPackage || 1));
-                return sum + item.qty;
-            }, 0);
-
-            if (stockNeeded + otherStockUsed > currentStock) {
-                showToast(`${product.name}: stock agotado, vendiendo sin inventario`, 'info');
-            }
-        }
+        playAdd();
 
         setCart(prev => {
-            const existing = prev.find(i => i.id === cartId && i.priceUsd === priceToUse);
+            const existing = prev.find(i => i.id === cartId);
             if (existing && !qtyOverride) return prev.map(i => i.id === cartId ? { ...i, qty: i.qty + 1 } : i);
             if (existing && qtyOverride) return prev.map(i => i.id === cartId ? { ...i, qty: i.qty + qtyOverride } : i);
 
             const itemCostBs = product.costBs || (product.costUsd ? product.costUsd * effectiveRate : 0);
-            const itemPriceCop = forceMode === 'unit'
-                ? (product.unitPriceCop || (product.priceCop ? Math.round(product.priceCop / (product.unitsPerPackage || 1)) : null))
-                : (product.priceCop || null);
             return [{
-                ...product, id: cartId, name: cartName, priceUsd: priceToUse,
-                priceCop: itemPriceCop,
-                exactBs: product.exactBs || null,
-                costBs: forceMode === 'unit' ? itemCostBs / (product.unitsPerPackage || 1) : itemCostBs,
-                costUsd: forceMode === 'unit' ? (product.costUsd || 0) / (product.unitsPerPackage || 1) : (product.costUsd || 0),
-                qty: qtyToAdd, isWeight: !!qtyOverride,
-                _originalId: product.id, _mode: forceMode || 'package', _unitsPerPackage: product.unitsPerPackage || 1,
+                ...product,
+                id: cartId,
+                name: cartName,
+                priceUsd: priceToUse,
+                priceBsManual: priceBsToUse,
+                costUsd: product.costUsd ? parseFloat(product.costUsd) * unitsMultiplier : 0,
+                costBs: itemCostBs * unitsMultiplier,
+                qty: qtyToAdd,
+                isWeight: !!qtyOverride,
+                _originalId: product.id,
+                _mode: mode,
             }, ...prev];
         });
+
         handleSetSearchTerm('');
         setHierarchyPending(null);
 

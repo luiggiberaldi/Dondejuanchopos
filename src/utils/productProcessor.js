@@ -9,82 +9,85 @@ export function buildProductPayload(formData, effectiveRate) {
         name,
         barcode,
         priceUsd,
-        priceBs,
-        priceCop,
+        priceBsManual,
         costUsd,
         costBs,
         stock,
-        stockInLotes,
-        packagingType,
-        unitsPerPackage,
-        granelUnit,
-        sellByUnit,
-        unitPriceUsd,
-        unitPriceCop,
         category,
-        lowStockAlert
+        lowStockAlert,
+        
+        sellByBox,
+        boxUnits,
+        boxBarcode,
+        boxPriceUsd,
+        boxPriceBs,
+        
+        sellByHalfBox,
+        halfBoxUnits,
+        halfBoxBarcode,
+        halfBoxPriceUsd,
+        halfBoxPriceBs
     } = formData;
 
     const formattedName = name.replace(/(^\w{1})|(\s+\w{1})/g, letter => letter.toUpperCase());
-    // FIN-022-pattern: validar tasa antes de usarla (sin fallback silencioso a 1).
     const safeRate = effectiveRate > 0 ? effectiveRate : 1;
 
-    // FIN-017: usar divR (división redondeada) en vez de Math.round(raw/safeRate*100)/100.
-    // safeParse para normalizar input del usuario (maneja coma decimal y separadores de miles).
-    const finalPriceUsd = priceUsd
-        ? round2(CurrencyService.safeParse(priceUsd))
-        : (priceBs ? divR(CurrencyService.safeParse(priceBs), safeRate) : 0);
-    const finalCostUsd = costUsd
-        ? round2(CurrencyService.safeParse(costUsd))
-        : (costBs ? divR(CurrencyService.safeParse(costBs), safeRate) : 0);
+    // Normalizar costos y precios de unidad
+    const finalPriceUsd = priceUsd ? round2(CurrencyService.safeParse(priceUsd)) : 0;
+    const finalPriceBsManual = priceBsManual ? round2(CurrencyService.safeParse(priceBsManual)) : null;
+
+    const finalCostUsd = costUsd ? round2(CurrencyService.safeParse(costUsd)) : 0;
     const finalCostBs = costBs
         ? round2(CurrencyService.safeParse(costBs))
         : (costUsd ? mulR(CurrencyService.safeParse(costUsd), safeRate) : 0);
 
-    // COP: guardar el valor exacto que escribió el usuario (sin redondeo de ida/vuelta).
-    // COP es entero por convención; redondeamos a entero con round2 (no hay decimales).
-    const finalPriceCop = priceCop && CurrencyService.safeParse(priceCop) > 0 ? round2(CurrencyService.safeParse(priceCop)) : null;
+    // Normalizar datos de Caja
+    const parsedBoxUnits = sellByBox && boxUnits ? parseInt(boxUnits, 10) : 1;
+    const finalBoxPriceUsd = sellByBox && boxPriceUsd ? round2(CurrencyService.safeParse(boxPriceUsd)) : null;
+    const finalBoxPriceBs = sellByBox && boxPriceBs ? round2(CurrencyService.safeParse(boxPriceBs)) : null;
+    const finalBoxBarcode = sellByBox && boxBarcode ? boxBarcode.trim() : null;
 
-    // Map packagingType → unit legacy
-    let legacyUnit = 'unidad';
-    if (packagingType === 'lote') legacyUnit = 'paquete';
-    else if (packagingType === 'granel') legacyUnit = granelUnit;
-
-    const isLote = packagingType === 'lote';
-    const parsedUnitsPerPkg = isLote && unitsPerPackage ? parseInt(unitsPerPackage) : 1;
-    const autoUnitPrice = parsedUnitsPerPkg > 1 ? divR(finalPriceUsd, parsedUnitsPerPkg) : finalPriceUsd;
-    const finalUnitPrice = sellByUnit && unitPriceUsd ? round2(CurrencyService.safeParse(unitPriceUsd)) : autoUnitPrice;
-
-    // Unit price in COP for lote products
-    const finalUnitPriceCop = isLote && sellByUnit && unitPriceCop && CurrencyService.safeParse(unitPriceCop) > 0
-        ? round2(CurrencyService.safeParse(unitPriceCop))
-        : (isLote && sellByUnit && finalPriceCop && parsedUnitsPerPkg > 1
-            ? divR(finalPriceCop, parsedUnitsPerPkg)
-            : null);
-
-    // Stock: for lote, convert lotes → units
-    let finalStock = stock ? parseInt(stock, 10) : 0;
-    if (isLote && stockInLotes && parsedUnitsPerPkg > 0) {
-        finalStock = parseInt(stockInLotes, 10) * parsedUnitsPerPkg;
-    }
+    // Normalizar datos de Media Caja
+    const parsedHalfBoxUnits = sellByHalfBox && halfBoxUnits ? parseInt(halfBoxUnits, 10) : 1;
+    const finalHalfBoxPriceUsd = sellByHalfBox && halfBoxPriceUsd ? round2(CurrencyService.safeParse(halfBoxPriceUsd)) : null;
+    const finalHalfBoxPriceBs = sellByHalfBox && halfBoxPriceBs ? round2(CurrencyService.safeParse(halfBoxPriceBs)) : null;
+    const finalHalfBoxBarcode = sellByHalfBox && halfBoxBarcode ? halfBoxBarcode.trim() : null;
 
     return {
         name: formattedName,
         barcode: barcode ? barcode.trim() : null,
-        // FIN-030: mantener `priceUsdt` (typo histórico) + alias `priceUsd` para migración gradual.
-        priceUsdt: finalPriceUsd,
+        
+        // Unidad
         priceUsd: finalPriceUsd,
-        priceCop: finalPriceCop,
+        priceUsdt: finalPriceUsd, // Alias legacy
+        priceBsManual: finalPriceBsManual,
+        
+        // Caja
+        sellByBox: !!sellByBox,
+        boxUnits: parsedBoxUnits,
+        boxBarcode: finalBoxBarcode,
+        boxPriceUsd: finalBoxPriceUsd,
+        boxPriceBs: finalBoxPriceBs,
+
+        // Media Caja
+        sellByHalfBox: !!sellByHalfBox,
+        halfBoxUnits: parsedHalfBoxUnits,
+        halfBoxBarcode: finalHalfBoxBarcode,
+        halfBoxPriceUsd: finalHalfBoxPriceUsd,
+        halfBoxPriceBs: finalHalfBoxPriceBs,
+
+        // Costo y Stock
         costUsd: finalCostUsd,
         costBs: finalCostBs,
-        stock: finalStock,
-        unit: legacyUnit,
-        packagingType: packagingType,
-        unitsPerPackage: parsedUnitsPerPkg,
-        sellByUnit: isLote ? sellByUnit : false,
-        unitPriceUsd: isLote && sellByUnit ? finalUnitPrice : null,
-        unitPriceCop: isLote && sellByUnit ? finalUnitPriceCop : null,
-        stockInLotes: isLote && stockInLotes ? parseInt(stockInLotes) : null,
+        stock: stock ? parseInt(stock, 10) : 0,
+
+        // Campos Legacy para evitar errores en otros componentes
+        packagingType: 'suelto',
+        unit: 'unidad',
+        sellByUnit: false,
+        unitPriceUsd: null,
+        unitPriceCop: null,
+        priceCop: null,
         category: category,
         lowStockAlert: lowStockAlert ? parseInt(lowStockAlert) : 5,
     };

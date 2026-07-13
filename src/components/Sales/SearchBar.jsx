@@ -154,33 +154,63 @@ const SearchBar = forwardRef(function SearchBar({
                 </div>
             )}
 
-            {/* ─── POPUP JERARQUÍA: Paquete o Unidad ─── */}
+            {/* ─── POPUP JERARQUÍA: Formatos de Venta ─── */}
             {hierarchyPending && (
                 <div className="absolute top-full mt-2 left-0 right-0 z-30 bg-white dark:bg-slate-900 border-2 border-surface-300 dark:border-surface-800 rounded-2xl shadow-2xl shadow-primary/10 overflow-hidden">
                     <div className="p-3 bg-brand-light dark:bg-surface-800/20 border-b border-surface-200 dark:border-surface-800">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-xs font-black text-brand-dark dark:text-brand uppercase tracking-wider">¿Cómo lo vendes?</p>
+                                <p className="text-xs font-black text-brand-dark dark:text-brand uppercase tracking-wider">Selecciona Formato de Venta</p>
                                 <p className="text-[11px] text-brand/70 dark:text-brand/50 font-medium mt-0.5">{hierarchyPending.name}</p>
                             </div>
                             <button onClick={() => setHierarchyPending(null)} className="p-1 text-brand hover:text-brand-dark"><X size={16} /></button>
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3 p-3">
-                        <button onClick={() => addToCart(hierarchyPending, null, 'package')}
-                            className="flex flex-col items-center gap-2 p-4 rounded-xl bg-brand-light dark:bg-surface-800/20 border-2 border-surface-300 dark:border-surface-800 hover:border-brand hover:bg-brand-light dark:hover:bg-surface-800/40 transition-all active:scale-95">
-                            <Package size={24} className="text-brand-dark dark:text-brand" />
-                            <span className="text-xs font-black text-brand-dark dark:text-brand uppercase">Caja/Bulto</span>
-                            <span className="text-sm font-black text-brand-dark dark:text-brand">{copEnabled && copPrimary && tasaCop > 0 ? `${formatCop(getCop(hierarchyPending, tasaCop))} COP` : `$${hierarchyPending.priceUsdt?.toFixed(2)}`}</span>
-                            <span className="text-[9px] text-slate-400 font-bold">{hierarchyPending.unitsPerPackage} uds</span>
-                        </button>
+                    <div className={`grid gap-3 p-3 ${
+                        (hierarchyPending.sellByBox && hierarchyPending.sellByHalfBox) ? 'grid-cols-3' : (hierarchyPending.sellByBox || hierarchyPending.sellByHalfBox) ? 'grid-cols-2' : 'grid-cols-1'
+                    }`}>
+                        {/* 1. Unidad */}
                         <button onClick={() => addToCart(hierarchyPending, null, 'unit')}
-                            className="flex flex-col items-center gap-2 p-4 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border-2 border-emerald-200 dark:border-emerald-800 hover:border-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-all active:scale-95">
-                            <Box size={24} className="text-emerald-600 dark:text-emerald-400" />
-                            <span className="text-xs font-black text-emerald-700 dark:text-emerald-300 uppercase">Unidad</span>
-                            <span className="text-sm font-black text-emerald-600 dark:text-emerald-400">{copEnabled && copPrimary && tasaCop > 0 ? `${formatCop(hierarchyPending.unitPriceUsd * tasaCop)} COP` : `$${hierarchyPending.unitPriceUsd?.toFixed(2)}`}</span>
-                            <span className="text-[9px] text-slate-400 font-bold">1 ud</span>
+                            className="flex flex-col items-center justify-between gap-2 p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 border-2 border-emerald-250 dark:border-emerald-900/60 hover:border-emerald-500 hover:bg-emerald-100 dark:hover:bg-emerald-950/40 transition-all active:scale-95 text-center">
+                            <Tag size={20} className="text-emerald-600 dark:text-emerald-400" />
+                            <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-300 uppercase">Unidad</span>
+                            <div className="flex flex-col">
+                                <span className="text-xs font-black text-emerald-600 dark:text-emerald-400">${hierarchyPending.priceUsd?.toFixed(2)}</span>
+                                <span className="text-[9px] font-bold text-slate-400">
+                                    {hierarchyPending.priceBsManual ? `${parseFloat(hierarchyPending.priceBsManual).toFixed(2)} Bs` : `${(hierarchyPending.priceUsd * effectiveRate).toFixed(2)} Bs`}
+                                </span>
+                            </div>
                         </button>
+
+                        {/* 2. Caja */}
+                        {hierarchyPending.sellByBox && (
+                            <button onClick={() => addToCart(hierarchyPending, null, 'box')}
+                                className="flex flex-col items-center justify-between gap-2 p-3.5 rounded-xl bg-[#193275]/5 dark:bg-[#193275]/20 border-2 border-[#193275]/15 hover:border-[#193275] hover:bg-[#193275]/10 transition-all active:scale-95 text-center">
+                                <Package size={20} className="text-[#193275] dark:text-brand" />
+                                <span className="text-[10px] font-black text-[#193275] dark:text-brand uppercase">Caja ({hierarchyPending.boxUnits} Uds)</span>
+                                <div className="flex flex-col">
+                                    <span className="text-xs font-black text-[#193275] dark:text-brand">${hierarchyPending.boxPriceUsd?.toFixed(2)}</span>
+                                    <span className="text-[9px] font-bold text-slate-450 dark:text-slate-400">
+                                        {hierarchyPending.boxPriceBs ? `${parseFloat(hierarchyPending.boxPriceBs).toFixed(2)} Bs` : `${(hierarchyPending.boxPriceUsd * effectiveRate).toFixed(2)} Bs`}
+                                    </span>
+                                </div>
+                            </button>
+                        )}
+
+                        {/* 3. Media Caja */}
+                        {hierarchyPending.sellByHalfBox && (
+                            <button onClick={() => addToCart(hierarchyPending, null, 'halfBox')}
+                                className="flex flex-col items-center justify-between gap-2 p-3.5 rounded-xl bg-purple-50 dark:bg-purple-950/20 border-2 border-purple-250 dark:border-purple-900/60 hover:border-purple-500 hover:bg-purple-100 dark:hover:bg-purple-950/40 transition-all active:scale-95 text-center">
+                                <Package size={20} className="text-purple-600 dark:text-purple-400" />
+                                <span className="text-[10px] font-black text-purple-700 dark:text-purple-300 uppercase">½ Caja ({hierarchyPending.halfBoxUnits} Uds)</span>
+                                <div className="flex flex-col">
+                                    <span className="text-xs font-black text-purple-600 dark:text-purple-400">${hierarchyPending.halfBoxPriceUsd?.toFixed(2)}</span>
+                                    <span className="text-[9px] font-bold text-slate-400">
+                                        {hierarchyPending.halfBoxPriceBs ? `${parseFloat(hierarchyPending.halfBoxPriceBs).toFixed(2)} Bs` : `${(hierarchyPending.halfBoxPriceUsd * effectiveRate).toFixed(2)} Bs`}
+                                    </span>
+                                </div>
+                            </button>
+                        )}
                     </div>
                 </div>
             )}

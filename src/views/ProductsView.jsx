@@ -415,16 +415,17 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
 
     const handleSave = () => {
         triggerHaptic && triggerHaptic();
-        if (!name || (!priceUsd && !priceBs)) {
+        if (!name || !priceUsd) {
             setIsFormShaking(true);
             setTimeout(() => setIsFormShaking(false), 500);
-            return showToast('Nombre y precio requeridos', 'warning');
+            return showToast('Nombre y precio en USD son requeridos', 'warning');
         }
 
         const productData = buildProductPayload({
-            name, barcode, priceUsd, priceBs, priceCop, costUsd, costBs, stock, stockInLotes,
-            packagingType, unitsPerPackage, granelUnit, sellByUnit, unitPriceUsd, unitPriceCop,
-            category, lowStockAlert
+            name, barcode, priceUsd, priceBsManual, costUsd, costBs, stock,
+            category, lowStockAlert,
+            sellByBox, boxUnits, boxBarcode, boxPriceUsd, boxPriceBs,
+            sellByHalfBox, halfBoxUnits, halfBoxBarcode, halfBoxPriceUsd, halfBoxPriceBs
         }, effectiveRate);
 
         // Advertencia si el precio parece inusualmente alto
@@ -442,11 +443,6 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
 
         const productId = editingId || crypto.randomUUID();
 
-        // FASE 3 (Egress): si la imagen es base64, subirla a Storage y guardar la
-        // URL en vez del data URI, para que no viaje dentro del doc de sync.
-        // Si falla (offline/límite), uploadProductImage devuelve null y se conserva
-        // el base64 — nunca se pierde la imagen. Las imágenes ya en URL o "" pasan
-        // tal cual (no se re-suben).
         let finalImage = image;
         if (typeof image === 'string' && image.startsWith('data:')) {
             const url = await uploadProductImage(image, { id: productId });
@@ -456,10 +452,6 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
         let updatedProducts;
         if (editingId) {
             updatedProducts = products.map(p =>
-                // FIX-IMAGE-001: `image || p.image` ignoraba el borrado explícito porque
-                // "" (string vacío) es falsy en JS y caía al fallback con la foto vieja.
-                // Ahora solo usamos la imagen previa si image es estrictamente `undefined`
-                // (es decir, el campo nunca fue tocado en el formulario).
                 p.id === editingId ? { ...p, ...productData, image: finalImage !== undefined ? finalImage : p.image } : p
             );
             auditLog('INVENTARIO', 'PRODUCTO_EDITADO', `Producto "${name}" editado`);
@@ -473,10 +465,6 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
             auditLog('INVENTARIO', 'PRODUCTO_CREADO', `Producto "${name}" creado - $${priceUsd || '0'}`);
         }
 
-        // FIX-SAVE-001: Persistir INMEDIATAMENTE antes de cerrar el modal.
-        // El debounce del useEffect en ProductContext puede ser cancelado por el
-        // clearTimeout cuando handleClose() dispara un re-render antes de que el
-        // timer de 1s se ejecute, haciendo que el guardado se pierda silenciosamente.
         storageService.setItem('bodega_products_v1', updatedProducts);
 
         setProducts(updatedProducts);
@@ -492,41 +480,6 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
             return;
         }
         populateForm(product, effectiveRate);
-        // Set COP price for editing: use stored priceCop if available, otherwise derive
-        if (copEnabled && tasaCop > 0) {
-            if (product.priceCop != null && product.priceCop > 0) {
-                setPriceCop(product.priceCop.toString());
-                // Recalculate USD and Bs from COP at current rate
-                const usd = product.priceCop / tasaCop;
-                setPriceUsd(usd.toFixed(4));
-                setPriceBs((usd * effectiveRate).toFixed(2));
-            } else if (product.priceUsdt > 0) {
-                setPriceCop(Math.round(product.priceUsdt * tasaCop).toString());
-            } else {
-                setPriceCop('');
-            }
-        } else {
-            setPriceCop('');
-        }
-        // Set COP unit price for editing
-        if (copEnabled && tasaCop > 0) {
-            if (product.unitPriceCop != null && product.unitPriceCop > 0) {
-                setUnitPriceCop(product.unitPriceCop.toString());
-            } else if (product.unitPriceUsd > 0) {
-                setUnitPriceCop(Math.round(product.unitPriceUsd * tasaCop).toString());
-            } else {
-                setUnitPriceCop('');
-            }
-        } else {
-            setUnitPriceCop('');
-        }
-        // Set COP cost for editing
-        if (copEnabled && tasaCop > 0 && product.costUsd > 0) {
-            setCostCop(Math.round(product.costUsd * tasaCop).toString());
-        } else {
-            setCostCop('');
-        }
-
         setIsModalOpen(true);
 
         // Load product movements (Kardex Lite)
@@ -563,9 +516,6 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
 
     const handleClose = () => {
         resetForm();
-        setPriceCop('');
-        setUnitPriceCop('');
-        setCostCop('');
         setIsModalOpen(false);
         setProductMovements([]);
     };
@@ -936,34 +886,32 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 </>
             )}
 
-            {/* ─── Modal Añadir / Editar ───────────────────────── */}
             <ProductFormModal
                 isOpen={isModalOpen} onClose={handleClose} isEditing={!!editingId}
                 image={image} setImage={setImage}
                 name={name} setName={setName}
                 barcode={barcode} setBarcode={setBarcode}
                 category={category} setCategory={setCategory}
-                unit={unit} setUnit={setUnit}
                 priceUsd={priceUsd} handlePriceUsdChange={handlePriceUsdChange}
-                priceBs={priceBs} handlePriceBsChange={handlePriceBsChange}
-                handlePriceCopChange={handlePriceCopChange}
-                priceCop={priceCop}
+                priceBsManual={priceBsManual} setPriceBsManual={setPriceBsManual}
                 costUsd={costUsd} handleCostUsdChange={handleCostUsdChange}
                 costBs={costBs} handleCostBsChange={handleCostBsChange}
-                costCop={costCop} handleCostCopChange={handleCostCopChange}
                 stock={stock} setStock={setStock}
                 lowStockAlert={lowStockAlert} setLowStockAlert={setLowStockAlert}
-                unitsPerPackage={unitsPerPackage} setUnitsPerPackage={setUnitsPerPackage}
-                sellByUnit={sellByUnit} setSellByUnit={setSellByUnit}
-                unitPriceUsd={unitPriceUsd} setUnitPriceUsd={setUnitPriceUsd}
-                unitPriceCop={unitPriceCop} setUnitPriceCop={setUnitPriceCop}
-                packagingType={packagingType} setPackagingType={setPackagingType}
-                stockInLotes={stockInLotes} setStockInLotes={setStockInLotes}
-                granelUnit={granelUnit} setGranelUnit={setGranelUnit}
+
+                sellByBox={sellByBox} setSellByBox={setSellByBox}
+                boxUnits={boxUnits} setBoxUnits={setBoxUnits}
+                boxBarcode={boxBarcode} setBoxBarcode={setBoxBarcode}
+                boxPriceUsd={boxPriceUsd} setBoxPriceUsd={setBoxPriceUsd}
+                boxPriceBs={boxPriceBs} setBoxPriceBs={setBoxPriceBs}
+
+                sellByHalfBox={sellByHalfBox} setSellByHalfBox={setSellByHalfBox}
+                halfBoxUnits={halfBoxUnits} setHalfBoxUnits={setHalfBoxUnits}
+                halfBoxBarcode={halfBoxBarcode} setHalfBoxBarcode={setHalfBoxBarcode}
+                halfBoxPriceUsd={halfBoxPriceUsd} setHalfBoxPriceUsd={setHalfBoxPriceUsd}
+                halfBoxPriceBs={halfBoxPriceBs} setHalfBoxPriceBs={setHalfBoxPriceBs}
+
                 effectiveRate={effectiveRate}
-                copEnabled={copEnabled}
-                copPrimary={copPrimary}
-                tasaCop={tasaCop}
                 isFormShaking={isFormShaking}
                 handleImageUpload={handleImageUpload}
                 handleSave={handleSave}
