@@ -64,7 +64,7 @@ export default function ProductFormModal({
             return true;
         }
         if (wizardStep === 3) {
-            return (parseFloat(priceUsd) || 0) > 0;
+            return (Number(priceUsd) || 0) > 0;
         }
         return true;
     };

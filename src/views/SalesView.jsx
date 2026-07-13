@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo, useDeferredValue } from 'react';
 import { FinancialEngine } from '../core/FinancialEngine';
 import { storageService } from '../utils/storageService';
+import { CurrencyService } from '../services/CurrencyService';
+import { round2, divR } from '../utils/dinero';
 import { useSounds } from '../hooks/useSounds';
 import { useVoiceSearch } from '../hooks/useVoiceSearch';
 import { useNotifications } from '../hooks/useNotifications';
@@ -372,21 +374,21 @@ export default function SalesView({ triggerHaptic, isActive }) {
         }
 
         const mode = forceMode || 'unit';
-        let priceToUse = parseFloat(product.priceUsd) || 0;
-        let priceBsToUse = product.priceBsManual ? parseFloat(product.priceBsManual) : null;
+        let priceToUse = CurrencyService.safeParse(product.priceUsd) || 0;
+        let priceBsToUse = product.priceBsManual ? CurrencyService.safeParse(product.priceBsManual) : null;
         let cartId = product.id;
         let cartName = product.name;
         let unitsMultiplier = 1;
 
         if (mode === 'box') {
-            priceToUse = parseFloat(product.boxPriceUsd) || 0;
-            priceBsToUse = product.boxPriceBs ? parseFloat(product.boxPriceBs) : null;
+            priceToUse = CurrencyService.safeParse(product.boxPriceUsd) || 0;
+            priceBsToUse = product.boxPriceBs ? CurrencyService.safeParse(product.boxPriceBs) : null;
             cartId = product.id + '_box';
             cartName = product.name + ' (Caja)';
             unitsMultiplier = parseInt(product.boxUnits, 10) || 1;
         } else if (mode === 'halfBox') {
-            priceToUse = parseFloat(product.halfBoxPriceUsd) || 0;
-            priceBsToUse = product.halfBoxPriceBs ? parseFloat(product.halfBoxPriceBs) : null;
+            priceToUse = CurrencyService.safeParse(product.halfBoxPriceUsd) || 0;
+            priceBsToUse = product.halfBoxPriceBs ? CurrencyService.safeParse(product.halfBoxPriceBs) : null;
             cartId = product.id + '_half';
             cartName = product.name + ' (½ Caja)';
             unitsMultiplier = parseInt(product.halfBoxUnits, 10) || 1;
@@ -400,7 +402,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
         }
 
         const allowNegativeStock = localStorage.getItem('allow_negative_stock') === 'true';
-        const currentStock = parseFloat(product.stock) || 0;
+        const currentStock = CurrencyService.safeParse(product.stock) || 0;
         const qtyToAdd = qtyOverride || 1;
 
         // Validación de stock
@@ -438,7 +440,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 name: cartName,
                 priceUsd: priceToUse,
                 priceBsManual: priceBsToUse,
-                costUsd: product.costUsd ? parseFloat(product.costUsd) * unitsMultiplier : 0,
+                costUsd: product.costUsd ? CurrencyService.safeParse(product.costUsd) * unitsMultiplier : 0,
                 costBs: itemCostBs * unitsMultiplier,
                 qty: qtyToAdd,
                 isWeight: !!qtyOverride,
@@ -492,7 +494,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 const originalId = cartItem._originalId || cartItem.id;
                 const productData = products.find(p => p.id === originalId);
                 if (productData) {
-                    const availableStock = parseFloat(productData.stock) || 0;
+                    const availableStock = CurrencyService.safeParse(productData.stock) || 0;
                     const newQty = Math.round((cartItem.qty + delta) * 1000) / 1000;
                     const totalUsed = currentCart.reduce((sum, item) => {
                         if ((item._originalId || item.id) !== originalId) return sum;
@@ -570,16 +572,16 @@ export default function SalesView({ triggerHaptic, isActive }) {
         let exactBsToStore = null;
 
         if (currency === 'USD') {
-            amountUsd = parseFloat(amount.toFixed(2));
+            amountUsd = round2(amount);
             // exactBsToStore remains null to float with effectiveRate
         } else if (currency === 'COP') {
-            const tasaCopVal = typeof tasaCop !== 'undefined' ? tasaCop : (parseFloat(localStorage.getItem('tasa_cop')) || 4150);
-            amountUsd = parseFloat((amount / tasaCopVal).toFixed(2));
+            const tasaCopVal = (tasaCop && tasaCop > 0) ? tasaCop : 4150;
+            amountUsd = round2(divR(amount, tasaCopVal));
             // exactBsToStore remains null to float with effectiveRate
         } else {
             // Default BS
-            amountUsd = parseFloat((amount / effectiveRate).toFixed(2));
-            exactBsToStore = parseFloat(amount);
+            amountUsd = round2(divR(amount, effectiveRate));
+            exactBsToStore = round2(amount);
         }
 
         if (amountUsd <= 0) return;

@@ -43,8 +43,8 @@ export default function ProductFormQuick({
         }
     }, [boxUnits, sellByHalfBox]);
 
-    const parsedPrice = parseFloat(priceUsd) || 0;
-    const parsedCost = parseFloat(costUsd) || 0;
+    const parsedPrice = Number(priceUsd) || 0;
+    const parsedCost = Number(costUsd) || 0;
 
     // Calcular margen de ganancia de la unidad
     const mainMarginPct = parsedCost > 0 ? ((parsedPrice - parsedCost) / parsedCost * 100) : null;
@@ -211,8 +211,8 @@ export default function ProductFormQuick({
                             <div>
                                 <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block flex justify-between">
                                     <span>PRECIO CAJA BS</span>
-                                    {parseFloat(boxPriceUsd) > 0 && effectiveRate > 0 && (
-                                        <span className="text-[8px] text-slate-400 font-medium">Ref: {(parseFloat(boxPriceUsd) * effectiveRate).toFixed(2)} Bs</span>
+                                    {Number(boxPriceUsd) > 0 && effectiveRate > 0 && (
+                                        <span className="text-[8px] text-slate-400 font-medium">Ref: {(Number(boxPriceUsd) * effectiveRate).toFixed(2)} Bs</span>
                                     )}
                                 </label>
                                 <input 
@@ -283,8 +283,8 @@ export default function ProductFormQuick({
                             <div>
                                 <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block flex justify-between">
                                     <span>PRECIO ½ CAJA BS</span>
-                                    {parseFloat(halfBoxPriceUsd) > 0 && effectiveRate > 0 && (
-                                        <span className="text-[8px] text-slate-400 font-medium">Ref: {(parseFloat(halfBoxPriceUsd) * effectiveRate).toFixed(2)} Bs</span>
+                                    {Number(halfBoxPriceUsd) > 0 && effectiveRate > 0 && (
+                                        <span className="text-[8px] text-slate-400 font-medium">Ref: {(Number(halfBoxPriceUsd) * effectiveRate).toFixed(2)} Bs</span>
                                     )}
                                 </label>
                                 <input 
@@ -413,14 +413,14 @@ export default function ProductFormQuick({
                             {/* Unidad */}
                             <div className="border-t border-slate-100 dark:border-slate-800 pt-1.5 mt-1 text-[11px] font-bold text-[#193275] dark:text-brand">Unidad:</div>
                             <div className="flex justify-between pl-2"><span className="text-slate-400">Precio USD:</span><span className="font-bold text-emerald-600">${parsedPrice.toFixed(2)}</span></div>
-                            {priceBsManual && <div className="flex justify-between pl-2"><span className="text-slate-400">Precio Bs (Manual):</span><span className="font-bold text-emerald-600">{parseFloat(priceBsManual).toFixed(2)} Bs</span></div>}
+                            {priceBsManual && <div className="flex justify-between pl-2"><span className="text-slate-400">Precio Bs (Manual):</span><span className="font-bold text-emerald-600">{Number(priceBsManual).toFixed(2)} Bs</span></div>}
                             
                             {/* Caja */}
                             {sellByBox && (
                                 <>
                                     <div className="border-t border-slate-100 dark:border-slate-800 pt-1.5 mt-1 text-[11px] font-bold text-[#193275] dark:text-brand">Caja ({boxUnits} uds):</div>
-                                    <div className="flex justify-between pl-2"><span className="text-slate-400">Precio USD:</span><span className="font-bold text-emerald-600">${(parseFloat(boxPriceUsd) || 0).toFixed(2)}</span></div>
-                                    {boxPriceBs && <div className="flex justify-between pl-2"><span className="text-slate-400">Precio Bs (Manual):</span><span className="font-bold text-emerald-600">{parseFloat(boxPriceBs).toFixed(2)} Bs</span></div>}
+                                    <div className="flex justify-between pl-2"><span className="text-slate-400">Precio USD:</span><span className="font-bold text-emerald-600">${(Number(boxPriceUsd) || 0).toFixed(2)}</span></div>
+                                    {boxPriceBs && <div className="flex justify-between pl-2"><span className="text-slate-400">Precio Bs (Manual):</span><span className="font-bold text-emerald-600">{Number(boxPriceBs).toFixed(2)} Bs</span></div>}
                                 </>
                             )}
                             
@@ -428,8 +428,8 @@ export default function ProductFormQuick({
                             {sellByHalfBox && (
                                 <>
                                     <div className="border-t border-slate-100 dark:border-slate-800 pt-1.5 mt-1 text-[11px] font-bold text-[#193275] dark:text-brand">Media Caja ({halfBoxUnits} uds):</div>
-                                    <div className="flex justify-between pl-2"><span className="text-slate-400">Precio USD:</span><span className="font-bold text-emerald-600">${(parseFloat(halfBoxPriceUsd) || 0).toFixed(2)}</span></div>
-                                    {halfBoxPriceBs && <div className="flex justify-between pl-2"><span className="text-slate-400">Precio Bs (Manual):</span><span className="font-bold text-emerald-600">{parseFloat(halfBoxPriceBs).toFixed(2)} Bs</span></div>}
+                                    <div className="flex justify-between pl-2"><span className="text-slate-400">Precio USD:</span><span className="font-bold text-emerald-600">${(Number(halfBoxPriceUsd) || 0).toFixed(2)}</span></div>
+                                    {halfBoxPriceBs && <div className="flex justify-between pl-2"><span className="text-slate-400">Precio Bs (Manual):</span><span className="font-bold text-emerald-600">{Number(halfBoxPriceBs).toFixed(2)} Bs</span></div>}
                                 </>
                             )}
                         </div>

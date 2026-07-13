@@ -43,8 +43,8 @@ export default function ProductFormWizard({
         }
     }, [boxUnits, sellByHalfBox]);
 
-    const parsedPrice = parseFloat(priceUsd) || 0;
-    const parsedCost = parseFloat(costUsd) || 0;
+    const parsedPrice = Number(priceUsd) || 0;
+    const parsedCost = Number(costUsd) || 0;
 
     // Margin calculations
     const mainMarginPct = parsedCost > 0 ? ((parsedPrice - parsedCost) / parsedCost * 100) : null;
@@ -321,7 +321,7 @@ export default function ProductFormWizard({
                                 {name || 'Sin nombre'}
                             </h3>
                             <div className="text-xs font-black text-slate-800 dark:text-white mt-1">
-                                ${parsedPrice.toFixed(2)} / {priceBsManual ? `${parseFloat(priceBsManual).toFixed(2)} Bs` : `${(parsedPrice * effectiveRate).toFixed(2)} Bs`}
+                                ${parsedPrice.toFixed(2)} / {priceBsManual ? `${Number(priceBsManual).toFixed(2)} Bs` : `${(parsedPrice * effectiveRate).toFixed(2)} Bs`}
                             </div>
                         </div>
                         <div className="absolute right-3 top-3">
