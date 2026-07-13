@@ -89,8 +89,9 @@ export default function ReceiptModal({ receipt, onClose, onShareWhatsApp, curren
                         <div className="space-y-3">
                             {receipt.items.map((item, i) => {
                                 const isCop = receipt.copEnabled && receipt.tasaCop > 0;
-                                const priceBs = item.priceUsd * (receipt.rate || 0);
-                                const totalBs = item.priceUsd * item.qty * (receipt.rate || 0);
+                                const hasManual = item.priceBsManual != null && Number(item.priceBsManual) > 0;
+                                const priceBs = hasManual ? Number(item.priceBsManual) : (item.priceUsd * (receipt.rate || 0));
+                                const totalBs = hasManual ? (Number(item.priceBsManual) * item.qty) : (item.priceUsd * item.qty * (receipt.rate || 0));
 
                                 if (receiptCurrencyMode === 'usd') {
                                     return (
