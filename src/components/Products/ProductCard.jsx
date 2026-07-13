@@ -271,7 +271,7 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                             {margin >= 0 ? '+' : ''}{margin.toFixed(0)}%
                         </span>
                     </div>
-                )}               </div>
+                )}
 
                 {/* Stock Control Prominente */}
                 <div className="mt-auto pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -288,6 +288,16 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                             <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none">{(p.unit === 'kg' || p.unit === 'litro') ? unitInfo?.short : 'UND'}</span>
                             {p.unit === 'paquete' && p.unitsPerPackage > 0 && Math.floor((p.stock ?? 0) / p.unitsPerPackage) > 0 && (
                                 <span className="text-[8px] text-slate-400 leading-none">= {Math.floor((p.stock ?? 0) / p.unitsPerPackage)} bultos</span>
+                            )}
+                            {p.sellByBox && p.boxUnits > 0 && (p.stock ?? 0) > 0 && (
+                                <span className="text-[8px] text-slate-400 dark:text-slate-500 leading-none mt-0.5 font-bold">
+                                    ≈ {((p.stock ?? 0) / p.boxUnits).toFixed(1)} cajas
+                                </span>
+                            )}
+                            {!p.sellByBox && p.sellByHalfBox && p.halfBoxUnits > 0 && (p.stock ?? 0) > 0 && (
+                                <span className="text-[8px] text-slate-400 dark:text-slate-500 leading-none mt-0.5 font-bold">
+                                    ≈ {((p.stock ?? 0) / (p.halfBoxUnits * 2)).toFixed(1)} cajas
+                                </span>
                             )}
                         </div>
                         {!readOnly && !p.isCombo && (
