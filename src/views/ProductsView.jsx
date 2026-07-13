@@ -28,6 +28,8 @@ import { useProductFiltering } from '../hooks/useProductFiltering';
 import { useProductForm } from '../hooks/useProductForm';
 import { useProductSorting } from '../hooks/useProductSorting';
 import { buildProductPayload } from '../utils/productProcessor';
+import { CurrencyService } from '../services/CurrencyService';
+import { mulR, divR } from '../utils/dinero';
 import { uploadProductImage, migrateProductImagesToStorage } from '../utils/imageUpload';
 // useAuthStore removed - single-user app
 import { useAudit } from '../hooks/useAudit';
@@ -274,21 +276,24 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
         name, setName,
         barcode, setBarcode,
         priceUsd, setPriceUsd,
-        priceBs, setPriceBs,
+        priceBsManual, setPriceBsManual,
         costUsd, setCostUsd,
         costBs, setCostBs,
         stock, setStock,
-        unit, setUnit,
-        unitsPerPackage, setUnitsPerPackage,
-        sellByUnit, setSellByUnit,
-        unitPriceUsd, setUnitPriceUsd,
         category, setCategory,
         lowStockAlert, setLowStockAlert,
         image, setImage,
-        packagingType, setPackagingType,
-        stockInLotes, setStockInLotes,
-        granelUnit, setGranelUnit,
         isFormShaking, setIsFormShaking,
+        sellByBox, setSellByBox,
+        boxUnits, setBoxUnits,
+        boxBarcode, setBoxBarcode,
+        boxPriceUsd, setBoxPriceUsd,
+        boxPriceBs, setBoxPriceBs,
+        sellByHalfBox, setSellByHalfBox,
+        halfBoxUnits, setHalfBoxUnits,
+        halfBoxBarcode, setHalfBoxBarcode,
+        halfBoxPriceUsd, setHalfBoxPriceUsd,
+        halfBoxPriceBs, setHalfBoxPriceBs,
         resetForm,
         populateForm,
     } = useProductForm();
@@ -358,57 +363,29 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
     };
 
     // ─── HANDLERS BIMONEDA ──────────────────────────────────
-    const [priceCop, setPriceCop] = useState('');
-    const [unitPriceCop, setUnitPriceCop] = useState('');
-    const [costCop, setCostCop] = useState('');
-
     const handlePriceUsdChange = (val) => {
         setPriceUsd(val);
-        if (!val || parseFloat(val) <= 0) { setPriceBs(''); setPriceCop(''); return; }
-        setPriceBs((parseFloat(val) * effectiveRate).toFixed(2));
-        if (copEnabled && tasaCop > 0) setPriceCop(Math.round(parseFloat(val) * tasaCop).toString());
-    };
-
-    const handlePriceBsChange = (val) => {
-        setPriceBs(val);
-        if (!val || parseFloat(val) <= 0) { setPriceUsd(''); setPriceCop(''); return; }
-        const usd = parseFloat(val) / effectiveRate;
-        setPriceUsd(usd.toFixed(2));
-        if (copEnabled && tasaCop > 0) setPriceCop(Math.round(usd * tasaCop).toString());
-    };
-
-    const handlePriceCopChange = (val) => {
-        setPriceCop(val);
-        if (!val || parseFloat(val) <= 0) { setPriceUsd(''); setPriceBs(''); return; }
-        if (tasaCop <= 0) return;
-        const usd = parseFloat(val) / tasaCop;
-        // Usar 4 decimales para que al reconvertir a COP dé el valor original
-        setPriceUsd(usd.toFixed(4));
-        setPriceBs((usd * effectiveRate).toFixed(2));
     };
 
     const handleCostUsdChange = (val) => {
         setCostUsd(val);
-        if (!val || parseFloat(val) <= 0) { setCostBs(''); setCostCop(''); return; }
-        setCostBs((parseFloat(val) * effectiveRate).toFixed(2));
-        if (copEnabled && tasaCop > 0) setCostCop(Math.round(parseFloat(val) * tasaCop).toString());
+        const parsed = CurrencyService.safeParse(val);
+        if (parsed <= 0) {
+            setCostBs('');
+            return;
+        }
+        setCostBs(mulR(parsed, effectiveRate).toFixed(2));
     };
 
     const handleCostBsChange = (val) => {
         setCostBs(val);
-        if (!val || parseFloat(val) <= 0) { setCostUsd(''); setCostCop(''); return; }
-        const usd = parseFloat(val) / effectiveRate;
+        const parsed = CurrencyService.safeParse(val);
+        if (parsed <= 0) {
+            setCostUsd('');
+            return;
+        }
+        const usd = divR(parsed, effectiveRate);
         setCostUsd(usd.toFixed(2));
-        if (copEnabled && tasaCop > 0) setCostCop(Math.round(usd * tasaCop).toString());
-    };
-
-    const handleCostCopChange = (val) => {
-        setCostCop(val);
-        if (!val || parseFloat(val) <= 0) { setCostUsd(''); setCostBs(''); return; }
-        if (tasaCop <= 0) return;
-        const usd = parseFloat(val) / tasaCop;
-        setCostUsd(usd.toFixed(2));
-        setCostBs((usd * effectiveRate).toFixed(2));
     };
 
     // ─── CRUD ───────────────────────────────────────────────
