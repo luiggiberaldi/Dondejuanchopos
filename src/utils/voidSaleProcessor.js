@@ -50,14 +50,17 @@ export async function processVoidSale(sale, currentSales, currentProducts) {
                 const itemId = item._originalId || item.id;
                 const itemQty = item.qty;
                 const isWeight = item.isWeight;
-                const isUnitMode = item._mode === 'unit';
-                const unitsPerPackage = item._unitsPerPackage || 1;
+                const mode = item._mode || 'unit';
 
                 let physicalQty = itemQty;
                 if (isWeight) {
                     physicalQty = itemQty;
-                } else if (isUnitMode) {
-                    physicalQty = divR(itemQty, unitsPerPackage);
+                } else if (mode === 'box') {
+                    const boxUnits = parseInt(item.boxUnits, 10) || 1;
+                    physicalQty = mulR(itemQty, boxUnits);
+                } else if (mode === 'halfBox') {
+                    const halfBoxUnits = parseInt(item.halfBoxUnits, 10) || 1;
+                    physicalQty = mulR(itemQty, halfBoxUnits);
                 }
 
                 const prodObj = freshProducts.find(p => p.id === itemId);
