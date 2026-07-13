@@ -16,8 +16,8 @@ export default function CheckoutModal({
     onClose,
     cartSubtotalUsd,
     cartSubtotalBs,
-    cartTotalUsd,
-    cartTotalBs,
+    cartTotalUsd: originalTotalUsd,
+    cartTotalBs: originalTotalBs,
     cartTotalCop,
     discountData,
     effectiveRate,
@@ -71,15 +71,20 @@ export default function CheckoutModal({
         rateError,
         copRateError,
         safeRate,
+        dynamicTotalUsd: finalTotalUsd,
+        dynamicTotalBs: finalTotalBs,
     } = useCheckoutCalculations({
         paymentMethods,
         effectiveRate,
         tasaCop,
-        cartTotalUsd,
-        cartTotalBs,
+        cartTotalUsd: originalTotalUsd,
+        cartTotalBs: originalTotalBs,
         triggerHaptic,
         onConfirmSale,
     });
+
+    const cartTotalUsd = finalTotalUsd;
+    const cartTotalBs = finalTotalBs;
 
     const CASHEA_LEVEL_MAP = { 1: 60, 2: 50, 3: 40, 4: 30, 5: 20, 6: 10 };
 

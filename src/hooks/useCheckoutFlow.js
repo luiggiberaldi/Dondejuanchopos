@@ -15,13 +15,24 @@ export function useCheckoutFlow({
     playCheckout, playError, notifyLowStock, notifySaleComplete, triggerHaptic
 }) {
 
-    const handleCheckout = async (payments, changeBreakdown) => {
+    const handleCheckout = async (payments, changeBreakdown, totalOverrides = null) => {
         triggerHaptic && triggerHaptic();
 
         const opts = {
-            cart, cartTotalUsd, cartTotalBs, cartSubtotalUsd, payments, changeBreakdown,
-            selectedCustomerId, customers, products, effectiveRate, tasaCop, copEnabled,
-            discountData, useAutoRate
+            cart,
+            cartTotalUsd: totalOverrides?.cartTotalUsd ?? cartTotalUsd,
+            cartTotalBs: totalOverrides?.cartTotalBs ?? cartTotalBs,
+            cartSubtotalUsd: totalOverrides?.cartSubtotalUsd ?? cartSubtotalUsd,
+            payments,
+            changeBreakdown,
+            selectedCustomerId,
+            customers,
+            products,
+            effectiveRate,
+            tasaCop,
+            copEnabled,
+            discountData,
+            useAutoRate
         };
 
         let result;

@@ -33,8 +33,8 @@ import WalletSection from './components/WalletSection';
 export default function CheckoutModalPOS({
     onClose,
     cartSubtotalUsd,
-    cartTotalUsd,
-    cartTotalBs,
+    cartTotalUsd: originalTotalUsd,
+    cartTotalBs: originalTotalBs,
     discountData,
     effectiveRate,
     customers,
@@ -121,6 +121,27 @@ export default function CheckoutModalPOS({
     const [distVueltoUSD, setDistVueltoUSD] = useState('');
     const [distVueltoBS, setDistVueltoBS] = useState('');
     const [isChangeCredited, setIsChangeCredited] = useState(false);
+
+    // Detección de pago 100% Bolívares
+    const isPureBsPayment = useMemo(() => {
+        const activeInputMethods = metodosNormalizados.filter(m => val(m.id) > 0);
+        if (activeInputMethods.length === 0) return false;
+        return activeInputMethods.every(m => m.currency === 'BS');
+    }, [pagos, metodosNormalizados]);
+
+    const cartTotalUsd = useMemo(() => {
+        if (isPureBsPayment && effectiveRate > 0) {
+            return round2(divR(originalTotalBs, effectiveRate));
+        }
+        return originalTotalUsd;
+    }, [isPureBsPayment, originalTotalUsd, originalTotalBs, effectiveRate]);
+
+    const cartTotalBs = useMemo(() => {
+        if (isPureBsPayment) {
+            return originalTotalBs;
+        }
+        return round2(mulR(originalTotalUsd, effectiveRate));
+    }, [isPureBsPayment, originalTotalUsd, originalTotalBs, effectiveRate]);
 
     // ─── CÁLCULOS ──────────────────────────────────────────
     const {
@@ -329,7 +350,11 @@ export default function CheckoutModalPOS({
                 clienteId: clienteSeleccionado || null,
                 esCashea: casheaActive,
                 vueltoCredito: isChangeCredited,
-            }, imprimir);
+            }, {
+                cartTotalUsd,
+                cartTotalBs,
+                cartSubtotalUsd: isPureBsPayment && effectiveRate > 0 ? round2(divR(cartSubtotalUsd * effectiveRate, effectiveRate)) : cartSubtotalUsd,
+            });
 
             triggerHaptic && triggerHaptic();
         } catch (err) {

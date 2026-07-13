@@ -46,17 +46,10 @@ export async function processSaleTransaction({
         return { success: false, error: 'Tasa de cambio BCV inválida (<= 0). Configura la tasa antes de cobrar.' };
     }
     
-    const is100PercentBs = payments.length > 0 && payments.every(p => ['efectivo_bs', 'pago_movil', 'punto_venta'].includes(p.methodId));
-
-    if (!is100PercentBs) {
-        const allPaymentsUsd = payments.every(p => ['efectivo_usd', 'zelle', 'binance', 'cashea'].includes(p.methodId));
-        if (allPaymentsUsd) {
-            const expectedBs = mulR(cartTotalUsd, effectiveRate);
-            const bsDrift = Math.abs(subR(cartTotalBs, expectedBs));
-            if (bsDrift > FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_BS) {
-                return { success: false, error: `Inconsistencia USD/Bs: drift de ${round2(bsDrift)} Bs (tasa ${effectiveRate}).` };
-            }
-        }
+    const expectedBs = mulR(cartTotalUsd, effectiveRate);
+    const bsDrift = Math.abs(subR(cartTotalBs, expectedBs));
+    if (bsDrift > FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_BS) {
+        return { success: false, error: `Inconsistencia USD/Bs: drift de ${round2(bsDrift)} Bs (tasa ${effectiveRate}).` };
     }
 
     // ── Aritmética precisa con dinero.js (elimina IEEE 754 drift) ──
