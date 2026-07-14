@@ -322,11 +322,17 @@ export class FinancialEngine {
      * @param {number} copRate - USD to COP Exchange rate
      * @returns {Object} Complete financial summary for the receipt.
      */
-    static buildCartTotals(cartItems, discountData, bcvRate, copRate = 0, useManualBs = false) {
-        // Primero calculamos el subtotal en Bs
+    static buildCartTotals(cartItems, discountData, bcvRate, copRate = 0) {
+        // USD: suma directa e independiente de priceUsd (redondear cada línea antes de sumar).
+        const lineItemsUsd = cartItems.map(item => mulR(item.priceUsd, item.qty));
+        const subtotalUsd = sumR(lineItemsUsd);
+
+        // Bs: precio Bs manual e INDEPENDIENTE del USD si existe (precios duales asignados en
+        // inventario). Si no hay manual, se usa exactBs (Venta Libre) y, en último caso, la
+        // conversión por tasa BCV. USD y Bs NO se derivan uno del otro.
         const lineItemsBs = cartItems.map(item => {
-            if (useManualBs && item.priceBsManual != null && item.priceBsManual > 0) {
-                return mulR(item.priceBsManual, item.qty); // D1: Bs manual (solo en pago 100% Bs)
+            if (item.priceBsManual != null && item.priceBsManual > 0) {
+                return mulR(item.priceBsManual, item.qty);
             }
             if (item.exactBs != null) {
                 return mulR(item.exactBs, item.qty);
@@ -334,15 +340,6 @@ export class FinancialEngine {
             return mulR(mulR(item.priceUsd, item.qty), bcvRate);
         });
         const subtotalBs = sumR(lineItemsBs);
-
-        // Si es manual, el subtotal en USD se deriva de forma inversa para consistencia exacta
-        let subtotalUsd;
-        if (useManualBs && bcvRate > 0) {
-            subtotalUsd = divR(subtotalBs, bcvRate); // D1: Derivar USD de Bs a tasa BCV
-        } else {
-            const lineItemsUsd = cartItems.map(item => mulR(item.priceUsd, item.qty));
-            subtotalUsd = sumR(lineItemsUsd);
-        }
 
         let discountAmountUsd = 0;
         if (discountData && discountData.value > 0) {

@@ -36,32 +36,36 @@ describe('Checkout y Finanzas con Precios Bs Manuales (Ventas Pure Bs)', () => {
         _memoryStore.clear();
     });
 
-    it('buildCartTotals calcula subtotalUsd de forma inversa cuando useManualBs es true', () => {
+    it('buildCartTotals usa priceBsManual independiente del USD (precios duales)', () => {
         const cartItems = [
-            { priceUsd: 2, priceBsManual: 90, qty: 2 },  // 180 Bs manual total
-            { priceUsd: 1, priceBsManual: 45, qty: 1 },  // 45 Bs manual total
+            { priceUsd: 2, priceBsManual: 90, qty: 2 },  // USD 4 | Bs 180
+            { priceUsd: 1, priceBsManual: 45, qty: 1 },  // USD 1 | Bs 45
         ];
         const rate = 45;
 
-        // Caso useManualBs: true
-        const totalsManual = FinancialEngine.buildCartTotals(cartItems, null, rate, 0, { useManualBs: true });
-        
-        // Suma en Bs manual: 180 + 45 = 225 Bs.
-        expect(totalsManual.subtotalBs).toBe(225);
-        expect(totalsManual.totalBs).toBe(225);
-        
-        // Inverso USD: 225 / 45 = 5.0 USD exacto
-        expect(totalsManual.subtotalUsd).toBe(5);
-        expect(totalsManual.totalUsd).toBe(5);
+        const totals = FinancialEngine.buildCartTotals(cartItems, null, rate, 0);
 
-        // Caso useManualBs: false (lógica normal por tasa)
-        const totalsNormal = FinancialEngine.buildCartTotals(cartItems, null, rate, 0, { useManualBs: false });
-        
-        // Suma en USD: 2 * 2 + 1 * 1 = 5 USD.
-        // Bs por tasa: 5 * 45 = 225 Bs.
-        expect(totalsNormal.subtotalUsd).toBe(5);
-        expect(totalsNormal.totalUsd).toBe(5);
-        expect(totalsNormal.subtotalBs).toBe(225);
+        // USD: suma directa e independiente = 2*2 + 1*1 = 5
+        expect(totals.subtotalUsd).toBe(5);
+        expect(totals.totalUsd).toBe(5);
+
+        // Bs: suma de priceBsManual = 180 + 45 = 225 (NO 5*45; es independiente)
+        expect(totals.subtotalBs).toBe(225);
+        expect(totals.totalBs).toBe(225);
+    });
+
+    it('buildCartTotals cae a conversión por tasa cuando no hay priceBsManual', () => {
+        const cartItems = [
+            { priceUsd: 2, qty: 2 },
+            { priceUsd: 1, qty: 1 },
+        ];
+        const rate = 45;
+
+        const totals = FinancialEngine.buildCartTotals(cartItems, null, rate, 0);
+
+        expect(totals.subtotalUsd).toBe(5);
+        // Sin manual: Bs por tasa = 5 * 45 = 225
+        expect(totals.subtotalBs).toBe(225);
     });
 
     it('checkoutProcessor procesa exitosamente una venta 100% en Bs con totales consistentes manuales (inversos)', async () => {

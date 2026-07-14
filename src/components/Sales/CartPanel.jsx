@@ -4,6 +4,17 @@ import { formatBs, formatCop, getCop, formatUsd } from '../../utils/calculatorUt
 import { mulR } from '../../utils/dinero';
 import { useAuthStore } from '../../hooks/store/useAuthStore';
 
+// Bs de un ítem: precio Bs manual (independiente) si existe; si no, exactBs (Venta Libre);
+// en último caso, conversión por tasa. Coherente con FinancialEngine.buildCartTotals.
+const itemBsUnit = (item, rate) =>
+    item.priceBsManual != null && item.priceBsManual > 0 ? item.priceBsManual
+    : item.exactBs != null ? item.exactBs
+    : mulR(item.priceUsd, rate);
+const itemBsLine = (item, rate) =>
+    item.priceBsManual != null && item.priceBsManual > 0 ? mulR(item.priceBsManual, item.qty)
+    : item.exactBs != null ? mulR(item.exactBs, item.qty)
+    : mulR(mulR(item.priceUsd, item.qty), rate);
+
 export default function CartPanel({
     cart,
     effectiveRate,
@@ -101,20 +112,20 @@ export default function CartPanel({
                                                         <>
                                                             <p className="text-[10px] sm:text-[11px] font-black text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1 sm:px-1.5 rounded">{formatCop(getCop(item, tasaCop))} COP</p>
                                                             <p className="text-[10px] sm:text-[11px] font-bold text-emerald-600">${formatUsd(item.priceUsd)}</p>
-                                                            <p className="text-[10px] sm:text-[11px] font-bold text-brand dark:text-brand">{item.exactBs != null ? formatBs(item.exactBs) : formatBs(mulR(item.priceUsd, effectiveRate))} Bs</p>
+                                                            <p className="text-[10px] sm:text-[11px] font-bold text-brand dark:text-brand">{formatBs(itemBsUnit(item, effectiveRate))} Bs</p>
                                                         </>
                                                     ) : (
                                                         <>
                                                             <p className="text-[10px] sm:text-[11px] font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 px-1 sm:px-1.5 rounded">${formatUsd(item.priceUsd)}</p>
                                                             <p className="text-[10px] sm:text-[11px] font-bold text-amber-600 dark:text-amber-400">{formatCop(getCop(item, tasaCop))} COP</p>
-                                                            <p className="text-[10px] sm:text-[11px] font-bold text-brand dark:text-brand">{item.exactBs != null ? formatBs(item.exactBs) : formatBs(mulR(item.priceUsd, effectiveRate))} Bs</p>
+                                                            <p className="text-[10px] sm:text-[11px] font-bold text-brand dark:text-brand">{formatBs(itemBsUnit(item, effectiveRate))} Bs</p>
                                                         </>
                                                     )
                                                 ) : (
                                                     <>
                                                         <p className="text-[10px] sm:text-[11px] font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 px-1 sm:px-1.5 rounded">${formatUsd(item.priceUsd)}</p>
                                                         <p className="text-[10px] sm:text-[11px] font-medium text-slate-400">
-                                                            {item.exactBs != null ? formatBs(item.exactBs) : formatBs(mulR(item.priceUsd, effectiveRate))} Bs
+                                                            {formatBs(itemBsUnit(item, effectiveRate))} Bs
                                                         </p>
                                                     </>
                                                 )}
@@ -130,7 +141,7 @@ export default function CartPanel({
                                                 <p className="text-[10px] font-medium text-right leading-tight">
                                                     <span className="text-emerald-600 dark:text-emerald-400 font-bold">${formatUsd(mulR(item.priceUsd, item.qty))}</span>
                                                     <span className="text-slate-300 mx-0.5">|</span>
-                                                    <span className="text-brand dark:text-brand font-bold">{formatBs(mulR(mulR(item.priceUsd, item.qty), effectiveRate))} Bs</span>
+                                                    <span className="text-brand dark:text-brand font-bold">{formatBs(itemBsLine(item, effectiveRate))} Bs</span>
                                                 </p>
                                             </>
                                         ) : (
@@ -142,7 +153,7 @@ export default function CartPanel({
                                                     <p className="text-[10px] font-medium text-right leading-tight">
                                                         <span className="text-amber-600 dark:text-amber-400 font-bold">{formatCop(mulR(getCop(item, tasaCop), item.qty))} COP</span>
                                                         <span className="text-slate-300 mx-0.5">|</span>
-                                                        <span className="text-brand dark:text-brand font-bold">{formatBs(mulR(mulR(item.priceUsd, item.qty), effectiveRate))} Bs</span>
+                                                        <span className="text-brand dark:text-brand font-bold">{formatBs(itemBsLine(item, effectiveRate))} Bs</span>
                                                     </p>
                                                 )}
                                             </>
