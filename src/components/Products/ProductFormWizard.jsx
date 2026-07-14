@@ -99,48 +99,68 @@ export default function ProductFormWizard({
                         <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Sube una foto y define el nombre y la categoría.</p>
                     </div>
 
-                    {/* Foto */}
-                    <div onClick={() => fileInputRef.current?.click()} className="w-full h-32 bg-slate-50 dark:bg-slate-800 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-emerald-500 transition-colors relative overflow-hidden">
-                        {image ? <img src={image} className="w-full h-full object-contain p-1" alt="Product preview" /> : (
-                            <>
-                                <Camera size={24} className="text-slate-400 mb-1" />
-                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Subir foto local</span>
-                            </>
-                        )}
-                        <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
-                        {image && <button onClick={(e) => { e.stopPropagation(); setImage(''); }} className="absolute top-2 right-2 p-1 bg-black/50 text-white rounded-full"><X size={12} /></button>}
-                    </div>
+                    {/* Grid de Identidad: Foto + Datos Básicos */}
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                        {/* Foto */}
+                        <div className="md:col-span-4 select-none flex flex-col">
+                            <label className="text-xs font-bold text-slate-400 ml-1 mb-1.5 block uppercase">Foto del Producto</label>
+                            <div 
+                                onClick={() => fileInputRef.current?.click()} 
+                                className="flex-1 min-h-[144px] md:min-h-0 bg-slate-50 dark:bg-slate-800 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-emerald-500 transition-colors relative overflow-hidden"
+                            >
+                                {image ? <img src={image} className="w-full h-full object-contain p-1" alt="Product preview" /> : (
+                                    <>
+                                        <Camera size={24} className="text-slate-400 mb-1" />
+                                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Subir foto local</span>
+                                    </>
+                                )}
+                                <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
+                                {image && (
+                                    <button 
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); setImage(''); }} 
+                                        className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-black text-white rounded-full transition-colors"
+                                    >
+                                        <X size={12} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
 
-                    {/* Nombre */}
-                    <div>
-                        <label className="text-xs font-bold text-slate-400 ml-1 mb-1 block uppercase">Nombre del Artículo</label>
-                        <input 
-                            value={name} 
-                            onChange={e => setName(e.target.value)} 
-                            placeholder="Ej: Ron Santa Teresa Gran Reserva 750ml"
-                            className="w-full bg-slate-50 dark:bg-slate-800 p-3.5 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-[#193275]/40 text-sm" 
-                        />
-                    </div>
-
-                    {/* Categoría */}
-                    <div>
-                        <label className="text-xs font-bold text-slate-400 ml-1 mb-1 block uppercase">Categoría</label>
-                        <div className="flex gap-2">
-                            <div className="flex-1">
-                                <CustomSelect
-                                    value={category}
-                                    onChange={setCategory}
-                                    options={categories.filter(c => c.id !== 'todos').map(c => ({ value: c.id, label: c.label }))}
+                        {/* Nombre y Categoría */}
+                        <div className="md:col-span-8 flex flex-col justify-between space-y-4">
+                            {/* Nombre */}
+                            <div>
+                                <label className="text-xs font-bold text-slate-400 ml-1 mb-1.5 block uppercase">Nombre del Artículo</label>
+                                <input 
+                                    value={name} 
+                                    onChange={e => setName(e.target.value)} 
+                                    placeholder="Ej: Ron Santa Teresa Gran Reserva 750ml"
+                                    className="w-full bg-slate-50 dark:bg-slate-800 p-3.5 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-[#193275]/40 text-sm" 
                                 />
                             </div>
-                            <button
-                                type="button"
-                                onClick={onOpenCategoryManager}
-                                className="px-3 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-300 dark:hover:bg-slate-750 transition-colors shrink-0 text-xs font-bold active:scale-95"
-                                title="Crear nueva categoría"
-                            >
-                                + Nueva
-                            </button>
+
+                            {/* Categoría */}
+                            <div>
+                                <label className="text-xs font-bold text-slate-400 ml-1 mb-1 block uppercase">Categoría</label>
+                                <div className="flex gap-2">
+                                    <div className="flex-1">
+                                        <CustomSelect
+                                            value={category}
+                                            onChange={setCategory}
+                                            options={categories.filter(c => c.id !== 'todos').map(c => ({ value: c.id, label: c.label }))}
+                                        />
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={onOpenCategoryManager}
+                                        className="px-3 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-300 dark:hover:bg-slate-750 transition-colors shrink-0 text-xs font-bold active:scale-95"
+                                        title="Crear nueva categoría"
+                                    >
+                                        + Nueva
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
