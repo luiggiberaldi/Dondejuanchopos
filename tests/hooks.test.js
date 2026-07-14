@@ -26,11 +26,13 @@ const {
   _lfThrowOnKey,
   _lfSetItemImpl,
   _pushCloudSyncSpy,
+  _queueCloudSyncSpy,
 } = vi.hoisted(() => ({
   _lfStore: new Map(),
   _lfThrowOnKey: { current: null },
   _lfSetItemImpl: { current: null },
   _pushCloudSyncSpy: vi.fn().mockResolvedValue(undefined),
+  _queueCloudSyncSpy: vi.fn(),
 }));
 
 // Mock de localforage (in-memory). Cada test resetea el store vía beforeEach.
@@ -65,9 +67,10 @@ vi.mock('localforage', () => {
 });
 
 // Mock de useCloudSync para evitar cadena de imports real (supabase, authStore).
-// Solo exportamos `pushCloudSync` como spy.
+// Solo exportamos `pushCloudSync` y `queueCloudSync` como spies.
 vi.mock('../src/hooks/useCloudSync', () => ({
   pushCloudSync: _pushCloudSyncSpy,
+  queueCloudSync: _queueCloudSyncSpy,
   useCloudSync: vi.fn(),
 }));
 
