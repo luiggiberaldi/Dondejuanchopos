@@ -81,14 +81,18 @@ export function useProductForm() {
         const currentCostUsd = product.costUsd || (product.costBs ? product.costBs / effectiveRate : 0);
         const currentCostBs = product.costBs || (product.costUsd ? product.costUsd * effectiveRate : 0);
 
+        const costMultiplier = (product.sellByBox && product.boxUnits) ? (parseInt(product.boxUnits, 10) || 1) : 1;
+        const formCostUsd = currentCostUsd * costMultiplier;
+        const formCostBs = currentCostBs * costMultiplier;
+
         const patch = {
             editingId: product.id,
             name: product.name,
             barcode: product.barcode || '',
             priceUsd: currentPriceUsd > 0 ? currentPriceUsd.toString() : '',
             priceBsManual: product.priceBsManual ? product.priceBsManual.toString() : (product.priceBs ? product.priceBs.toString() : ''),
-            costUsd: currentCostUsd > 0 ? currentCostUsd.toFixed(2) : '',
-            costBs: currentCostBs > 0 ? currentCostBs.toFixed(2) : '',
+            costUsd: formCostUsd > 0 ? formCostUsd.toFixed(2) : '',
+            costBs: formCostBs > 0 ? formCostBs.toFixed(2) : '',
             stock: product.stock ?? '',
             category: product.category || 'otros',
             lowStockAlert: product.lowStockAlert ?? 5,

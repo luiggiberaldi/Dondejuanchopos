@@ -5,6 +5,7 @@ import ProductFormQuick from './ProductFormQuick';
 import ProductFormWizard from './ProductFormWizard';
 import { CurrencyService } from '../../services/CurrencyService';
 import { mulR, divR } from '../../utils/dinero';
+import { useProductContext } from '../../context/ProductContext';
 
 export default function ProductFormModal({
     isOpen,
@@ -42,6 +43,7 @@ export default function ProductFormModal({
     productMovements,
     onOpenCategoryManager
 }) {
+    const { rates } = useProductContext();
     const [formMode, setFormMode] = useState('quick'); // 'quick' o 'wizard'
     const [wizardStep, setWizardStep] = useState(1);
     const [showMovements, setShowMovements] = useState(false);
@@ -51,6 +53,10 @@ export default function ProductFormModal({
     const [autoCalcBox, setAutoCalcBox] = useState(false);
     const [autoCalcHalfBox, setAutoCalcHalfBox] = useState(false);
 
+    // Toggle estado de costo a tasa BCV y valor ingresado
+    const [calcCostBcv, setCalcCostBcv] = useState(false);
+    const [costBcvUsd, setCostBcvUsd] = useState('');
+
     // Resetear paso, modo y toggles al abrir/cerrar
     useEffect(() => {
         if (isOpen) {
@@ -59,6 +65,8 @@ export default function ProductFormModal({
             setAutoCalcUnit(false);
             setAutoCalcBox(false);
             setAutoCalcHalfBox(false);
+            setCalcCostBcv(false);
+            setCostBcvUsd('');
         }
     }, [isOpen]);
 
@@ -178,6 +186,36 @@ export default function ProductFormModal({
         }
     };
 
+    // Handlers para cálculo de costo a tasa BCV
+    const handleToggleCalcCostBcv = () => {
+        const next = !calcCostBcv;
+        setCalcCostBcv(next);
+        if (next) {
+            const bcvRate = rates?.bcv?.price > 0 ? rates.bcv.price : effectiveRate;
+            const currentBs = CurrencyService.safeParse(costBs);
+            if (currentBs > 0 && bcvRate > 0) {
+                setCostBcvUsd((currentBs / bcvRate).toFixed(2));
+            } else {
+                setCostBcvUsd('');
+            }
+        }
+    };
+
+    const handleCostBcvUsdChange = (val) => {
+        setCostBcvUsd(val);
+        const bcvRate = rates?.bcv?.price > 0 ? rates.bcv.price : effectiveRate;
+        const parsed = CurrencyService.safeParse(val);
+        if (!val || parsed <= 0) {
+            handleCostUsdChange('');
+            handleCostBsChange('');
+        } else {
+            const costBsVal = parsed * bcvRate;
+            const costUsdVal = effectiveRate > 0 ? (costBsVal / effectiveRate) : 0;
+            handleCostBsChange(costBsVal.toFixed(2));
+            handleCostUsdChange(costUsdVal.toFixed(4));
+        }
+    };
+
     const commonProps = {
         image, setImage,
         name, setName,
@@ -211,6 +249,12 @@ export default function ProductFormModal({
         autoCalcUnit, handleToggleAutoCalcUnit, handleUnitPriceUsdChange, handleUnitPriceBsChange,
         autoCalcBox, handleToggleAutoCalcBox, handleBoxPriceUsdChange, handleBoxPriceBsChange,
         autoCalcHalfBox, handleToggleAutoCalcHalfBox, handleHalfBoxPriceUsdChange, handleHalfBoxPriceBsChange,
+
+        // Costo BCV
+        calcCostBcv, handleToggleCalcCostBcv,
+        costBcvUsd, handleCostBcvUsdChange,
+        bcvRate: rates?.bcv?.price > 0 ? rates.bcv.price : effectiveRate,
+        hasBcvRate: !!(rates?.bcv?.price > 0),
     };
 
     return (

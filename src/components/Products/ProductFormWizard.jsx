@@ -35,6 +35,10 @@ export default function ProductFormWizard({
     autoCalcUnit, handleToggleAutoCalcUnit, handleUnitPriceUsdChange, handleUnitPriceBsChange,
     autoCalcBox, handleToggleAutoCalcBox, handleBoxPriceUsdChange, handleBoxPriceBsChange,
     autoCalcHalfBox, handleToggleAutoCalcHalfBox, handleHalfBoxPriceUsdChange, handleHalfBoxPriceBsChange,
+    // Costo BCV
+    calcCostBcv, handleToggleCalcCostBcv,
+    costBcvUsd, handleCostBcvUsdChange,
+    bcvRate, hasBcvRate,
 }) {
     const fileInputRef = useRef(null);
 
@@ -97,7 +101,7 @@ export default function ProductFormWizard({
 
                     {/* Foto */}
                     <div onClick={() => fileInputRef.current?.click()} className="w-full h-32 bg-slate-50 dark:bg-slate-800 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-emerald-500 transition-colors relative overflow-hidden">
-                        {image ? <img src={image} className="w-full h-full object-cover" alt="Product preview" /> : (
+                        {image ? <img src={image} className="w-full h-full object-contain p-1" alt="Product preview" /> : (
                             <>
                                 <Camera size={24} className="text-slate-400 mb-1" />
                                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Subir foto local</span>
@@ -272,20 +276,86 @@ export default function ProductFormWizard({
                     </div>
 
                     {/* Costos */}
-                    <div className="bg-slate-50 dark:bg-slate-800/20 p-3 rounded-xl border border-slate-200/60 dark:border-slate-800/40">
-                        <span className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
-                            Costo de Adquisición ({sellByBox ? 'Caja' : 'Unidad'})
-                        </span>
-                        <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-blue-500/5 dark:bg-blue-500/10 p-3.5 rounded-xl border border-blue-500/20 space-y-3.5">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest block ml-1">
+                                Costo de Adquisición ({sellByBox ? 'Caja' : 'Unidad'})
+                            </span>
+                            <button
+                                type="button"
+                                onClick={handleToggleCalcCostBcv}
+                                title={calcCostBcv ? 'Tasa BCV activa: ingresas USD BCV y se calcula el costo real' : 'Activar cálculo en base a tasa oficial BCV'}
+                                className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 active:scale-95 border ${
+                                    calcCostBcv
+                                        ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/30 border-transparent'
+                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-650 dark:hover:text-slate-300 border-slate-200 dark:border-slate-700'
+                                }`}>
+                                <Zap size={10} className={calcCostBcv ? 'fill-white' : ''} /> Tasa BCV
+                            </button>
+                        </div>
+
+                        {calcCostBcv && (
+                            <div className="bg-blue-100/30 dark:bg-blue-900/10 p-2.5 rounded-xl border border-blue-200/30 space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
+                                <div className="flex justify-between items-center text-[10px] text-blue-600 dark:text-blue-400 font-bold px-1">
+                                    <span>Tasa Oficial BCV:</span>
+                                    <span>{bcvRate.toFixed(2)} Bs/$</span>
+                                </div>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-blue-400">$</span>
+                                    <input
+                                        type="number"
+                                        inputMode="decimal"
+                                        value={costBcvUsd}
+                                        onChange={e => handleCostBcvUsdChange(e.target.value)}
+                                        placeholder="Ingresar costo factura (tasa BCV)..."
+                                        className="w-full bg-white dark:bg-slate-900 p-2.5 pl-7 rounded-xl font-bold text-slate-700 dark:text-white outline-none border border-blue-200/50 dark:border-blue-800/40 focus:ring-2 focus:ring-blue-500/40 transition-all text-xs"
+                                    />
+                                </div>
+                                {costBcvUsd && (
+                                    <div className="text-[10px] text-blue-500 font-bold px-1 mt-1 leading-relaxed">
+                                        Equivalente a: <span className="text-blue-600 dark:text-blue-400 font-black">${Number(costUsd).toFixed(2)}</span> a tasa real ({effectiveRate.toFixed(2)} Bs) y <span className="text-blue-600 dark:text-blue-400 font-black">{Number(costBs).toFixed(2)} Bs</span>.
+                                    </div>
+                                )}
+                                {!hasBcvRate && (
+                                    <div className="text-[9px] text-amber-500 font-bold px-1">
+                                        ⚠️ Tasa BCV no disponible. Usando tasa de tienda.
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        <div className="grid grid-cols-2 gap-3 items-center">
                             <div className="relative">
                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">$</span>
-                                <input type="number" inputMode="decimal" value={costUsd} onChange={e => handleCostUsdChange(e.target.value)} placeholder="1.00"
-                                    className="w-full bg-white dark:bg-slate-900 p-2 pl-7 rounded-xl font-bold text-xs text-slate-700 dark:text-white outline-none border border-slate-200 dark:border-slate-800/40" />
+                                <input 
+                                    type="number" 
+                                    inputMode="decimal" 
+                                    value={costUsd} 
+                                    onChange={e => handleCostUsdChange(e.target.value)} 
+                                    placeholder="1.00"
+                                    readOnly={calcCostBcv}
+                                    className={`w-full p-2.5 pl-7 rounded-xl font-bold outline-none border transition-all text-xs ${
+                                        calcCostBcv 
+                                            ? 'bg-slate-100 dark:bg-slate-850 text-slate-400 border-slate-200 dark:border-slate-800 cursor-not-allowed'
+                                            : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-white border-blue-200/30 dark:border-blue-800/20 focus:ring-2 focus:ring-blue-500/40'
+                                    }`}
+                                />
                             </div>
                             <div className="relative">
                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">Bs</span>
-                                <input type="number" inputMode="decimal" value={costBs} onChange={e => handleCostBsChange(e.target.value)} placeholder="0.00"
-                                    className="w-full bg-white dark:bg-slate-900 p-2 pl-8 rounded-xl font-bold text-xs text-slate-700 dark:text-white outline-none border border-slate-200 dark:border-slate-800/40" />
+                                <input 
+                                    type="number" 
+                                    inputMode="decimal" 
+                                    value={costBs} 
+                                    onChange={e => handleCostBsChange(e.target.value)} 
+                                    placeholder="0.00"
+                                    readOnly={calcCostBcv}
+                                    className={`w-full p-2.5 pl-8 rounded-xl font-bold outline-none border transition-all text-xs ${
+                                        calcCostBcv 
+                                            ? 'bg-slate-100 dark:bg-slate-850 text-slate-400 border-slate-200 dark:border-slate-800 cursor-not-allowed'
+                                            : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-white border-blue-200/30 dark:border-blue-800/20 focus:ring-2 focus:ring-blue-500/40'
+                                    }`}
+                                />
                             </div>
                         </div>
                     </div>
@@ -326,7 +396,7 @@ export default function ProductFormWizard({
 
                     {/* Precios Caja */}
                     {sellByBox && (
-                        <div className="bg-blue-500/5 dark:bg-blue-500/10 p-3 rounded-xl border border-blue-500/20 animate-in fade-in slide-in-from-top-1">
+                        <div className="bg-emerald-500/5 dark:bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20 animate-in fade-in slide-in-from-top-1">
                             <div className="flex items-center justify-between mb-1.5">
                                 <span className="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest ml-1">Precio de Venta Caja ({boxUnits} uds)</span>
                                 <button
@@ -336,7 +406,7 @@ export default function ProductFormWizard({
                                     className={`flex items-center gap-1 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all active:scale-95 ${
                                         autoCalcBox
                                             ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30'
-                                            : 'bg-white/70 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-blue-200 dark:border-slate-700'
+                                            : 'bg-white/70 dark:bg-slate-800 text-slate-400 hover:text-slate-650 dark:hover:text-slate-350 border border-emerald-200 dark:border-slate-700'
                                     }`}
                                 >
                                     <Zap size={10} className={autoCalcBox ? 'fill-white' : ''} /> Auto-Tasa
@@ -362,7 +432,7 @@ export default function ProductFormWizard({
 
                     {/* Precios ½ Caja */}
                     {sellByHalfBox && (
-                        <div className="bg-purple-500/5 dark:bg-purple-500/10 p-3 rounded-xl border border-purple-500/20 animate-in fade-in slide-in-from-top-1">
+                        <div className="bg-emerald-500/5 dark:bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20 animate-in fade-in slide-in-from-top-1">
                             <div className="flex items-center justify-between mb-1.5">
                                 <span className="text-[9px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-widest ml-1">Precio de Venta ½ Caja ({halfBoxUnits} uds)</span>
                                 <button
@@ -452,7 +522,7 @@ export default function ProductFormWizard({
                     {/* Previsualización de Ficha de Producto */}
                     <div className="bg-gradient-to-br from-slate-50 to-white dark:from-slate-850 dark:to-slate-900 p-4 rounded-2xl border border-slate-200/50 dark:border-slate-800 shadow-md relative overflow-hidden flex gap-4 items-center">
                         <div className="w-14 h-14 bg-slate-100 dark:bg-slate-700 rounded-xl flex items-center justify-center shrink-0 border border-slate-200/50 overflow-hidden shadow-inner">
-                            {image ? <img src={image} className="w-full h-full object-cover" alt="Preview" /> : <ShoppingBag size={24} className="text-slate-400" />}
+                            {image ? <img src={image} className="w-full h-full object-contain p-0.5" alt="Preview" /> : <ShoppingBag size={24} className="text-slate-400" />}
                         </div>
                         <div className="flex-1 min-w-0">
                             <span className="bg-[#193275]/10 dark:bg-brand/10 text-[#193275] dark:text-brand text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full inline-block mb-1">

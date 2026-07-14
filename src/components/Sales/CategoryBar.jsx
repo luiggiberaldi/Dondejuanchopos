@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Package, Calculator, ChevronDown, Clock, HelpCircle, Trash2 } from 'lucide-react';
-import { BODEGA_CATEGORIES, CATEGORY_ICONS, CATEGORY_COLORS } from '../../config/categories';
+import { BODEGA_CATEGORIES, getCategoryIcon, CATEGORY_COLORS } from '../../config/categories';
 import { formatCop, formatBs, getCop, getUsd } from '../../utils/calculatorUtils';
 
 const PAGE_SIZE = 30;
@@ -91,13 +91,17 @@ export default function CategoryBar({
                             <button
                                 key={cat.id}
                                 onClick={() => { triggerHaptic && triggerHaptic(); setSelectedCategory(isActive && cat.id !== 'todos' ? 'todos' : cat.id); }}
-                                className={`shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold transition-all active:scale-95 border ${
+                                className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold transition-all active:scale-95 border ${
                                     isActive
                                         ? `${catColorClass} shadow-sm border-transparent`
                                         : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:border-brand'
                                 }`}
                             >
-                                {cat.label}
+                                {(() => {
+                                    const CatIcon = getCategoryIcon(cat.id, cat.label);
+                                    return CatIcon ? <CatIcon size={10} /> : null;
+                                })()}
+                                <span>{cat.label}</span>
                                 <span className={`text-[8.5px] ${isActive ? 'opacity-90' : 'text-slate-400 dark:text-slate-500'}`}>
                                     · {count}
                                 </span>
@@ -137,7 +141,7 @@ export default function CategoryBar({
                         {visibleProducts.map(p => {
                             const isOut = (p.stock ?? 0) <= 0;
                             const isDisabled = isOut && !allowNegativeStock;
-                            const CatIcon = CATEGORY_ICONS[p.category] || Package;
+                            const CatIcon = getCategoryIcon(p.category) || Package;
                             return (
                                 <button
                                     key={p.id}

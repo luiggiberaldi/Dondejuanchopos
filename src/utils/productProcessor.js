@@ -36,13 +36,19 @@ export function buildProductPayload(formData, effectiveRate) {
     const finalPriceUsd = priceUsd ? round2(CurrencyService.safeParse(priceUsd)) : 0;
     const finalPriceBsManual = priceBsManual ? round2(CurrencyService.safeParse(priceBsManual)) : null;
 
-    const finalCostUsd = costUsd ? round2(CurrencyService.safeParse(costUsd)) : 0;
-    const finalCostBs = costBs
+    // Normalizar datos de Caja (para usarse en la conversión del costo)
+    const parsedBoxUnits = sellByBox && boxUnits ? parseInt(boxUnits, 10) : 1;
+    const boxUnitsCount = parsedBoxUnits > 0 ? parsedBoxUnits : 1;
+
+    const baseCostUsd = costUsd ? round2(CurrencyService.safeParse(costUsd)) : 0;
+    const baseCostBs = costBs
         ? round2(CurrencyService.safeParse(costBs))
         : (costUsd ? mulR(CurrencyService.safeParse(costUsd), safeRate) : 0);
 
+    const finalCostUsd = sellByBox ? round2(divR(baseCostUsd, boxUnitsCount)) : baseCostUsd;
+    const finalCostBs = sellByBox ? round2(divR(baseCostBs, boxUnitsCount)) : baseCostBs;
+
     // Normalizar datos de Caja
-    const parsedBoxUnits = sellByBox && boxUnits ? parseInt(boxUnits, 10) : 1;
     const finalBoxPriceUsd = sellByBox && boxPriceUsd ? round2(CurrencyService.safeParse(boxPriceUsd)) : null;
     const finalBoxPriceBs = sellByBox && boxPriceBs ? round2(CurrencyService.safeParse(boxPriceBs)) : null;
     const finalBoxBarcode = sellByBox && boxBarcode ? boxBarcode.trim() : null;

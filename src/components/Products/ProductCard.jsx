@@ -1,6 +1,6 @@
 import React from 'react';
 import { Tag, Banknote, AlertTriangle, Box, Minus, Plus, Pencil, Trash2, Package, Layers, Clock, Printer, FileText, Gift } from 'lucide-react';
-import { CATEGORY_COLORS, CATEGORY_ICONS, UNITS } from '../../config/categories';
+import { CATEGORY_COLORS, getCategoryIcon, UNITS } from '../../config/categories';
 import { formatUsd, formatBs, formatCop, smartCashRounding, getCop, getUsd } from '../../utils/calculatorUtils';
 import { showToast } from '../Toast';
 
@@ -216,7 +216,7 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                 ) : (
                     catInfo && catInfo.id !== 'otros' && (
                         <div className={`absolute top-1 left-8 text-[9px] font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5 ${CATEGORY_COLORS[catInfo.color] || ''}`}>
-                            {(() => { const CatIcon = CATEGORY_ICONS[catInfo.id]; return CatIcon ? <CatIcon size={9} /> : catInfo.icon; })()} {catInfo.label}
+                             {(() => { const CatIcon = getCategoryIcon(catInfo.id, catInfo.label); return CatIcon ? <CatIcon size={9} /> : catInfo.icon; })()} {catInfo.label}
                         </div>
                     )
                 )}
@@ -226,7 +226,8 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                         <AlertTriangle size={9} /> Bajo
                     </div>
                 )}
-              {/* Info */}
+            </div>
+            {/* Info */}
             <div className="p-3 lg:p-2.5 flex flex-col flex-1">
                 <h3 className="font-bold text-slate-700 dark:text-slate-200 text-[13px] lg:text-[12px] leading-tight line-clamp-2 mb-2">{p.name}</h3>
 
@@ -325,17 +326,9 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                         </div>
                     )}
                 </div>
-            </div>
 
             {/* Actions */}
             <div className="flex border-t border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-800/20">
-                <button 
-                    onClick={onPrint} 
-                    className="flex-1 py-2 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-brand hover:bg-brand/10 transition-colors border-r border-slate-100 dark:border-slate-800" 
-                    title="Imprimir Etiqueta"
-                >
-                    <Printer size={15} />
-                </button>
 
                 {!readOnly && (
                     <button 

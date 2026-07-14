@@ -380,6 +380,8 @@ export function ProductProvider({ children, rates }) {
         useAutoRate,
         customRate,
         effectiveRate,
+        rates,
+        rateMode,
         copEnabled,
         autoCopEnabled,
         tasaCopManual,

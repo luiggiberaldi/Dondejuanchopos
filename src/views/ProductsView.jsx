@@ -924,6 +924,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 handleSave={handleSave}
                 categories={categories}
                 productMovements={editingId ? productMovements : null}
+                onOpenCategoryManager={() => setIsCategoryManagerOpen(true)}
             />
 
             {/* Confirmación precio alto */}

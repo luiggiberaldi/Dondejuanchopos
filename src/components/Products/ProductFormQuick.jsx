@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Camera, X, AlertTriangle, Package, Tag, Scale, ChevronDown, ChevronUp, Barcode, Banknote, CheckCircle } from 'lucide-react';
+import { Camera, X, AlertTriangle, Package, Tag, Scale, ChevronDown, ChevronUp, Barcode, Banknote, CheckCircle, Zap } from 'lucide-react';
 import CustomSelect from '../CustomSelect';
 
 export default function ProductFormQuick({
@@ -28,10 +28,47 @@ export default function ProductFormQuick({
 
     effectiveRate,
     handleImageUpload,
-    categories
+    categories,
+    onOpenCategoryManager,
+    // Auto-Tasa
+    autoCalcUnit, handleToggleAutoCalcUnit, handleUnitPriceUsdChange, handleUnitPriceBsChange,
+    autoCalcBox, handleToggleAutoCalcBox, handleBoxPriceUsdChange, handleBoxPriceBsChange,
+    autoCalcHalfBox, handleToggleAutoCalcHalfBox, handleHalfBoxPriceUsdChange, handleHalfBoxPriceBsChange,
+    // Costo BCV
+    calcCostBcv, handleToggleCalcCostBcv,
+    costBcvUsd, handleCostBcvUsdChange,
+    bcvRate, hasBcvRate,
 }) {
     const fileInputRef = useRef(null);
     const [showSummary, setShowSummary] = useState(false);
+
+    // Estado local para el stock por cajas
+    const [localBoxes, setLocalBoxes] = useState('');
+
+    // Sincronizar el input de cajas con el stock de unidades
+    useEffect(() => {
+        if (sellByBox) {
+            const units = Number(stock) || 0;
+            const bUnits = parseInt(boxUnits, 10) || 1;
+            const expectedBoxes = units / bUnits;
+            if (Number(localBoxes) !== expectedBoxes) {
+                setLocalBoxes(expectedBoxes > 0 ? expectedBoxes.toString() : '');
+            }
+        } else {
+            setLocalBoxes('');
+        }
+    }, [stock, boxUnits, sellByBox]);
+
+    const handleBoxesChange = (val) => {
+        setLocalBoxes(val);
+        const parsed = parseFloat(val);
+        const bUnits = parseInt(boxUnits, 10) || 1;
+        if (!val || isNaN(parsed)) {
+            setStock('');
+        } else {
+            setStock(Math.round(parsed * bUnits).toString());
+        }
+    };
 
     // Auto-calcular sugerencia de unidades para 1/2 caja cuando cambian las de la caja
     useEffect(() => {
@@ -44,7 +81,8 @@ export default function ProductFormQuick({
     }, [boxUnits, sellByHalfBox]);
 
     const parsedPrice = Number(priceUsd) || 0;
-    const parsedCost = Number(costUsd) || 0;
+    const boxUnitsCount = (sellByBox && parseInt(boxUnits, 10) > 0) ? parseInt(boxUnits, 10) : 1;
+    const parsedCost = sellByBox ? ((Number(costUsd) || 0) / boxUnitsCount) : (Number(costUsd) || 0);
 
     // Calcular margen de ganancia de la unidad
     const mainMarginPct = parsedCost > 0 ? ((parsedPrice - parsedCost) / parsedCost * 100) : null;
@@ -52,54 +90,72 @@ export default function ProductFormQuick({
 
     return (
         <div className="space-y-5">
-            {/* Foto del Producto (Ancho completo) */}
-            <div className="select-none">
-                <label className="text-xs font-bold text-slate-400 ml-1 mb-1.5 block uppercase">Foto del Producto</label>
-                <div 
-                    onClick={() => fileInputRef.current?.click()} 
-                    className="w-full h-32 bg-slate-50 dark:bg-slate-800 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-emerald-500 transition-colors relative overflow-hidden"
-                >
-                    {image ? (
-                        <img src={image} className="w-full h-full object-cover" alt="Product preview" />
-                    ) : (
-                        <>
-                            <Camera size={24} className="text-slate-400 mb-1" />
-                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Subir foto local</span>
-                        </>
-                    )}
-                    <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
-                    {image && (
-                        <button 
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); setImage(''); }} 
-                            className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-black text-white rounded-full transition-colors"
-                        >
-                            <X size={12} />
-                        </button>
-                    )}
+            {/* Cabecera del Formulario: Imagen + Datos Básicos */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                {/* Foto del Producto */}
+                <div className="md:col-span-4 select-none flex flex-col">
+                    <label className="text-xs font-bold text-slate-400 ml-1 mb-1.5 block uppercase">Foto del Producto</label>
+                    <div 
+                        onClick={() => fileInputRef.current?.click()} 
+                        className="flex-1 min-h-[144px] bg-slate-50 dark:bg-slate-800 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-emerald-500 transition-colors relative overflow-hidden"
+                    >
+                        {image ? (
+                            <img src={image} className="w-full h-full object-contain p-1" alt="Product preview" />
+                        ) : (
+                            <>
+                                <Camera size={24} className="text-slate-400 mb-1" />
+                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Subir foto local</span>
+                            </>
+                        )}
+                        <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
+                        {image && (
+                            <button 
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setImage(''); }} 
+                                className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-black text-white rounded-full transition-colors"
+                            >
+                                <X size={12} />
+                            </button>
+                        )}
+                    </div>
                 </div>
-            </div>
 
-            {/* Nombre del Producto */}
-            <div>
-                <label className="text-xs font-bold text-slate-400 ml-1 mb-1.5 block uppercase">Nombre del Artículo</label>
-                <input 
-                    type="text" 
-                    value={name} 
-                    onChange={e => setName(e.target.value)} 
-                    placeholder="Ej: Ron Santa Teresa Gran Reserva 750ml"
-                    className="w-full bg-slate-50 dark:bg-slate-800 p-3.5 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/50 text-sm" 
-                />
-            </div>
+                {/* Nombre y Categoría */}
+                <div className="md:col-span-8 flex flex-col justify-between space-y-4">
+                    {/* Nombre del Producto */}
+                    <div>
+                        <label className="text-xs font-bold text-slate-400 ml-1 mb-1.5 block uppercase">Nombre del Artículo</label>
+                        <input 
+                            type="text" 
+                            value={name} 
+                            onChange={e => setName(e.target.value)} 
+                            placeholder="Ej: Ron Santa Teresa Gran Reserva 750ml"
+                            className="w-full bg-slate-50 dark:bg-slate-800 p-3.5 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/50 text-sm" 
+                        />
+                    </div>
 
-            {/* Categoría */}
-            <div>
-                <label className="text-xs font-bold text-slate-400 ml-1 mb-1 block uppercase">Categoría</label>
-                <CustomSelect
-                    value={category}
-                    onChange={setCategory}
-                    options={categories.filter(c => c.id !== 'todos').map(c => ({ value: c.id, label: c.label }))}
-                />
+                    {/* Categoría */}
+                    <div>
+                        <label className="text-xs font-bold text-slate-400 ml-1 mb-1 block uppercase">Categoría</label>
+                        <div className="flex gap-2">
+                            <div className="flex-1">
+                                <CustomSelect
+                                    value={category}
+                                    onChange={setCategory}
+                                    options={categories.filter(c => c.id !== 'todos').map(c => ({ value: c.id, label: c.label }))}
+                                />
+                            </div>
+                            <button
+                                type="button"
+                                onClick={onOpenCategoryManager}
+                                className="px-3 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-300 dark:hover:bg-slate-750 transition-colors shrink-0 text-xs font-bold active:scale-95"
+                                title="Crear nueva categoría"
+                            >
+                                + Nueva
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             {/* FORMATOS DE VENTA */}
@@ -107,11 +163,23 @@ export default function ProductFormQuick({
                 <label className="text-xs font-black text-slate-400 ml-1 mb-0.5 block uppercase tracking-wider">Formatos de Venta</label>
                 
                 {/* Formato 1: Unidad (Fijo) */}
-                <div className="bg-slate-50/50 dark:bg-slate-850/30 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-3">
+                <div className="bg-emerald-500/5 dark:bg-emerald-500/10 p-4 rounded-2xl border border-emerald-500/20 space-y-3">
                     <div className="flex items-center justify-between">
                         <span className="text-xs font-black text-[#193275] dark:text-brand uppercase tracking-wider flex items-center gap-1.5">
                             <Tag size={14} className="text-emerald-500" /> Venta por Unidad (Fijo)
                         </span>
+                        <button
+                            type="button"
+                            onClick={handleToggleAutoCalcUnit}
+                            title={autoCalcUnit ? 'Auto-Tasa activo: USD⇔Bs según tasa' : 'Activar cálculo automático USD ⇔ Bs'}
+                            className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 active:scale-95 ${
+                                autoCalcUnit
+                                    ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30'
+                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-slate-200 dark:border-slate-700'
+                            }`}
+                        >
+                            <Zap size={10} className={autoCalcUnit ? 'fill-white' : ''} /> Auto-Tasa
+                        </button>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -127,45 +195,62 @@ export default function ProductFormQuick({
                             <Barcode size={14} className="absolute left-2.5 bottom-3.5 text-slate-400" />
                         </div>
                         <div>
-                            <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block">PRECIO USD ($)</label>
+                            <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block h-4 flex items-center">PRECIO USD ($)</label>
                             <input 
                                 type="number" 
                                 inputMode="decimal" 
                                 value={priceUsd} 
-                                onChange={e => handlePriceUsdChange(e.target.value)} 
+                                onChange={e => handleUnitPriceUsdChange(e.target.value)} 
                                 placeholder="1.50"
                                 className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
                             />
                         </div>
                         <div>
-                            <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block flex justify-between">
-                                <span>PRECIO BS (MANUAL)</span>
-                                {parsedPrice > 0 && effectiveRate > 0 && (
-                                    <span className="text-[8px] text-slate-400 font-medium">Ref: {(parsedPrice * effectiveRate).toFixed(2)} Bs</span>
+                            <label className="text-[10px] font-bold ml-1 mb-1 h-4 flex items-center justify-between">
+                                <span className={`transition-colors duration-200 ${ autoCalcUnit ? 'text-emerald-500' : 'text-slate-400' }`}>
+                                    PRECIO BS
+                                </span>
+                                {effectiveRate > 0 && parsedPrice > 0 && (
+                                    <span className="text-[8px] text-slate-400 font-medium whitespace-nowrap">Ref: {Math.round(parsedPrice * effectiveRate)} Bs</span>
                                 )}
                             </label>
                             <input 
                                 type="number" 
                                 inputMode="decimal" 
                                 value={priceBsManual} 
-                                onChange={e => setPriceBsManual(e.target.value)} 
+                                onChange={e => handleUnitPriceBsChange(e.target.value)} 
                                 placeholder="0.00"
-                                className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
+                                className={`w-full p-2.5 rounded-xl font-black text-xs outline-none border transition-all duration-200 ${
+                                    autoCalcUnit
+                                        ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
+                                        : 'bg-white dark:bg-slate-900 text-[#193275] dark:text-brand border-slate-200 dark:border-slate-850'
+                                }`}
                             />
                         </div>
                     </div>
                 </div>
 
                 {/* Formato 2: Caja (Toggle) */}
-                <div className="bg-slate-50/50 dark:bg-slate-850/30 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-3">
+                <div className="bg-emerald-500/5 dark:bg-emerald-500/10 p-4 rounded-2xl border border-emerald-500/20 space-y-3">
                     <label className="flex items-center gap-3 cursor-pointer select-none">
                         <div 
                             className={`w-10 h-5.5 rounded-full relative transition-colors duration-200 shrink-0 ${sellByBox ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-650'}`}
-                            onClick={() => setSellByBox(!sellByBox)}
+                            onClick={() => {
+                                const next = !sellByBox;
+                                setSellByBox(next);
+                                if (!next) setSellByHalfBox(false);
+                            }}
                         >
                             <div className={`absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-transform duration-200 ${sellByBox ? 'translate-x-[20px]' : 'translate-x-0.5'}`} />
                         </div>
-                        <div onClick={() => setSellByBox(!sellByBox)} className="flex-1">
+                        <div 
+                            onClick={() => {
+                                const next = !sellByBox;
+                                setSellByBox(next);
+                                if (!next) setSellByHalfBox(false);
+                            }} 
+                            className="flex-1"
+                        >
                             <span className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                                 <Package size={14} className={sellByBox ? 'text-emerald-500' : 'text-slate-400'} /> ¿Vender por Caja?
                             </span>
@@ -175,6 +260,21 @@ export default function ProductFormQuick({
 
                     {sellByBox && (
                         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                            <div className="sm:col-span-4 flex items-center justify-between">
+                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Precios de Caja</span>
+                                <button
+                                    type="button"
+                                    onClick={handleToggleAutoCalcBox}
+                                    title={autoCalcBox ? 'Auto-Tasa activo' : 'Activar cálculo automático USD ⇔ Bs'}
+                                    className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 active:scale-95 ${
+                                        autoCalcBox
+                                            ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30'
+                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-slate-200 dark:border-slate-700'
+                                    }`}
+                                >
+                                    <Zap size={10} className={autoCalcBox ? 'fill-white' : ''} /> Auto-Tasa
+                                </button>
+                            </div>
                             <div>
                                 <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block">UDS POR CAJA</label>
                                 <input 
@@ -203,25 +303,29 @@ export default function ProductFormQuick({
                                     type="number" 
                                     inputMode="decimal" 
                                     value={boxPriceUsd} 
-                                    onChange={e => setBoxPriceUsd(e.target.value)} 
+                                    onChange={e => handleBoxPriceUsdChange(e.target.value)} 
                                     placeholder="45.00"
                                     className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
                                 />
                             </div>
                             <div>
-                                <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block flex justify-between">
-                                    <span>PRECIO CAJA BS</span>
-                                    {Number(boxPriceUsd) > 0 && effectiveRate > 0 && (
-                                        <span className="text-[8px] text-slate-400 font-medium">Ref: {(Number(boxPriceUsd) * effectiveRate).toFixed(2)} Bs</span>
+                                <label className="text-[10px] font-bold ml-1 mb-1 h-4 flex items-center justify-between">
+                                    <span className={`transition-colors duration-200 ${ autoCalcBox ? 'text-emerald-500' : 'text-slate-400' }`}>PRECIO CAJA BS</span>
+                                    {effectiveRate > 0 && Number(boxPriceUsd) > 0 && (
+                                        <span className="text-[8px] text-slate-400 font-medium whitespace-nowrap">Ref: {Math.round(Number(boxPriceUsd) * effectiveRate)} Bs</span>
                                     )}
                                 </label>
                                 <input 
                                     type="number" 
                                     inputMode="decimal" 
                                     value={boxPriceBs} 
-                                    onChange={e => setBoxPriceBs(e.target.value)} 
+                                    onChange={e => handleBoxPriceBsChange(e.target.value)} 
                                     placeholder="1700.00"
-                                    className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
+                                    className={`w-full p-2.5 rounded-xl font-black text-xs outline-none border transition-all duration-200 ${
+                                        autoCalcBox
+                                            ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
+                                            : 'bg-white dark:bg-slate-900 text-[#193275] dark:text-brand border-slate-200 dark:border-slate-850'
+                                    }`}
                                 />
                             </div>
                         </div>
@@ -229,24 +333,46 @@ export default function ProductFormQuick({
                 </div>
 
                 {/* Formato 3: ½ Caja (Toggle) */}
-                <div className="bg-slate-50/50 dark:bg-slate-850/30 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-3">
-                    <label className="flex items-center gap-3 cursor-pointer select-none">
+                <div className="bg-emerald-500/5 dark:bg-emerald-500/10 p-4 rounded-2xl border border-emerald-500/20 space-y-3">
+                    <label className={`flex items-center gap-3 select-none transition-all duration-200 ${sellByBox ? 'cursor-pointer' : 'cursor-not-allowed opacity-40'}`}>
                         <div 
-                            className={`w-10 h-5.5 rounded-full relative transition-colors duration-200 shrink-0 ${sellByHalfBox ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-650'}`}
-                            onClick={() => setSellByHalfBox(!sellByHalfBox)}
+                            className={`w-10 h-5.5 rounded-full relative transition-colors duration-200 shrink-0 ${sellByHalfBox && sellByBox ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-650'}`}
+                            onClick={() => {
+                                if (sellByBox) setSellByHalfBox(!sellByHalfBox);
+                            }}
                         >
-                            <div className={`absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-transform duration-200 ${sellByHalfBox ? 'translate-x-[20px]' : 'translate-x-0.5'}`} />
+                            <div className={`absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-transform duration-200 ${sellByHalfBox && sellByBox ? 'translate-x-[20px]' : 'translate-x-0.5'}`} />
                         </div>
-                        <div onClick={() => setSellByHalfBox(!sellByHalfBox)} className="flex-1">
+                        <div 
+                            onClick={() => {
+                                if (sellByBox) setSellByHalfBox(!sellByHalfBox);
+                            }} 
+                            className="flex-1"
+                        >
                             <span className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                                <Package size={14} className={sellByHalfBox ? 'text-emerald-500' : 'text-slate-400'} /> ¿Vender por ½ Caja?
+                                <Package size={14} className={sellByHalfBox && sellByBox ? 'text-emerald-500' : 'text-slate-400'} /> ¿Vender por ½ Caja?
                             </span>
-                            <p className="text-[9px] text-slate-400 mt-0.5">Permite vender la mitad de la caja con su propio precio</p>
+                            <p className="text-[9px] text-slate-400 mt-0.5">Permite vender la mitad de la caja con su propio precio {!sellByBox && <span className="text-rose-500 font-bold">(Requiere activar Caja primero)</span>}</p>
                         </div>
                     </label>
 
                     {sellByHalfBox && (
                         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                            <div className="sm:col-span-4 flex items-center justify-between">
+                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Precios de ½ Caja</span>
+                                <button
+                                    type="button"
+                                    onClick={handleToggleAutoCalcHalfBox}
+                                    title={autoCalcHalfBox ? 'Auto-Tasa activo' : 'Activar cálculo automático USD ⇔ Bs'}
+                                    className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 active:scale-95 ${
+                                        autoCalcHalfBox
+                                            ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30'
+                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-slate-200 dark:border-slate-700'
+                                    }`}
+                                >
+                                    <Zap size={10} className={autoCalcHalfBox ? 'fill-white' : ''} /> Auto-Tasa
+                                </button>
+                            </div>
                             <div>
                                 <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block">UDS POR ½ CAJA</label>
                                 <input 
@@ -275,25 +401,29 @@ export default function ProductFormQuick({
                                     type="number" 
                                     inputMode="decimal" 
                                     value={halfBoxPriceUsd} 
-                                    onChange={e => setHalfBoxPriceUsd(e.target.value)} 
+                                    onChange={e => handleHalfBoxPriceUsdChange(e.target.value)} 
                                     placeholder="24.00"
                                     className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
                                 />
                             </div>
                             <div>
-                                <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block flex justify-between">
-                                    <span>PRECIO ½ CAJA BS</span>
-                                    {Number(halfBoxPriceUsd) > 0 && effectiveRate > 0 && (
-                                        <span className="text-[8px] text-slate-400 font-medium">Ref: {(Number(halfBoxPriceUsd) * effectiveRate).toFixed(2)} Bs</span>
+                                <label className="text-[10px] font-bold ml-1 mb-1 h-4 flex items-center justify-between">
+                                    <span className={`transition-colors duration-200 ${ autoCalcHalfBox ? 'text-emerald-500' : 'text-slate-400' }`}>PRECIO ½ CAJA BS</span>
+                                    {effectiveRate > 0 && Number(halfBoxPriceUsd) > 0 && (
+                                        <span className="text-[8px] text-slate-400 font-medium whitespace-nowrap">Ref: {Math.round(Number(halfBoxPriceUsd) * effectiveRate)} Bs</span>
                                     )}
                                 </label>
                                 <input 
                                     type="number" 
                                     inputMode="decimal" 
                                     value={halfBoxPriceBs} 
-                                    onChange={e => setHalfBoxPriceBs(e.target.value)} 
+                                    onChange={e => handleHalfBoxPriceBsChange(e.target.value)} 
                                     placeholder="900.00"
-                                    className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
+                                    className={`w-full p-2.5 rounded-xl font-black text-xs outline-none border transition-all duration-200 ${
+                                        autoCalcHalfBox
+                                            ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
+                                            : 'bg-white dark:bg-slate-900 text-[#193275] dark:text-brand border-slate-200 dark:border-slate-850'
+                                    }`}
                                 />
                             </div>
                         </div>
@@ -301,11 +431,56 @@ export default function ProductFormQuick({
                 </div>
             </div>
 
-            {/* SECCIÓN COSTO (SÓLO DE LA UNIDAD) */}
-            <div className="bg-slate-50 dark:bg-slate-800/20 p-3.5 rounded-xl border border-slate-200/60 dark:border-slate-800/40">
-                <span className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block mb-2 ml-1">
-                    Costo de Adquisición (Unidad)
-                </span>
+            {/* SECCIÓN COSTO */}
+            <div className="bg-blue-500/5 dark:bg-blue-500/10 p-3.5 rounded-xl border border-blue-500/20 space-y-3.5">
+                <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest block ml-1">
+                        Costo de Adquisición ({sellByBox ? 'Caja' : 'Unidad'})
+                    </span>
+                    <button
+                        type="button"
+                        onClick={handleToggleCalcCostBcv}
+                        title={calcCostBcv ? 'Tasa BCV activa: ingresas USD BCV y se calcula el costo real' : 'Activar cálculo en base a tasa oficial BCV'}
+                        className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 active:scale-95 border ${
+                            calcCostBcv
+                                ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/30 border-transparent'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-650 dark:hover:text-slate-300 border-slate-200 dark:border-slate-700'
+                        }`}
+                    >
+                        <Zap size={10} className={calcCostBcv ? 'fill-white' : ''} /> Tasa BCV
+                    </button>
+                </div>
+
+                {calcCostBcv && (
+                    <div className="bg-blue-100/30 dark:bg-blue-900/10 p-2.5 rounded-xl border border-blue-200/30 space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
+                        <div className="flex justify-between items-center text-[10px] text-blue-600 dark:text-blue-400 font-bold px-1">
+                            <span>Tasa Oficial BCV:</span>
+                            <span>{bcvRate.toFixed(2)} Bs/$</span>
+                        </div>
+                        <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-blue-400">$</span>
+                            <input
+                                type="number"
+                                inputMode="decimal"
+                                value={costBcvUsd}
+                                onChange={e => handleCostBcvUsdChange(e.target.value)}
+                                placeholder="Ingresar costo factura (tasa BCV)..."
+                                className="w-full bg-white dark:bg-slate-900 p-2.5 pl-7 rounded-xl font-bold text-slate-700 dark:text-white outline-none border border-blue-200/50 dark:border-blue-800/40 focus:ring-2 focus:ring-blue-500/40 transition-all text-xs"
+                            />
+                        </div>
+                        {costBcvUsd && (
+                            <div className="text-[10px] text-blue-500 font-bold px-1 mt-1 leading-relaxed">
+                                Equivalente a: <span className="text-blue-600 dark:text-blue-400 font-black">${Number(costUsd).toFixed(2)}</span> a tasa real ({effectiveRate.toFixed(2)} Bs) y <span className="text-blue-600 dark:text-blue-400 font-black">{Number(costBs).toFixed(2)} Bs</span>.
+                            </div>
+                        )}
+                        {!hasBcvRate && (
+                            <div className="text-[9px] text-amber-500 font-bold px-1">
+                                ⚠️ Tasa BCV no disponible. Usando tasa de tienda.
+                            </div>
+                        )}
+                    </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-3 items-center">
                     <div className="relative">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">$</span>
@@ -315,7 +490,12 @@ export default function ProductFormQuick({
                             value={costUsd} 
                             onChange={e => handleCostUsdChange(e.target.value)} 
                             placeholder="1.00"
-                            className="w-full bg-white dark:bg-slate-900 p-2.5 pl-7 rounded-xl font-bold text-slate-700 dark:text-white outline-none border border-slate-200/60 dark:border-slate-800/40 focus:ring-2 focus:ring-slate-500/40 transition-all text-xs" 
+                            readOnly={calcCostBcv}
+                            className={`w-full p-2.5 pl-7 rounded-xl font-bold outline-none border transition-all text-xs ${
+                                calcCostBcv 
+                                    ? 'bg-slate-100 dark:bg-slate-850 text-slate-400 border-slate-200 dark:border-slate-800 cursor-not-allowed'
+                                    : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-white border-blue-200/30 dark:border-blue-800/20 focus:ring-2 focus:ring-blue-500/40'
+                            }`}
                         />
                     </div>
                     <div className="relative">
@@ -326,7 +506,12 @@ export default function ProductFormQuick({
                             value={costBs} 
                             onChange={e => handleCostBsChange(e.target.value)} 
                             placeholder="0.00"
-                            className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-slate-700 dark:text-white outline-none border border-slate-200/60 dark:border-slate-800/40 focus:ring-2 focus:ring-slate-500/40 transition-all text-xs" 
+                            readOnly={calcCostBcv}
+                            className={`w-full p-2.5 pl-8 rounded-xl font-bold outline-none border transition-all text-xs ${
+                                calcCostBcv 
+                                    ? 'bg-slate-100 dark:bg-slate-850 text-slate-400 border-slate-200 dark:border-slate-800 cursor-not-allowed'
+                                    : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-white border-blue-200/30 dark:border-blue-800/20 focus:ring-2 focus:ring-blue-500/40'
+                            }`}
                         />
                     </div>
                 </div>
@@ -368,7 +553,21 @@ export default function ProductFormQuick({
             </div>
 
             {/* SECCIÓN STOCK Y ALERTA MÍNIMA */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className={`grid gap-3 ${sellByBox ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                {sellByBox && (
+                    <div>
+                        <label className="text-xs font-bold text-slate-400 ml-1 mb-1 block uppercase">Stock (Cajas)</label>
+                        <input 
+                            type="number" 
+                            step="any"
+                            inputMode="decimal" 
+                            value={localBoxes} 
+                            onChange={e => handleBoxesChange(e.target.value)} 
+                            placeholder="0"
+                            className="w-full bg-slate-50 dark:bg-slate-800 p-3.5 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/40 text-sm" 
+                        />
+                    </div>
+                )}
                 <div>
                     <label className="text-xs font-bold text-slate-400 ml-1 mb-1 block uppercase">Stock (Unidades)</label>
                     <input 
