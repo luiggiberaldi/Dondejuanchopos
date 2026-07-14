@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Camera, X, AlertTriangle, Package, Tag, Barcode, Eye, ShoppingBag } from 'lucide-react';
+import { Camera, X, AlertTriangle, Package, Tag, Barcode, Eye, ShoppingBag, Zap } from 'lucide-react';
 import CustomSelect from '../CustomSelect';
 
 export default function ProductFormWizard({
@@ -29,9 +29,42 @@ export default function ProductFormWizard({
 
     effectiveRate,
     handleImageUpload,
-    categories
+    categories,
+    onOpenCategoryManager,
+    // Auto-Tasa
+    autoCalcUnit, handleToggleAutoCalcUnit, handleUnitPriceUsdChange, handleUnitPriceBsChange,
+    autoCalcBox, handleToggleAutoCalcBox, handleBoxPriceUsdChange, handleBoxPriceBsChange,
+    autoCalcHalfBox, handleToggleAutoCalcHalfBox, handleHalfBoxPriceUsdChange, handleHalfBoxPriceBsChange,
 }) {
     const fileInputRef = useRef(null);
+
+    // Estado local para el stock por cajas
+    const [localBoxes, setLocalBoxes] = useState('');
+
+    // Sincronizar el input de cajas con el stock de unidades
+    useEffect(() => {
+        if (sellByBox) {
+            const units = Number(stock) || 0;
+            const bUnits = parseInt(boxUnits, 10) || 1;
+            const expectedBoxes = units / bUnits;
+            if (Number(localBoxes) !== expectedBoxes) {
+                setLocalBoxes(expectedBoxes > 0 ? expectedBoxes.toString() : '');
+            }
+        } else {
+            setLocalBoxes('');
+        }
+    }, [stock, boxUnits, sellByBox]);
+
+    const handleBoxesChange = (val) => {
+        setLocalBoxes(val);
+        const parsed = parseFloat(val);
+        const bUnits = parseInt(boxUnits, 10) || 1;
+        if (!val || isNaN(parsed)) {
+            setStock('');
+        } else {
+            setStock(Math.round(parsed * bUnits).toString());
+        }
+    };
 
     // Auto-calcular sugerencia de unidades para 1/2 caja cuando cambian las de la caja
     useEffect(() => {
@@ -44,7 +77,8 @@ export default function ProductFormWizard({
     }, [boxUnits, sellByHalfBox]);
 
     const parsedPrice = Number(priceUsd) || 0;
-    const parsedCost = Number(costUsd) || 0;
+    const boxUnitsCount = (sellByBox && parseInt(boxUnits, 10) > 0) ? parseInt(boxUnits, 10) : 1;
+    const parsedCost = sellByBox ? ((Number(costUsd) || 0) / boxUnitsCount) : (Number(costUsd) || 0);
 
     // Margin calculations
     const mainMarginPct = parsedCost > 0 ? ((parsedPrice - parsedCost) / parsedCost * 100) : null;
@@ -87,11 +121,23 @@ export default function ProductFormWizard({
                     {/* Categoría */}
                     <div>
                         <label className="text-xs font-bold text-slate-400 ml-1 mb-1 block uppercase">Categoría</label>
-                        <CustomSelect
-                            value={category}
-                            onChange={setCategory}
-                            options={categories.filter(c => c.id !== 'todos').map(c => ({ value: c.id, label: c.label }))}
-                        />
+                        <div className="flex gap-2">
+                            <div className="flex-1">
+                                <CustomSelect
+                                    value={category}
+                                    onChange={setCategory}
+                                    options={categories.filter(c => c.id !== 'todos').map(c => ({ value: c.id, label: c.label }))}
+                                />
+                            </div>
+                            <button
+                                type="button"
+                                onClick={onOpenCategoryManager}
+                                className="px-3 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-300 dark:hover:bg-slate-750 transition-colors shrink-0 text-xs font-bold active:scale-95"
+                                title="Crear nueva categoría"
+                            >
+                                + Nueva
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -126,10 +172,18 @@ export default function ProductFormWizard({
                     <div className="bg-slate-50/50 dark:bg-slate-850/30 p-4 rounded-xl border border-slate-100 dark:border-slate-800 space-y-3">
                         <label className="flex items-center gap-3 cursor-pointer select-none">
                             <div className={`w-10 h-5.5 rounded-full relative transition-colors duration-200 shrink-0 ${sellByBox ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-650'}`}
-                                onClick={() => setSellByBox(!sellByBox)}>
+                                onClick={() => {
+                                    const next = !sellByBox;
+                                    setSellByBox(next);
+                                    if (!next) setSellByHalfBox(false);
+                                }}>
                                 <div className={`absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-transform duration-200 ${sellByBox ? 'translate-x-[20px]' : 'translate-x-0.5'}`} />
                             </div>
-                            <div onClick={() => setSellByBox(!sellByBox)}>
+                            <div onClick={() => {
+                                const next = !sellByBox;
+                                setSellByBox(next);
+                                if (!next) setSellByHalfBox(false);
+                            }}>
                                 <span className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1">
                                     <Package size={12} /> Habilitar venta por Caja
                                 </span>
@@ -164,12 +218,16 @@ export default function ProductFormWizard({
 
                     {/* Formato 3: ½ Caja */}
                     <div className="bg-slate-50/50 dark:bg-slate-850/30 p-4 rounded-xl border border-slate-100 dark:border-slate-800 space-y-3">
-                        <label className="flex items-center gap-3 cursor-pointer select-none">
-                            <div className={`w-10 h-5.5 rounded-full relative transition-colors duration-200 shrink-0 ${sellByHalfBox ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-650'}`}
-                                onClick={() => setSellByHalfBox(!sellByHalfBox)}>
-                                <div className={`absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-transform duration-200 ${sellByHalfBox ? 'translate-x-[20px]' : 'translate-x-0.5'}`} />
+                        <label className={`flex items-center gap-3 select-none transition-all duration-200 ${sellByBox ? 'cursor-pointer' : 'cursor-not-allowed opacity-40'}`}>
+                            <div className={`w-10 h-5.5 rounded-full relative transition-colors duration-200 shrink-0 ${sellByHalfBox && sellByBox ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-650'}`}
+                                onClick={() => {
+                                    if (sellByBox) setSellByHalfBox(!sellByHalfBox);
+                                }}>
+                                <div className={`absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-transform duration-200 ${sellByHalfBox && sellByBox ? 'translate-x-[20px]' : 'translate-x-0.5'}`} />
                             </div>
-                            <div onClick={() => setSellByHalfBox(!sellByHalfBox)}>
+                            <div onClick={() => {
+                                if (sellByBox) setSellByHalfBox(!sellByHalfBox);
+                            }}>
                                 <span className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1">
                                     <Package size={12} /> Habilitar venta por ½ Caja
                                 </span>
@@ -183,7 +241,7 @@ export default function ProductFormWizard({
                                         type="number" 
                                         value={halfBoxUnits} 
                                         onChange={e => setHalfBoxUnits(e.target.value)} 
-                                        placeholder={boxUnits ? Math.floor(parseInt(boxUnits, 15) / 2).toString() : "18"}
+                                        placeholder={boxUnits ? Math.floor(parseInt(boxUnits, 10) / 2).toString() : "18"}
                                         className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-bold text-xs text-slate-700 dark:text-white outline-none border border-slate-200 dark:border-slate-800" 
                                     />
                                 </div>
@@ -213,10 +271,10 @@ export default function ProductFormWizard({
                         <p className="text-[10px] text-slate-400 mt-0.5">Asigna precios en USD y en Bs independientes para cada formato.</p>
                     </div>
 
-                    {/* Costos (Unidad) */}
+                    {/* Costos */}
                     <div className="bg-slate-50 dark:bg-slate-800/20 p-3 rounded-xl border border-slate-200/60 dark:border-slate-800/40">
                         <span className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block mb-1.5 ml-1">
-                            Costo de Adquisición (Unidad)
+                            Costo de Adquisición ({sellByBox ? 'Caja' : 'Unidad'})
                         </span>
                         <div className="grid grid-cols-2 gap-3">
                             <div className="relative">
@@ -234,24 +292,70 @@ export default function ProductFormWizard({
 
                     {/* Precios Unidad */}
                     <div className="bg-emerald-500/5 dark:bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20">
-                        <span className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest block mb-1.5 ml-1">Precio de Venta Unidad</span>
+                        <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest ml-1">Precio de Venta Unidad</span>
+                            <button
+                                type="button"
+                                onClick={handleToggleAutoCalcUnit}
+                                title={autoCalcUnit ? 'Auto-Tasa activo' : 'Activar cálculo automático USD ⇔ Bs'}
+                                className={`flex items-center gap-1 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all active:scale-95 ${
+                                    autoCalcUnit
+                                        ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30'
+                                        : 'bg-white/70 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-emerald-200 dark:border-slate-700'
+                                }`}
+                            >
+                                <Zap size={10} className={autoCalcUnit ? 'fill-white' : ''} /> Auto-Tasa
+                            </button>
+                        </div>
                         <div className="grid grid-cols-2 gap-3">
-                            <input type="number" inputMode="decimal" value={priceUsd} onChange={e => handlePriceUsdChange(e.target.value)} placeholder="Precio USD ($)"
+                            <input type="number" inputMode="decimal" value={priceUsd} onChange={e => handleUnitPriceUsdChange(e.target.value)} placeholder="Precio USD ($)"
                                 className="w-full bg-white dark:bg-slate-900 p-2 rounded-xl font-black text-xs text-slate-750 dark:text-emerald-500 outline-none border border-slate-200 dark:border-slate-800" />
-                            <input type="number" inputMode="decimal" value={priceBsManual} onChange={e => setPriceBsManual(e.target.value)} placeholder="Precio Bs (Manual)"
-                                className="w-full bg-white dark:bg-slate-900 p-2 rounded-xl font-black text-xs text-slate-750 dark:text-emerald-500 outline-none border border-slate-200 dark:border-slate-800" />
+                            <div>
+                                <input type="number" inputMode="decimal" value={priceBsManual} onChange={e => handleUnitPriceBsChange(e.target.value)} placeholder="Precio Bs (Manual)"
+                                    className={`w-full bg-white dark:bg-slate-900 p-2 rounded-xl font-black text-xs outline-none border transition-all duration-200 ${
+                                        autoCalcUnit
+                                            ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
+                                            : 'text-slate-750 dark:text-emerald-500 border-slate-200 dark:border-slate-800'
+                                    }`} />
+                                {effectiveRate > 0 && Number(priceUsd) > 0 && (
+                                    <span className="text-[8px] text-slate-400 font-medium block mt-0.5 ml-1">Ref: {Math.round(Number(priceUsd) * effectiveRate)} Bs a tasa BCV</span>
+                                )}
+                            </div>
                         </div>
                     </div>
 
                     {/* Precios Caja */}
                     {sellByBox && (
                         <div className="bg-blue-500/5 dark:bg-blue-500/10 p-3 rounded-xl border border-blue-500/20 animate-in fade-in slide-in-from-top-1">
-                            <span className="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest block mb-1.5 ml-1">Precio de Venta Caja ({boxUnits} uds)</span>
+                            <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest ml-1">Precio de Venta Caja ({boxUnits} uds)</span>
+                                <button
+                                    type="button"
+                                    onClick={handleToggleAutoCalcBox}
+                                    title={autoCalcBox ? 'Auto-Tasa activo' : 'Activar cálculo automático USD ⇔ Bs'}
+                                    className={`flex items-center gap-1 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all active:scale-95 ${
+                                        autoCalcBox
+                                            ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30'
+                                            : 'bg-white/70 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-blue-200 dark:border-slate-700'
+                                    }`}
+                                >
+                                    <Zap size={10} className={autoCalcBox ? 'fill-white' : ''} /> Auto-Tasa
+                                </button>
+                            </div>
                             <div className="grid grid-cols-2 gap-3">
-                                <input type="number" inputMode="decimal" value={boxPriceUsd} onChange={e => setBoxPriceUsd(e.target.value)} placeholder="Precio USD ($)"
+                                <input type="number" inputMode="decimal" value={boxPriceUsd} onChange={e => handleBoxPriceUsdChange(e.target.value)} placeholder="Precio USD ($)"
                                     className="w-full bg-white dark:bg-slate-900 p-2 rounded-xl font-black text-xs text-slate-750 dark:text-blue-500 outline-none border border-slate-200 dark:border-slate-800" />
-                                <input type="number" inputMode="decimal" value={boxPriceBs} onChange={e => setBoxPriceBs(e.target.value)} placeholder="Precio Bs (Manual)"
-                                    className="w-full bg-white dark:bg-slate-900 p-2 rounded-xl font-black text-xs text-slate-750 dark:text-blue-500 outline-none border border-slate-200 dark:border-slate-800" />
+                                <div>
+                                    <input type="number" inputMode="decimal" value={boxPriceBs} onChange={e => handleBoxPriceBsChange(e.target.value)} placeholder="Precio Bs (Manual)"
+                                        className={`w-full bg-white dark:bg-slate-900 p-2 rounded-xl font-black text-xs outline-none border transition-all duration-200 ${
+                                            autoCalcBox
+                                                ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
+                                                : 'text-slate-750 dark:text-blue-500 border-slate-200 dark:border-slate-800'
+                                        }`} />
+                                    {effectiveRate > 0 && Number(boxPriceUsd) > 0 && (
+                                        <span className="text-[8px] text-slate-400 font-medium block mt-0.5 ml-1">Ref: {Math.round(Number(boxPriceUsd) * effectiveRate)} Bs a tasa BCV</span>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     )}
@@ -259,12 +363,35 @@ export default function ProductFormWizard({
                     {/* Precios ½ Caja */}
                     {sellByHalfBox && (
                         <div className="bg-purple-500/5 dark:bg-purple-500/10 p-3 rounded-xl border border-purple-500/20 animate-in fade-in slide-in-from-top-1">
-                            <span className="text-[9px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-widest block mb-1.5 ml-1">Precio de Venta ½ Caja ({halfBoxUnits} uds)</span>
+                            <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-[9px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-widest ml-1">Precio de Venta ½ Caja ({halfBoxUnits} uds)</span>
+                                <button
+                                    type="button"
+                                    onClick={handleToggleAutoCalcHalfBox}
+                                    title={autoCalcHalfBox ? 'Auto-Tasa activo' : 'Activar cálculo automático USD ⇔ Bs'}
+                                    className={`flex items-center gap-1 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all active:scale-95 ${
+                                        autoCalcHalfBox
+                                            ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30'
+                                            : 'bg-white/70 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-purple-200 dark:border-slate-700'
+                                    }`}
+                                >
+                                    <Zap size={10} className={autoCalcHalfBox ? 'fill-white' : ''} /> Auto-Tasa
+                                </button>
+                            </div>
                             <div className="grid grid-cols-2 gap-3">
-                                <input type="number" inputMode="decimal" value={halfBoxPriceUsd} onChange={e => setHalfBoxPriceUsd(e.target.value)} placeholder="Precio USD ($)"
+                                <input type="number" inputMode="decimal" value={halfBoxPriceUsd} onChange={e => handleHalfBoxPriceUsdChange(e.target.value)} placeholder="Precio USD ($)"
                                     className="w-full bg-white dark:bg-slate-900 p-2 rounded-xl font-black text-xs text-slate-750 dark:text-purple-500 outline-none border border-slate-200 dark:border-slate-800" />
-                                <input type="number" inputMode="decimal" value={halfBoxPriceBs} onChange={e => setHalfBoxPriceBs(e.target.value)} placeholder="Precio Bs (Manual)"
-                                    className="w-full bg-white dark:bg-slate-900 p-2 rounded-xl font-black text-xs text-slate-750 dark:text-purple-500 outline-none border border-slate-200 dark:border-slate-800" />
+                                <div>
+                                    <input type="number" inputMode="decimal" value={halfBoxPriceBs} onChange={e => handleHalfBoxPriceBsChange(e.target.value)} placeholder="Precio Bs (Manual)"
+                                        className={`w-full bg-white dark:bg-slate-900 p-2 rounded-xl font-black text-xs outline-none border transition-all duration-200 ${
+                                            autoCalcHalfBox
+                                                ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
+                                                : 'text-slate-750 dark:text-purple-500 border-slate-200 dark:border-slate-800'
+                                        }`} />
+                                    {effectiveRate > 0 && Number(halfBoxPriceUsd) > 0 && (
+                                        <span className="text-[8px] text-slate-400 font-medium block mt-0.5 ml-1">Ref: {Math.round(Number(halfBoxPriceUsd) * effectiveRate)} Bs a tasa BCV</span>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     )}
@@ -293,7 +420,21 @@ export default function ProductFormWizard({
                     </div>
 
                     {/* Stock & Alerta inputs */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className={`grid gap-3 ${sellByBox ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                        {sellByBox && (
+                            <div>
+                                <label className="text-xs font-bold text-slate-400 ml-1 mb-1 block uppercase">Stock (Cajas)</label>
+                                <input 
+                                    type="number" 
+                                    step="any"
+                                    inputMode="decimal" 
+                                    value={localBoxes} 
+                                    onChange={e => handleBoxesChange(e.target.value)} 
+                                    placeholder="0"
+                                    className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/40 text-sm" 
+                                />
+                            </div>
+                        )}
                         <div>
                             <label className="text-xs font-bold text-slate-400 ml-1 mb-1 block uppercase">Stock Inicial (Uds)</label>
                             <input type="number" inputMode="numeric" value={stock} onChange={e => setStock(e.target.value)} placeholder="0"

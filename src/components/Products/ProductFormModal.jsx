@@ -3,6 +3,8 @@ import { ChevronDown, ChevronUp, Clock, Plus, Minus, ShoppingBag, CreditCard, Ar
 import { Modal } from '../Modal';
 import ProductFormQuick from './ProductFormQuick';
 import ProductFormWizard from './ProductFormWizard';
+import { CurrencyService } from '../../services/CurrencyService';
+import { mulR, divR } from '../../utils/dinero';
 
 export default function ProductFormModal({
     isOpen,
@@ -37,19 +39,36 @@ export default function ProductFormModal({
     handleImageUpload,
     handleSave,
     categories,
-    productMovements
+    productMovements,
+    onOpenCategoryManager
 }) {
     const [formMode, setFormMode] = useState('quick'); // 'quick' o 'wizard'
     const [wizardStep, setWizardStep] = useState(1);
     const [showMovements, setShowMovements] = useState(false);
 
-    // Resetear paso y modo al abrir/cerrar
+    // Toggle estados de Auto-Tasa (independientes por formato)
+    const [autoCalcUnit, setAutoCalcUnit] = useState(false);
+    const [autoCalcBox, setAutoCalcBox] = useState(false);
+    const [autoCalcHalfBox, setAutoCalcHalfBox] = useState(false);
+
+    // Resetear paso, modo y toggles al abrir/cerrar
     useEffect(() => {
         if (isOpen) {
             setWizardStep(1);
             setFormMode('quick');
+            setAutoCalcUnit(false);
+            setAutoCalcBox(false);
+            setAutoCalcHalfBox(false);
         }
     }, [isOpen]);
+
+    // ½ Caja depende de Caja: si se desactiva Caja, se apaga ½ Caja para no
+    // guardar un formato huérfano (media caja sin caja base).
+    useEffect(() => {
+        if (!sellByBox && sellByHalfBox) {
+            setSellByHalfBox(false);
+        }
+    }, [sellByBox, sellByHalfBox, setSellByHalfBox]);
 
     if (!isOpen) return null;
 
@@ -67,6 +86,96 @@ export default function ProductFormModal({
             return (Number(priceUsd) || 0) > 0;
         }
         return true;
+    };
+
+    // ── AUTO-TASA: Handlers únicos para conversión bidireccional ────────────
+    // Fuente de verdad: viven aquí para que Quick y Wizard compartan el mismo estado.
+
+    // Unidad
+    const handleToggleAutoCalcUnit = () => {
+        const next = !autoCalcUnit;
+        setAutoCalcUnit(next);
+        if (next && effectiveRate > 0) {
+            const usd = CurrencyService.safeParse(priceUsd);
+            if (usd > 0) {
+                setPriceBsManual(Math.round(mulR(usd, effectiveRate)).toString());
+            } else {
+                const bs = CurrencyService.safeParse(priceBsManual);
+                if (bs > 0) handlePriceUsdChange(divR(bs, effectiveRate).toFixed(2));
+            }
+        }
+    };
+    const handleUnitPriceUsdChange = (val) => {
+        handlePriceUsdChange(val);
+        if (autoCalcUnit && effectiveRate > 0) {
+            const p = CurrencyService.safeParse(val);
+            setPriceBsManual(p > 0 ? Math.round(mulR(p, effectiveRate)).toString() : '');
+        }
+    };
+    const handleUnitPriceBsChange = (val) => {
+        setPriceBsManual(val);
+        if (autoCalcUnit && effectiveRate > 0) {
+            const p = CurrencyService.safeParse(val);
+            handlePriceUsdChange(p > 0 ? divR(p, effectiveRate).toFixed(2) : '');
+        }
+    };
+
+    // Caja
+    const handleToggleAutoCalcBox = () => {
+        const next = !autoCalcBox;
+        setAutoCalcBox(next);
+        if (next && effectiveRate > 0) {
+            const usd = CurrencyService.safeParse(boxPriceUsd);
+            if (usd > 0) {
+                setBoxPriceBs(Math.round(mulR(usd, effectiveRate)).toString());
+            } else {
+                const bs = CurrencyService.safeParse(boxPriceBs);
+                if (bs > 0) setBoxPriceUsd(divR(bs, effectiveRate).toFixed(2));
+            }
+        }
+    };
+    const handleBoxPriceUsdChange = (val) => {
+        setBoxPriceUsd(val);
+        if (autoCalcBox && effectiveRate > 0) {
+            const p = CurrencyService.safeParse(val);
+            setBoxPriceBs(p > 0 ? Math.round(mulR(p, effectiveRate)).toString() : '');
+        }
+    };
+    const handleBoxPriceBsChange = (val) => {
+        setBoxPriceBs(val);
+        if (autoCalcBox && effectiveRate > 0) {
+            const p = CurrencyService.safeParse(val);
+            setBoxPriceUsd(p > 0 ? divR(p, effectiveRate).toFixed(2) : '');
+        }
+    };
+
+    // Media Caja
+    const handleToggleAutoCalcHalfBox = () => {
+        const next = !autoCalcHalfBox;
+        setAutoCalcHalfBox(next);
+        if (next && effectiveRate > 0) {
+            const usd = CurrencyService.safeParse(halfBoxPriceUsd);
+            if (usd > 0) {
+                setHalfBoxPriceBs(Math.round(mulR(usd, effectiveRate)).toString());
+            } else {
+                const bs = CurrencyService.safeParse(halfBoxPriceBs);
+                if (bs > 0) setHalfBoxPriceUsd(divR(bs, effectiveRate).toFixed(2));
+            }
+        }
+    };
+    const handleHalfBoxPriceUsdChange = (val) => {
+        setHalfBoxPriceUsd(val);
+        if (autoCalcHalfBox && effectiveRate > 0) {
+            const p = CurrencyService.safeParse(val);
+            setHalfBoxPriceBs(p > 0 ? Math.round(mulR(p, effectiveRate)).toString() : '');
+        }
+    };
+    const handleHalfBoxPriceBsChange = (val) => {
+        setHalfBoxPriceBs(val);
+        if (autoCalcHalfBox && effectiveRate > 0) {
+            const p = CurrencyService.safeParse(val);
+            setHalfBoxPriceUsd(p > 0 ? divR(p, effectiveRate).toFixed(2) : '');
+        }
     };
 
     const commonProps = {
@@ -95,7 +204,13 @@ export default function ProductFormModal({
 
         effectiveRate,
         handleImageUpload,
-        categories
+        categories,
+        onOpenCategoryManager,
+
+        // Auto-Tasa: toggles + handlers bidireccionales
+        autoCalcUnit, handleToggleAutoCalcUnit, handleUnitPriceUsdChange, handleUnitPriceBsChange,
+        autoCalcBox, handleToggleAutoCalcBox, handleBoxPriceUsdChange, handleBoxPriceBsChange,
+        autoCalcHalfBox, handleToggleAutoCalcHalfBox, handleHalfBoxPriceUsdChange, handleHalfBoxPriceBsChange,
     };
 
     return (
