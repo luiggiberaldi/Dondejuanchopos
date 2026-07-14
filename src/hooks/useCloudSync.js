@@ -78,11 +78,11 @@ function _debouncePush(key, value) {
     const delay = HEAVY_KEYS.includes(key) ? DEBOUNCE_HEAVY_MS : DEBOUNCE_LIGHT_MS;
     pendingPush[key] = setTimeout(() => {
         delete pendingPush[key];
-        pushCloudSync(key, value).catch(() => {});
+        pushCloudSyncImmediate(key, value).catch(() => {});
     }, delay);
 }
 
-export const pushCloudSync = async (key, value) => {
+const pushCloudSyncImmediate = async (key, value) => {
     if (!supabaseCloud) return;
     if (isSyncingFromCloud) return;          // Nunca re-emitir lo que llegó de la nube
     if (!isCloudSyncActive) return;          // Omitir si la sesión cloud no está activa
@@ -110,6 +110,11 @@ export const pushCloudSync = async (key, value) => {
     } catch (e) {
         // Silencioso en producción
     }
+};
+
+export const pushCloudSync = (key, value) => {
+    if (!SYNC_KEYS.includes(key)) return;
+    _debouncePush(key, value);
 };
 
 /**
@@ -233,7 +238,7 @@ export function useCloudSync(deviceId) {
                     for (const key of criticalKeys) {
                         const localValue = await lf.getItem(key);
                         if (localValue !== null) {
-                            await pushCloudSync(key, localValue);
+                            await pushCloudSyncImmediate(key, localValue);
                             const hashKey = LAST_PUSH_HASH_PREFIX + key;
                             localStorage.setItem(hashKey, quickHash(localValue));
                         }
@@ -277,7 +282,7 @@ export function useCloudSync(deviceId) {
                         if (localStorage.getItem(hashKey) === currentHash) continue;
 
                         // Subimos los datos locales a la base de datos para sincronizar el historial
-                        await pushCloudSync(key, localValue);
+                        await pushCloudSyncImmediate(key, localValue);
                         localStorage.setItem(hashKey, currentHash);
                     }
                 } catch (e) {
@@ -351,7 +356,7 @@ export function useCloudSync(deviceId) {
                     const currentHash = quickHash(localValue);
                     if (localStorage.getItem(hashKey) === currentHash) continue;
 
-                    await pushCloudSync(key, localValue);
+                    await pushCloudSyncImmediate(key, localValue);
                     localStorage.setItem(hashKey, currentHash);
                 }
             } catch (e) {
