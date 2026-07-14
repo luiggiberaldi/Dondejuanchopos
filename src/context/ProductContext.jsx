@@ -35,8 +35,29 @@ const normalizeCategories = (cats) => {
     }).filter(Boolean);
 };
 
+const sanitizeProducts = (productsList) => {
+    if (!Array.isArray(productsList)) return [];
+    return productsList.map(p => {
+        if (!p || typeof p.image !== 'string') return p;
+        // Si la URL es de Supabase pero no contiene /public/, se lo insertamos
+        if (p.image.includes('.supabase.co/storage/v1/object/') && !p.image.includes('/storage/v1/object/public/')) {
+            return {
+                ...p,
+                image: p.image.replace('/storage/v1/object/', '/storage/v1/object/public/')
+            };
+        }
+        return p;
+    });
+};
+
 export function ProductProvider({ children, rates }) {
-    const [products, setProducts] = useState([]);
+    const [products, setProductsState] = useState([]);
+    const setProducts = useCallback((val) => {
+        setProductsState(prev => {
+            const next = typeof val === 'function' ? val(prev) : val;
+            return sanitizeProducts(next);
+        });
+    }, []);
     const [categories, setRawCategories] = useState(() => normalizeCategories(BODEGA_CATEGORIES));
     const setCategories = useCallback((cats) => {
         setRawCategories(prev => {
@@ -262,8 +283,9 @@ export function ProductProvider({ children, rates }) {
             if (e.key === 'bodega_products_v1') {
                 // If modified in another tab, fetch it
                 storageService.getItem('bodega_products_v1', []).then(updatedProducts => {
-                    if (JSON.stringify(updatedProducts) !== JSON.stringify(productsRef.current)) {
-                        setProducts(updatedProducts);
+                    const sanitized = sanitizeProducts(updatedProducts);
+                    if (JSON.stringify(sanitized) !== JSON.stringify(productsRef.current)) {
+                        setProducts(sanitized);
                     }
                 });
             }
@@ -279,8 +301,9 @@ export function ProductProvider({ children, rates }) {
 
             if (key === 'bodega_products_v1') {
                 const updatedProducts = await storageService.getItem('bodega_products_v1', []);
-                if (JSON.stringify(updatedProducts) !== JSON.stringify(productsRef.current)) {
-                    setProducts(updatedProducts);
+                const sanitized = sanitizeProducts(updatedProducts);
+                if (JSON.stringify(sanitized) !== JSON.stringify(productsRef.current)) {
+                    setProducts(sanitized);
                 }
             }
             if (key === 'my_categories_v1') {

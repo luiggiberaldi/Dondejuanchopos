@@ -72,7 +72,11 @@ export async function uploadProductImage(dataUri, opts = {}) {
         if (error) return null;
 
         const { data } = supabaseCloud.storage.from(BUCKET).getPublicUrl(path);
-        return data?.publicUrl || null;
+        let url = data?.publicUrl || null;
+        if (url && !url.includes('/storage/v1/object/public/')) {
+            url = url.replace('/storage/v1/object/', '/storage/v1/object/public/');
+        }
+        return url;
     } catch {
         return null;
     }
