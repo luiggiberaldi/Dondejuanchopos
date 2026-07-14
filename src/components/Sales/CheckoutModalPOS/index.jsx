@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { showToast } from '../../Toast';
 import { useProductContext } from '../../../context/ProductContext';
 import { round2, subR, mulR, divR } from '../../../utils/dinero';
