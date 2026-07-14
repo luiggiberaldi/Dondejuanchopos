@@ -37,6 +37,7 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
     const itemsHtml = (sale.items || []).map(item => {
         // FIN-024: formatUsd para qty peso, sin toFixed.
         const qty = item.isWeight ? formatUsd(item.qty) : String(item.qty);
+        const unit = item.isWeight ? 'Kg' : 'u';
         // FIN-024: mulR en vez de multiplicación raw.
         const sub = mulR(item.priceUsd, item.qty);
         // D2: Si el producto tiene precio Bs manual, usarlo directamente en el ticket
