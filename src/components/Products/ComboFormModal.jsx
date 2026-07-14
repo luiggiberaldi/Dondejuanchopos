@@ -19,6 +19,7 @@ export default function ComboFormModal({
     const [category] = useState('combo');
     const [comboItems, setComboItems] = useState([]); // [{ productId, qty, _product }]
     const [priceUsd, setPriceUsd] = useState('');
+    const [priceBsManual, setPriceBsManual] = useState(''); // Precio Bs independiente del combo
     const [searchTerm, setSearchTerm] = useState('');
     const [debouncedSearch, setDebouncedSearch] = useState('');
     const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -66,7 +67,21 @@ export default function ComboFormModal({
         comboItems.reduce((sum, ci) => sum + (ci._product?.priceUsd || 0) * ci.qty, 0),
     [comboItems]);
 
+    // ── Suma de partes en Bs: usa el precio Bs MANUAL de cada componente si existe,
+    //    y solo cae a la conversión por tasa cuando no hay Bs manual (lógica de precios duales). ──
+    const individualTotalBs = useMemo(() =>
+        comboItems.reduce((sum, ci) => {
+            const p = ci._product;
+            if (!p) return sum;
+            const unitBs = (p.priceBsManual != null && Number(p.priceBsManual) > 0)
+                ? Number(p.priceBsManual)
+                : (Number(p.priceUsd) || 0) * effectiveRate;
+            return sum + unitBs * ci.qty;
+        }, 0),
+    [comboItems, effectiveRate]);
+
     const parsedPrice = parseFloat(priceUsd) || 0;
+    const parsedPriceBs = parseFloat(priceBsManual) || 0;
     const savingsUsd = individualTotal > 0 && parsedPrice > 0 ? Math.max(0, individualTotal - parsedPrice) : 0;
     const savingsPct = individualTotal > 0 && parsedPrice > 0 ? ((savingsUsd / individualTotal) * 100) : 0;
 
@@ -87,6 +102,11 @@ export default function ComboFormModal({
             setName(editingCombo.name || '');
             setImage(editingCombo.image || null);
             setPriceUsd(editingCombo.priceUsd ? String(editingCombo.priceUsd) : '');
+            setPriceBsManual(
+                editingCombo.priceBsManual ? String(editingCombo.priceBsManual)
+                : editingCombo.priceBs ? String(editingCombo.priceBs)
+                : ''
+            );
 
             // Mapear items
             let items = [];
@@ -103,6 +123,7 @@ export default function ComboFormModal({
             setImage(null);
             setComboItems([]);
             setPriceUsd('');
+            setPriceBsManual('');
             setSearchTerm('');
         }
     }, [isOpen, editingCombo, products]);
@@ -149,8 +170,12 @@ export default function ComboFormModal({
 
     const applyDiscount = (pct) => {
         if (individualTotal <= 0) return;
-        const suggested = Math.round(individualTotal * (1 - pct / 100) * 100) / 100;
-        handlePriceUsdChange(String(suggested));
+        const factor = 1 - pct / 100;
+        handlePriceUsdChange(String(Math.round(individualTotal * factor * 100) / 100));
+        // También sugiere el precio Bs manual con el mismo descuento sobre la suma Bs de partes.
+        if (individualTotalBs > 0) {
+            setPriceBsManual(String(Math.round(individualTotalBs * factor)));
+        }
     };
 
     const handleSave = () => {
@@ -169,7 +194,10 @@ export default function ComboFormModal({
             image,
             category,
             priceUsd: parsedPrice,
-            priceBs: Math.round(parsedPrice * effectiveRate * 100) / 100,
+            // Precio Bs MANUAL independiente (respetado por el checkout); si no se define,
+            // se usa la conversión por tasa como respaldo.
+            priceBsManual: parsedPriceBs > 0 ? parsedPriceBs : null,
+            priceBs: parsedPriceBs > 0 ? parsedPriceBs : Math.round(parsedPrice * effectiveRate * 100) / 100,
             costUsd: 0,
             costBs: 0,
             stock: 0,
@@ -361,7 +389,7 @@ export default function ComboFormModal({
 
                             <div className="flex justify-between items-center px-3 py-2 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800">
                                 <span className="text-[10px] font-bold text-slate-400 uppercase">Suma de partes ({comboItems.length})</span>
-                                <span className="text-xs font-black text-slate-750 dark:text-slate-200">${individualTotal.toFixed(2)} / {(individualTotal * effectiveRate).toFixed(2)} Bs</span>
+                                <span className="text-xs font-black text-slate-750 dark:text-slate-200">${individualTotal.toFixed(2)} / {individualTotalBs.toFixed(2)} Bs</span>
                             </div>
                         </div>
                     )}
@@ -391,10 +419,17 @@ export default function ComboFormModal({
                                 </div>
                             </div>
                             <div>
-                                <label className="text-[9px] font-bold text-slate-400 ml-1 mb-1 block uppercase">Equivalente Bs</label>
-                                <div className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 rounded-xl font-black text-slate-500 dark:text-slate-400 text-sm">
-                                    {(parsedPrice * effectiveRate).toFixed(2)} Bs
-                                </div>
+                                <label className="text-[9px] font-bold text-slate-400 ml-1 mb-1 block uppercase">Precio Bs (Manual)</label>
+                                <input
+                                    type="number" inputMode="decimal"
+                                    value={priceBsManual}
+                                    onChange={e => setPriceBsManual(e.target.value)}
+                                    placeholder={parsedPrice > 0 ? (parsedPrice * effectiveRate).toFixed(2) : '0.00'}
+                                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-2.5 rounded-xl font-black text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/40 text-sm"
+                                />
+                                {effectiveRate > 0 && parsedPrice > 0 && (
+                                    <span className="text-[8px] text-slate-400 font-medium block mt-0.5 ml-1">Ref: {Math.round(parsedPrice * effectiveRate)} Bs a tasa BCV</span>
+                                )}
                             </div>
                         </div>
 
@@ -447,7 +482,7 @@ export default function ComboFormModal({
                             </div>
                             <div className="flex justify-between text-xs font-black text-brand pt-0.5">
                                 <span>Precio combo</span>
-                                <span>${parsedPrice.toFixed(2)} / {(parsedPrice * effectiveRate).toFixed(2)} Bs</span>
+                                <span>${parsedPrice.toFixed(2)} / {(parsedPriceBs > 0 ? parsedPriceBs : parsedPrice * effectiveRate).toFixed(2)} Bs</span>
                             </div>
                         </div>
                     </div>
