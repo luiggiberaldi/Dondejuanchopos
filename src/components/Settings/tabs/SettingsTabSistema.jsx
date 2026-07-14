@@ -117,7 +117,14 @@ export default function SettingsTabSistema({
                         <ChevronRight size={16} className="text-slate-300" />
                     </button>
 
-
+                    <button onClick={() => setIsShareOpen(true)} className="w-full flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group active:scale-[0.98]">
+                        <div className="p-2 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg"><Share2 size={18} className="text-indigo-500" /></div>
+                        <div className="text-left flex-1">
+                            <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Compartir Inventario</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">Código de 6 dígitos, 24h</p>
+                        </div>
+                        <ChevronRight size={16} className="text-slate-300" />
+                    </button>
                 </div>
 
                 {importStatus && (
