@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Gift, Search, X, Plus, Minus, Camera, Tag, Percent, Package, CheckCircle, Sparkles, AlertTriangle } from 'lucide-react';
+import { Gift, Search, X, Plus, Minus, Camera, Tag, Percent, Package, CheckCircle, Sparkles, AlertTriangle, Zap } from 'lucide-react';
 import { Modal } from '../Modal';
 
 export default function ComboFormModal({
@@ -20,6 +20,7 @@ export default function ComboFormModal({
     const [comboItems, setComboItems] = useState([]); // [{ productId, qty, _product }]
     const [priceUsd, setPriceUsd] = useState('');
     const [priceBsManual, setPriceBsManual] = useState(''); // Precio Bs independiente del combo
+    const [autoCalc, setAutoCalc] = useState(false); // Auto-Tasa: sincroniza USD ⇔ Bs
     const [searchTerm, setSearchTerm] = useState('');
     const [debouncedSearch, setDebouncedSearch] = useState('');
     const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -126,9 +127,37 @@ export default function ComboFormModal({
             setPriceBsManual('');
             setSearchTerm('');
         }
+        setAutoCalc(false);
     }, [isOpen, editingCombo, products]);
 
-    const handlePriceUsdChange = (val) => setPriceUsd(val);
+    // ── Auto-Tasa: conversión bidireccional USD ⇔ Bs cuando está activo ──
+    const handleToggleAutoCalc = () => {
+        const next = !autoCalc;
+        setAutoCalc(next);
+        if (next && effectiveRate > 0) {
+            const usd = parseFloat(priceUsd) || 0;
+            if (usd > 0) {
+                setPriceBsManual(String(Math.round(usd * effectiveRate)));
+            } else {
+                const bs = parseFloat(priceBsManual) || 0;
+                if (bs > 0) setPriceUsd((bs / effectiveRate).toFixed(2));
+            }
+        }
+    };
+    const handlePriceUsdChange = (val) => {
+        setPriceUsd(val);
+        if (autoCalc && effectiveRate > 0) {
+            const p = parseFloat(val) || 0;
+            setPriceBsManual(p > 0 ? String(Math.round(p * effectiveRate)) : '');
+        }
+    };
+    const handlePriceBsChange = (val) => {
+        setPriceBsManual(val);
+        if (autoCalc && effectiveRate > 0) {
+            const p = parseFloat(val) || 0;
+            setPriceUsd(p > 0 ? (p / effectiveRate).toFixed(2) : '');
+        }
+    };
 
     const handleImageUpload = (e) => {
         const file = e.target.files[0];
@@ -398,9 +427,23 @@ export default function ComboFormModal({
                 {/* ── 3. Precio de Venta en USD y Bs ── */}
                 {comboItems.length > 0 && (
                     <div className="space-y-3 animate-in fade-in duration-200">
-                        <label className="text-[10px] font-bold text-slate-400 ml-1 block uppercase flex items-center gap-1.5">
-                            <Sparkles size={11} /> Precio de venta del combo
-                        </label>
+                        <div className="flex items-center justify-between">
+                            <label className="text-[10px] font-bold text-slate-400 ml-1 block uppercase flex items-center gap-1.5">
+                                <Sparkles size={11} /> Precio de venta del combo
+                            </label>
+                            <button
+                                type="button"
+                                onClick={handleToggleAutoCalc}
+                                title={autoCalc ? 'Auto-Tasa activo: USD ⇔ Bs según tasa' : 'Activar cálculo automático USD ⇔ Bs'}
+                                className={`flex items-center gap-1 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all active:scale-95 ${
+                                    autoCalc
+                                        ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30'
+                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-slate-200 dark:border-slate-700'
+                                }`}
+                            >
+                                <Zap size={10} className={autoCalc ? 'fill-white' : ''} /> Auto-Tasa
+                            </button>
+                        </div>
 
                         <div className="grid grid-cols-2 gap-3">
                             <div>
@@ -423,9 +466,13 @@ export default function ComboFormModal({
                                 <input
                                     type="number" inputMode="decimal"
                                     value={priceBsManual}
-                                    onChange={e => setPriceBsManual(e.target.value)}
+                                    onChange={e => handlePriceBsChange(e.target.value)}
                                     placeholder={parsedPrice > 0 ? (parsedPrice * effectiveRate).toFixed(2) : '0.00'}
-                                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-2.5 rounded-xl font-black text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/40 text-sm"
+                                    className={`w-full p-2.5 rounded-xl font-black text-sm outline-none border transition-all duration-200 ${
+                                        autoCalc
+                                            ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10 focus:ring-2 focus:ring-emerald-500/40'
+                                            : 'text-slate-700 dark:text-white bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-brand/40'
+                                    }`}
                                 />
                                 {effectiveRate > 0 && parsedPrice > 0 && (
                                     <span className="text-[8px] text-slate-400 font-medium block mt-0.5 ml-1">Ref: {Math.round(parsedPrice * effectiveRate)} Bs a tasa BCV</span>
