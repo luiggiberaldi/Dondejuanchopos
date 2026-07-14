@@ -1,5 +1,5 @@
 import { forwardRef } from 'react';
-import { Search, Mic, Package, X, Box } from 'lucide-react';
+import { Search, Mic, Package, X, Box, Tag } from 'lucide-react';
 import { BODEGA_CATEGORIES, CATEGORY_ICONS, CATEGORY_COLORS } from '../../config/categories';
 import { formatCop, getCop, getUsd } from '../../utils/calculatorUtils';
 
@@ -177,7 +177,7 @@ const SearchBar = forwardRef(function SearchBar({
                             <div className="flex flex-col">
                                 <span className="text-xs font-black text-emerald-600 dark:text-emerald-400">${hierarchyPending.priceUsd?.toFixed(2)}</span>
                                 <span className="text-[9px] font-bold text-slate-400">
-                                    {hierarchyPending.priceBsManual ? `${parseFloat(hierarchyPending.priceBsManual).toFixed(2)} Bs` : `${(hierarchyPending.priceUsd * effectiveRate).toFixed(2)} Bs`}
+                                    {hierarchyPending.priceBsManual ? `${Number(hierarchyPending.priceBsManual).toFixed(2)} Bs` : `${(hierarchyPending.priceUsd * effectiveRate).toFixed(2)} Bs`}
                                 </span>
                             </div>
                         </button>
@@ -191,7 +191,7 @@ const SearchBar = forwardRef(function SearchBar({
                                 <div className="flex flex-col">
                                     <span className="text-xs font-black text-[#193275] dark:text-brand">${hierarchyPending.boxPriceUsd?.toFixed(2)}</span>
                                     <span className="text-[9px] font-bold text-slate-450 dark:text-slate-400">
-                                        {hierarchyPending.boxPriceBs ? `${parseFloat(hierarchyPending.boxPriceBs).toFixed(2)} Bs` : `${(hierarchyPending.boxPriceUsd * effectiveRate).toFixed(2)} Bs`}
+                                        {hierarchyPending.boxPriceBs ? `${Number(hierarchyPending.boxPriceBs).toFixed(2)} Bs` : `${(hierarchyPending.boxPriceUsd * effectiveRate).toFixed(2)} Bs`}
                                     </span>
                                 </div>
                             </button>
@@ -206,7 +206,7 @@ const SearchBar = forwardRef(function SearchBar({
                                 <div className="flex flex-col">
                                     <span className="text-xs font-black text-purple-600 dark:text-purple-400">${hierarchyPending.halfBoxPriceUsd?.toFixed(2)}</span>
                                     <span className="text-[9px] font-bold text-slate-400">
-                                        {hierarchyPending.halfBoxPriceBs ? `${parseFloat(hierarchyPending.halfBoxPriceBs).toFixed(2)} Bs` : `${(hierarchyPending.halfBoxPriceUsd * effectiveRate).toFixed(2)} Bs`}
+                                        {hierarchyPending.halfBoxPriceBs ? `${Number(hierarchyPending.halfBoxPriceBs).toFixed(2)} Bs` : `${(hierarchyPending.halfBoxPriceUsd * effectiveRate).toFixed(2)} Bs`}
                                     </span>
                                 </div>
                             </button>

@@ -113,7 +113,6 @@ export default function CheckoutModalPOS({
     // Cashea
     const casheaEnabled = localStorage.getItem('cashea_enabled') === 'true';
     const casheaMinAmount = parseFloat(localStorage.getItem('cashea_min_amount') || '0') || 0;
-    const casheaMeetsMinimum = casheaMinAmount <= 0 || cartTotalUsd >= casheaMinAmount;
     const [casheaActive, setCasheaActive] = useState(false);
     const [casheaPercent, setCasheaPercent] = useState(60);
 
@@ -135,6 +134,8 @@ export default function CheckoutModalPOS({
         }
         return originalTotalUsd;
     }, [isPureBsPayment, originalTotalUsd, originalTotalBs, effectiveRate]);
+
+    const casheaMeetsMinimum = casheaMinAmount <= 0 || cartTotalUsd >= casheaMinAmount;
 
     const cartTotalBs = useMemo(() => {
         if (isPureBsPayment) {

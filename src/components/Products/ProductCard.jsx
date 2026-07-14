@@ -272,6 +272,7 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                         </span>
                     </div>
                 )}
+            </div>
 
                 {/* Stock Control Prominente */}
                 <div className="mt-auto pt-2 border-t border-slate-100 dark:border-slate-800">
