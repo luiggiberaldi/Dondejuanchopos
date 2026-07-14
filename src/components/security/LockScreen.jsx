@@ -58,7 +58,7 @@ export default function LockScreen({ onOpenPairing }) {
   };
 
   return (
-    <div className="fixed inset-0 z-[250] bg-slate-50 text-slate-800 font-sans overflow-hidden flex flex-col">
+    <div className="fixed inset-0 z-[250] bg-slate-50 text-slate-800 font-sans overflow-y-auto flex flex-col">
       {/* Botón flotante para instalar PWA */}
       {deferredPrompt && (
         <button
@@ -77,18 +77,18 @@ export default function LockScreen({ onOpenPairing }) {
 
       <div className="relative z-10 flex flex-col items-center justify-center flex-1 p-6">
         {/* Header */}
-        <div className="text-center mb-14">
+        <div className="text-center mb-14 short:mb-5">
           <div className="flex justify-center mb-0">
-            <img src="./logo.png" alt="Logo" className="h-[200px] sm:h-[350px] w-auto object-contain drop-shadow-md -mb-4 sm:-mb-6" />
+            <img src="./logo.png" alt="Logo" className="h-[200px] sm:h-[350px] short:h-[150px] w-auto object-contain drop-shadow-md -mb-4 sm:-mb-6" />
           </div>
-          <h1 className="text-2xl sm:text-3xl font-light tracking-[0.15em] text-slate-600">
+          <h1 className="text-2xl sm:text-3xl short:text-xl font-light tracking-[0.15em] text-slate-600">
             Quien esta{' '}
             <strong className="text-slate-900 font-bold">operando</strong>?
           </h1>
         </div>
 
         {/* User Grid */}
-        <div className="w-full grid grid-cols-2 md:flex md:flex-row md:flex-wrap md:justify-center gap-8 sm:gap-14 max-w-[320px] md:max-w-5xl mx-auto">
+        <div className="w-full grid grid-cols-2 md:flex md:flex-row md:flex-wrap md:justify-center gap-8 sm:gap-14 short:gap-6 max-w-[320px] md:max-w-5xl mx-auto">
           {usuarios.map(user => (
             <UserCard
               key={user.id}

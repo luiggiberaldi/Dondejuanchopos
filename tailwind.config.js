@@ -15,6 +15,12 @@ export default {
   darkMode: ['class', '[data-theme="dark"]'],
   theme: {
     extend: {
+      // Breakpoints por ALTURA de viewport (para laptops tipo 1366x768).
+      // `short:` aplica cuando el alto es <= 820px; `tall:` cuando es >= 900px.
+      screens: {
+        short: { raw: '(max-height: 820px)' },
+        tall: { raw: '(min-height: 900px)' },
+      },
       colors: {
         // Brand: cian/turquesa H=192 (antes azul)
         brand: {
