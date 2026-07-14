@@ -128,21 +128,13 @@ export default function CheckoutModalPOS({
         return activeInputMethods.every(m => m.currency === 'BS');
     }, [pagos, metodosNormalizados]);
 
-    const cartTotalUsd = useMemo(() => {
-        if (isPureBsPayment && effectiveRate > 0) {
-            return round2(divR(originalTotalBs, effectiveRate));
-        }
-        return originalTotalUsd;
-    }, [isPureBsPayment, originalTotalUsd, originalTotalBs, effectiveRate]);
+    const cartTotalUsd = originalTotalUsd;
 
     const casheaMeetsMinimum = casheaMinAmount <= 0 || cartTotalUsd >= casheaMinAmount;
 
-    const cartTotalBs = useMemo(() => {
-        if (isPureBsPayment) {
-            return originalTotalBs;
-        }
-        return round2(mulR(originalTotalUsd, effectiveRate));
-    }, [isPureBsPayment, originalTotalUsd, originalTotalBs, effectiveRate]);
+    // Precios duales INDEPENDIENTES: el total en Bs es el precio Bs asignado (no se deriva
+    // de USD×tasa). Evita el salto $15↔$16.25 y que el Bs arranque en 12.000 en vez de 13.000.
+    const cartTotalBs = originalTotalBs;
 
     // ─── CÁLCULOS ──────────────────────────────────────────
     const {
@@ -344,6 +336,16 @@ export default function CheckoutModalPOS({
                 });
             }
 
+            // Total a REGISTRAR: par USD/Bs consistente con la tasa (requisito del guard
+            // FIN-022). El display se mantiene fijo ($15 / Bs 13.000); aquí se ancla según
+            // la moneda del pago: 100% Bs → se cobró el Bs manual; si no → base USD.
+            const registroTotalUsd = isPureBsPayment && effectiveRate > 0
+                ? round2(divR(originalTotalBs, effectiveRate))
+                : originalTotalUsd;
+            const registroTotalBs = isPureBsPayment
+                ? originalTotalBs
+                : round2(mulR(originalTotalUsd, effectiveRate));
+
             onConfirmSale(payments, {
                 changeUsdGiven: distVueltoUSD ? parseFloat(distVueltoUSD) : cambioUSD,
                 changeBsGiven: distVueltoBS ? parseFloat(distVueltoBS) : 0,
@@ -352,9 +354,9 @@ export default function CheckoutModalPOS({
                 esCashea: casheaActive,
                 vueltoCredito: isChangeCredited,
             }, {
-                cartTotalUsd,
-                cartTotalBs,
-                cartSubtotalUsd: isPureBsPayment && effectiveRate > 0 ? round2(divR(cartSubtotalUsd * effectiveRate, effectiveRate)) : cartSubtotalUsd,
+                cartTotalUsd: registroTotalUsd,
+                cartTotalBs: registroTotalBs,
+                cartSubtotalUsd: registroTotalUsd,
             });
 
             triggerHaptic && triggerHaptic();

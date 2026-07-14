@@ -24,6 +24,15 @@ export const usePaymentCalculations = ({
 }) => {
     const tasaSegura = tasa > 0 ? tasa : 1;
     const safeTasaCop = tasaCop > 0 ? tasaCop : 0;
+    // Totales duales INDEPENDIENTES de la venta (USD y Bs no se derivan uno del otro).
+    const safeTotalUSD = totalUSD > 0 ? totalUSD : 0;
+    const safeTotalBS = totalBS > 0 ? totalBS : 0;
+
+    // Saldo a favor (USD)
+    const pagoSaldoFavorNum = useMemo(() => {
+        const v = parseFloat(pagoSaldoFavor);
+        return isNaN(v) || v < 0 ? 0 : v;
+    }, [pagoSaldoFavor]);
 
     // Monto financiado por Cashea
     const casheaAmountUsd = useMemo(() => {
@@ -31,41 +40,56 @@ export const usePaymentCalculations = ({
         return round2(mulR(totalUSD, (100 - casheaPercent) / 100));
     }, [casheaActive, totalUSD, casheaPercent]);
 
-    // Total pagado en USD (convirtiendo BS y COP)
+    // Fracción de la venta cubierta por cada pago:
+    //   - USD/COP se miden contra el total USD; BS se mide contra el total Bs (independiente).
+    // Así un pago en Bs cubre su porción exacta del precio Bs asignado, sin pasar por la tasa.
+    const fraccionPagada = useMemo(() => {
+        const fracMetodos = sumR(metodosActivos.map(m => {
+            const v = val(m.id);
+            if (v <= 0) return 0;
+            if (m.tipo === 'BS') return safeTotalBS > 0 ? divR(v, safeTotalBS) : 0;
+            if (m.tipo === 'COP') return (safeTasaCop > 0 && safeTotalUSD > 0) ? divR(divR(v, safeTasaCop), safeTotalUSD) : 0;
+            return safeTotalUSD > 0 ? divR(v, safeTotalUSD) : 0; // DIVISA
+        }));
+        const casheaFrac = safeTotalUSD > 0 ? divR(casheaAmountUsd, safeTotalUSD) : 0;
+        const saldoFrac = safeTotalUSD > 0 ? divR(pagoSaldoFavorNum, safeTotalUSD) : 0;
+        return fracMetodos + casheaFrac + saldoFrac;
+    }, [pagos, metodosActivos, safeTotalBS, safeTotalUSD, safeTasaCop, casheaAmountUsd, pagoSaldoFavorNum]);
+
+    // Total pagado (proyección de la fracción sobre cada total, para visualización).
     const totalPagadoUSD = useMemo(() => {
         return sumR(metodosActivos.map(m => {
             const v = val(m.id);
             if (m.tipo === 'DIVISA') return round2(v);
             if (m.tipo === 'COP' && safeTasaCop > 0) return divR(v, safeTasaCop);
-            return tasaSegura > 0 ? divR(v, tasaSegura) : 0;
+            // BS: proyectar su fracción del total Bs al total USD (no usar la tasa directa).
+            return safeTotalBS > 0 ? round2(mulR(divR(v, safeTotalBS), safeTotalUSD)) : 0;
         }));
-    }, [pagos, metodosActivos, tasaSegura, safeTasaCop]);
+    }, [pagos, metodosActivos, safeTotalBS, safeTotalUSD, safeTasaCop]);
 
     // Total pagado en BS (para visualización)
     const totalPagadoBS = useMemo(() => {
         return sumR(metodosActivos.map(m => {
             const v = val(m.id);
             if (m.tipo === 'BS') return round2(v);
-            if (m.tipo === 'COP' && safeTasaCop > 0 && tasaSegura > 0)
-                return mulR(divR(v, safeTasaCop), tasaSegura);
-            return tasaSegura > 0 ? mulR(v, tasaSegura) : 0;
+            if (m.tipo === 'COP' && safeTasaCop > 0 && safeTotalUSD > 0)
+                return round2(mulR(divR(divR(v, safeTasaCop), safeTotalUSD), safeTotalBS));
+            // DIVISA: proyectar su fracción del total USD al total Bs.
+            return safeTotalUSD > 0 ? round2(mulR(divR(v, safeTotalUSD), safeTotalBS)) : 0;
         }));
-    }, [pagos, metodosActivos, tasaSegura, safeTasaCop]);
+    }, [pagos, metodosActivos, safeTotalBS, safeTotalUSD, safeTasaCop]);
 
-    // Saldo a favor
-    const pagoSaldoFavorNum = useMemo(() => {
-        const v = parseFloat(pagoSaldoFavor);
-        return isNaN(v) || v < 0 ? 0 : v;
-    }, [pagoSaldoFavor]);
-
-    // Total global con Cashea + saldo a favor
+    // Total global con Cashea + saldo a favor (en USD, para visualización y registro)
     const totalPagadoGlobalUSD = useMemo(() => {
         return round2(totalPagadoUSD + casheaAmountUsd + pagoSaldoFavorNum);
     }, [totalPagadoUSD, casheaAmountUsd, pagoSaldoFavorNum]);
 
-    const faltaPorPagar = Math.max(0, subR(totalUSD, totalPagadoGlobalUSD));
-    const faltaPorPagarBS = round2(faltaPorPagar * tasaSegura);
-    const cambioUSD = Math.max(0, subR(totalPagadoGlobalUSD, totalUSD));
+    // Restante y vuelto por FRACCIÓN de la venta (no por conversión de tasa), de modo que
+    // el faltante en Bs sea el precio Bs restante real y el rayito lo llene en un solo toque.
+    const fraccionRestante = Math.max(0, subR(1, fraccionPagada));
+    const faltaPorPagar   = round2(mulR(fraccionRestante, safeTotalUSD));
+    const faltaPorPagarBS = round2(mulR(fraccionRestante, safeTotalBS));
+    const cambioUSD = Math.max(0, round2(mulR(Math.max(0, subR(fraccionPagada, 1)), safeTotalUSD)));
 
     // IGTF — simplificado (la bodega no usa FinancialController de Listo POS)
     const montoIGTF = 0; // La bodega calcula IGTF en useCheckoutCalculations; en POS mode no se recalcula aquí
