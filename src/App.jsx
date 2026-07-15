@@ -29,6 +29,7 @@ import { LogOut } from 'lucide-react';
 import { purgeOldEntries } from './services/auditService';
 import { useCloudSync } from './hooks/useCloudSync';
 import SupervisorRateNotification from './components/SupervisorRateNotification';
+import SupervisorInventoryNotification from './components/SupervisorInventoryNotification';
 
 const OwnerMonitorView = lazy(() => import('./views/OwnerMonitorView'));
 import PairingScanScreen from './components/PairingScanScreen';
@@ -340,6 +341,7 @@ export default function App() {
       </main>
 
       <SupervisorRateNotification />
+      <SupervisorInventoryNotification />
       </ProductProvider>
       </CartProvider>
       
