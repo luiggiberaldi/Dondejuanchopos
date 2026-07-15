@@ -5,11 +5,13 @@ import { storageService } from '../utils/storageService';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { showToast } from '../components/Toast';
 import SupervisorRateModal from '../components/SupervisorRateModal';
-import { 
-    TrendingUp, Package, Coins, Users, LogOut, 
+import RemoteProductFormModal from '../components/Monitor/RemoteProductFormModal';
+import {
+    TrendingUp, Package, Coins, Users, LogOut,
     RefreshCw, Wifi, WifiOff, Clock, FileText, DollarSign,
     Wallet, CreditCard, Smartphone, Banknote, ArrowDownRight,
-    ShieldCheck, Hash, AlertTriangle, Search, X, ChevronLeft, ChevronRight
+    ShieldCheck, Hash, AlertTriangle, Search, X, ChevronLeft, ChevronRight,
+    MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud
 } from 'lucide-react';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
 import { getLocalISODate } from '../utils/dateHelpers';
@@ -45,6 +47,128 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const [selectedCierreId, setSelectedCierreId] = useState(null);
     const [searchTermInventario, setSearchTermInventario] = useState('');
     const [filterStockInventario, setFilterStockInventario] = useState('todos'); // 'todos', 'bajo', 'agotado'
+
+    // ── Edición remota de inventario (comandos supervisor → caja) ──
+    const [showRemoteForm, setShowRemoteForm] = useState(false);
+    const [remoteEditingProduct, setRemoteEditingProduct] = useState(null);
+    const [remoteDeleteTarget, setRemoteDeleteTarget] = useState(null);
+
+    // Cola de cambios PENDIENTES: nada se envía a la caja hasta pulsar «Subir al
+    // sistema». Persistida en localStorage para sobrevivir recargas del monitor.
+    // Cada entrada: { action, productId, data, queuedAt }.
+    const PENDING_KEY = 'dj_pending_inventory_changes_v1';
+    const [pendingChanges, setPendingChanges] = useState(() => {
+        try {
+            const raw = localStorage.getItem(PENDING_KEY);
+            const arr = raw ? JSON.parse(raw) : [];
+            return Array.isArray(arr) ? arr : [];
+        } catch { return []; }
+    });
+    const [uploading, setUploading] = useState(false);
+
+    const persistPending = (next) => {
+        setPendingChanges(next);
+        try { localStorage.setItem(PENDING_KEY, JSON.stringify(next)); } catch { /* storage lleno */ }
+    };
+
+    // Fusión de cambios en cola (coalescing) para minimizar comandos y egress:
+    //  - adjust_stock del mismo producto: se suman los deltas (neto 0 → se elimina).
+    //  - edit del mismo producto: queda la última edición (si había un 'add' local, se fusiona en él).
+    //  - delete: cancela ediciones/ajustes pendientes; si cancelaba un 'add' aún no subido, no se envía nada.
+    const queueInventoryChange = (action, productId, data) => {
+        const next = [...pendingChanges];
+        const idxOf = (act) => next.findIndex(c => c.productId === productId && c.action === act);
+
+        if (action === 'adjust_stock') {
+            const i = idxOf('adjust_stock');
+            if (i >= 0) {
+                const newDelta = (Number(next[i].data?.delta) || 0) + (Number(data?.delta) || 0);
+                if (newDelta === 0) next.splice(i, 1);
+                else next[i] = { ...next[i], data: { delta: newDelta }, queuedAt: new Date().toISOString() };
+            } else {
+                next.push({ action, productId, data, queuedAt: new Date().toISOString() });
+            }
+        } else if (action === 'edit') {
+            const addIdx = idxOf('add');
+            if (addIdx >= 0) {
+                next[addIdx] = { ...next[addIdx], data: { ...data, id: productId }, queuedAt: new Date().toISOString() };
+            } else {
+                const i = idxOf('edit');
+                if (i >= 0) next[i] = { ...next[i], data, queuedAt: new Date().toISOString() };
+                else next.push({ action, productId, data, queuedAt: new Date().toISOString() });
+            }
+        } else if (action === 'delete') {
+            const hadAdd = idxOf('add') >= 0;
+            for (let i = next.length - 1; i >= 0; i--) {
+                if (next[i].productId === productId) next.splice(i, 1);
+            }
+            if (!hadAdd) next.push({ action, productId, data: null, queuedAt: new Date().toISOString() });
+        } else { // add
+            next.push({ action, productId, data, queuedAt: new Date().toISOString() });
+        }
+
+        persistPending(next);
+        showToast('Cambio en cola — pulsa «Subir al sistema» para enviarlo', 'info');
+        return true;
+    };
+
+    // Delta de stock pendiente por producto (para proyectar en la fila)
+    const pendingStockDelta = (productId) =>
+        pendingChanges.reduce((sum, c) =>
+            c.productId === productId && c.action === 'adjust_stock' ? sum + (Number(c.data?.delta) || 0) : sum, 0);
+
+    const hasPendingFor = (productId) => pendingChanges.some(c => c.productId === productId);
+
+    // «Subir al sistema»: vacía la cola enviando los comandos individuales ya
+    // fusionados. Reutiliza toda la infraestructura existente (dedup, catch-up,
+    // validación y estado por comando en la caja). Los que fallen al insertar
+    // permanecen en la cola.
+    const uploadPendingChanges = async () => {
+        if (!supabaseCloud || !pairedDeviceId) {
+            showToast('Sin conexión con la caja', 'error');
+            return;
+        }
+        if (pendingChanges.length === 0 || uploading) return;
+        setUploading(true);
+        const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
+        const remaining = [];
+        let sent = 0;
+        for (const change of pendingChanges) {
+            try {
+                const { error } = await supabaseCloud
+                    .from('supervisor_commands')
+                    .insert({
+                        primary_device_id: pairedDeviceId,
+                        monitor_device_id: monitorDeviceId,
+                        command_type: 'inventory_update',
+                        payload: {
+                            action: change.action,
+                            productId: change.productId,
+                            data: change.data,
+                            issuedAt: change.queuedAt,
+                        },
+                        status: 'pending'
+                    });
+                if (error) throw error;
+                sent += 1;
+            } catch (err) {
+                console.error('[OwnerMonitor] Error al subir cambio:', err);
+                remaining.push(change);
+            }
+        }
+        persistPending(remaining);
+        setUploading(false);
+        if (remaining.length === 0) {
+            showToast(`${sent} cambio${sent !== 1 ? 's' : ''} enviado${sent !== 1 ? 's' : ''} a la caja — se reflejarán al sincronizar`, 'success');
+        } else {
+            showToast(`${sent} enviados · ${remaining.length} fallaron y siguen en cola`, 'warning');
+        }
+    };
+
+    const discardPendingChanges = () => {
+        persistPending([]);
+        showToast('Cambios pendientes descartados', 'info');
+    };
 
     const filteredProducts = useMemo(() => {
         if (!products) return [];
@@ -1108,6 +1232,13 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
                         {/* Barra de Filtro y Búsqueda */}
                         <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col md:flex-row gap-4 items-stretch md:items-center justify-between">
+                            {/* Botón Nuevo Producto (encola) */}
+                            <button
+                                onClick={() => { triggerHaptic?.(); setRemoteEditingProduct(null); setShowRemoteForm(true); }}
+                                className="shrink-0 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-2xl bg-brand hover:bg-brand-dark text-white text-[10px] sm:text-xs font-black uppercase tracking-wider shadow-lg shadow-brand/25 transition-all active:scale-95"
+                            >
+                                <Plus size={14} strokeWidth={3} /> Nuevo
+                            </button>
                             {/* Input de Búsqueda */}
                             <div className="relative flex-1">
                                 <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-450">
@@ -1194,14 +1325,24 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                     <div className="flex items-center gap-2 flex-wrap">
                                                         <h4 className="text-xs font-black text-slate-800 dark:text-white uppercase leading-tight truncate">{p.name}</h4>
                                                         <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${
-                                                            isAgotado 
-                                                                ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400' 
-                                                                : isBajo 
-                                                                    ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400' 
+                                                            isAgotado
+                                                                ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400'
+                                                                : isBajo
+                                                                    ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400'
                                                                     : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400'
                                                         }`}>
                                                             {isAgotado ? 'Agotado' : isBajo ? 'Bajo Stock' : 'Disponible'}
                                                         </span>
+                                                        {p.sellByBox && (
+                                                            <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400">
+                                                                📦 Caja{p.boxUnits ? ` ×${p.boxUnits}` : ''}
+                                                            </span>
+                                                        )}
+                                                        {p.sellByHalfBox && (
+                                                            <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 dark:bg-purple-950/30 dark:text-purple-400">
+                                                                ½ Caja{p.halfBoxUnits ? ` ×${p.halfBoxUnits}` : ''}
+                                                            </span>
+                                                        )}
                                                     </div>
                                                     <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-1 font-medium">
                                                         {p.barcode && (
@@ -1226,7 +1367,11 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                         <div>
                                                             <span className="text-[8px] text-slate-400 uppercase font-black block">Venta (USD/Bs)</span>
                                                             <span className="font-outfit text-xs font-black text-slate-800 dark:text-white tabular-nums block">${p.priceUsd.toFixed(2)}</span>
-                                                            <span className="font-outfit text-[8px] text-slate-400 block tabular-nums leading-none mt-0.5">{bcvRate ? `${formatBs(p.priceUsd * bcvRate)} Bs` : 'N/D'}</span>
+                                                            <span className="font-outfit text-[8px] text-slate-400 block tabular-nums leading-none mt-0.5">
+                                                                {p.priceBsManual > 0
+                                                                    ? `${formatBs(p.priceBsManual)} Bs`
+                                                                    : bcvRate ? `${formatBs(p.priceUsd * bcvRate)} Bs` : 'N/D'}
+                                                            </span>
                                                         </div>
                                                         {/* Ganancia */}
                                                         <div>
@@ -1236,18 +1381,61 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                         </div>
                                                     </div>
 
-                                                    {/* Stock */}
-                                                    <div className={`w-20 text-center py-2 px-2.5 rounded-2xl border ${
-                                                        isAgotado 
-                                                            ? 'bg-rose-50/50 border-rose-150/70 text-rose-700 dark:bg-rose-950/20 dark:border-rose-900/30 dark:text-rose-455' 
-                                                            : isBajo 
-                                                                ? 'bg-amber-50/50 border-amber-150/70 text-amber-700 dark:bg-amber-950/20 dark:border-amber-900/30 dark:text-amber-455' 
-                                                                : 'bg-slate-50 border-slate-150/70 text-slate-700 dark:bg-slate-850/60 dark:border-slate-800 dark:text-slate-300'
-                                                    }`}>
-                                                        <span className="text-[8px] uppercase font-black block leading-none mb-0.5">Stock</span>
-                                                        <span className="font-outfit text-xs sm:text-sm font-black tabular-nums leading-none">
-                                                            {p.isWeight ? `${stock.toFixed(3)} Kg` : `${stock} u`}
-                                                        </span>
+                                                    {/* Stock + Acciones remotas (encolan; se envían con «Subir al sistema») */}
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            onClick={() => { triggerHaptic?.(); queueInventoryChange('adjust_stock', p.id, { delta: -1 }); }}
+                                                            title="Restar 1 unidad (en cola)"
+                                                            className="w-8 h-8 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-rose-500 hover:border-rose-200 transition-colors active:scale-90"
+                                                        >
+                                                            <MinusCircle size={14} />
+                                                        </button>
+                                                        <div className={`relative w-20 text-center py-2 px-2.5 rounded-2xl border ${
+                                                            isAgotado
+                                                                ? 'bg-rose-50/50 border-rose-150/70 text-rose-700 dark:bg-rose-950/20 dark:border-rose-900/30 dark:text-rose-455'
+                                                                : isBajo
+                                                                    ? 'bg-amber-50/50 border-amber-150/70 text-amber-700 dark:bg-amber-950/20 dark:border-amber-900/30 dark:text-amber-455'
+                                                                    : 'bg-slate-50 border-slate-150/70 text-slate-700 dark:bg-slate-850/60 dark:border-slate-800 dark:text-slate-300'
+                                                        }`}>
+                                                            <span className="text-[8px] uppercase font-black block leading-none mb-0.5">Stock</span>
+                                                            <span className="font-outfit text-xs sm:text-sm font-black tabular-nums leading-none">
+                                                                {p.isWeight ? `${stock.toFixed(3)} Kg` : `${stock} u`}
+                                                            </span>
+                                                            {p.sellByBox && p.boxUnits > 0 && !p.isWeight && (
+                                                                <span className="text-[7px] font-bold block leading-none mt-0.5 opacity-70">
+                                                                    ≈ {(stock / p.boxUnits).toFixed(1)} cajas
+                                                                </span>
+                                                            )}
+                                                            {pendingStockDelta(p.id) !== 0 && (
+                                                                <span className={`absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded-full text-[8px] font-black text-white shadow ${pendingStockDelta(p.id) > 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}>
+                                                                    {pendingStockDelta(p.id) > 0 ? '+' : ''}{pendingStockDelta(p.id)}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <button
+                                                            onClick={() => { triggerHaptic?.(); queueInventoryChange('adjust_stock', p.id, { delta: 1 }); }}
+                                                            title="Sumar 1 unidad (en cola)"
+                                                            className="w-8 h-8 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-emerald-500 hover:border-emerald-200 transition-colors active:scale-90"
+                                                        >
+                                                            <PlusCircle size={14} />
+                                                        </button>
+                                                        <div className="flex flex-col gap-1">
+                                                            <button
+                                                                onClick={() => { triggerHaptic?.(); setRemoteEditingProduct(p); setShowRemoteForm(true); }}
+                                                                disabled={p.isCombo}
+                                                                title={p.isCombo ? 'Los combos se editan desde la caja' : 'Editar (en cola)'}
+                                                                className="w-8 h-7 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-brand transition-colors disabled:opacity-30 active:scale-90"
+                                                            >
+                                                                <Pencil size={12} />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => { triggerHaptic?.(); setRemoteDeleteTarget(p); }}
+                                                                title="Eliminar (en cola)"
+                                                                className="w-8 h-7 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-rose-500 transition-colors active:scale-90"
+                                                            >
+                                                                <Trash2 size={12} />
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -1339,6 +1527,80 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 primaryDeviceId={pairedDeviceId}
                 triggerHaptic={triggerHaptic}
             />
+
+            {/* Formulario remoto de producto (encola add/edit) */}
+            <RemoteProductFormModal
+                isOpen={showRemoteForm}
+                onClose={() => { setShowRemoteForm(false); setRemoteEditingProduct(null); }}
+                editingProduct={remoteEditingProduct}
+                onSubmit={(action, productId, data) => queueInventoryChange(action, productId, data)}
+                effectiveRate={bcvRate}
+            />
+
+            {/* Confirmación de eliminación remota */}
+            {remoteDeleteTarget && (
+                <div className="fixed inset-0 z-[300] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 max-w-sm w-full shadow-2xl space-y-4 animate-in zoom-in-95 duration-200">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-rose-50 dark:bg-rose-950/30 rounded-2xl flex items-center justify-center shrink-0">
+                                <Trash2 size={18} className="text-rose-500" />
+                            </div>
+                            <div>
+                                <h3 className="font-black text-slate-800 dark:text-white text-sm">¿Eliminar producto?</h3>
+                                <p className="text-[10px] text-slate-400 font-bold">Se encolará para enviar a la caja</p>
+                            </div>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                            «<span className="font-black text-slate-700 dark:text-slate-200">{remoteDeleteTarget.name}</span>» será eliminado del inventario de la caja al subir los cambios.
+                        </p>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => setRemoteDeleteTarget(null)}
+                                className="flex-1 py-2.5 rounded-2xl font-black text-xs uppercase text-slate-500 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={() => { triggerHaptic?.(); queueInventoryChange('delete', remoteDeleteTarget.id, null); setRemoteDeleteTarget(null); }}
+                                className="flex-1 py-2.5 rounded-2xl font-black text-xs uppercase text-white bg-rose-500 hover:bg-rose-600 shadow-lg shadow-rose-500/25 transition-colors"
+                            >
+                                Encolar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Barra flotante «Subir al sistema» — visible solo con cambios en cola */}
+            {pendingChanges.length > 0 && (
+                <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[250] w-full max-w-md px-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <div className="bg-[#193275] dark:bg-slate-900 border border-white/10 text-white rounded-3xl p-3 pl-4 shadow-2xl flex items-center gap-3 backdrop-blur-md">
+                        <div className="flex-1 min-w-0">
+                            <p className="text-xs font-black leading-tight">
+                                {pendingChanges.length} cambio{pendingChanges.length !== 1 ? 's' : ''} pendiente{pendingChanges.length !== 1 ? 's' : ''}
+                            </p>
+                            <p className="text-[10px] text-slate-300 font-medium truncate">
+                                Aún no se han enviado a la caja
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => { triggerHaptic?.(); discardPendingChanges(); }}
+                            disabled={uploading}
+                            className="px-3 py-2 rounded-2xl text-[10px] font-black uppercase text-slate-300 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-40"
+                        >
+                            Descartar
+                        </button>
+                        <button
+                            onClick={() => { triggerHaptic?.(); uploadPendingChanges(); }}
+                            disabled={uploading || !isConnected}
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-white text-[10px] font-black uppercase tracking-wider shadow-lg shadow-emerald-500/30 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                            {uploading ? <RefreshCw size={12} className="animate-spin" /> : <UploadCloud size={12} />}
+                            {uploading ? 'Subiendo...' : 'Subir al sistema'}
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

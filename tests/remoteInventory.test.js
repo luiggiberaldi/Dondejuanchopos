@@ -82,6 +82,20 @@ describe('applyInventoryCommand — comandos remotos de inventario', () => {
         expect(p.image).toBe('https://bucket/foto.webp'); // preservada
     });
 
+    it('edit NUNCA pisa el stock de la caja (anti-pisado con cola del monitor)', async () => {
+        // El monitor encoló la edición con stock viejo (24); la caja vendió y va en 7.
+        const products = await storageService.getItem(PRODUCTS_KEY);
+        await storageService.setItem(PRODUCTS_KEY, products.map(p => ({ ...p, stock: 7 })));
+        const res = await applyInventoryCommand({
+            action: 'edit', productId: 'p1',
+            data: { name: 'Ron Santa Teresa', priceUsd: 12, barcode: '111', sellByBox: true, boxUnits: 12, boxBarcode: '222', stock: 24 },
+        });
+        expect(res.success).toBe(true);
+        const [p] = await storageService.getItem(PRODUCTS_KEY);
+        expect(p.stock).toBe(7);      // se mantiene el stock real de la caja
+        expect(p.priceUsd).toBe(12);  // el resto de la edición sí aplica
+    });
+
     it('edit con ½ Caja sin Caja → failed (regla de formatos)', async () => {
         const res = await applyInventoryCommand({
             action: 'edit', productId: 'p1',

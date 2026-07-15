@@ -118,6 +118,10 @@ export async function applyInventoryCommand(payload) {
             normalized.id = productId;
             // D8: preservar imagen local si el comando no la trae (nunca viaja base64)
             if (normalized.image === undefined) normalized.image = existing.image;
+            // Anti-pisado: una edición remota NUNCA modifica el stock — la caja pudo
+            // vender mientras el cambio esperaba en la cola del monitor. El stock
+            // solo cambia vía 'adjust_stock' (deltas aditivos).
+            normalized.stock = existing.stock;
             const conflict = findBarcodeConflict(normalized, products, productId);
             if (conflict) return { success: false, error: conflict };
             const updated = products.map(p => p.id === productId ? { ...existing, ...normalized } : p);
