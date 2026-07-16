@@ -105,7 +105,19 @@ export default function CartPanel({
                                             )}
                                         </div>
                                         <div className="flex-1 min-w-0 pr-1">
-                                            <p className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 leading-tight mb-0.5 sm:mb-1 truncate">{item.name}</p>
+                                            <div className="flex items-center gap-1.5 min-w-0 mb-0.5 sm:mb-1">
+                                                <p className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 leading-tight truncate flex-1">{item.name}</p>
+                                                {item._mode === 'box' && (
+                                                    <span className="shrink-0 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:bg-blue-400/10 dark:text-blue-400 border border-blue-200/50 dark:border-blue-900/40">
+                                                        Caja
+                                                    </span>
+                                                )}
+                                                {item._mode === 'halfBox' && (
+                                                    <span className="shrink-0 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:bg-purple-400/10 dark:text-purple-400 border border-purple-200/50 dark:border-purple-900/40">
+                                                        ½ Caja
+                                                    </span>
+                                                )}
+                                            </div>
                                             <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
                                                 {copEnabled && tasaCop > 0 ? (
                                                     copPrimary ? (
