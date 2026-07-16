@@ -34,6 +34,7 @@ import { uploadProductImage, migrateProductImagesToStorage } from '../utils/imag
 // useAuthStore removed - single-user app
 import { useAudit } from '../hooks/useAudit';
 import ComboFormModal from '../components/Products/ComboFormModal';
+import StockBatchModal from '../components/Products/StockBatchModal';
 
 export const ProductsView = ({ rates, triggerHaptic }) => {
     // v1.2.0: reveal-on-scroll para banners y secciones de cabecera (NO en grid paginado para evitar re-trigger).
@@ -126,6 +127,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
     const [isComboModalOpen, setIsComboModalOpen] = useState(false);
     const [editingCombo, setEditingCombo] = useState(null);
     const [highPriceConfirm, setHighPriceConfirm] = useState(null); // { price, pendingData }
+    const [isStockBatchOpen, setIsStockBatchOpen] = useState(false);
 
     const [isShareOpen, setIsShareOpen] = useState(false);
     const [isBulkPriceOpen, setIsBulkPriceOpen] = useState(false);
@@ -599,6 +601,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 setIsBulkPriceOpen={setIsBulkPriceOpen}
                 setIsDeleteAllModalOpen={setIsDeleteAllModalOpen}
                 setIsCategoryManagerOpen={setIsCategoryManagerOpen}
+                setIsStockBatchOpen={setIsStockBatchOpen}
                 triggerHaptic={triggerHaptic}
                 onSelectAllToast={() => showToast('Todo el inventario seleccionado', 'success')}
             />
@@ -752,7 +755,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                         ) : (
                         /* ── LIST VIEW ── */
                         // v1.2.0: surface tokens + border-surface-300 (warm border) para la lista.
-                        <div className="reveal bg-surface dark:bg-surface-900 rounded-2xl border border-surface-200 dark:border-surface-800 shadow-tone-sm overflow-hidden">
+                        <div className="bg-surface dark:bg-surface-900 rounded-2xl border border-surface-200 dark:border-surface-800 shadow-tone-sm overflow-hidden">
                             {/* Table Header — desktop */}
                             <div className="hidden sm:grid sm:grid-cols-[40px_1fr_100px_100px_70px_80px_110px] gap-2 px-4 py-2.5 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                                 <div className="flex items-center justify-center">
@@ -1057,6 +1060,16 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 copEnabled={copEnabled}
                 copPrimary={copPrimary}
                 tasaCop={tasaCop}
+            />
+
+            <StockBatchModal
+                isOpen={isStockBatchOpen}
+                onClose={() => setIsStockBatchOpen(false)}
+                products={products}
+                categories={categories}
+                adjustStock={adjustStock}
+                setProducts={setProducts}
+                triggerHaptic={triggerHaptic}
             />
 
             <CategoryManagerModal

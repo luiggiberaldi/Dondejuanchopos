@@ -51,13 +51,40 @@ const sanitizeProducts = (productsList) => {
 };
 
 export function ProductProvider({ children, rates }) {
-    const [products, setProductsState] = useState([]);
+    const [rawProducts, setProductsState] = useState([]);
     const setProducts = useCallback((val) => {
         setProductsState(prev => {
             const next = typeof val === 'function' ? val(prev) : val;
             return sanitizeProducts(next);
         });
     }, []);
+
+    // Calcular dinámicamente el stock de los combos basados en el stock de sus componentes
+    const getProductStock = useCallback((p, allProducts) => {
+        if (p.isCombo) {
+            if (!p.comboItems || p.comboItems.length === 0) return 0;
+            const avails = p.comboItems.map(ci => {
+                const component = allProducts.find(prod => prod.id === ci.productId);
+                if (!component || ci.qty <= 0) return 0;
+                return Math.floor((component.stock || 0) / ci.qty);
+            });
+            return Math.min(...avails);
+        }
+        return p.stock ?? 0;
+    }, []);
+
+    const products = useMemo(() => {
+        return rawProducts.map(p => {
+            if (p.isCombo) {
+                return {
+                    ...p,
+                    stock: getProductStock(p, rawProducts)
+                };
+            }
+            return p;
+        });
+    }, [rawProducts, getProductStock]);
+
     const [categories, setRawCategories] = useState(() => normalizeCategories(BODEGA_CATEGORIES));
     const setCategories = useCallback((cats) => {
         setRawCategories(prev => {
@@ -70,6 +97,10 @@ export function ProductProvider({ children, rates }) {
     // Guard ref: prevents infinite loop when auto-save fires app_storage_update
     const savingRef = useRef(false);
     const hasMountedRef = useRef(false);
+    const rawProductsRef = useRef(rawProducts);
+    useEffect(() => {
+        rawProductsRef.current = rawProducts;
+    }, [rawProducts]);
     const productsRef = useRef(products);
     useEffect(() => {
         productsRef.current = products;
@@ -284,7 +315,7 @@ export function ProductProvider({ children, rates }) {
                 // If modified in another tab, fetch it
                 storageService.getItem('bodega_products_v1', []).then(updatedProducts => {
                     const sanitized = sanitizeProducts(updatedProducts);
-                    if (JSON.stringify(sanitized) !== JSON.stringify(productsRef.current)) {
+                    if (JSON.stringify(sanitized) !== JSON.stringify(rawProductsRef.current)) {
                         setProducts(sanitized);
                     }
                 });
@@ -302,7 +333,7 @@ export function ProductProvider({ children, rates }) {
             if (key === 'bodega_products_v1') {
                 const updatedProducts = await storageService.getItem('bodega_products_v1', []);
                 const sanitized = sanitizeProducts(updatedProducts);
-                if (JSON.stringify(sanitized) !== JSON.stringify(productsRef.current)) {
+                if (JSON.stringify(sanitized) !== JSON.stringify(rawProductsRef.current)) {
                     setProducts(sanitized);
                 }
             }

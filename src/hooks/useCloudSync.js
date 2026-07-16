@@ -3,35 +3,13 @@ import localforage from 'localforage';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { useAuthStore } from './store/useAuthStore';
 import { useSupervisorCommands } from './useSupervisorCommands';
+import { IDB_KEYS, LS_KEYS } from '../config/backupKeys';
 
-const SYNC_KEYS = [
-    'bodega_products_v1',
-    'bodega_customers_v1',
-    'bodega_sales_v1',
-    'bodega_payment_methods_v1',
-    'monitor_rates_v12',
-    'bodega_accounts_v2',
-    'abasto_audit_log_v1',
-    'bodega_custom_rate',
-    'bodega_use_auto_rate',
-    'bodega_rate_mode',
-    'tasa_cop',
-    'cop_enabled',
-    'auto_cop_enabled'
-];
+// Unión de catálogos canónicos más bodega_rate_mode
+const SYNC_KEYS = [...new Set([...IDB_KEYS, ...LS_KEYS, 'bodega_rate_mode'])];
 
-// SEC-002: `abasto-auth-storage` (hashes de PIN) YA NO se sincroniza a sync_documents.
-// Las políticas RLS de `sync_documents` en el schema original permiten lectura global
-// (ver SEC-002/INFRA-002 — fix del SQL corresponde a Agente D). Aunque se arregle la
-// RLS, los hashes de PIN no deben viajar por una tabla compartida entre dispositivos.
-const LOCAL_KEYS = [
-    'bodega_custom_rate',
-    'bodega_use_auto_rate',
-    'bodega_rate_mode',
-    'tasa_cop',
-    'cop_enabled',
-    'auto_cop_enabled'
-];
+// LOCAL_KEYS determina qué se guarda como collection='local' en sync_documents
+const LOCAL_KEYS = [...new Set([...LS_KEYS, 'bodega_rate_mode'])];
 
 /** Hash ligero para detectar cambios sin comparar objetos enteros (mismo patrón que useAutoBackup.js) */
 function quickHash(value) {
@@ -247,8 +225,9 @@ export function useCloudSync(deviceId) {
                 if (backupImported) {
                     console.log('[CloudSync] Detectado backup importado localmente. Subiendo datos locales a la nube...');
                     const lf = localforage.createInstance({ name: 'BodegaApp', storeName: 'bodega_app_data' });
-                    const criticalKeys = ['bodega_sales_v1', 'bodega_products_v1', 'bodega_customers_v1', 'bodega_accounts_v2'];
-                    for (const key of criticalKeys) {
+                    
+                    // Subir datos de IndexedDB
+                    for (const key of IDB_KEYS) {
                         const localValue = await lf.getItem(key);
                         if (localValue !== null) {
                             await pushCloudSync(key, localValue);
@@ -256,8 +235,21 @@ export function useCloudSync(deviceId) {
                             localStorage.setItem(hashKey, quickHash(localValue));
                         }
                     }
+                    
+                    // Subir datos de localStorage
+                    for (const key of LOCAL_KEYS) {
+                        const localVal = localStorage.getItem(key);
+                        if (localVal !== null) {
+                            let parsed = localVal;
+                            try { parsed = JSON.parse(localVal); } catch {}
+                            await pushCloudSync(key, parsed);
+                            const hashKey = LAST_PUSH_HASH_PREFIX + key;
+                            localStorage.setItem(hashKey, quickHash(parsed));
+                        }
+                    }
+
                     localStorage.removeItem('dj_backup_imported_flag');
-                    console.log('[CloudSync] Sincronización de importación completada.');
+                    console.log('[CloudSync] Sincronización de importación completada de todas las llaves.');
                 } else {
                     const { data: docs } = await supabaseCloud
                         .from('sync_documents')
@@ -285,8 +277,9 @@ export function useCloudSync(deviceId) {
                 // para no re-subir todo en cada arranque/reconexión sin necesidad).
                 try {
                     const lf = localforage.createInstance({ name: 'BodegaApp', storeName: 'bodega_app_data' });
-                    const criticalKeys = ['bodega_sales_v1', 'bodega_products_v1', 'bodega_customers_v1', 'bodega_accounts_v2'];
-                    for (const key of criticalKeys) {
+                    
+                    // Procesar IndexedDB
+                    for (const key of IDB_KEYS) {
                         const localValue = await lf.getItem(key);
                         if (!localValue) continue;
 
@@ -294,8 +287,22 @@ export function useCloudSync(deviceId) {
                         const currentHash = quickHash(localValue);
                         if (localStorage.getItem(hashKey) === currentHash) continue;
 
-                        // Subimos los datos locales a la base de datos para sincronizar el historial
                         await pushCloudSync(key, localValue);
+                        localStorage.setItem(hashKey, currentHash);
+                    }
+
+                    // Procesar localStorage
+                    for (const key of LOCAL_KEYS) {
+                        const localVal = localStorage.getItem(key);
+                        if (localVal === null) continue;
+
+                        const hashKey = LAST_PUSH_HASH_PREFIX + key;
+                        const currentHash = quickHash(localVal);
+                        if (localStorage.getItem(hashKey) === currentHash) continue;
+
+                        let parsed = localVal;
+                        try { parsed = JSON.parse(localVal); } catch {}
+                        await pushCloudSync(key, parsed);
                         localStorage.setItem(hashKey, currentHash);
                     }
                 } catch (e) {
@@ -334,8 +341,9 @@ export function useCloudSync(deviceId) {
             if (isSyncingFromCloud || !deviceId) return;
             try {
                 const lf = localforage.createInstance({ name: 'BodegaApp', storeName: 'bodega_app_data' });
-                const criticalKeys = ['bodega_sales_v1', 'bodega_products_v1', 'bodega_customers_v1', 'bodega_accounts_v2'];
-                for (const key of criticalKeys) {
+                
+                // Procesar IndexedDB
+                for (const key of IDB_KEYS) {
                     const localValue = await lf.getItem(key);
                     if (!localValue) continue;
 
@@ -344,6 +352,21 @@ export function useCloudSync(deviceId) {
                     if (localStorage.getItem(hashKey) === currentHash) continue;
 
                     await pushCloudSync(key, localValue);
+                    localStorage.setItem(hashKey, currentHash);
+                }
+
+                // Procesar localStorage
+                for (const key of LOCAL_KEYS) {
+                    const localVal = localStorage.getItem(key);
+                    if (localVal === null) continue;
+
+                    const hashKey = LAST_PUSH_HASH_PREFIX + key;
+                    const currentHash = quickHash(localVal);
+                    if (localStorage.getItem(hashKey) === currentHash) continue;
+
+                    let parsed = localVal;
+                    try { parsed = JSON.parse(localVal); } catch {}
+                    await pushCloudSync(key, parsed);
                     localStorage.setItem(hashKey, currentHash);
                 }
             } catch (e) {
