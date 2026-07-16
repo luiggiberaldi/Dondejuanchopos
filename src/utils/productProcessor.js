@@ -26,7 +26,11 @@ export function buildProductPayload(formData, effectiveRate) {
         halfBoxUnits,
         halfBoxBarcode,
         halfBoxPriceUsd,
-        halfBoxPriceBs
+        halfBoxPriceBs,
+
+        purchaseByBoxCost,
+        purchaseBoxUnits,
+        purchaseBoxBcv
     } = formData;
 
     const formattedName = name.replace(/(^\w{1})|(\s+\w{1})/g, letter => letter.toUpperCase());
@@ -45,8 +49,10 @@ export function buildProductPayload(formData, effectiveRate) {
         ? round2(CurrencyService.safeParse(costBs))
         : (costUsd ? mulR(CurrencyService.safeParse(costUsd), safeRate) : 0);
 
-    const finalCostUsd = sellByBox ? round2(divR(baseCostUsd, boxUnitsCount)) : baseCostUsd;
-    const finalCostBs = sellByBox ? round2(divR(baseCostBs, boxUnitsCount)) : baseCostBs;
+    // Si se usó la calculadora de compra por caja, los costos en el formulario ya son unitarios.
+    const isAlreadyUnitCost = purchaseByBoxCost && purchaseBoxUnits;
+    const finalCostUsd = (sellByBox && !isAlreadyUnitCost) ? round2(divR(baseCostUsd, boxUnitsCount)) : baseCostUsd;
+    const finalCostBs = (sellByBox && !isAlreadyUnitCost) ? round2(divR(baseCostBs, boxUnitsCount)) : baseCostBs;
 
     // Normalizar datos de Caja
     const finalBoxPriceUsd = sellByBox && boxPriceUsd ? round2(CurrencyService.safeParse(boxPriceUsd)) : null;
@@ -86,6 +92,11 @@ export function buildProductPayload(formData, effectiveRate) {
         costUsd: finalCostUsd,
         costBs: finalCostBs,
         stock: stock ? parseInt(stock, 10) : 0,
+
+        // Costo de compra por caja
+        purchaseByBoxCost: purchaseByBoxCost ? round2(CurrencyService.safeParse(purchaseByBoxCost)) : null,
+        purchaseBoxUnits: purchaseBoxUnits ? parseInt(purchaseBoxUnits, 10) : null,
+        purchaseBoxBcv: purchaseBoxBcv ? true : false,
 
         // Campos Legacy para evitar errores en otros componentes
         packagingType: 'suelto',

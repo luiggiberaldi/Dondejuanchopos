@@ -35,6 +35,11 @@ export default function ProductFormModal({
     halfBoxPriceUsd, setHalfBoxPriceUsd,
     halfBoxPriceBs, setHalfBoxPriceBs,
 
+    purchaseByBoxCost, setPurchaseByBoxCost,
+    purchaseBoxUnits, setPurchaseBoxUnits,
+    purchaseBoxBcv, setPurchaseBoxBcv,
+    setCostUsd, setCostBs,
+
     effectiveRate,
     isFormShaking,
     handleImageUpload,
@@ -57,6 +62,9 @@ export default function ProductFormModal({
     const [calcCostBcv, setCalcCostBcv] = useState(false);
     const [costBcvUsd, setCostBcvUsd] = useState('');
 
+    // Toggle estado de cálculo de costo por caja
+    const [calcCostByBox, setCalcCostByBox] = useState(false);
+
     // Resetear paso, modo y toggles al abrir/cerrar
     useEffect(() => {
         if (isOpen) {
@@ -65,9 +73,32 @@ export default function ProductFormModal({
             setAutoCalcUnit(false);
             setAutoCalcBox(false);
             setAutoCalcHalfBox(false);
-            setCalcCostBcv(false);
-            setCostBcvUsd('');
+
+            const bcvActiveState = !!purchaseBoxBcv;
+            setCalcCostBcv(bcvActiveState);
+
+            // Inicializar costBcvUsd si estamos en modo unidad y tiene tasa BCV activa
+            if (bcvActiveState && costBs && !(purchaseByBoxCost && purchaseBoxUnits)) {
+                const bcvRate = rates?.bcv?.price > 0 ? rates.bcv.price : effectiveRate;
+                const currentBs = CurrencyService.safeParse(costBs);
+                if (currentBs > 0 && bcvRate > 0) {
+                    setCostBcvUsd((currentBs / bcvRate).toFixed(2));
+                } else {
+                    setCostBcvUsd('');
+                }
+            } else {
+                setCostBcvUsd('');
+            }
+
+            if (purchaseByBoxCost && purchaseBoxUnits) {
+                setCalcCostByBox(true);
+                // Recalcular costo unitario de inmediato al abrir para reflejar tasas actuales
+                handleBoxPurchaseCalc(purchaseByBoxCost, purchaseBoxUnits, bcvActiveState);
+            } else {
+                setCalcCostByBox(false);
+            }
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
 
     // ½ Caja depende de Caja: si se desactiva Caja, se apaga ½ Caja para no
@@ -190,13 +221,38 @@ export default function ProductFormModal({
     const handleToggleCalcCostBcv = () => {
         const next = !calcCostBcv;
         setCalcCostBcv(next);
+        setPurchaseBoxBcv(next);
         if (next) {
-            const bcvRate = rates?.bcv?.price > 0 ? rates.bcv.price : effectiveRate;
-            const currentBs = CurrencyService.safeParse(costBs);
-            if (currentBs > 0 && bcvRate > 0) {
-                setCostBcvUsd((currentBs / bcvRate).toFixed(2));
+            if (calcCostByBox) {
+                const bcvRate = rates?.bcv?.price > 0 ? rates.bcv.price : effectiveRate;
+                const parsedCost = CurrencyService.safeParse(purchaseByBoxCost);
+                if (parsedCost > 0 && bcvRate > 0) {
+                    const newCost = (parsedCost * effectiveRate) / bcvRate;
+                    setPurchaseByBoxCost(newCost.toFixed(4));
+                    handleBoxPurchaseCalc(newCost.toFixed(4), purchaseBoxUnits, true);
+                } else {
+                    handleBoxPurchaseCalc(purchaseByBoxCost, purchaseBoxUnits, true);
+                }
             } else {
-                setCostBcvUsd('');
+                const bcvRate = rates?.bcv?.price > 0 ? rates.bcv.price : effectiveRate;
+                const currentBs = CurrencyService.safeParse(costBs);
+                if (currentBs > 0 && bcvRate > 0) {
+                    setCostBcvUsd((currentBs / bcvRate).toFixed(2));
+                } else {
+                    setCostBcvUsd('');
+                }
+            }
+        } else {
+            if (calcCostByBox) {
+                const bcvRate = rates?.bcv?.price > 0 ? rates.bcv.price : effectiveRate;
+                const parsedCost = CurrencyService.safeParse(purchaseByBoxCost);
+                if (parsedCost > 0 && effectiveRate > 0) {
+                    const newCost = (parsedCost * bcvRate) / effectiveRate;
+                    setPurchaseByBoxCost(newCost.toFixed(4));
+                    handleBoxPurchaseCalc(newCost.toFixed(4), purchaseBoxUnits, false);
+                } else {
+                    handleBoxPurchaseCalc(purchaseByBoxCost, purchaseBoxUnits, false);
+                }
             }
         }
     };
@@ -206,13 +262,53 @@ export default function ProductFormModal({
         const bcvRate = rates?.bcv?.price > 0 ? rates.bcv.price : effectiveRate;
         const parsed = CurrencyService.safeParse(val);
         if (!val || parsed <= 0) {
-            handleCostUsdChange('');
-            handleCostBsChange('');
+            setCostUsd('');
+            setCostBs('');
         } else {
             const costBsVal = parsed * bcvRate;
             const costUsdVal = effectiveRate > 0 ? (costBsVal / effectiveRate) : 0;
-            handleCostBsChange(costBsVal.toFixed(2));
-            handleCostUsdChange(costUsdVal.toFixed(4));
+            setCostBs(costBsVal.toFixed(2));
+            setCostUsd(costUsdVal.toFixed(4));
+        }
+    };
+
+    // Handlers para cálculo de costo por caja
+    const handleToggleCalcCostByBox = () => {
+        const next = !calcCostByBox;
+        setCalcCostByBox(next);
+        if (next) {
+            handleBoxPurchaseCalc(purchaseByBoxCost, purchaseBoxUnits, calcCostBcv);
+        } else {
+            // Limpiar valores de caja y unitarios
+            setPurchaseByBoxCost('');
+            setPurchaseBoxUnits('');
+            setPurchaseBoxBcv(false);
+            setCostUsd('');
+            setCostBs('');
+        }
+    };
+
+    const handleBoxPurchaseCalc = (boxCost, boxUnits, bcvActive = calcCostBcv) => {
+        const parsedCost = CurrencyService.safeParse(boxCost);
+        const parsedUnits = parseInt(boxUnits, 10);
+        setPurchaseBoxBcv(bcvActive);
+        if (parsedCost > 0 && parsedUnits > 0) {
+            if (bcvActive) {
+                const bcvVal = rates?.bcv?.price > 0 ? rates.bcv.price : effectiveRate;
+                const boxCostBs = parsedCost * bcvVal;
+                const unitCostBs = boxCostBs / parsedUnits;
+                const unitCostUsd = effectiveRate > 0 ? (unitCostBs / effectiveRate) : 0;
+                setCostBs(unitCostBs.toFixed(2));
+                setCostUsd(unitCostUsd.toFixed(4));
+            } else {
+                const unitCostUsd = parsedCost / parsedUnits;
+                const unitCostBs = unitCostUsd * effectiveRate;
+                setCostUsd(unitCostUsd.toFixed(4));
+                setCostBs(unitCostBs.toFixed(2));
+            }
+        } else {
+            setCostUsd('');
+            setCostBs('');
         }
     };
 
@@ -255,6 +351,12 @@ export default function ProductFormModal({
         costBcvUsd, handleCostBcvUsdChange,
         bcvRate: rates?.bcv?.price > 0 ? rates.bcv.price : effectiveRate,
         hasBcvRate: !!(rates?.bcv?.price > 0),
+
+        // Costo por caja
+        calcCostByBox, handleToggleCalcCostByBox,
+        purchaseByBoxCost, setPurchaseByBoxCost,
+        purchaseBoxUnits, setPurchaseBoxUnits,
+        handleBoxPurchaseCalc,
     };
 
     return (

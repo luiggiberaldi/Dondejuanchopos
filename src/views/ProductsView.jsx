@@ -314,6 +314,9 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
         halfBoxBarcode, setHalfBoxBarcode,
         halfBoxPriceUsd, setHalfBoxPriceUsd,
         halfBoxPriceBs, setHalfBoxPriceBs,
+        purchaseByBoxCost, setPurchaseByBoxCost,
+        purchaseBoxUnits, setPurchaseBoxUnits,
+        purchaseBoxBcv, setPurchaseBoxBcv,
         resetForm,
         populateForm,
     } = useProductForm();
@@ -452,7 +455,8 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
             name, barcode, priceUsd, priceBsManual, costUsd, costBs, stock,
             category, lowStockAlert,
             sellByBox, boxUnits, boxBarcode, boxPriceUsd, boxPriceBs,
-            sellByHalfBox, halfBoxUnits, halfBoxBarcode, halfBoxPriceUsd, halfBoxPriceBs
+            sellByHalfBox, halfBoxUnits, halfBoxBarcode, halfBoxPriceUsd, halfBoxPriceBs,
+            purchaseByBoxCost, purchaseBoxUnits
         }, effectiveRate);
 
         // Advertencia si el precio parece inusualmente alto
@@ -939,6 +943,11 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 halfBoxBarcode={halfBoxBarcode} setHalfBoxBarcode={setHalfBoxBarcode}
                 halfBoxPriceUsd={halfBoxPriceUsd} setHalfBoxPriceUsd={setHalfBoxPriceUsd}
                 halfBoxPriceBs={halfBoxPriceBs} setHalfBoxPriceBs={setHalfBoxPriceBs}
+
+                purchaseByBoxCost={purchaseByBoxCost} setPurchaseByBoxCost={setPurchaseByBoxCost}
+                purchaseBoxUnits={purchaseBoxUnits} setPurchaseBoxUnits={setPurchaseBoxUnits}
+                purchaseBoxBcv={purchaseBoxBcv} setPurchaseBoxBcv={setPurchaseBoxBcv}
+                setCostUsd={setCostUsd} setCostBs={setCostBs}
 
                 effectiveRate={effectiveRate}
                 isFormShaking={isFormShaking}

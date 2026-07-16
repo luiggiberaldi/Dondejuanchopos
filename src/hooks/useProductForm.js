@@ -27,6 +27,11 @@ const INITIAL_STATE = {
     halfBoxBarcode: '',
     halfBoxPriceUsd: '',
     halfBoxPriceBs: '',
+
+    // Costo de compra por caja (Calculadora auxiliar)
+    purchaseByBoxCost: '',
+    purchaseBoxUnits: '',
+    purchaseBoxBcv: false,
 };
 
 function reducer(state, action) {
@@ -72,6 +77,11 @@ export function useProductForm() {
     const setHalfBoxPriceUsd = useCallback((v) => dispatch({ type: 'SET', field: 'halfBoxPriceUsd', value: v }), []);
     const setHalfBoxPriceBs = useCallback((v) => dispatch({ type: 'SET', field: 'halfBoxPriceBs', value: v }), []);
 
+    // Setters Costo de compra por caja
+    const setPurchaseByBoxCost = useCallback((v) => dispatch({ type: 'SET', field: 'purchaseByBoxCost', value: v }), []);
+    const setPurchaseBoxUnits = useCallback((v) => dispatch({ type: 'SET', field: 'purchaseBoxUnits', value: v }), []);
+    const setPurchaseBoxBcv = useCallback((v) => dispatch({ type: 'SET', field: 'purchaseBoxBcv', value: v }), []);
+
     const resetForm = useCallback(() => {
         dispatch({ type: 'RESET' });
     }, []);
@@ -81,7 +91,8 @@ export function useProductForm() {
         const currentCostUsd = product.costUsd || (product.costBs ? product.costBs / effectiveRate : 0);
         const currentCostBs = product.costBs || (product.costUsd ? product.costUsd * effectiveRate : 0);
 
-        const costMultiplier = (product.sellByBox && product.boxUnits) ? (parseInt(product.boxUnits, 10) || 1) : 1;
+        const isAlreadyUnitCost = product.purchaseByBoxCost && product.purchaseBoxUnits;
+        const costMultiplier = (product.sellByBox && product.boxUnits && !isAlreadyUnitCost) ? (parseInt(product.boxUnits, 10) || 1) : 1;
         const formCostUsd = currentCostUsd * costMultiplier;
         const formCostBs = currentCostBs * costMultiplier;
 
@@ -111,6 +122,11 @@ export function useProductForm() {
             halfBoxBarcode: product.halfBoxBarcode || '',
             halfBoxPriceUsd: product.halfBoxPriceUsd ? product.halfBoxPriceUsd.toString() : '',
             halfBoxPriceBs: product.halfBoxPriceBs ? product.halfBoxPriceBs.toString() : '',
+
+            // Costo de compra por caja
+            purchaseByBoxCost: product.purchaseByBoxCost ? product.purchaseByBoxCost.toString() : '',
+            purchaseBoxUnits: product.purchaseBoxUnits ? product.purchaseBoxUnits.toString() : '',
+            purchaseBoxBcv: !!product.purchaseBoxBcv,
         };
 
         dispatch({ type: 'PATCH', patch });
@@ -143,6 +159,11 @@ export function useProductForm() {
         halfBoxBarcode: state.halfBoxBarcode, setHalfBoxBarcode,
         halfBoxPriceUsd: state.halfBoxPriceUsd, setHalfBoxPriceUsd,
         halfBoxPriceBs: state.halfBoxPriceBs, setHalfBoxPriceBs,
+
+        // Costo de compra por caja
+        purchaseByBoxCost: state.purchaseByBoxCost, setPurchaseByBoxCost,
+        purchaseBoxUnits: state.purchaseBoxUnits, setPurchaseBoxUnits,
+        purchaseBoxBcv: state.purchaseBoxBcv, setPurchaseBoxBcv,
 
         resetForm,
         populateForm,
