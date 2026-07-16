@@ -1,5 +1,5 @@
 import React from 'react';
-import { Tag, Banknote, AlertTriangle, Box, Minus, Plus, Pencil, Trash2, Package, Layers, Clock, Printer, FileText, Gift } from 'lucide-react';
+import { Tag, Banknote, AlertTriangle, Box, Minus, Plus, Pencil, Trash2, Package, Layers, Clock, Printer, FileText, Gift, ChevronDown } from 'lucide-react';
 import { CATEGORY_COLORS, getCategoryIcon, UNITS } from '../../config/categories';
 import { formatUsd, formatBs, formatCop, smartCashRounding, getCop, getUsd } from '../../utils/calculatorUtils';
 import { showToast } from '../Toast';
@@ -8,7 +8,7 @@ export default function ProductCard({
     product: p,
     effectiveRate,
     streetRate,
-    categories,
+    categories = [],
     onAdjustStock,
     copEnabled,
     copPrimary,
@@ -20,8 +20,26 @@ export default function ProductCard({
     readOnly = false,
 
     onEdit,
-    onDelete
+    onDelete,
+    onChangeCategory
 }) {
+    const dropdownRef = React.useRef(null);
+    const [isDropdownOpen, setIsDropdownOpen] = React.useState(false);
+
+    React.useEffect(() => {
+        function handleClickOutside(event) {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+                setIsDropdownOpen(false);
+            }
+        }
+        if (isDropdownOpen) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [isDropdownOpen]);
+
     const effectiveUsd = getUsd(p, tasaCop);
     const valBs = effectiveUsd * effectiveRate;
     const valCop = getCop(p, tasaCop);
@@ -196,7 +214,7 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
     return (
         <div className={`bg-white dark:bg-slate-900 rounded-2xl shadow-sm border flex flex-col overflow-hidden group ${isLowStock ? 'border-amber-300 dark:border-amber-700' : 'border-slate-100 dark:border-slate-800'} ${isSelected ? 'ring-2 ring-brand border-brand shadow-brand/20 bg-brand/5 dark:bg-brand/10' : ''}`}>
             {/* Image */}
-            <div className="w-full h-24 lg:h-20 bg-white dark:bg-slate-900 overflow-hidden relative shrink-0">
+            <div className="w-full h-24 lg:h-20 bg-white dark:bg-slate-900 relative shrink-0">
                 {/* Select Checkbox */}
                 <div className="absolute top-1 left-1 z-10 w-6 h-6 flex items-center justify-center bg-white/80 dark:bg-slate-900/80 rounded backdrop-blur-sm">
                     <input type="checkbox" checked={isSelected} onChange={onToggleSelect} className="w-4 h-4 rounded border-slate-300 text-brand focus:ring-brand cursor-pointer shadow-sm" />
@@ -208,15 +226,75 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                         <Tag size={24} />
                     </div>
                 )}
-                {/* Category badge */}
+                {/* Category badge / selector */}
                 {p.isCombo ? (
                     <div className="absolute top-1 left-8 text-[9px] font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5 bg-violet-100 dark:bg-violet-950/30 text-violet-750 dark:text-violet-400">
                         <Gift size={9} /> Combo
                     </div>
                 ) : (
-                    catInfo && catInfo.id !== 'otros' && (
-                        <div className={`absolute top-1 left-8 text-[9px] font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5 ${CATEGORY_COLORS[catInfo.color] || ''}`}>
-                             {(() => { const CatIcon = getCategoryIcon(catInfo.id, catInfo.label); return CatIcon ? <CatIcon size={9} /> : catInfo.icon; })()} {catInfo.label}
+                    readOnly ? (
+                        catInfo && catInfo.id !== 'otros' && (
+                            <div className={`absolute top-1 left-8 text-[9px] font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5 ${CATEGORY_COLORS[catInfo.color] || ''}`}>
+                                 {(() => { const CatIcon = getCategoryIcon(catInfo.id, catInfo.label); return CatIcon ? <CatIcon size={9} /> : catInfo.icon; })()} {catInfo.label}
+                            </div>
+                        )
+                    ) : (
+                        <div ref={dropdownRef} className="absolute top-1 left-8 z-20">
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setIsDropdownOpen(prev => !prev);
+                                }}
+                                className={`text-[10px] font-black pl-2 pr-1.5 py-0.5 rounded-lg border-0 flex items-center gap-1 shadow-sm hover:scale-[1.02] active:scale-95 transition-all cursor-pointer ${
+                                    catInfo && catInfo.id !== 'otros'
+                                        ? CATEGORY_COLORS[catInfo.color] || 'bg-slate-100 dark:bg-slate-800 text-slate-650'
+                                        : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                                }`}
+                            >
+                                {catInfo && catInfo.id !== 'otros' ? (
+                                    <>
+                                        {(() => { const CatIcon = getCategoryIcon(catInfo.id, catInfo.label); return CatIcon ? <CatIcon size={9} /> : catInfo.icon; })()}
+                                        <span>{catInfo.label}</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Package size={9} />
+                                        <span>Otros</span>
+                                    </>
+                                )}
+                                <ChevronDown size={8} strokeWidth={3} className={`transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} />
+                            </button>
+
+                            {isDropdownOpen && (
+                                <div className="absolute top-6 left-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-lg py-1 min-w-[160px] max-h-56 overflow-y-auto z-30 divide-y divide-slate-50 dark:divide-slate-800/50 scrollbar-hide">
+                                    {categories.filter(cat => cat.id !== 'todos' && cat.id !== 'all').map(cat => {
+                                        const isSelectedCat = cat.id === (p.category || 'otros');
+                                        const CatIcon = getCategoryIcon(cat.id, cat.label);
+                                        return (
+                                            <button
+                                                key={cat.id}
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setIsDropdownOpen(false);
+                                                    onChangeCategory && onChangeCategory(p.id, cat.id);
+                                                }}
+                                                className={`w-full text-left px-3 py-1.5 flex items-center gap-2 text-xs font-semibold transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
+                                                    isSelectedCat 
+                                                        ? 'text-brand dark:text-brand bg-brand/5 dark:bg-brand/10' 
+                                                        : 'text-slate-600 dark:text-slate-350'
+                                                }`}
+                                            >
+                                                <span className={`p-1 rounded-md ${CATEGORY_COLORS[cat.color] || 'bg-slate-100 text-slate-500'}`}>
+                                                    {CatIcon ? <CatIcon size={11} /> : <Tag size={11} />}
+                                                </span>
+                                                <span className="truncate">{cat.label}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
                         </div>
                     )
                 )}

@@ -71,6 +71,24 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
         return p.stock ?? 0;
     };
 
+    const handleChangeCategory = async (productId, newCategoryId) => {
+        try {
+            const updatedProducts = products.map(p => {
+                if (p.id === productId) {
+                    return { ...p, category: newCategoryId };
+                }
+                return p;
+            });
+            await storageService.setItem('bodega_products_v1', updatedProducts);
+            setProducts(updatedProducts);
+            showToast('Categoría actualizada', 'success');
+            triggerHaptic && triggerHaptic();
+        } catch (error) {
+            console.error('Error al actualizar categoría:', error);
+            showToast('Error al actualizar categoría', 'error');
+        }
+    };
+
     const handleComboSave = async (comboProduct) => {
         triggerHaptic && triggerHaptic();
         let finalImage = comboProduct.image;
@@ -747,6 +765,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                                         isSelected={selectedIds.has(p.id)}
                                         onToggleSelect={() => handleToggleSelect(p.id)}
                                         onPrint={() => handlePrintSingle(p)}
+                                        onChangeCategory={isCajero ? undefined : handleChangeCategory}
                                     />
                                 </SwipeableItem>
                                 </div>
