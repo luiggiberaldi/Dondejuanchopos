@@ -170,6 +170,15 @@ export default function CategoryBar({
                                     {/* Nombre: izquierda, 2 líneas */}
                                     <p className="text-[11px] font-bold text-slate-700 dark:text-slate-200 leading-tight line-clamp-2 mb-1.5 min-h-[2.4em]">{p.name}</p>
 
+                                    {/* Códigos / Barcodes */}
+                                    {(p.barcode || (p.sellByBox && p.boxBarcode) || (p.sellByHalfBox && p.halfBoxBarcode)) && (
+                                        <div className="text-[9px] text-slate-450 dark:text-slate-500 font-bold mb-1.5 leading-tight truncate w-full select-all">
+                                            {p.barcode && <div className="truncate">U: {p.barcode}</div>}
+                                            {p.sellByBox && p.boxBarcode && <div className="truncate">Cj: {p.boxBarcode}</div>}
+                                            {p.sellByHalfBox && p.halfBoxBarcode && <div className="truncate">½ Cj: {p.halfBoxBarcode}</div>}
+                                        </div>
+                                    )}
+
                                     {/* Precio USD: grande */}
                                     <p className="text-sm font-extrabold text-slate-900 dark:text-white leading-none">
                                         ${getUsd(p, tasaCop).toFixed(2)}

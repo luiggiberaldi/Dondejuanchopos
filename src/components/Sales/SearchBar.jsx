@@ -121,6 +121,13 @@ const SearchBar = forwardRef(function SearchBar({
                                             {isOutOfStock ? 'Sin stock' : `Stock: ${p.stock ?? 0}`}
                                         </span>
                                     </div>
+                                    {(p.barcode || (p.sellByBox && p.boxBarcode) || (p.sellByHalfBox && p.halfBoxBarcode)) && (
+                                        <div className="flex gap-2 text-[9px] text-slate-400 dark:text-slate-500 font-bold mt-1 select-all">
+                                            {p.barcode && <span>U: {p.barcode}</span>}
+                                            {p.sellByBox && p.boxBarcode && <span>Cj: {p.boxBarcode}</span>}
+                                            {p.sellByHalfBox && p.halfBoxBarcode && <span>½ Cj: {p.halfBoxBarcode}</span>}
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="text-right shrink-0">
                                     {copEnabled && copPrimary && tasaCop > 0 ? (
