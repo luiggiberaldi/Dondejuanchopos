@@ -302,7 +302,7 @@ export default function ProductFormWizard({
                     </div>
 
                     {/* Costos */}
-                    <div className="bg-blue-500/5 dark:bg-blue-500/10 p-3.5 rounded-xl border border-blue-500/20 space-y-3.5">
+                    <div className="bg-blue-500/5 dark:bg-blue-500/10 p-4 rounded-2xl border border-blue-500/20 space-y-3">
                         <div className="flex items-center justify-between">
                             <span className="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest block ml-1">
                                 Costo de Adquisición

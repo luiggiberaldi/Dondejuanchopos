@@ -164,6 +164,199 @@ export default function ProductFormQuick({
                 </div>
             </div>
 
+            {/* SECCIÓN COSTO */}
+            <div className="bg-blue-500/5 dark:bg-blue-500/10 p-4 rounded-2xl border border-blue-500/20 space-y-3">
+                <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest block ml-1">
+                        Costo de Adquisición
+                    </span>
+                    <button
+                        type="button"
+                        onClick={handleToggleCalcCostBcv}
+                        title={calcCostBcv ? 'Tasa BCV activa: ingresas USD BCV y se calcula el costo real' : 'Activar cálculo en base a tasa oficial BCV'}
+                        className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 active:scale-95 border ${
+                            calcCostBcv
+                                ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/30 border-transparent'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-650 dark:hover:text-slate-300 border-slate-200 dark:border-slate-700'
+                        }`}
+                    >
+                        <Zap size={10} className={calcCostBcv ? 'fill-white' : ''} /> Tasa BCV
+                    </button>
+                </div>
+
+                {/* Tabs Toggle: Unidad / Caja */}
+                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg text-[10px] font-black select-none gap-1 border border-slate-200/50 dark:border-slate-700/50">
+                    <button
+                        type="button"
+                        onClick={() => { if (calcCostByBox) handleToggleCalcCostByBox(); }}
+                        className={`flex-1 py-1.5 rounded-md transition-all flex items-center justify-center gap-1.5 ${
+                            !calcCostByBox
+                                ? 'bg-white dark:bg-slate-700 text-slate-850 dark:text-white shadow-sm'
+                                : 'text-slate-400 hover:text-slate-650 dark:hover:text-slate-350'
+                        }`}
+                    >
+                        <Package size={12} className={!calcCostByBox ? 'text-blue-500 dark:text-blue-400' : 'text-slate-400'} /> Por Unidad
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => { if (!calcCostByBox) handleToggleCalcCostByBox(); }}
+                        className={`flex-1 py-1.5 rounded-md transition-all flex items-center justify-center gap-1.5 ${
+                            calcCostByBox
+                                ? 'bg-white dark:bg-slate-700 text-slate-850 dark:text-white shadow-sm'
+                                : 'text-slate-400 hover:text-slate-650 dark:hover:text-slate-350'
+                        }`}
+                    >
+                        <Boxes size={12} className={calcCostByBox ? 'text-blue-500 dark:text-blue-400' : 'text-slate-400'} /> Por Caja
+                    </button>
+                </div>
+
+                {/* Sub-sección BCV (condicional) */}
+                {calcCostBcv && (
+                    <div className="bg-blue-100/30 dark:bg-blue-900/10 p-2.5 rounded-xl border border-blue-200/30 space-y-1 animate-in fade-in slide-in-from-top-1 duration-150">
+                        <div className="flex justify-between items-center text-[10px] text-blue-600 dark:text-blue-400 font-bold px-1">
+                            <span>Tasa Oficial BCV:</span>
+                            <span>{bcvRate.toFixed(2)} Bs/$</span>
+                        </div>
+                        {!hasBcvRate && (
+                            <div className="text-[9px] text-amber-500 font-bold px-1">
+                                ⚠️ Tasa BCV no disponible. Usando tasa de tienda.
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Inputs y Resultados condicionados por Modo */}
+                {calcCostByBox ? (
+                    /* MODO CAJA */
+                    <div className="space-y-3.5 animate-in fade-in duration-150">
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 block pl-1">
+                                    {calcCostBcv ? "Costo Caja (BCV)" : "Costo Caja"}
+                                </label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">$</span>
+                                    <input
+                                        type="number"
+                                        inputMode="decimal"
+                                        value={purchaseByBoxCost}
+                                        onChange={e => {
+                                            setPurchaseByBoxCost(e.target.value);
+                                            handleBoxPurchaseCalc(e.target.value, purchaseBoxUnits);
+                                        }}
+                                        placeholder="0.00"
+                                        className={`w-full p-2.5 pl-7 rounded-xl font-bold outline-none border transition-all text-xs ${
+                                            calcCostBcv
+                                                ? 'bg-blue-50/40 dark:bg-blue-950/10 text-blue-700 dark:text-blue-300 border-blue-200/50 dark:border-blue-800/40 focus:ring-2 focus:ring-blue-500/40'
+                                                : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-white border-slate-200 dark:border-slate-800 focus:ring-2 focus:ring-blue-500/40'
+                                        }`}
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 block pl-1">
+                                    Uds / Caja
+                                </label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">×</span>
+                                    <input
+                                        type="number"
+                                        inputMode="numeric"
+                                        value={purchaseBoxUnits}
+                                        onChange={e => {
+                                            setPurchaseBoxUnits(e.target.value);
+                                            handleBoxPurchaseCalc(purchaseByBoxCost, e.target.value);
+                                        }}
+                                        placeholder="Uds"
+                                        className="w-full bg-white dark:bg-slate-900 p-2.5 pl-7 rounded-xl font-bold text-slate-700 dark:text-white border border-slate-200 dark:border-slate-800 focus:ring-2 focus:ring-blue-500/40 outline-none text-xs"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                        {costUsd > 0 && (
+                            <div className="bg-emerald-500/10 dark:bg-emerald-500/15 p-2.5 rounded-xl border border-emerald-500/20 text-center animate-in fade-in slide-in-from-top-1 duration-200">
+                                <span className="text-[10px] text-emerald-650 dark:text-emerald-400 font-bold block mb-0.5">
+                                    ✓ Costo Unitario Calculado
+                                </span>
+                                <div className="text-xs font-black text-emerald-700 dark:text-emerald-300">
+                                    ${Number(costUsd).toFixed(2)} USD <span className="text-slate-400 dark:text-slate-500 font-medium">|</span> {Number(costBs).toFixed(2)} Bs
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    /* MODO UNIDAD */
+                    <div className="space-y-3.5 animate-in fade-in duration-150">
+                        {calcCostBcv ? (
+                            /* Modo Unidad CON BCV */
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 block pl-1">
+                                    Costo Unidad (BCV)
+                                </label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-blue-400">$</span>
+                                    <input
+                                        type="number"
+                                        inputMode="decimal"
+                                        value={costBcvUsd}
+                                        onChange={e => handleCostBcvUsdChange(e.target.value)}
+                                        placeholder="0.00"
+                                        className="w-full bg-blue-50/40 dark:bg-blue-950/10 p-2.5 pl-7 rounded-xl font-bold text-blue-700 dark:text-blue-300 outline-none border border-blue-200/50 dark:border-blue-800/40 focus:ring-2 focus:ring-blue-500/40 transition-all text-xs"
+                                    />
+                                </div>
+                            </div>
+                        ) : (
+                            /* Modo Unidad SIN BCV */
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 block pl-1">
+                                        Costo USD
+                                    </label>
+                                    <div className="relative">
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">$</span>
+                                        <input 
+                                            type="number" 
+                                            inputMode="decimal" 
+                                            value={costUsd} 
+                                            onChange={e => handleCostUsdChange(e.target.value)} 
+                                            placeholder="0.00"
+                                            className="w-full bg-white dark:bg-slate-900 p-2.5 pl-7 rounded-xl font-bold text-slate-700 dark:text-white border border-slate-200 dark:border-slate-800 focus:ring-2 focus:ring-blue-500/40 outline-none text-xs"
+                                        />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 block pl-1">
+                                        Costo Bs
+                                    </label>
+                                    <div className="relative">
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">Bs</span>
+                                        <input 
+                                            type="number" 
+                                            inputMode="decimal" 
+                                            value={costBs} 
+                                            onChange={e => handleCostBsChange(e.target.value)} 
+                                            placeholder="0.00"
+                                            className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-slate-700 dark:text-white border border-slate-200 dark:border-slate-800 focus:ring-2 focus:ring-blue-500/40 outline-none text-xs"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {calcCostBcv && costUsd > 0 && (
+                            <div className="bg-emerald-500/10 dark:bg-emerald-500/15 p-2.5 rounded-xl border border-emerald-500/20 text-center animate-in fade-in slide-in-from-top-1 duration-200">
+                                <span className="text-[10px] text-emerald-650 dark:text-emerald-400 font-bold block mb-0.5">
+                                    ✓ Costo Real Calculado
+                                </span>
+                                <div className="text-xs font-black text-emerald-700 dark:text-emerald-300">
+                                    ${Number(costUsd).toFixed(2)} USD <span className="text-slate-400 dark:text-slate-500 font-medium">|</span> {Number(costBs).toFixed(2)} Bs
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+
             {/* FORMATOS DE VENTA */}
             <div className="space-y-4">
                 <label className="text-xs font-black text-slate-400 ml-1 mb-0.5 block uppercase tracking-wider">Formatos de Venta</label>
@@ -435,199 +628,6 @@ export default function ProductFormQuick({
                         </div>
                     )}
                 </div>
-            </div>
-
-            {/* SECCIÓN COSTO */}
-            <div className="bg-blue-500/5 dark:bg-blue-500/10 p-3.5 rounded-xl border border-blue-500/20 space-y-3.5">
-                <div className="flex items-center justify-between">
-                    <span className="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest block ml-1">
-                        Costo de Adquisición
-                    </span>
-                    <button
-                        type="button"
-                        onClick={handleToggleCalcCostBcv}
-                        title={calcCostBcv ? 'Tasa BCV activa: ingresas USD BCV y se calcula el costo real' : 'Activar cálculo en base a tasa oficial BCV'}
-                        className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 active:scale-95 border ${
-                            calcCostBcv
-                                ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/30 border-transparent'
-                                : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-650 dark:hover:text-slate-300 border-slate-200 dark:border-slate-700'
-                        }`}
-                    >
-                        <Zap size={10} className={calcCostBcv ? 'fill-white' : ''} /> Tasa BCV
-                    </button>
-                </div>
-
-                {/* Tabs Toggle: Unidad / Caja */}
-                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg text-[10px] font-black select-none gap-1 border border-slate-200/50 dark:border-slate-700/50">
-                    <button
-                        type="button"
-                        onClick={() => { if (calcCostByBox) handleToggleCalcCostByBox(); }}
-                        className={`flex-1 py-1.5 rounded-md transition-all flex items-center justify-center gap-1.5 ${
-                            !calcCostByBox
-                                ? 'bg-white dark:bg-slate-700 text-slate-850 dark:text-white shadow-sm'
-                                : 'text-slate-400 hover:text-slate-650 dark:hover:text-slate-350'
-                        }`}
-                    >
-                        <Package size={12} className={!calcCostByBox ? 'text-blue-500 dark:text-blue-400' : 'text-slate-400'} /> Por Unidad
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => { if (!calcCostByBox) handleToggleCalcCostByBox(); }}
-                        className={`flex-1 py-1.5 rounded-md transition-all flex items-center justify-center gap-1.5 ${
-                            calcCostByBox
-                                ? 'bg-white dark:bg-slate-700 text-slate-850 dark:text-white shadow-sm'
-                                : 'text-slate-400 hover:text-slate-650 dark:hover:text-slate-350'
-                        }`}
-                    >
-                        <Boxes size={12} className={calcCostByBox ? 'text-blue-500 dark:text-blue-400' : 'text-slate-400'} /> Por Caja
-                    </button>
-                </div>
-
-                {/* Sub-sección BCV (condicional) */}
-                {calcCostBcv && (
-                    <div className="bg-blue-100/30 dark:bg-blue-900/10 p-2.5 rounded-xl border border-blue-200/30 space-y-1 animate-in fade-in slide-in-from-top-1 duration-150">
-                        <div className="flex justify-between items-center text-[10px] text-blue-600 dark:text-blue-400 font-bold px-1">
-                            <span>Tasa Oficial BCV:</span>
-                            <span>{bcvRate.toFixed(2)} Bs/$</span>
-                        </div>
-                        {!hasBcvRate && (
-                            <div className="text-[9px] text-amber-500 font-bold px-1">
-                                ⚠️ Tasa BCV no disponible. Usando tasa de tienda.
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {/* Inputs y Resultados condicionados por Modo */}
-                {calcCostByBox ? (
-                    /* MODO CAJA */
-                    <div className="space-y-3.5 animate-in fade-in duration-150">
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 block pl-1">
-                                    {calcCostBcv ? "Costo Caja (BCV)" : "Costo Caja"}
-                                </label>
-                                <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">$</span>
-                                    <input
-                                        type="number"
-                                        inputMode="decimal"
-                                        value={purchaseByBoxCost}
-                                        onChange={e => {
-                                            setPurchaseByBoxCost(e.target.value);
-                                            handleBoxPurchaseCalc(e.target.value, purchaseBoxUnits);
-                                        }}
-                                        placeholder="0.00"
-                                        className={`w-full p-2.5 pl-7 rounded-xl font-bold outline-none border transition-all text-xs ${
-                                            calcCostBcv
-                                                ? 'bg-blue-50/40 dark:bg-blue-950/10 text-blue-700 dark:text-blue-300 border-blue-200/50 dark:border-blue-800/40 focus:ring-2 focus:ring-blue-500/40'
-                                                : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-white border-slate-200 dark:border-slate-800 focus:ring-2 focus:ring-blue-500/40'
-                                        }`}
-                                    />
-                                </div>
-                            </div>
-                            <div>
-                                <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 block pl-1">
-                                    Uds / Caja
-                                </label>
-                                <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">×</span>
-                                    <input
-                                        type="number"
-                                        inputMode="numeric"
-                                        value={purchaseBoxUnits}
-                                        onChange={e => {
-                                            setPurchaseBoxUnits(e.target.value);
-                                            handleBoxPurchaseCalc(purchaseByBoxCost, e.target.value);
-                                        }}
-                                        placeholder="Uds"
-                                        className="w-full bg-white dark:bg-slate-900 p-2.5 pl-7 rounded-xl font-bold text-slate-700 dark:text-white border border-slate-200 dark:border-slate-800 focus:ring-2 focus:ring-blue-500/40 outline-none text-xs"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                        {costUsd > 0 && (
-                            <div className="bg-emerald-500/10 dark:bg-emerald-500/15 p-2.5 rounded-xl border border-emerald-500/20 text-center animate-in fade-in slide-in-from-top-1 duration-200">
-                                <span className="text-[10px] text-emerald-650 dark:text-emerald-400 font-bold block mb-0.5">
-                                    ✓ Costo Unitario Calculado
-                                </span>
-                                <div className="text-xs font-black text-emerald-700 dark:text-emerald-300">
-                                    ${Number(costUsd).toFixed(2)} USD <span className="text-slate-400 dark:text-slate-500 font-medium">|</span> {Number(costBs).toFixed(2)} Bs
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                ) : (
-                    /* MODO UNIDAD */
-                    <div className="space-y-3.5 animate-in fade-in duration-150">
-                        {calcCostBcv ? (
-                            /* Modo Unidad CON BCV */
-                            <div>
-                                <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 block pl-1">
-                                    Costo Unidad (BCV)
-                                </label>
-                                <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-blue-400">$</span>
-                                    <input
-                                        type="number"
-                                        inputMode="decimal"
-                                        value={costBcvUsd}
-                                        onChange={e => handleCostBcvUsdChange(e.target.value)}
-                                        placeholder="0.00"
-                                        className="w-full bg-blue-50/40 dark:bg-blue-950/10 p-2.5 pl-7 rounded-xl font-bold text-blue-700 dark:text-blue-300 outline-none border border-blue-200/50 dark:border-blue-800/40 focus:ring-2 focus:ring-blue-500/40 transition-all text-xs"
-                                    />
-                                </div>
-                            </div>
-                        ) : (
-                            /* Modo Unidad SIN BCV */
-                            <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 block pl-1">
-                                        Costo USD
-                                    </label>
-                                    <div className="relative">
-                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">$</span>
-                                        <input 
-                                            type="number" 
-                                            inputMode="decimal" 
-                                            value={costUsd} 
-                                            onChange={e => handleCostUsdChange(e.target.value)} 
-                                            placeholder="0.00"
-                                            className="w-full bg-white dark:bg-slate-900 p-2.5 pl-7 rounded-xl font-bold text-slate-700 dark:text-white border border-slate-200 dark:border-slate-800 focus:ring-2 focus:ring-blue-500/40 outline-none text-xs"
-                                        />
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 block pl-1">
-                                        Costo Bs
-                                    </label>
-                                    <div className="relative">
-                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">Bs</span>
-                                        <input 
-                                            type="number" 
-                                            inputMode="decimal" 
-                                            value={costBs} 
-                                            onChange={e => handleCostBsChange(e.target.value)} 
-                                            placeholder="0.00"
-                                            className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-slate-700 dark:text-white border border-slate-200 dark:border-slate-800 focus:ring-2 focus:ring-blue-500/40 outline-none text-xs"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {calcCostBcv && costUsd > 0 && (
-                            <div className="bg-emerald-500/10 dark:bg-emerald-500/15 p-2.5 rounded-xl border border-emerald-500/20 text-center animate-in fade-in slide-in-from-top-1 duration-200">
-                                <span className="text-[10px] text-emerald-650 dark:text-emerald-400 font-bold block mb-0.5">
-                                    ✓ Costo Real Calculado
-                                </span>
-                                <div className="text-xs font-black text-emerald-700 dark:text-emerald-300">
-                                    ${Number(costUsd).toFixed(2)} USD <span className="text-slate-400 dark:text-slate-500 font-medium">|</span> {Number(costBs).toFixed(2)} Bs
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
             </div>
 
             {/* MARGEN DE GANANCIA (SÓLO DE LA UNIDAD) */}
