@@ -6,7 +6,10 @@ export function useProductFiltering(products, searchTerm, activeCategory, sortFi
     const filteredProducts = useMemo(() => {
         let result = products.filter(p => {
             const term = deferredSearchTerm.toLowerCase();
-            const matchesSearch = p.name.toLowerCase().includes(term) || (p.barcode && p.barcode.toLowerCase().includes(term));
+            const matchesSearch = p.name.toLowerCase().includes(term) || 
+                (p.barcode && p.barcode.toLowerCase().includes(term)) ||
+                (p.sellByBox && p.boxBarcode && p.boxBarcode.toLowerCase().includes(term)) ||
+                (p.sellByHalfBox && p.halfBoxBarcode && p.halfBoxBarcode.toLowerCase().includes(term));
             if (activeCategory === 'bajo-stock') {
                 return matchesSearch && (p.stock ?? 0) <= (p.lowStockAlert ?? 5);
             }

@@ -261,6 +261,8 @@ export default function SalesView({ triggerHaptic, isActive }) {
 
         return products.filter(p => {
             if (p.barcode?.includes(deferredSearchTerm)) return true;
+            if (p.sellByBox && p.boxBarcode?.includes(deferredSearchTerm)) return true;
+            if (p.sellByHalfBox && p.halfBoxBarcode?.includes(deferredSearchTerm)) return true;
             const normalizedName = p.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
             return normalizedName.includes(normalizedTerm);
         }).slice(0, 6);
@@ -542,9 +544,27 @@ export default function SalesView({ triggerHaptic, isActive }) {
 
             // 1. Coincidencia exacta de código de barras o ID primero (pistola enfocada)
             if (trimmedTerm.length >= 3) {
-                const exactMatch = products.find(p => p.barcode === trimmedTerm || p.id === trimmedTerm);
+                let exactMatch = null;
+                let exactMode = null;
+                for (const p of products) {
+                    if (p.barcode === trimmedTerm || p.id === trimmedTerm) {
+                        exactMatch = p;
+                        exactMode = (p.sellByBox || p.sellByHalfBox) ? null : 'unit';
+                        break;
+                    }
+                    if (p.sellByBox && p.boxBarcode === trimmedTerm) {
+                        exactMatch = p;
+                        exactMode = 'box';
+                        break;
+                    }
+                    if (p.sellByHalfBox && p.halfBoxBarcode === trimmedTerm) {
+                        exactMatch = p;
+                        exactMode = 'halfBox';
+                        break;
+                    }
+                }
                 if (exactMatch) {
-                    addToCart(exactMatch, null, null, true);
+                    addToCart(exactMatch, null, exactMode, true);
                     handleSetSearchTerm('');
                     return;
                 }
