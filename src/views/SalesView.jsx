@@ -181,17 +181,22 @@ export default function SalesView({ triggerHaptic, isActive }) {
             let foundProduct = null;
             let foundMode = null;
             for (const p of products) {
-                if (p.barcode === barcode || p.id === barcode) {
+                const cleanBarcode = p.barcode ? String(p.barcode).trim() : '';
+                const cleanId = p.id ? String(p.id).trim() : '';
+                const cleanBoxBarcode = p.boxBarcode ? String(p.boxBarcode).trim() : '';
+                const cleanHalfBoxBarcode = p.halfBoxBarcode ? String(p.halfBoxBarcode).trim() : '';
+
+                if (cleanBarcode === barcode || cleanId === barcode) {
                     foundProduct = p;
                     foundMode = (p.sellByBox || p.sellByHalfBox) ? null : 'unit'; // Preguntar si tiene formatos, si no, es unidad
                     break;
                 }
-                if (p.sellByBox && p.boxBarcode === barcode) {
+                if (p.sellByBox && cleanBoxBarcode === barcode) {
                     foundProduct = p;
                     foundMode = 'box';
                     break;
                 }
-                if (p.sellByHalfBox && p.halfBoxBarcode === barcode) {
+                if (p.sellByHalfBox && cleanHalfBoxBarcode === barcode) {
                     foundProduct = p;
                     foundMode = 'halfBox';
                     break;
@@ -228,17 +233,22 @@ export default function SalesView({ triggerHaptic, isActive }) {
         let foundProduct = null;
         let foundMode = null;
         for (const p of products) {
-            if (p.barcode === pastedText || p.id === pastedText) {
+            const cleanBarcode = p.barcode ? String(p.barcode).trim() : '';
+            const cleanId = p.id ? String(p.id).trim() : '';
+            const cleanBoxBarcode = p.boxBarcode ? String(p.boxBarcode).trim() : '';
+            const cleanHalfBoxBarcode = p.halfBoxBarcode ? String(p.halfBoxBarcode).trim() : '';
+
+            if (cleanBarcode === pastedText || cleanId === pastedText) {
                 foundProduct = p;
                 foundMode = (p.sellByBox || p.sellByHalfBox) ? null : 'unit';
                 break;
             }
-            if (p.sellByBox && p.boxBarcode === pastedText) {
+            if (p.sellByBox && cleanBoxBarcode === pastedText) {
                 foundProduct = p;
                 foundMode = 'box';
                 break;
             }
-            if (p.sellByHalfBox && p.halfBoxBarcode === pastedText) {
+            if (p.sellByHalfBox && cleanHalfBoxBarcode === pastedText) {
                 foundProduct = p;
                 foundMode = 'halfBox';
                 break;
@@ -547,17 +557,22 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 let exactMatch = null;
                 let exactMode = null;
                 for (const p of products) {
-                    if (p.barcode === trimmedTerm || p.id === trimmedTerm) {
+                    const cleanBarcode = p.barcode ? String(p.barcode).trim() : '';
+                    const cleanId = p.id ? String(p.id).trim() : '';
+                    const cleanBoxBarcode = p.boxBarcode ? String(p.boxBarcode).trim() : '';
+                    const cleanHalfBoxBarcode = p.halfBoxBarcode ? String(p.halfBoxBarcode).trim() : '';
+
+                    if (cleanBarcode === trimmedTerm || cleanId === trimmedTerm) {
                         exactMatch = p;
                         exactMode = (p.sellByBox || p.sellByHalfBox) ? null : 'unit';
                         break;
                     }
-                    if (p.sellByBox && p.boxBarcode === trimmedTerm) {
+                    if (p.sellByBox && cleanBoxBarcode === trimmedTerm) {
                         exactMatch = p;
                         exactMode = 'box';
                         break;
                     }
-                    if (p.sellByHalfBox && p.halfBoxBarcode === trimmedTerm) {
+                    if (p.sellByHalfBox && cleanHalfBoxBarcode === trimmedTerm) {
                         exactMatch = p;
                         exactMode = 'halfBox';
                         break;

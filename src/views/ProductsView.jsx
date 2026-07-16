@@ -456,7 +456,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
             category, lowStockAlert,
             sellByBox, boxUnits, boxBarcode, boxPriceUsd, boxPriceBs,
             sellByHalfBox, halfBoxUnits, halfBoxBarcode, halfBoxPriceUsd, halfBoxPriceBs,
-            purchaseByBoxCost, purchaseBoxUnits
+            purchaseByBoxCost, purchaseBoxUnits, purchaseBoxBcv
         }, effectiveRate);
 
         // Advertencia si el precio parece inusualmente alto
