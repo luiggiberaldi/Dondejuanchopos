@@ -31,6 +31,7 @@ export function CartProvider({ children }) {
             costBs: item.costBs || 0,
             costUsd: item.costUsd || 0,
             isWeight: item.isWeight || false,
+            forceBcv: item.forceBcv || false,
         })));
         setPendingNavigate(navigateTo);
     }, []);

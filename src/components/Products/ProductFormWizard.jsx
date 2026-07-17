@@ -45,6 +45,7 @@ export default function ProductFormWizard({
     purchaseByBoxCost, setPurchaseByBoxCost,
     purchaseBoxUnits, setPurchaseBoxUnits,
     handleBoxPurchaseCalc,
+    forceBcv, setForceBcv,
 }) {
     const fileInputRef = useRef(null);
 
@@ -521,8 +522,30 @@ export default function ProductFormWizard({
                                             : 'text-slate-750 dark:text-emerald-500 border-slate-200 dark:border-slate-800'
                                     }`} />
                                 {effectiveRate > 0 && Number(priceUsd) > 0 && (
-                                    <span className="text-[8px] text-slate-400 font-medium block mt-0.5 ml-1">Ref: {Math.round(Number(priceUsd) * effectiveRate)} Bs a tasa BCV</span>
+                                    <span className="text-[8px] text-slate-400 font-medium block mt-0.5 ml-1">Ref: {Math.round(Number(priceUsd) * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate))} Bs a tasa BCV</span>
                                 )}
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 cursor-pointer select-none pt-2 border-t border-slate-200/40 dark:border-slate-800/40 mt-2">
+                            <div 
+                                className={`w-9 h-5 rounded-full relative transition-colors duration-200 shrink-0 ${forceBcv ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                onClick={() => {
+                                    setForceBcv(!forceBcv);
+                                }}
+                            >
+                                <div className={`absolute top-0.5 left-[2px] w-4 h-4 rounded-full bg-white shadow transition-all duration-200 ${forceBcv ? 'translate-x-4' : 'translate-x-0'}`} />
+                            </div>
+                            <div 
+                                onClick={() => {
+                                    setForceBcv(!forceBcv);
+                                }} 
+                                className="flex-1"
+                            >
+                                <span className="text-[10px] font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                                    🏛️ ¿Calcular siempre a tasa BCV?
+                                </span>
+                                <p className="text-[8px] text-slate-400 font-medium">Actívalo si este producto es un vívere o está sujeto a precio regulado.</p>
                             </div>
                         </div>
                     </div>
@@ -665,7 +688,7 @@ export default function ProductFormWizard({
                                 {name || 'Sin nombre'}
                             </h3>
                             <div className="text-xs font-black text-slate-800 dark:text-white mt-1">
-                                ${parsedPrice.toFixed(2)} / {priceBsManual ? `${Number(priceBsManual).toFixed(2)} Bs` : `${(parsedPrice * effectiveRate).toFixed(2)} Bs`}
+                                ${parsedPrice.toFixed(2)} / {priceBsManual ? `${Number(priceBsManual).toFixed(2)} Bs` : `${(parsedPrice * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate)).toFixed(2)} Bs`}
                             </div>
                         </div>
                         <div className="absolute right-3 top-3">

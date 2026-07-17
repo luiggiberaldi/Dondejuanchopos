@@ -318,18 +318,19 @@ export class FinancialEngine {
      *
      * @param {Array} cartItems - Array of live cart items
      * @param {Object} discountData - { type: 'percentage'|'fixed', value: number }
-     * @param {number} bcvRate - Exchange rate
+     * @param {number} bcvRate - Exchange rate (global effective rate)
      * @param {number} copRate - USD to COP Exchange rate
+     * @param {number} realBcvRate - Real official BCV rate
      * @returns {Object} Complete financial summary for the receipt.
      */
-    static buildCartTotals(cartItems, discountData, bcvRate, copRate = 0) {
+    static buildCartTotals(cartItems, discountData, bcvRate, copRate = 0, realBcvRate = 0) {
         // USD: suma directa e independiente de priceUsd (redondear cada línea antes de sumar).
         const lineItemsUsd = cartItems.map(item => mulR(item.priceUsd, item.qty));
         const subtotalUsd = sumR(lineItemsUsd);
 
         // Bs: precio Bs manual e INDEPENDIENTE del USD si existe (precios duales asignados en
         // inventario). Si no hay manual, se usa exactBs (Venta Libre) y, en último caso, la
-        // conversión por tasa BCV. USD y Bs NO se derivan uno del otro.
+        // conversión por tasa BCV/global. USD y Bs NO se derivan uno del otro.
         const lineItemsBs = cartItems.map(item => {
             if (item.priceBsManual != null && item.priceBsManual > 0) {
                 return mulR(item.priceBsManual, item.qty);
@@ -337,7 +338,8 @@ export class FinancialEngine {
             if (item.exactBs != null) {
                 return mulR(item.exactBs, item.qty);
             }
-            return mulR(mulR(item.priceUsd, item.qty), bcvRate);
+            const itemRate = item.forceBcv ? (realBcvRate || bcvRate) : bcvRate;
+            return mulR(mulR(item.priceUsd, item.qty), itemRate);
         });
         const subtotalBs = sumR(lineItemsBs);
 
@@ -354,7 +356,19 @@ export class FinancialEngine {
 
         const totalUsd = round2(Math.max(0, subR(subtotalUsd, discountAmountUsd)));
 
-        const discountAmountBs = mulR(discountAmountUsd, bcvRate);
+        let discountAmountBs = 0;
+        if (discountAmountUsd > 0 && subtotalUsd > 0) {
+            discountAmountBs = sumR(cartItems.map((item, idx) => {
+                const itemRate = item.forceBcv ? (realBcvRate || bcvRate) : bcvRate;
+                const itemUsd = lineItemsUsd[idx];
+                const proportion = divR(itemUsd, subtotalUsd);
+                const itemDiscountUsd = mulR(discountAmountUsd, proportion);
+                return mulR(itemDiscountUsd, itemRate);
+            }));
+        } else {
+            discountAmountBs = mulR(discountAmountUsd, bcvRate);
+        }
+
         const totalBs = round2(Math.max(0, subR(subtotalBs, discountAmountBs)));
 
         // FIN-010: totalCop unificado — divR para descuento proporcional, round2 consistente.

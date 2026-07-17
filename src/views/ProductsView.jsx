@@ -317,6 +317,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
         purchaseByBoxCost, setPurchaseByBoxCost,
         purchaseBoxUnits, setPurchaseBoxUnits,
         purchaseBoxBcv, setPurchaseBoxBcv,
+        forceBcv, setForceBcv,
         resetForm,
         populateForm,
     } = useProductForm();
@@ -460,7 +461,8 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
             category, lowStockAlert,
             sellByBox, boxUnits, boxBarcode, boxPriceUsd, boxPriceBs,
             sellByHalfBox, halfBoxUnits, halfBoxBarcode, halfBoxPriceUsd, halfBoxPriceBs,
-            purchaseByBoxCost, purchaseBoxUnits, purchaseBoxBcv
+            purchaseByBoxCost, purchaseBoxUnits, purchaseBoxBcv,
+            forceBcv
         }, effectiveRate);
 
         // Advertencia si el precio parece inusualmente alto
@@ -755,6 +757,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                                     <ProductCard
                                         product={p.isCombo ? { ...p, stock: getProductStock(p) } : p}
                                         effectiveRate={effectiveRate}
+                                        bcvRate={rates?.bcv?.price || effectiveRate}
                                         streetRate={streetRate}
                                         categories={categories}
                                         copEnabled={copEnabled}
@@ -935,6 +938,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 costBs={costBs} handleCostBsChange={handleCostBsChange}
                 stock={stock} setStock={setStock}
                 lowStockAlert={lowStockAlert} setLowStockAlert={setLowStockAlert}
+                forceBcv={forceBcv} setForceBcv={setForceBcv}
 
                 sellByBox={sellByBox} setSellByBox={setSellByBox}
                 boxUnits={boxUnits} setBoxUnits={setBoxUnits}

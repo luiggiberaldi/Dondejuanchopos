@@ -41,6 +41,7 @@ export default function ProductFormModal({
     setCostUsd, setCostBs,
 
     effectiveRate,
+    forceBcv, setForceBcv,
     isFormShaking,
     handleImageUpload,
     handleSave,
@@ -357,6 +358,7 @@ export default function ProductFormModal({
         purchaseByBoxCost, setPurchaseByBoxCost,
         purchaseBoxUnits, setPurchaseBoxUnits,
         handleBoxPurchaseCalc,
+        forceBcv, setForceBcv,
     };
 
     return (

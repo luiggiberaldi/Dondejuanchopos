@@ -282,8 +282,8 @@ export default function SalesView({ triggerHaptic, isActive }) {
         totalBs: cartTotalBs,
         totalCop: cartTotalCop
     } = useMemo(() =>
-        FinancialEngine.buildCartTotals(cart, discount, effectiveRate, copEnabled ? tasaCop : 0)
-    , [cart, discount, effectiveRate, copEnabled, tasaCop]);
+        FinancialEngine.buildCartTotals(cart, discount, effectiveRate, copEnabled ? tasaCop : 0, rates?.bcv?.price || effectiveRate)
+    , [cart, discount, effectiveRate, copEnabled, tasaCop, rates]);
 
     // Variables estáticas para pasar a los componentes hijos
     const discountData = {
@@ -354,7 +354,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
     const { handleCheckout, handleCreateCustomer, handleSaveApertura } = useCheckoutFlow({
         cart, cartTotalUsd, cartTotalBs, cartSubtotalUsd,
         selectedCustomerId, customers, setCustomers, products, setProducts,
-        effectiveRate, tasaCop, copEnabled, discountData, useAutoRate,
+        effectiveRate, tasaCop, copEnabled, discountData, useAutoRate, bcvRate: rates?.bcv?.price || effectiveRate,
         setSalesData, setShowReceipt, setShowCheckout, setSelectedCustomerId,
         setCart, setCartSelectedIndex, setShowConfetti, setTodayAperturaData, setIsAperturaOpen,
         playCheckout, playError, notifyLowStock, notifySaleComplete, triggerHaptic
@@ -757,7 +757,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 {/* ── Right Column: Cart Sidebar — desktop only ── */}
                 <div className="hidden lg:flex lg:w-[380px] lg:shrink-0 lg:flex-col">
                     <CartPanel
-                        cart={cart} effectiveRate={effectiveRate}
+                        cart={cart} effectiveRate={effectiveRate} bcvRate={rates?.bcv?.price || effectiveRate}
                         cartSubtotalUsd={cartSubtotalUsd} cartSubtotalBs={cartSubtotalBs}
                         cartTotalUsd={cartTotalUsd} cartTotalBs={cartTotalBs} cartTotalCop={cartTotalCop} cartItemCount={cartItemCount}
                         discountData={discountData} onOpenDiscount={() => setShowDiscountModal(true)}
@@ -821,7 +821,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
                             </div>
                             <div className="flex-1 overflow-y-auto">
                                 <CartPanel
-                                    cart={cart} effectiveRate={effectiveRate}
+                                    cart={cart} effectiveRate={effectiveRate} bcvRate={rates?.bcv?.price || effectiveRate}
                                     cartSubtotalUsd={cartSubtotalUsd} cartSubtotalBs={cartSubtotalBs}
                                     cartTotalUsd={cartTotalUsd} cartTotalBs={cartTotalBs} cartTotalCop={cartTotalCop} cartItemCount={cartItemCount}
                                     discountData={discountData} onOpenDiscount={() => setShowDiscountModal(true)}

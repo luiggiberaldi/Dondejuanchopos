@@ -121,3 +121,15 @@ export const compareBarcodes = (a, b) => {
     }
     return false;
 };
+
+/**
+ * Devuelve la tasa de cambio efectiva para un producto.
+ * Si el producto tiene 'forceBcv' activo, usa la tasa BCV oficial,
+ * de lo contrario usa la tasa global efectiva.
+ */
+export const getProductEffectiveRate = (product, globalRate, bcvRate) => {
+    if (product && product.forceBcv) {
+        return bcvRate || globalRate || 1;
+    }
+    return globalRate || 1;
+};

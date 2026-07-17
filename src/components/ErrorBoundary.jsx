@@ -87,16 +87,6 @@ class ErrorBoundary extends React.Component {
             >
               Reintentar (recargar)
             </button>
-            <button
-              onClick={this._handleClearCriticalData}
-              disabled={this.state.clearing}
-              className="px-6 py-3 bg-rose-600 text-white rounded-xl font-bold hover:brightness-110 transition-all block w-full disabled:opacity-50"
-            >
-              {this.state.clearing ? (this.state.clearMsg || 'Limpiando...') : 'Borrar productos y ventas (recuperación)'}
-            </button>
-            {this.state.clearMsg && !this.state.clearing && (
-              <p className="text-xs text-amber-500 mt-2">{this.state.clearMsg}</p>
-            )}
           </div>
         </div>
       );

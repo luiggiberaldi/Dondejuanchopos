@@ -9,7 +9,7 @@ import { SALES_KEY } from './useSalesData';
 export function useCheckoutFlow({
     cart, cartTotalUsd, cartTotalBs, cartSubtotalUsd,
     selectedCustomerId, customers, setCustomers, products, setProducts,
-    effectiveRate, tasaCop, copEnabled, discountData, useAutoRate,
+    effectiveRate, tasaCop, copEnabled, discountData, useAutoRate, bcvRate,
     setSalesData, setShowReceipt, setShowCheckout, setSelectedCustomerId,
     setCart, setCartSelectedIndex, setShowConfetti, setTodayAperturaData, setIsAperturaOpen,
     playCheckout, playError, notifyLowStock, notifySaleComplete, triggerHaptic
@@ -32,7 +32,8 @@ export function useCheckoutFlow({
             tasaCop,
             copEnabled,
             discountData,
-            useAutoRate
+            useAutoRate,
+            bcvRate
         };
 
         let result;

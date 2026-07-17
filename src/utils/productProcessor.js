@@ -30,7 +30,8 @@ export function buildProductPayload(formData, effectiveRate) {
 
         purchaseByBoxCost,
         purchaseBoxUnits,
-        purchaseBoxBcv
+        purchaseBoxBcv,
+        forceBcv
     } = formData;
 
     const formattedName = name.replace(/(^\w{1})|(\s+\w{1})/g, letter => letter.toUpperCase());
@@ -97,6 +98,7 @@ export function buildProductPayload(formData, effectiveRate) {
         purchaseByBoxCost: purchaseByBoxCost ? round2(CurrencyService.safeParse(purchaseByBoxCost)) : null,
         purchaseBoxUnits: purchaseBoxUnits ? parseInt(purchaseBoxUnits, 10) : null,
         purchaseBoxBcv: purchaseBoxBcv ? true : false,
+        forceBcv: forceBcv ? true : false,
 
         // Campos Legacy para evitar errores en otros componentes
         packagingType: 'suelto',

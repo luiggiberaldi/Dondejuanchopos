@@ -44,6 +44,7 @@ export default function ProductFormQuick({
     purchaseByBoxCost, setPurchaseByBoxCost,
     purchaseBoxUnits, setPurchaseBoxUnits,
     handleBoxPurchaseCalc,
+    forceBcv, setForceBcv,
 }) {
     const fileInputRef = useRef(null);
     const [showSummary, setShowSummary] = useState(false);
@@ -410,7 +411,7 @@ export default function ProductFormQuick({
                                     PRECIO BS
                                 </span>
                                 {effectiveRate > 0 && parsedPrice > 0 && (
-                                    <span className="text-[8px] text-slate-400 font-medium whitespace-nowrap">Ref: {Math.round(parsedPrice * effectiveRate)} Bs</span>
+                                    <span className="text-[8px] text-slate-400 font-medium whitespace-nowrap">Ref: {Math.round(parsedPrice * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate))} Bs</span>
                                 )}
                             </label>
                             <input 
@@ -425,6 +426,28 @@ export default function ProductFormQuick({
                                         : 'bg-white dark:bg-slate-900 text-[#193275] dark:text-brand border-slate-200 dark:border-slate-850'
                                 }`}
                             />
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 cursor-pointer select-none pt-2 border-t border-slate-200/40 dark:border-slate-800/40">
+                        <div 
+                            className={`w-9 h-5 rounded-full relative transition-colors duration-200 shrink-0 ${forceBcv ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+                            onClick={() => {
+                                setForceBcv(!forceBcv);
+                            }}
+                        >
+                            <div className={`absolute top-0.5 left-[2px] w-4 h-4 rounded-full bg-white shadow transition-all duration-200 ${forceBcv ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </div>
+                        <div 
+                            onClick={() => {
+                                setForceBcv(!forceBcv);
+                            }} 
+                            className="flex-1"
+                        >
+                            <span className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                                🏛️ ¿Calcular siempre a tasa BCV?
+                            </span>
+                            <p className="text-[9px] text-slate-400 font-medium">Actívalo si este producto es un vívere o está sujeto a precio regulado.</p>
                         </div>
                     </div>
                 </div>

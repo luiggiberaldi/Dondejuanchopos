@@ -1,12 +1,13 @@
 import React from 'react';
 import { Tag, Banknote, AlertTriangle, Box, Minus, Plus, Pencil, Trash2, Package, Layers, Clock, Printer, FileText, Gift, ChevronDown } from 'lucide-react';
 import { CATEGORY_COLORS, getCategoryIcon, UNITS } from '../../config/categories';
-import { formatUsd, formatBs, formatCop, smartCashRounding, getCop, getUsd } from '../../utils/calculatorUtils';
+import { formatUsd, formatBs, formatCop, smartCashRounding, getCop, getUsd, getProductEffectiveRate } from '../../utils/calculatorUtils';
 import { showToast } from '../Toast';
 
 export default function ProductCard({
     product: p,
     effectiveRate,
+    bcvRate,
     streetRate,
     categories = [],
     onAdjustStock,
@@ -40,8 +41,9 @@ export default function ProductCard({
         };
     }, [isDropdownOpen]);
 
+    const activeRate = getProductEffectiveRate(p, effectiveRate, bcvRate);
     const effectiveUsd = getUsd(p, tasaCop);
-    const valBs = effectiveUsd * effectiveRate;
+    const valBs = effectiveUsd * activeRate;
     const valCop = getCop(p, tasaCop);
     const isLowStock = !p.isCombo && (p.stock ?? 0) <= (p.lowStockAlert ?? 5);
     const margin = p.costBs > 0 ? ((valBs - p.costBs) / p.costBs * 100) : null;
@@ -307,7 +309,14 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
             </div>
             {/* Info */}
             <div className="p-3 lg:p-2.5 flex flex-col flex-1">
-                <h3 className="font-bold text-slate-700 dark:text-slate-200 text-[13px] lg:text-[12px] leading-tight line-clamp-2 mb-2">{p.name}</h3>
+                <h3 className="font-bold text-slate-700 dark:text-slate-200 text-[13px] lg:text-[12px] leading-tight line-clamp-2 mb-2 flex items-center gap-1.5 flex-wrap">
+                    {p.forceBcv && (
+                        <span className="shrink-0 inline-flex items-center gap-0.5 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:bg-blue-400/10 dark:text-blue-450 border border-blue-200/50 dark:border-blue-900/40">
+                            🏛️ BCV
+                        </span>
+                    )}
+                    <span>{p.name}</span>
+                </h3>
 
                 {/* Precios de la Unidad */}
                 <div className="space-y-1 mb-2.5">
@@ -315,7 +324,7 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                         ${formatUsd(p.priceUsd)} <span className="text-[9px] font-bold text-slate-400">USD</span>
                     </p>
                     <p className="text-[11px] font-extrabold text-slate-500 dark:text-slate-450 leading-none">
-                        {p.priceBsManual ? `${Number(p.priceBsManual).toFixed(2)}` : formatBs(p.priceUsd * effectiveRate)} Bs
+                        {p.priceBsManual ? `${Number(p.priceBsManual).toFixed(2)}` : formatBs(p.priceUsd * activeRate)} Bs
                         {p.priceBsManual && <span className="text-[7px] bg-[#193275]/10 dark:bg-brand/10 text-[#193275] dark:text-brand px-1.5 py-0.5 rounded font-black ml-1.5">MANUAL</span>}
                     </p>
                 </div>
@@ -327,7 +336,7 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                             <div className="flex items-center justify-between text-[10px] font-bold text-[#193275] dark:text-brand bg-[#193275]/5 dark:bg-brand/5 px-2 py-1 rounded-lg">
                                 <span className="flex items-center gap-1"><Package size={10} /> Caja ({p.boxUnits} Uds)</span>
                                 <span className="font-black">
-                                    ${(p.boxPriceUsd ? Number(p.boxPriceUsd) : 0).toFixed(2)} | {p.boxPriceBs ? `${Number(p.boxPriceBs).toFixed(0)} Bs` : `${((p.boxPriceUsd || 0) * effectiveRate).toFixed(0)} Bs`}
+                                    ${(p.boxPriceUsd ? Number(p.boxPriceUsd) : 0).toFixed(2)} | {p.boxPriceBs ? `${Number(p.boxPriceBs).toFixed(0)} Bs` : `${((p.boxPriceUsd || 0) * activeRate).toFixed(0)} Bs`}
                                 </span>
                             </div>
                         )}
@@ -335,7 +344,7 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                             <div className="flex items-center justify-between text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/20 px-2 py-1 rounded-lg">
                                 <span className="flex items-center gap-1"><Package size={10} /> ½ Caja ({p.halfBoxUnits} Uds)</span>
                                 <span className="font-black">
-                                    ${(p.halfBoxPriceUsd ? Number(p.halfBoxPriceUsd) : 0).toFixed(2)} | {p.halfBoxPriceBs ? `${Number(p.halfBoxPriceBs).toFixed(0)} Bs` : `${((p.halfBoxPriceUsd || 0) * effectiveRate).toFixed(0)} Bs`}
+                                    ${(p.halfBoxPriceUsd ? Number(p.halfBoxPriceUsd) : 0).toFixed(2)} | {p.halfBoxPriceBs ? `${Number(p.halfBoxPriceBs).toFixed(0)} Bs` : `${((p.halfBoxPriceUsd || 0) * activeRate).toFixed(0)} Bs`}
                                 </span>
                             </div>
                         )}
