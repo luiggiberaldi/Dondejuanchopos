@@ -62,13 +62,13 @@ export default function MonitorView({ rates: propRates, loading, isOffline, onRe
 
                 {/* Encabezado Kiosco Skeleton */}
                 <div className="flex flex-col items-center mt-12 gap-2 relative z-10 w-full">
-                    <div className="h-28 w-56 bg-slate-200 border border-slate-300 rounded-2xl"></div>
+                    <div className="h-56 w-72 bg-slate-200 border border-slate-300 rounded-2xl"></div>
                     <div className="h-4 w-32 bg-slate-200 border border-slate-300 rounded-lg mt-1"></div>
                     <div className="h-8 w-44 bg-slate-200 border border-slate-300 rounded-full mt-3"></div>
                 </div>
                 
                 {/* PRECIO GIGANTE Skeleton */}
-                <div className="flex flex-col items-center justify-center -mt-8 relative z-10 w-full">
+                <div className="flex flex-col items-center justify-center mt-4 relative z-10 w-full">
                     <div className="h-24 w-64 bg-slate-200 border border-slate-300 rounded-3xl"></div>
                     <div className="h-4 w-48 bg-slate-200 border border-slate-300 rounded-lg mt-4"></div>
                 </div>
@@ -106,7 +106,7 @@ export default function MonitorView({ rates: propRates, loading, isOffline, onRe
     return (
         <div
             ref={kioskRef}
-            className="fixed inset-0 z-[100] bg-slate-50 text-slate-900 flex flex-col justify-between items-center p-6 animate-in zoom-in duration-300 overflow-hidden"
+            className="fixed inset-0 z-[100] bg-slate-50 text-slate-900 flex flex-col justify-between items-center px-6 pb-6 pt-2 animate-in zoom-in duration-300 overflow-hidden"
         >
             <style>{`
               .font-outfit { font-family: 'Outfit', sans-serif; }
@@ -128,18 +128,18 @@ export default function MonitorView({ rates: propRates, loading, isOffline, onRe
             )}
 
             {/* Encabezado Kiosco */}
-            <div className="flex flex-col items-center mt-12 gap-2 relative z-10">
+            <div className="flex flex-col items-center mt-2 gap-0 relative z-10">
                 <button onClick={handleSecretDebug} className="active:scale-95 transition-transform outline-none">
-                    <img src="./logo.png" alt="Donde Juancho" className="h-32 w-auto object-contain drop-shadow-sm" />
+                    <img src="./logo.png" alt="Donde Juancho" className="h-60 w-auto object-contain drop-shadow-sm" />
                 </button>
-                <p className="text-slate-700 text-sm font-medium -mt-2 font-outfit">Actualizado donde vayas</p>
-                <div className="bg-white/80 px-4 py-1.5 rounded-full border border-slate-200 backdrop-blur-md shadow-sm mt-2">
+                <p className="text-slate-700 text-base font-semibold -mt-10 font-outfit">Actualizado donde vayas</p>
+                <div className="bg-white/80 px-4 py-1.5 rounded-full border border-slate-200 backdrop-blur-md shadow-sm mt-3">
                     <p className="text-[10px] font-bold text-slate-500 tracking-[0.25em] uppercase font-outfit">MONITOR EN TIEMPO REAL</p>
                 </div>
             </div>
 
             {/* PRECIO GIGANTE */}
-            <div className="flex flex-col items-center justify-center -mt-8 relative z-10">
+            <div className="flex flex-col items-center justify-center mt-4 relative z-10">
                 <div className="flex items-baseline font-dm-mono select-none">
                     <span className="text-4xl sm:text-5xl text-slate-400 font-bold self-start mt-2 mr-3">$</span>
                     <h1 className="text-[16vw] sm:text-[9rem] font-bold leading-none tracking-tighter text-slate-900">
