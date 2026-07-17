@@ -278,13 +278,15 @@ export default defineConfig(({ mode }) => {
                 // Fallback a ve.dolarapi.com / Scraper BCV directo
                 try {
                   const directRates = await fetchBcvDirect();
-                  const [resDollars, resEuros] = await Promise.all([
+                  const [resDollars, resEuros, resCriptoya] = await Promise.all([
                       fetch('https://ve.dolarapi.com/v1/dolares').catch(() => null),
-                      fetch('https://ve.dolarapi.com/v1/euros').catch(() => null)
+                      fetch('https://ve.dolarapi.com/v1/euros').catch(() => null),
+                      fetch('https://criptoya.com/api/binancep2p/USDT/VES/1').catch(() => null)
                   ]);
 
                   const dollarsData = resDollars && resDollars.ok ? await resDollars.json() : [];
                   const eurosData = resEuros && resEuros.ok ? await resEuros.json() : [];
+                  const criptoyaData = resCriptoya && resCriptoya.ok ? await resCriptoya.json() : null;
 
                   const oficial = Array.isArray(dollarsData) ? dollarsData.find((d) => d.fuente === 'oficial' || d.nombre === 'Oficial') : null;
                   const paralelo = Array.isArray(dollarsData) ? dollarsData.find((d) => d.fuente === 'paralelo' || d.nombre === 'Paralelo') : null;
@@ -315,14 +317,44 @@ export default defineConfig(({ mode }) => {
                       euroSource = 'Euro BCV (Triangulado Dev)';
                   }
 
-                  const usdtPrice = paralelo?.promedio 
-                      ? parseFloat(parseFloat(paralelo.promedio).toFixed(2)) 
-                      : parseFloat((bcvPrice * 1.12).toFixed(2));
+                  // Determinar tasa USDT (Paralelo / Binance P2P)
+                  let usdtPrice = 0;
+                  let usdtSource = 'USDT Binance';
+
+                  if (criptoyaData) {
+                      const avgAsk = typeof criptoyaData.ask === 'number' ? criptoyaData.ask
+                          : (Array.isArray(criptoyaData.ask) && criptoyaData.ask.length > 0
+                            ? criptoyaData.ask.slice(0, 3).reduce((s, i) => s + (i.price ?? i), 0) / Math.min(3, criptoyaData.ask.length)
+                            : 0);
+                      const avgBid = typeof criptoyaData.bid === 'number' ? criptoyaData.bid
+                          : (Array.isArray(criptoyaData.bid) && criptoyaData.bid.length > 0
+                            ? criptoyaData.bid.slice(0, 3).reduce((s, i) => s + (i.price ?? i), 0) / Math.min(3, criptoyaData.bid.length)
+                            : 0);
+                            
+                      if (avgAsk > 0 || avgBid > 0) {
+                          const basePrecio = (avgAsk > 0 && avgBid > 0) ? (avgAsk + avgBid) / 2 : (avgAsk || avgBid);
+                          // Regla de negocio: Redondear al entero superior y sumar 2 Bs
+                          usdtPrice = Math.ceil(basePrecio) + 2;
+                          usdtSource = 'Binance P2P (CriptoYa)';
+                      }
+                  }
+
+                  if (usdtPrice <= 0) {
+                      // Fallback 1: DolarApi paralelo
+                      if (paralelo?.promedio) {
+                          usdtPrice = parseFloat(parseFloat(paralelo.promedio).toFixed(2));
+                          usdtSource = 'Paralelo (DolarApi)';
+                      } else {
+                          // Fallback 2: BCV * 1.12
+                          usdtPrice = parseFloat((bcvPrice * 1.12).toFixed(2));
+                          usdtSource = 'USDT (Triangulado)';
+                      }
+                  }
 
                   res.end(JSON.stringify({
                     bcv: { price: bcvPrice, source: bcvSource, change: 0 },
                     euro: { price: euroPrice, source: euroSource, change: 0 },
-                    usdt: { price: usdtPrice, source: 'USDT Binance (Dev)', change: 0 },
+                    usdt: { price: usdtPrice, source: usdtSource, change: 0 },
                     lastUpdate: new Date().toISOString(),
                   }));
                 } catch (fallbackErr) {
