@@ -150,6 +150,7 @@ export default function ProductFormQuick({
                                     value={category}
                                     onChange={setCategory}
                                     options={categories.filter(c => c.id !== 'todos').map(c => ({ value: c.id, label: c.label }))}
+                                    openDirection="up"
                                 />
                             </div>
                             <button
