@@ -1,5 +1,5 @@
 import React from 'react';
-import { Tag, Banknote, AlertTriangle, Box, Minus, Plus, Pencil, Trash2, Package, Layers, Clock, Printer, FileText, Gift, ChevronDown } from 'lucide-react';
+import { Tag, Banknote, AlertTriangle, Box, Minus, Plus, Pencil, Trash2, Package, Layers, Clock, Printer, FileText, Gift, ChevronDown, Landmark } from 'lucide-react';
 import { CATEGORY_COLORS, getCategoryIcon, UNITS } from '../../config/categories';
 import { formatUsd, formatBs, formatCop, smartCashRounding, getCop, getUsd, getProductEffectiveRate } from '../../utils/calculatorUtils';
 import { showToast } from '../Toast';
@@ -312,7 +312,7 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                 <h3 className="font-bold text-slate-700 dark:text-slate-200 text-[13px] lg:text-[12px] leading-tight line-clamp-2 mb-2 flex items-center gap-1.5 flex-wrap">
                     {p.forceBcv && (
                         <span className="shrink-0 inline-flex items-center gap-0.5 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:bg-blue-400/10 dark:text-blue-450 border border-blue-200/50 dark:border-blue-900/40">
-                            🏛️ BCV
+                            <Landmark size={9} /> BCV
                         </span>
                     )}
                     <span>{p.name}</span>

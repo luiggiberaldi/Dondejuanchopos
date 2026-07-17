@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Camera, X, AlertTriangle, Package, Tag, Barcode, Eye, ShoppingBag, Zap, Boxes } from 'lucide-react';
+import { Camera, X, AlertTriangle, Package, Tag, Barcode, Eye, ShoppingBag, Zap, Boxes, Landmark } from 'lucide-react';
 import CustomSelect from '../CustomSelect';
 
 export default function ProductFormWizard({
@@ -549,7 +549,7 @@ export default function ProductFormWizard({
                                 className="flex-1"
                             >
                                 <span className="text-[10px] font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                                    🏛️ ¿Calcular siempre a tasa BCV?
+                                    <Landmark size={14} className={forceBcv ? 'text-blue-500' : 'text-slate-400'} /> ¿Calcular siempre a tasa BCV?
                                 </span>
                                 <p className="text-[8px] text-slate-400 font-medium">Actívalo si este producto es un vívere o está sujeto a precio regulado.</p>
                             </div>
