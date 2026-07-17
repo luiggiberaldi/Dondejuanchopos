@@ -501,14 +501,17 @@ export default function ProductFormWizard({
                             <button
                                 type="button"
                                 onClick={handleToggleAutoCalcUnit}
-                                title={autoCalcUnit ? 'Auto-Tasa activo' : 'Activar cálculo automático USD ⇔ Bs'}
-                                className={`flex items-center gap-1 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all active:scale-95 ${
-                                    autoCalcUnit
-                                        ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30'
-                                        : 'bg-white/70 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-emerald-200 dark:border-slate-700'
+                                disabled={forceBcv}
+                                title={forceBcv ? 'Forzado a tasa BCV (Auto-Tasa obligatorio)' : (autoCalcUnit ? 'Auto-Tasa activo' : 'Activar cálculo automático USD ⇔ Bs')}
+                                className={`flex items-center gap-1 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all ${
+                                    forceBcv
+                                        ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/30 cursor-not-allowed opacity-80'
+                                        : autoCalcUnit
+                                            ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30 active:scale-95'
+                                            : 'bg-white/70 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-emerald-200 dark:border-slate-700 active:scale-95'
                                 }`}
                             >
-                                <Zap size={10} className={autoCalcUnit ? 'fill-white' : ''} /> Auto-Tasa
+                                <Zap size={10} className={(autoCalcUnit || forceBcv) ? 'fill-white' : ''} /> Auto-Tasa
                             </button>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
@@ -516,10 +519,13 @@ export default function ProductFormWizard({
                                 className="w-full bg-white dark:bg-slate-900 p-2 rounded-xl font-black text-xs text-slate-750 dark:text-emerald-500 outline-none border border-slate-200 dark:border-slate-800" />
                             <div>
                                 <input type="number" inputMode="decimal" value={priceBsManual} onChange={e => handleUnitPriceBsChange(e.target.value)} placeholder="Precio Bs (Manual)"
-                                    className={`w-full bg-white dark:bg-slate-900 p-2 rounded-xl font-black text-xs outline-none border transition-all duration-200 ${
-                                        autoCalcUnit
-                                            ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
-                                            : 'text-slate-750 dark:text-emerald-500 border-slate-200 dark:border-slate-800'
+                                    disabled={forceBcv}
+                                    className={`w-full p-2 rounded-xl font-black text-xs outline-none border transition-all duration-200 ${
+                                        forceBcv
+                                            ? 'text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700 bg-blue-50/30 dark:bg-blue-900/10 cursor-not-allowed'
+                                            : autoCalcUnit
+                                                ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
+                                                : 'text-slate-750 dark:text-emerald-500 border-slate-200 dark:border-slate-800'
                                     }`} />
                                 {effectiveRate > 0 && Number(priceUsd) > 0 && (
                                     <span className="text-[8px] text-slate-400 font-medium block mt-0.5 ml-1">Ref: {Math.round(Number(priceUsd) * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate))} Bs a tasa BCV</span>

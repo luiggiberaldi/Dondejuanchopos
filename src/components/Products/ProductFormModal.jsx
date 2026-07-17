@@ -110,6 +110,18 @@ export default function ProductFormModal({
         }
     }, [sellByBox, sellByHalfBox, setSellByHalfBox]);
 
+    // Forzar Auto-Tasa cuando forceBcv está activo
+    useEffect(() => {
+        if (forceBcv) {
+            setAutoCalcUnit(true);
+            const usd = CurrencyService.safeParse(priceUsd);
+            const bcvRate = rates?.bcv?.price > 0 ? rates.bcv.price : effectiveRate;
+            if (usd > 0 && bcvRate > 0) {
+                setPriceBsManual(Math.round(mulR(usd, bcvRate)).toString());
+            }
+        }
+    }, [forceBcv, priceUsd, rates?.bcv?.price, effectiveRate, setPriceBsManual]);
+
     if (!isOpen) return null;
 
     // Validación paso a paso para el asistente
@@ -133,6 +145,7 @@ export default function ProductFormModal({
 
     // Unidad
     const handleToggleAutoCalcUnit = () => {
+        if (forceBcv) return;
         const next = !autoCalcUnit;
         setAutoCalcUnit(next);
         if (next && effectiveRate > 0) {
@@ -147,12 +160,15 @@ export default function ProductFormModal({
     };
     const handleUnitPriceUsdChange = (val) => {
         handlePriceUsdChange(val);
-        if (autoCalcUnit && effectiveRate > 0) {
+        const bcvRate = rates?.bcv?.price > 0 ? rates.bcv.price : effectiveRate;
+        const activeRate = forceBcv ? bcvRate : effectiveRate;
+        if (autoCalcUnit && activeRate > 0) {
             const p = CurrencyService.safeParse(val);
-            setPriceBsManual(p > 0 ? Math.round(mulR(p, effectiveRate)).toString() : '');
+            setPriceBsManual(p > 0 ? Math.round(mulR(p, activeRate)).toString() : '');
         }
     };
     const handleUnitPriceBsChange = (val) => {
+        if (forceBcv) return;
         setPriceBsManual(val);
         if (autoCalcUnit && effectiveRate > 0) {
             const p = CurrencyService.safeParse(val);

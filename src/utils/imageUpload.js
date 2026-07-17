@@ -35,6 +35,29 @@ export function isStorageImageUrl(value) {
         && /\/storage\/v1\/object\/public\/product-images\//.test(value);
 }
 
+/** Verifica de forma síncrona si hay una sesión o emparejamiento cloud activo en localStorage. */
+function hasActiveCloudSession() {
+    if (typeof window === 'undefined') return false;
+    
+    // 1. Verificar si está emparejado como monitor secundario
+    if (localStorage.getItem('dj_paired_device_id')) return true;
+    
+    // 2. Verificar si hay un token de sesión de Supabase guardado
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
+            const val = localStorage.getItem(key);
+            if (val) {
+                try {
+                    const parsed = JSON.parse(val);
+                    if (parsed && parsed.access_token) return true;
+                } catch (e) {}
+            }
+        }
+    }
+    return false;
+}
+
 /**
  * Sube una imagen (data URI base64) a Supabase Storage y devuelve su URL pública.
  *
@@ -52,6 +75,7 @@ export function isStorageImageUrl(value) {
 export async function uploadProductImage(dataUri, opts = {}) {
     if (!supabaseCloud) return null;
     if (typeof dataUri !== 'string' || !dataUri.startsWith('data:')) return null;
+    if (!hasActiveCloudSession()) return null;
 
     try {
         const blob = dataUriToBlob(dataUri);

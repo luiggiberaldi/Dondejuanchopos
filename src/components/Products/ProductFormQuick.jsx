@@ -371,14 +371,17 @@ export default function ProductFormQuick({
                         <button
                             type="button"
                             onClick={handleToggleAutoCalcUnit}
-                            title={autoCalcUnit ? 'Auto-Tasa activo: USD⇔Bs según tasa' : 'Activar cálculo automático USD ⇔ Bs'}
-                            className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 active:scale-95 ${
-                                autoCalcUnit
-                                    ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30'
-                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-slate-200 dark:border-slate-700'
+                            disabled={forceBcv}
+                            title={forceBcv ? 'Forzado a tasa BCV (Auto-Tasa obligatorio)' : (autoCalcUnit ? 'Auto-Tasa activo: USD⇔Bs según tasa' : 'Activar cálculo automático USD ⇔ Bs')}
+                            className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 ${
+                                forceBcv
+                                    ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/30 cursor-not-allowed opacity-80'
+                                    : autoCalcUnit
+                                        ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30 active:scale-95'
+                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-slate-200 dark:border-slate-700 active:scale-95'
                             }`}
                         >
-                            <Zap size={10} className={autoCalcUnit ? 'fill-white' : ''} /> Auto-Tasa
+                            <Zap size={10} className={(autoCalcUnit || forceBcv) ? 'fill-white' : ''} /> Auto-Tasa
                         </button>
                     </div>
 
@@ -419,11 +422,14 @@ export default function ProductFormQuick({
                                 inputMode="decimal" 
                                 value={priceBsManual} 
                                 onChange={e => handleUnitPriceBsChange(e.target.value)} 
+                                disabled={forceBcv}
                                 placeholder="0.00"
                                 className={`w-full p-2.5 rounded-xl font-black text-xs outline-none border transition-all duration-200 ${
-                                    autoCalcUnit
-                                        ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
-                                        : 'bg-white dark:bg-slate-900 text-[#193275] dark:text-brand border-slate-200 dark:border-slate-850'
+                                    forceBcv
+                                        ? 'text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700 bg-blue-50/30 dark:bg-blue-900/10 cursor-not-allowed'
+                                        : autoCalcUnit
+                                            ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
+                                            : 'bg-white dark:bg-slate-900 text-[#193275] dark:text-brand border-slate-200 dark:border-slate-850'
                                 }`}
                             />
                         </div>
