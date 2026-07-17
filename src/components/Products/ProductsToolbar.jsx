@@ -263,6 +263,28 @@ const ProductsToolbar = ({
                         </span>
                     </button>
 
+                    {/* Pestaña estática para la categoría 'Combos' (se muestra automático al crear el primer combo) */}
+                    {getCategoryProductCount('combo') > 0 && (
+                        <button
+                            onClick={() => { handleSetActiveCategory('combo'); triggerHaptic && triggerHaptic(); }}
+                            className={`shrink-0 px-3 py-1.5 rounded-xl text-[10px] font-bold transition-all border flex items-center gap-1.5 cursor-pointer ${
+                                activeCategory === 'combo'
+                                    ? 'bg-violet-600 text-white border-transparent shadow-sm font-extrabold scale-102'
+                                    : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 active:scale-95 shadow-sm'
+                            }`}
+                        >
+                            <Gift size={12} className={activeCategory === 'combo' ? 'text-white' : 'text-violet-500'} />
+                            <span> Combos </span>
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                                activeCategory === 'combo' 
+                                    ? 'bg-white/20 text-white' 
+                                    : 'bg-slate-100 dark:bg-slate-850 text-slate-400 dark:text-slate-500'
+                            }`}>
+                                {getCategoryProductCount('combo')}
+                            </span>
+                        </button>
+                    )}
+
                     {filteredCategories.map(cat => {
                         const count = getCategoryProductCount(cat.id);
                         const isActive = activeCategory === cat.id;

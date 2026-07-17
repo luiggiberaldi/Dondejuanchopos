@@ -25,6 +25,7 @@ export default function ComboFormModal({
     const [debouncedSearch, setDebouncedSearch] = useState('');
     const [isSearchFocused, setIsSearchFocused] = useState(false);
     const [isFormShaking, setIsFormShaking] = useState(false);
+    const [barcode, setBarcode] = useState('');
 
     const searchRef = useRef(null);
     const fileInputRef = useRef(null);
@@ -109,6 +110,7 @@ export default function ComboFormModal({
                 : ''
             );
 
+            setBarcode(editingCombo.barcode || '');
             // Mapear items
             let items = [];
             if (editingCombo.comboItems?.length > 0) {
@@ -126,6 +128,7 @@ export default function ComboFormModal({
             setPriceUsd('');
             setPriceBsManual('');
             setSearchTerm('');
+            setBarcode('');
         }
         setAutoCalc(false);
     }, [isOpen, editingCombo, products]);
@@ -222,6 +225,7 @@ export default function ComboFormModal({
             name: formattedName,
             image,
             category,
+            barcode: barcode.trim() || null,
             priceUsd: parsedPrice,
             // Precio Bs MANUAL independiente (respetado por el checkout); si no se define,
             // se usa la conversión por tasa como respaldo.
@@ -281,6 +285,16 @@ export default function ComboFormModal({
                                 className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/40 transition-all text-sm"
                             />
                         </div>
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block uppercase">Código de Barras</label>
+                        <input
+                            type="text"
+                            value={barcode}
+                            onChange={e => setBarcode(e.target.value)}
+                            placeholder="Escanear o ingresar (sep. con comas)..."
+                            className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/40 transition-all text-sm"
+                        />
                     </div>
                 </div>
 

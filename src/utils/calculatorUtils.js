@@ -98,3 +98,26 @@ export const formatVzlaPhone = (raw) => {
     if (digits.length >= 10) return '58' + digits;
     return null;
 };
+
+export const compareBarcodes = (a, b) => {
+    if (a === undefined || a === null || b === undefined || b === null) return false;
+    const strA = String(a).trim().toLowerCase();
+    const strB = String(b).trim().toLowerCase();
+    
+    // Si contiene comas, verificar si coincide con alguno de los códigos separados
+    if (strA.includes(',')) {
+        const parts = strA.split(',').map(p => p.trim());
+        return parts.some(part => compareBarcodes(part, strB));
+    }
+    if (strB.includes(',')) {
+        const parts = strB.split(',').map(p => p.trim());
+        return parts.some(part => compareBarcodes(strA, part));
+    }
+
+    if (strA === strB) return true;
+    // Comparación numérica ignorando ceros a la izquierda (ej: 000000000017 === 17)
+    if (/^\d+$/.test(strA) && /^\d+$/.test(strB)) {
+        return parseInt(strA, 10) === parseInt(strB, 10);
+    }
+    return false;
+};

@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShoppingCart, Plus, Minus, X, CheckCircle, Package, Trash2, DollarSign, Percent, Search, Pause } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, X, CheckCircle, Package, Trash2, DollarSign, Percent, Search, Pause, Gift } from 'lucide-react';
 import { formatBs, formatCop, getCop, formatUsd } from '../../utils/calculatorUtils';
 import { mulR } from '../../utils/dinero';
 import { useAuthStore } from '../../hooks/store/useAuthStore';
@@ -88,36 +88,67 @@ export default function CartPanel({
                             const isEditing = editingQtyId === item.id;
                             const isSelected = cartSelectedIndex === idx;
 
+                            const cardBgClass = isSelected
+                                ? item._mode === 'box'
+                                    ? 'bg-blue-500/10 dark:bg-blue-500/20 border-blue-500 ring-2 ring-blue-500/20'
+                                    : item._mode === 'halfBox'
+                                        ? 'bg-purple-500/10 dark:bg-purple-500/20 border-purple-500 ring-2 ring-purple-500/20'
+                                        : item.isCombo
+                                            ? 'bg-amber-500/10 dark:bg-amber-500/20 border-amber-500 ring-2 ring-amber-500/20'
+                                            : 'bg-emerald-500/5 dark:bg-emerald-400/5 border-emerald-500 ring-2 ring-emerald-500/20 dark:border-emerald-400 dark:ring-emerald-400/20'
+                                : item._mode === 'box'
+                                    ? 'bg-blue-500/5 dark:bg-blue-500/10 border-blue-250 dark:border-blue-800/60 hover:border-blue-400 dark:hover:border-blue-600'
+                                    : item._mode === 'halfBox'
+                                        ? 'bg-purple-500/5 dark:bg-purple-500/10 border-purple-250 dark:border-purple-800/60 hover:border-purple-400 dark:hover:border-purple-600'
+                                        : item.isCombo
+                                            ? 'bg-amber-500/5 dark:bg-amber-500/10 border-amber-250 dark:border-amber-800/60 hover:border-amber-400 dark:hover:border-amber-600'
+                                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-700';
+
                             return (
-                                <div key={item.id} className={`group bg-white dark:bg-slate-900 rounded-xl sm:rounded-2xl p-2 pr-6 sm:p-3 sm:pr-10 border flex items-center justify-between gap-2 transition-colors relative ${
-                                    isSelected 
-                                        ? 'border-emerald-500 ring-2 ring-emerald-500/20 dark:border-emerald-400 dark:ring-emerald-400/20' 
-                                        : 'border-slate-100 dark:border-slate-800/80 hover:border-emerald-200 dark:hover:border-emerald-800'
-                                }`}>
+                                <div key={item.id} className={`group rounded-xl sm:rounded-2xl p-2 pr-7 sm:p-2.5 sm:pr-9 border flex items-center justify-between gap-2 transition-all relative ${cardBgClass}`}>
                                     <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
-                                        <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl flex items-center justify-center shrink-0 overflow-hidden ${isCustomProduct ? 'bg-emerald-50 dark:bg-emerald-900/40 text-emerald-600' : 'bg-slate-50 dark:bg-slate-950'}`}>
+                                        <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-lg sm:rounded-xl flex items-center justify-center shrink-0 overflow-hidden ${
+                                             isCustomProduct
+                                                 ? 'bg-emerald-50 dark:bg-emerald-900/40 text-emerald-600'
+                                                 : item.isCombo
+                                                     ? 'bg-amber-50 dark:bg-amber-900/40 text-amber-600'
+                                                     : 'bg-slate-50 dark:bg-slate-950'
+                                         }`}>
                                             {item.image ? (
                                                 <img src={item.image} alt={item.name} className="w-full h-full object-contain mix-blend-multiply dark:mix-blend-normal" />
                                             ) : isCustomProduct ? (
                                                 <DollarSign size={20} className="sm:w-[22px] sm:h-[22px]" />
+                                            ) : item.isCombo ? (
+                                                <Gift size={20} className="text-amber-500 sm:w-[22px] sm:h-[22px]" />
                                             ) : (
                                                 <Package size={16} className="text-slate-300 sm:w-[18px] sm:h-[18px]" />
                                             )}
                                         </div>
                                         <div className="flex-1 min-w-0 pr-1">
-                                            <div className="flex items-center gap-1.5 min-w-0 mb-0.5 sm:mb-1">
-                                                <p className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 leading-tight truncate flex-1">{item.name}</p>
-                                                {item._mode === 'box' && (
-                                                    <span className="shrink-0 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:bg-blue-400/10 dark:text-blue-400 border border-blue-200/50 dark:border-blue-900/40">
-                                                        Caja
-                                                    </span>
-                                                )}
-                                                {item._mode === 'halfBox' && (
-                                                    <span className="shrink-0 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:bg-purple-400/10 dark:text-purple-400 border border-purple-200/50 dark:border-purple-900/40">
-                                                        ½ Caja
-                                                    </span>
-                                                )}
+                                            <div className="mb-0.5">
+                                                <p className="text-xs sm:text-[13px] font-bold text-slate-800 dark:text-slate-100 leading-tight break-words">{item.name}</p>
                                             </div>
+
+                                            {(item._mode === 'box' || item._mode === 'halfBox' || item.isCombo) && (
+                                                <div className="flex items-center gap-1.5 mb-1">
+                                                    {item._mode === 'box' && (
+                                                        <span className="shrink-0 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:bg-blue-400/10 dark:text-blue-400 border border-blue-200/50 dark:border-blue-900/40">
+                                                            Caja {item.boxUnits || ''}
+                                                        </span>
+                                                    )}
+                                                    {item._mode === 'halfBox' && (
+                                                        <span className="shrink-0 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:bg-purple-400/10 dark:text-purple-400 border border-purple-200/50 dark:border-purple-900/40">
+                                                            ½ Caja {item.halfBoxUnits || ''}
+                                                        </span>
+                                                    )}
+                                                    {item.isCombo && (
+                                                        <span className="shrink-0 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:bg-amber-400/10 dark:text-amber-400 border border-amber-200/50 dark:border-amber-900/40">
+                                                            Combo
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
+
                                             <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
                                                 {copEnabled && tasaCop > 0 ? (
                                                     copPrimary ? (

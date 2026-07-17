@@ -388,7 +388,7 @@ export default function ProductFormQuick({
                                 type="text" 
                                 value={barcode} 
                                 onChange={e => setBarcode(e.target.value)} 
-                                placeholder="Escanear o ingresar..."
+                                placeholder="Escanear o ingresar (sep. con comas)..."
                                 className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
                             />
                             <Barcode size={14} className="absolute left-2.5 bottom-3.5 text-slate-400" />
@@ -491,7 +491,7 @@ export default function ProductFormQuick({
                                     type="text" 
                                     value={boxBarcode} 
                                     onChange={e => setBoxBarcode(e.target.value)} 
-                                    placeholder="Código caja..."
+                                    placeholder="Código caja (sep. con comas)..."
                                     className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
                                 />
                                 <Barcode size={14} className="absolute left-2.5 bottom-3.5 text-slate-400" />
@@ -589,7 +589,7 @@ export default function ProductFormQuick({
                                     type="text" 
                                     value={halfBoxBarcode} 
                                     onChange={e => setHalfBoxBarcode(e.target.value)} 
-                                    placeholder="Código media..."
+                                    placeholder="Código media (sep. con comas)..."
                                     className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
                                 />
                                 <Barcode size={14} className="absolute left-2.5 bottom-3.5 text-slate-400" />
