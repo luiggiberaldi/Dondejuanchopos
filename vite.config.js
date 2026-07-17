@@ -3,6 +3,40 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
+async function fetchBcvDirect() {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+    try {
+        const res = await fetch('https://www.bcv.org.ve', {
+            signal: controller.signal,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            }
+        });
+        clearTimeout(timeout);
+        if (!res.ok) return null;
+        const html = await res.text();
+        
+        const usdMatch = html.match(/id="dolar"[\s\S]*?<strong class="strong-tb">[\s]*?([\d,.]+)/i);
+        const eurMatch = html.match(/id="euro"[\s\S]*?<strong class="strong-tb">[\s]*?([\d,.]+)/i);
+        
+        if (usdMatch && eurMatch) {
+            const usd = parseFloat(usdMatch[1].replace(',', '.').trim());
+            const eur = parseFloat(eurMatch[1].replace(',', '.').trim());
+            if (usd > 0 && eur > 0) {
+                return { usd, eur };
+            }
+        }
+    } catch (e) {
+        clearTimeout(timeout);
+        console.error('BCV Direct Scraping failed:', e.message);
+    }
+    return null;
+}
+
 // Versión del package.json para cacheId estable (INFRA-006).
 import pkg from './package.json' with { type: 'json' };
 const APP_VERSION = pkg.version || '1.0.0';
@@ -241,24 +275,59 @@ export default defineConfig(({ mode }) => {
                   throw new Error('Invalid data format');
                 }
               } catch (err) {
-                // Fallback a ve.dolarapi.com
+                // Fallback a ve.dolarapi.com / Scraper BCV directo
                 try {
-                  const response = await fetch('https://ve.dolarapi.com/v1/dolares');
-                  const data = await response.json();
-                  const oficial = Array.isArray(data) ? data.find((d) => d.fuente === 'oficial' || d.nombre === 'Oficial') : null;
-                  const paralelo = Array.isArray(data) ? data.find((d) => d.fuente === 'paralelo' || d.nombre === 'Paralelo') : null;
-                  const bcvPrice = parseFloat(oficial?.promedio || 580);
-                  const euroPrice = parseFloat((bcvPrice * 1.09).toFixed(2));
-                  const usdtPrice = parseFloat(paralelo?.promedio || (bcvPrice * 1.02).toFixed(2));
+                  const directRates = await fetchBcvDirect();
+                  const [resDollars, resEuros] = await Promise.all([
+                      fetch('https://ve.dolarapi.com/v1/dolares').catch(() => null),
+                      fetch('https://ve.dolarapi.com/v1/euros').catch(() => null)
+                  ]);
+
+                  const dollarsData = resDollars && resDollars.ok ? await resDollars.json() : [];
+                  const eurosData = resEuros && resEuros.ok ? await resEuros.json() : [];
+
+                  const oficial = Array.isArray(dollarsData) ? dollarsData.find((d) => d.fuente === 'oficial' || d.nombre === 'Oficial') : null;
+                  const paralelo = Array.isArray(dollarsData) ? dollarsData.find((d) => d.fuente === 'paralelo' || d.nombre === 'Paralelo') : null;
+                  const oficialEuro = Array.isArray(eurosData) ? eurosData.find((e) => e.fuente === 'oficial' || e.nombre === 'Euro') : null;
+
+                  let bcvPrice = 0;
+                  let bcvSource = 'BCV Oficial (Fallback)';
+                  if (directRates && directRates.usd > 0) {
+                      bcvPrice = parseFloat(directRates.usd.toFixed(2));
+                      bcvSource = 'BCV Directo (Dev)';
+                  } else if (oficial?.promedio) {
+                      bcvPrice = parseFloat(parseFloat(oficial.promedio).toFixed(2));
+                      bcvSource = 'BCV DolarApi (Dev)';
+                  }
+
+                  if (bcvPrice <= 0) throw new Error('Sin tasa oficial disponible');
+
+                  let euroPrice = 0;
+                  let euroSource = 'Euro BCV (Fallback)';
+                  if (directRates && directRates.eur > 0) {
+                      euroPrice = parseFloat(directRates.eur.toFixed(2));
+                      euroSource = 'Euro BCV Directo (Dev)';
+                  } else if (oficialEuro?.promedio) {
+                      euroPrice = parseFloat(parseFloat(oficialEuro.promedio).toFixed(2));
+                      euroSource = 'Euro BCV DolarApi (Dev)';
+                  } else {
+                      euroPrice = parseFloat((bcvPrice * 1.14).toFixed(2));
+                      euroSource = 'Euro BCV (Triangulado Dev)';
+                  }
+
+                  const usdtPrice = paralelo?.promedio 
+                      ? parseFloat(parseFloat(paralelo.promedio).toFixed(2)) 
+                      : parseFloat((bcvPrice * 1.12).toFixed(2));
+
                   res.end(JSON.stringify({
-                    bcv: { price: bcvPrice, source: 'BCV Oficial (Fallback)', change: 0 },
-                    euro: { price: euroPrice, source: 'Euro BCV (Fallback)', change: 0 },
-                    usdt: { price: usdtPrice, source: 'USDT Binance (Fallback)', change: 0 },
+                    bcv: { price: bcvPrice, source: bcvSource, change: 0 },
+                    euro: { price: euroPrice, source: euroSource, change: 0 },
+                    usdt: { price: usdtPrice, source: 'USDT Binance (Dev)', change: 0 },
                     lastUpdate: new Date().toISOString(),
                   }));
                 } catch (fallbackErr) {
                   res.statusCode = 500;
-                  res.end(JSON.stringify({ error: 'Failed to fetch rates: ' + err.message }));
+                  res.end(JSON.stringify({ error: 'Failed to fetch rates: ' + fallbackErr.message }));
                 }
               }
             })();

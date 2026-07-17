@@ -166,16 +166,16 @@ export function useRates() {
                 return;
             }
 
-            // Fallback: fetch directo a las fuentes externas
-            log("ℹ️ Fallback a fuentes directas", "info");
-            // Fetch en paralelo: datos privados (Google Script), dolarapi fallback, y external rates (Euro, COP)
+            // Fetch en paralelo: datos privados (Google Script), dolarapi fallback (dólares y euros), y external rates (Euro, COP)
             const taskPrivate = fetchGeneric(GOOGLE_SCRIPT_URL);
             const taskDolarApi = fetchGeneric('https://ve.dolarapi.com/v1/dolares');
+            const taskEuroApi = fetchGeneric('https://ve.dolarapi.com/v1/euros');
             const taskExternal = getExternalRatesFallback();
 
-            const [privateData, bcvFallbackData, externalRates] = await Promise.all([
+            const [privateData, bcvFallbackData, euroFallbackData, externalRates] = await Promise.all([
                 taskPrivate.catch(() => null),
                 taskDolarApi.catch(() => null),
+                taskEuroApi.catch(() => null),
                 taskExternal.catch(() => ({ eur: DEFAULT_EUR_USD_RATIO, cop: null }))
             ]);
             
@@ -211,8 +211,8 @@ export function useRates() {
 
                 // Validación de magnitud: si el precio es irrazonablemente bajo o alto, corregir
                 // HOOK-017: Pasar rango esperado como parámetro para no corromper COP u otras
-                // tasas con rangos muy distintos al BCV (que está entre 10 y 200).
-                const validateMagnitude = (val, min = 10, max = 200) => {
+                // tasas con rangos muy distintos al BCV (que está entre 10 y 20000).
+                const validateMagnitude = (val, min = 10, max = 20000) => {
                     if (!val || val <= 0) return val;
                     // Si el valor está por debajo del mínimo esperado, multiplicar por 10 hasta entrar.
                     if (val < min) {
@@ -232,8 +232,8 @@ export function useRates() {
                     return val;
                 };
 
-                newBcvPrice = validateMagnitude(bcvP, 10, 200);
-                newEuroPrice = validateMagnitude(euroP, 10, 250);
+                newBcvPrice = validateMagnitude(bcvP, 10, 20000);
+                newEuroPrice = validateMagnitude(euroP, 10, 22000);
 
                 if (newBcvPrice > 0) {
                     const meta = getMeta(newBcvPrice, newRates.bcv.price, newRates.bcv.change, apiBcvChange);
@@ -254,7 +254,13 @@ export function useRates() {
                     const meta = getMeta(newBcvPrice, newRates.bcv.price, newRates.bcv.change);
                     newRates.bcv = { ...newRates.bcv, ...meta, source: 'BCV Oficial (Respaldo)' };
 
-                    if (euroFactor) {
+                    // Intentar extraer Euro real de euros fallback
+                    const oficialEuro = Array.isArray(euroFallbackData) ? euroFallbackData.find(e => e.fuente === 'oficial' || e.nombre === 'Euro') : null;
+                    if (oficialEuro?.promedio > 0) {
+                        newEuroPrice = parseSafeFloat(oficialEuro.promedio);
+                        const metaEur = getMeta(newEuroPrice, newRates.euro.price, newRates.euro.change);
+                        newRates.euro = { ...newRates.euro, ...metaEur, source: 'Euro BCV (Respaldo)' };
+                    } else if (euroFactor) {
                         newEuroPrice = newBcvPrice * euroFactor;
                         const metaEur = getMeta(newEuroPrice, newRates.euro.price, newRates.euro.change);
                         newRates.euro = { ...newRates.euro, ...metaEur, source: 'Euro BCV (Triangulado)' };
