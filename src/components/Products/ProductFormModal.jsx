@@ -4,7 +4,7 @@ import { Modal } from '../Modal';
 import ProductFormQuick from './ProductFormQuick';
 import ProductFormWizard from './ProductFormWizard';
 import { CurrencyService } from '../../services/CurrencyService';
-import { mulR, divR } from '../../utils/dinero';
+import { mulR, divR, round2 } from '../../utils/dinero';
 import { useProductContext } from '../../context/ProductContext';
 
 export default function ProductFormModal({
