@@ -324,8 +324,8 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                         ${formatUsd(p.priceUsd)} <span className="text-[9px] font-bold text-slate-400">USD</span>
                     </p>
                     <p className="text-[11px] font-extrabold text-slate-500 dark:text-slate-450 leading-none">
-                        {p.priceBsManual ? `${Number(p.priceBsManual).toFixed(2)}` : formatBs(p.priceUsd * activeRate)} Bs
-                        {p.priceBsManual && <span className="text-[7px] bg-[#193275]/10 dark:bg-brand/10 text-[#193275] dark:text-brand px-1.5 py-0.5 rounded font-black ml-1.5">MANUAL</span>}
+                        {p.priceBsManual && !p.forceBcv ? `${Number(p.priceBsManual).toFixed(2)}` : formatBs(p.priceUsd * activeRate)} Bs
+                        {p.priceBsManual && !p.forceBcv && <span className="text-[7px] bg-[#193275]/10 dark:bg-brand/10 text-[#193275] dark:text-brand px-1.5 py-0.5 rounded font-black ml-1.5">MANUAL</span>}
                     </p>
                 </div>
 
@@ -336,7 +336,7 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                             <div className="flex items-center justify-between text-[10px] font-bold text-[#193275] dark:text-brand bg-[#193275]/5 dark:bg-brand/5 px-2 py-1 rounded-lg">
                                 <span className="flex items-center gap-1"><Package size={10} /> Caja ({p.boxUnits} Uds)</span>
                                 <span className="font-black">
-                                    ${(p.boxPriceUsd ? Number(p.boxPriceUsd) : 0).toFixed(2)} | {p.boxPriceBs ? `${Number(p.boxPriceBs).toFixed(0)} Bs` : `${((p.boxPriceUsd || 0) * activeRate).toFixed(0)} Bs`}
+                                    ${(p.boxPriceUsd ? Number(p.boxPriceUsd) : 0).toFixed(2)} | {p.boxPriceBs && !p.forceBcv ? `${Number(p.boxPriceBs).toFixed(0)} Bs` : `${((p.boxPriceUsd || 0) * activeRate).toFixed(0)} Bs`}
                                 </span>
                             </div>
                         )}
@@ -344,7 +344,7 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                             <div className="flex items-center justify-between text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/20 px-2 py-1 rounded-lg">
                                 <span className="flex items-center gap-1"><Package size={10} /> ½ Caja ({p.halfBoxUnits} Uds)</span>
                                 <span className="font-black">
-                                    ${(p.halfBoxPriceUsd ? Number(p.halfBoxPriceUsd) : 0).toFixed(2)} | {p.halfBoxPriceBs ? `${Number(p.halfBoxPriceBs).toFixed(0)} Bs` : `${((p.halfBoxPriceUsd || 0) * activeRate).toFixed(0)} Bs`}
+                                    ${(p.halfBoxPriceUsd ? Number(p.halfBoxPriceUsd) : 0).toFixed(2)} | {p.halfBoxPriceBs && !p.forceBcv ? `${Number(p.halfBoxPriceBs).toFixed(0)} Bs` : `${((p.halfBoxPriceUsd || 0) * activeRate).toFixed(0)} Bs`}
                                 </span>
                             </div>
                         )}

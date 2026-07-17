@@ -8,14 +8,14 @@ import { useAuthStore } from '../../hooks/store/useAuthStore';
 // en último caso, conversión por tasa. Coherente con FinancialEngine.buildCartTotals.
 const itemBsUnit = (item, rate, bcvRate) => {
     const itemRate = item.forceBcv ? (bcvRate || rate) : rate;
-    return item.priceBsManual != null && item.priceBsManual > 0 ? item.priceBsManual
-    : item.exactBs != null ? item.exactBs
+    return item.priceBsManual != null && item.priceBsManual > 0 && !item.forceBcv ? item.priceBsManual
+    : item.exactBs != null && !item.forceBcv ? item.exactBs
     : mulR(item.priceUsd, itemRate);
 };
 const itemBsLine = (item, rate, bcvRate) => {
     const itemRate = item.forceBcv ? (bcvRate || rate) : rate;
-    return item.priceBsManual != null && item.priceBsManual > 0 ? mulR(item.priceBsManual, item.qty)
-    : item.exactBs != null ? mulR(item.exactBs, item.qty)
+    return item.priceBsManual != null && item.priceBsManual > 0 && !item.forceBcv ? mulR(item.priceBsManual, item.qty)
+    : item.exactBs != null && !item.forceBcv ? mulR(item.exactBs, item.qty)
     : mulR(mulR(item.priceUsd, item.qty), itemRate);
 };
 

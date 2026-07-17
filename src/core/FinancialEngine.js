@@ -332,10 +332,10 @@ export class FinancialEngine {
         // inventario). Si no hay manual, se usa exactBs (Venta Libre) y, en último caso, la
         // conversión por tasa BCV/global. USD y Bs NO se derivan uno del otro.
         const lineItemsBs = cartItems.map(item => {
-            if (item.priceBsManual != null && item.priceBsManual > 0) {
+            if (item.priceBsManual != null && item.priceBsManual > 0 && !item.forceBcv) {
                 return mulR(item.priceBsManual, item.qty);
             }
-            if (item.exactBs != null) {
+            if (item.exactBs != null && !item.forceBcv) {
                 return mulR(item.exactBs, item.qty);
             }
             const itemRate = item.forceBcv ? (realBcvRate || bcvRate) : bcvRate;

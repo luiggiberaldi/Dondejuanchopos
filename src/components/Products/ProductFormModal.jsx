@@ -117,7 +117,7 @@ export default function ProductFormModal({
             const usd = CurrencyService.safeParse(priceUsd);
             const bcvRate = rates?.bcv?.price > 0 ? rates.bcv.price : effectiveRate;
             if (usd > 0 && bcvRate > 0) {
-                setPriceBsManual(Math.round(mulR(usd, bcvRate)).toString());
+                setPriceBsManual(round2(mulR(usd, bcvRate)).toFixed(2));
             }
         }
     }, [forceBcv, priceUsd, rates?.bcv?.price, effectiveRate, setPriceBsManual]);
@@ -164,7 +164,7 @@ export default function ProductFormModal({
         const activeRate = forceBcv ? bcvRate : effectiveRate;
         if (autoCalcUnit && activeRate > 0) {
             const p = CurrencyService.safeParse(val);
-            setPriceBsManual(p > 0 ? Math.round(mulR(p, activeRate)).toString() : '');
+            setPriceBsManual(p > 0 ? (forceBcv ? round2(mulR(p, activeRate)).toFixed(2) : Math.round(mulR(p, activeRate)).toString()) : '');
         }
     };
     const handleUnitPriceBsChange = (val) => {
