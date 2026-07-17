@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Camera, X, AlertTriangle, Package, Tag, Barcode, Eye, ShoppingBag, Zap, Boxes, Landmark } from 'lucide-react';
+import { Camera, X, AlertTriangle, Package, Tag, Barcode, Eye, ShoppingBag, Zap, Boxes, Landmark, Banknote } from 'lucide-react';
 import CustomSelect from '../CustomSelect';
 
 export default function ProductFormWizard({
@@ -305,8 +305,8 @@ export default function ProductFormWizard({
                     {/* Costos */}
                     <div className="bg-blue-500/5 dark:bg-blue-500/10 p-4 rounded-2xl border border-blue-500/20 space-y-3">
                         <div className="flex items-center justify-between">
-                            <span className="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest block ml-1">
-                                Costo de Adquisición
+                            <span className="text-xs font-black text-[#193275] dark:text-brand uppercase tracking-wider flex items-center gap-1.5 ml-1">
+                                <Banknote size={14} className="text-blue-500" /> Costo de Adquisición
                             </span>
                             <button
                                 type="button"
