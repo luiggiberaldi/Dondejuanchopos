@@ -62,7 +62,7 @@ export default function MonitorView({ rates: propRates, loading, isOffline, onRe
 
                 {/* Encabezado Kiosco Skeleton */}
                 <div className="flex flex-col items-center mt-12 gap-2 relative z-10 w-full">
-                    <div className="h-16 w-48 bg-slate-200 border border-slate-300 rounded-2xl"></div>
+                    <div className="h-28 w-56 bg-slate-200 border border-slate-300 rounded-2xl"></div>
                     <div className="h-4 w-32 bg-slate-200 border border-slate-300 rounded-lg mt-1"></div>
                     <div className="h-8 w-44 bg-slate-200 border border-slate-300 rounded-full mt-3"></div>
                 </div>
@@ -130,7 +130,7 @@ export default function MonitorView({ rates: propRates, loading, isOffline, onRe
             {/* Encabezado Kiosco */}
             <div className="flex flex-col items-center mt-12 gap-2 relative z-10">
                 <button onClick={handleSecretDebug} className="active:scale-95 transition-transform outline-none">
-                    <img src="./logo.png" alt="Donde Juancho" className="h-20 w-auto object-contain drop-shadow-sm" />
+                    <img src="./logo.png" alt="Donde Juancho" className="h-32 w-auto object-contain drop-shadow-sm" />
                 </button>
                 <p className="text-slate-700 text-sm font-medium -mt-2 font-outfit">Actualizado donde vayas</p>
                 <div className="bg-white/80 px-4 py-1.5 rounded-full border border-slate-200 backdrop-blur-md shadow-sm mt-2">
