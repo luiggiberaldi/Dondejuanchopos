@@ -493,14 +493,17 @@ export default function ProductFormQuick({
                                 <button
                                     type="button"
                                     onClick={handleToggleAutoCalcBox}
-                                    title={autoCalcBox ? 'Auto-Tasa activo' : 'Activar cálculo automático USD ⇔ Bs'}
-                                    className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 active:scale-95 ${
-                                        autoCalcBox
-                                            ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30'
-                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-slate-200 dark:border-slate-700'
+                                    disabled={forceBcv}
+                                    title={forceBcv ? 'Forzado a tasa BCV (Auto-Tasa obligatorio)' : (autoCalcBox ? 'Auto-Tasa activo' : 'Activar cálculo automático USD ⇔ Bs')}
+                                    className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 ${
+                                        forceBcv
+                                            ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/30 cursor-not-allowed opacity-80'
+                                            : autoCalcBox
+                                                ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30 active:scale-95'
+                                                : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-650 dark:hover:text-slate-300 border border-slate-200 dark:border-slate-700 active:scale-95'
                                     }`}
                                 >
-                                    <Zap size={10} className={autoCalcBox ? 'fill-white' : ''} /> Auto-Tasa
+                                    <Zap size={10} className={(autoCalcBox || forceBcv) ? 'fill-white' : ''} /> Auto-Tasa
                                 </button>
                             </div>
                             <div>
@@ -538,9 +541,9 @@ export default function ProductFormQuick({
                             </div>
                             <div>
                                 <label className="text-[10px] font-bold ml-1 mb-1 h-4 flex items-center justify-between">
-                                    <span className={`transition-colors duration-200 ${ autoCalcBox ? 'text-emerald-500' : 'text-slate-400' }`}>PRECIO CAJA BS</span>
+                                    <span className={`transition-colors duration-200 ${ (autoCalcBox || forceBcv) ? 'text-emerald-500' : 'text-slate-400' }`}>PRECIO CAJA BS</span>
                                     {effectiveRate > 0 && Number(boxPriceUsd) > 0 && (
-                                        <span className="text-[8px] text-slate-400 font-medium whitespace-nowrap">Ref: {Math.round(Number(boxPriceUsd) * effectiveRate)} Bs</span>
+                                        <span className="text-[8px] text-slate-400 font-medium whitespace-nowrap">Ref: {Math.round(Number(boxPriceUsd) * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate))} Bs</span>
                                     )}
                                 </label>
                                 <input 
@@ -548,11 +551,14 @@ export default function ProductFormQuick({
                                     inputMode="decimal" 
                                     value={boxPriceBs} 
                                     onChange={e => handleBoxPriceBsChange(e.target.value)} 
+                                    disabled={forceBcv}
                                     placeholder="1700.00"
                                     className={`w-full p-2.5 rounded-xl font-black text-xs outline-none border transition-all duration-200 ${
-                                        autoCalcBox
-                                            ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
-                                            : 'bg-white dark:bg-slate-900 text-[#193275] dark:text-brand border-slate-200 dark:border-slate-850'
+                                        forceBcv
+                                            ? 'text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700 bg-blue-50/30 dark:bg-blue-900/10 cursor-not-allowed'
+                                            : autoCalcBox
+                                                ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
+                                                : 'bg-white dark:bg-slate-900 text-[#193275] dark:text-brand border-slate-200 dark:border-slate-850'
                                     }`}
                                 />
                             </div>
@@ -591,14 +597,17 @@ export default function ProductFormQuick({
                                 <button
                                     type="button"
                                     onClick={handleToggleAutoCalcHalfBox}
-                                    title={autoCalcHalfBox ? 'Auto-Tasa activo' : 'Activar cálculo automático USD ⇔ Bs'}
-                                    className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 active:scale-95 ${
-                                        autoCalcHalfBox
-                                            ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30'
-                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-slate-200 dark:border-slate-700'
+                                    disabled={forceBcv}
+                                    title={forceBcv ? 'Forzado a tasa BCV (Auto-Tasa obligatorio)' : (autoCalcHalfBox ? 'Auto-Tasa activo' : 'Activar cálculo automático USD ⇔ Bs')}
+                                    className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 ${
+                                        forceBcv
+                                            ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/30 cursor-not-allowed opacity-80'
+                                            : autoCalcHalfBox
+                                                ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30 active:scale-95'
+                                                : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-650 dark:hover:text-slate-300 border border-slate-200 dark:border-slate-700 active:scale-95'
                                     }`}
                                 >
-                                    <Zap size={10} className={autoCalcHalfBox ? 'fill-white' : ''} /> Auto-Tasa
+                                    <Zap size={10} className={(autoCalcHalfBox || forceBcv) ? 'fill-white' : ''} /> Auto-Tasa
                                 </button>
                             </div>
                             <div>
@@ -636,9 +645,9 @@ export default function ProductFormQuick({
                             </div>
                             <div>
                                 <label className="text-[10px] font-bold ml-1 mb-1 h-4 flex items-center justify-between">
-                                    <span className={`transition-colors duration-200 ${ autoCalcHalfBox ? 'text-emerald-500' : 'text-slate-400' }`}>PRECIO ½ CAJA BS</span>
+                                    <span className={`transition-colors duration-200 ${ (autoCalcHalfBox || forceBcv) ? 'text-emerald-500' : 'text-slate-400' }`}>PRECIO ½ CAJA BS</span>
                                     {effectiveRate > 0 && Number(halfBoxPriceUsd) > 0 && (
-                                        <span className="text-[8px] text-slate-400 font-medium whitespace-nowrap">Ref: {Math.round(Number(halfBoxPriceUsd) * effectiveRate)} Bs</span>
+                                        <span className="text-[8px] text-slate-400 font-medium whitespace-nowrap">Ref: {Math.round(Number(halfBoxPriceUsd) * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate))} Bs</span>
                                     )}
                                 </label>
                                 <input 
@@ -646,11 +655,14 @@ export default function ProductFormQuick({
                                     inputMode="decimal" 
                                     value={halfBoxPriceBs} 
                                     onChange={e => handleHalfBoxPriceBsChange(e.target.value)} 
+                                    disabled={forceBcv}
                                     placeholder="900.00"
                                     className={`w-full p-2.5 rounded-xl font-black text-xs outline-none border transition-all duration-200 ${
-                                        autoCalcHalfBox
-                                            ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
-                                            : 'bg-white dark:bg-slate-900 text-[#193275] dark:text-brand border-slate-200 dark:border-slate-850'
+                                        forceBcv
+                                            ? 'text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700 bg-blue-50/30 dark:bg-blue-900/10 cursor-not-allowed'
+                                            : autoCalcHalfBox
+                                                ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
+                                                : 'bg-white dark:bg-slate-900 text-[#193275] dark:text-brand border-slate-200 dark:border-slate-850'
                                     }`}
                                 />
                             </div>
