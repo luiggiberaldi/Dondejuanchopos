@@ -41,11 +41,19 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
                     const defaultCamera = backCamera ? backCamera.id : devices[devices.length - 1].id;
                     setActiveCamera(defaultCamera);
                 } else {
-                    setActiveCamera('environment'); // Fallback genérico
+                    console.warn('[PairingScanScreen] No se detectó ninguna cámara física.');
+                    setScanMethod('manual');
+                    showToast('No se detectó cámara en este dispositivo. Ingresa el código manual.', 'info');
                 }
             } catch (e) {
                 console.warn('[PairingScanScreen] Error al listar cámaras:', e);
-                setActiveCamera('environment'); // Fallback genérico
+                const eStr = String(e).toLowerCase();
+                if (eStr.includes('notfound') || eStr.includes('not found')) {
+                    setScanMethod('manual');
+                    showToast('No se detectó cámara en este dispositivo.', 'info');
+                } else {
+                    setActiveCamera('environment');
+                }
             }
         };
 
@@ -136,11 +144,20 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
             const isPermissionError = errStr.includes('permission') || 
                                      errStr.includes('notallowederror') || 
                                      errStr.includes('denied');
+            const isNotFoundError = errStr.includes('notfounderror') || 
+                                   errStr.includes('not found') || 
+                                   errStr.includes('requested device');
+
             if (isPermissionError) {
                 setCameraState('permission_denied');
+            } else if (isNotFoundError) {
+                setCameraState('error');
+                setScanMethod('manual');
+                showToast('Dispositivo sin cámara. Modo manual activado.', 'info');
+                setErrorMsg('No se detectó cámara física. Por favor ingresa el código manual de 6 dígitos.');
             } else {
                 setCameraState('error');
-                setErrorMsg('No se pudo acceder a la cámara. Revisa tu conexión o usa el código manual.');
+                setErrorMsg('No se pudo acceder a la cámara. Revisa la conexión o usa el código manual.');
             }
         }
     };
@@ -176,7 +193,7 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
     };
 
     // Ejecutar el emparejamiento con el token
-    const executePairing = async (token) => {
+    const executePairing = async (token, isRetry = false) => {
         if (!supabaseCloud) {
             showToast('Sin conexión a la nube', 'error');
             return;
@@ -186,11 +203,10 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
         setErrorMsg('');
 
         try {
-            // Obtener el device_id local para registrarlo como monitor
+            // Obtener o regenerar el device_id local para registrarlo como monitor
             let monitorId = localStorage.getItem('dj_device_id');
-            if (!monitorId) {
-                // Generar uno de respaldo si por algún motivo no existe
-                monitorId = 'mon_' + Math.random().toString(36).substring(2, 15);
+            if (!monitorId || isRetry) {
+                monitorId = 'mon_' + Math.random().toString(36).substring(2, 12) + '_' + Date.now().toString(36);
                 localStorage.setItem('dj_device_id', monitorId);
             }
 
@@ -214,12 +230,30 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
                 }, 1500);
             } else {
                 setErrorMsg(data?.message || 'Error desconocido al vincular.');
-                startScanning(); // Volver a habilitar cámara
+                if (scanMethod === 'camera') startScanning();
             }
         } catch (err) {
             console.error('[PairingScanScreen] Error al vincular:', err);
-            setErrorMsg(err.message || 'Error de conexión con el servidor.');
-            startScanning(); // Volver a habilitar cámara
+            const status = err?.status || err?.code;
+            const msg = (err?.message || '').toLowerCase();
+            const details = (err?.details || '').toLowerCase();
+
+            // Si el dispositivo ya estaba registrado en Supabase (Error 23505 duplicate key),
+            // regenerar ID local y reintentar automáticamente una vez.
+            if (!isRetry && (status === '23505' || status === 23505 || msg.includes('23505') || msg.includes('duplicate key') || details.includes('already exists'))) {
+                console.log('[PairingScanScreen] Dispositivo anteriormente registrado (23505). Regenerando ID y reintentando...');
+                localStorage.removeItem('dj_device_id');
+                return executePairing(token, true);
+            }
+
+            if (status === 409 || status === '409' || msg.includes('409') || msg.includes('conflict') || msg.includes('ya existe') || msg.includes('expira') || msg.includes('inválid')) {
+                setErrorMsg('El código de vinculación ha expirado o ya fue utilizado. Por favor genera un nuevo código QR en la caja principal.');
+            } else {
+                setErrorMsg(err?.message || 'Error de conexión con el servidor.');
+            }
+            if (scanMethod === 'camera') {
+                startScanning(); // Volver a habilitar cámara
+            }
         } finally {
             setLoading(false);
         }

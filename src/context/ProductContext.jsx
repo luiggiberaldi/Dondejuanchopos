@@ -232,6 +232,9 @@ export function ProductProvider({ children, rates }) {
     // el flag activo y NO dispare un re-fetch que pisaría el save en curso.
     useEffect(() => {
         if (isLoadingProducts) return;
+        // En modo monitor, omitir el guardado automático local/nube para evitar que el monitor
+        // pise la base de datos de productos de la caja principal (evita borrados accidentales).
+        if (localStorage.getItem('dj_pairing_mode') === 'monitor') return;
 
         if (!hasMountedRef.current) {
             hasMountedRef.current = true;
@@ -326,7 +329,8 @@ export function ProductProvider({ children, rates }) {
         };
 
         const handleAppStorageUpdate = async (e) => {
-            if (savingRef.current) return;
+            const isMonitor = localStorage.getItem('dj_pairing_mode') === 'monitor';
+            if (savingRef.current && !isMonitor) return;
             const key = e.detail?.key;
             if (!key) return;
 

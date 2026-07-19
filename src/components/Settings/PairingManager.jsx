@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import QRCode from 'qrcode';
 import { supabaseCloud } from '../../config/supabaseCloud';
 import { showToast } from '../Toast';
+import { forceSyncAllPOSData } from '../../hooks/useCloudSync';
 import { 
     QrCode, Trash2, KeyRound, Loader2, CheckCircle2, 
     Smartphone, ShieldAlert, RefreshCw, X 
@@ -65,6 +66,9 @@ export default function PairingManager({ deviceId, triggerHaptic }) {
         setPairingState('generating');
 
         try {
+            // Asegurar que todos los datos del POS estén en la nube para el nuevo monitor
+            forceSyncAllPOSData(deviceId).catch(() => {});
+
             const { data: generatedToken, error } = await supabaseCloud.rpc('generate_pairing_token', {
                 p_device_id: deviceId
             });
