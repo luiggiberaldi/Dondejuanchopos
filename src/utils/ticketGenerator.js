@@ -158,6 +158,16 @@ export async function generateTicketPDF(sale, bcvRate) {
             }
             doc.text(detailLine, M + 10, y);
             y += 5;
+
+            if (item.isModular && item.modularSelections?.length > 0) {
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(is80 ? 6 : 5);
+                doc.setTextColor(...MUTED);
+                item.modularSelections.forEach(sel => {
+                    doc.text(`  ▪ ${sel.qty}x ${sel.productName}`, M + 10, y);
+                    y += 3.5;
+                });
+            }
         });
     }
 

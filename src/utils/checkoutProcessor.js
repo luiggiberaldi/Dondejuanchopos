@@ -105,7 +105,9 @@ export async function processSaleTransaction({
             boxUnits: i.boxUnits || null,
             halfBoxUnits: i.halfBoxUnits || null,
             priceBsManual: i.priceBsManual || null,
-            forceBcv: i.forceBcv || null
+            forceBcv: i.forceBcv || null,
+            isModular: i.isModular || false,
+            modularSelections: i.modularSelections || []
         })),
         cartSubtotalUsd: cartSubtotalUsd,
         discountType:       discountData?.type      || null,
@@ -191,7 +193,16 @@ export async function processSaleTransaction({
                     const compDeduction = mulR(ci.qty, physicalQty);
                     addDeduccion(ci.productId, compDeduction);
                 });
-            } else {
+            }
+
+            if (item.isModular && item.modularSelections?.length > 0) {
+                item.modularSelections.forEach(sel => {
+                    const compDeduction = mulR(sel.qty, physicalQty);
+                    addDeduccion(sel.productId, compDeduction);
+                });
+            }
+
+            if (!prodObj?.isCombo && !item.isModular) {
                 addDeduccion(itemId, physicalQty);
             }
         });

@@ -18,6 +18,9 @@ export default function ComboFormModal({
     const [image, setImage] = useState(null);
     const [category] = useState('combo');
     const [comboItems, setComboItems] = useState([]); // [{ productId, qty, _product }]
+    const [isModular, setIsModular] = useState(false);
+    const [modularGroups, setModularGroups] = useState([]); // [{ id, title, requiredQty, allowedProductIds }]
+    const [groupSearchTerms, setGroupSearchTerms] = useState({}); // { [groupId]: 'search term' }
     const [priceUsd, setPriceUsd] = useState('');
     const [priceBsManual, setPriceBsManual] = useState(''); // Precio Bs independiente del combo
     const [autoCalc, setAutoCalc] = useState(false); // Auto-Tasa: sincroniza USD ⇔ Bs
@@ -89,13 +92,60 @@ export default function ComboFormModal({
 
     // ── Stock virtual disponible del combo en base al limitante ──
     const availableCombos = useMemo(() => {
-        if (comboItems.length === 0) return 0;
-        const avails = comboItems.map(ci => {
-            if (!ci._product || ci.qty <= 0) return 0;
-            return Math.floor((ci._product.stock || 0) / ci.qty);
-        });
-        return Math.min(...avails);
-    }, [comboItems]);
+        if (comboItems.length === 0 && (!isModular || modularGroups.length === 0)) return 0;
+        let avails = [];
+        if (comboItems.length > 0) {
+            avails = comboItems.map(ci => {
+                if (!ci._product || ci.qty <= 0) return 0;
+                return Math.floor((ci._product.stock || 0) / ci.qty);
+            });
+        }
+        if (isModular && modularGroups.length > 0) {
+            modularGroups.forEach(g => {
+                const totalStock = (g.allowedProductIds || []).reduce((sum, pid) => {
+                    const p = products?.find(x => x.id === pid);
+                    return sum + (p?.stock || 0);
+                }, 0);
+                const req = g.requiredQty || 1;
+                avails.push(Math.floor(totalStock / req));
+            });
+        }
+        return avails.length > 0 ? Math.min(...avails) : 0;
+    }, [comboItems, isModular, modularGroups, products]);
+
+    // ── Gestores de Grupos Modulares ──
+    const addModularGroup = () => {
+        setModularGroups(prev => [
+            ...prev,
+            {
+                id: crypto.randomUUID(),
+                title: `Selección ${prev.length + 1}`,
+                requiredQty: 10,
+                allowedProductIds: []
+            }
+        ]);
+    };
+
+    const updateModularGroup = (groupId, field, value) => {
+        setModularGroups(prev => prev.map(g => g.id === groupId ? { ...g, [field]: value } : g));
+    };
+
+    const removeModularGroup = (groupId) => {
+        setModularGroups(prev => prev.filter(g => g.id !== groupId));
+    };
+
+    const toggleProductInGroup = (groupId, productId) => {
+        setModularGroups(prev => prev.map(g => {
+            if (g.id !== groupId) return g;
+            const exists = (g.allowedProductIds || []).includes(productId);
+            return {
+                ...g,
+                allowedProductIds: exists
+                    ? g.allowedProductIds.filter(id => id !== productId)
+                    : [...g.allowedProductIds, productId]
+            };
+        }));
+    };
 
     // ── Inicialización en caso de edición ──
     useEffect(() => {
@@ -111,6 +161,8 @@ export default function ComboFormModal({
             );
 
             setBarcode(editingCombo.barcode || '');
+            setIsModular(!!editingCombo.isModular);
+            setModularGroups(editingCombo.modularGroups || []);
             // Mapear items
             let items = [];
             if (editingCombo.comboItems?.length > 0) {
@@ -125,6 +177,8 @@ export default function ComboFormModal({
             setName('');
             setImage(null);
             setComboItems([]);
+            setIsModular(false);
+            setModularGroups([]);
             setPriceUsd('');
             setPriceBsManual('');
             setSearchTerm('');
@@ -211,7 +265,9 @@ export default function ComboFormModal({
     };
 
     const handleSave = () => {
-        if (!name.trim() || comboItems.length === 0 || parsedPrice <= 0) {
+        const hasFixed = comboItems.length > 0;
+        const hasModular = isModular && modularGroups.length > 0;
+        if (!name.trim() || (!hasFixed && !hasModular) || parsedPrice <= 0) {
             setIsFormShaking(true);
             setTimeout(() => setIsFormShaking(false), 500);
             return;
@@ -236,7 +292,14 @@ export default function ComboFormModal({
             stock: 0,
             unit: 'unidad',
             isCombo: true,
+            isModular: hasModular,
             comboItems: cleanItems,
+            modularGroups: hasModular ? modularGroups.map(g => ({
+                id: g.id || crypto.randomUUID(),
+                title: g.title || 'Selección',
+                requiredQty: Math.max(1, parseInt(g.requiredQty, 10) || 1),
+                allowedProductIds: g.allowedProductIds || []
+            })) : [],
             lowStockAlert: 0,
             createdAt: editingCombo?.createdAt || new Date().toISOString(),
         };
@@ -378,12 +441,12 @@ export default function ComboFormModal({
 
                     {/* Componentes Agregados */}
                     {comboItems.length === 0 ? (
-                        <div className="border-2 border-dashed border-brand/10 rounded-2xl p-6 text-center bg-brand-light/10">
-                            <div className="w-12 h-12 bg-brand-light/60 dark:bg-surface-800/30 rounded-xl flex items-center justify-center mx-auto mb-3">
-                                <Gift size={22} className="text-brand/60" />
+                        <div className="border-2 border-dashed border-brand/15 dark:border-slate-800 rounded-2xl p-4 text-center bg-brand-light/10 dark:bg-slate-800/20">
+                            <div className="w-10 h-10 bg-brand-light/60 dark:bg-slate-800/60 rounded-xl flex items-center justify-center mx-auto mb-2 text-brand">
+                                <Gift size={20} />
                             </div>
-                            <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Agrega productos al combo</p>
-                            <p className="text-[11px] text-slate-400/60 mt-1">Usa el buscador de arriba para empezar</p>
+                            <p className="text-xs font-bold text-slate-600 dark:text-slate-300">Sin ítems fijos obligatorios</p>
+                            <p className="text-[11px] text-slate-400 mt-0.5">Usa el buscador para añadir productos fijos (opcional si usas grupos modulares)</p>
                         </div>
                     ) : (
                         <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
@@ -438,8 +501,185 @@ export default function ComboFormModal({
                     )}
                 </div>
 
+                {/* ── 2.5. Grupos de Selección Libre (Combo Modular Híbrido) ── */}
+                <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-bold text-slate-400 ml-1 block uppercase flex items-center gap-1.5">
+                            <Tag size={11} className="text-purple-500" /> Grupos Modulares (Elección libre)
+                        </label>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                const next = !isModular;
+                                setIsModular(next);
+                                if (next && modularGroups.length === 0) addModularGroup();
+                            }}
+                            className={`px-3 py-1.5 text-[10px] font-black rounded-xl transition-all ${
+                                isModular
+                                    ? 'bg-purple-600 text-white shadow-md shadow-purple-500/25 ring-2 ring-purple-400/30'
+                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700'
+                            }`}
+                        >
+                            {isModular ? '✓ Modular Activo' : '+ Activar Modular'}
+                        </button>
+                    </div>
+
+                    {isModular && (
+                        <div className="space-y-3 bg-purple-50/40 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/40 p-3 rounded-2xl">
+                            {modularGroups.map((g) => {
+                                const allowedIds = g.allowedProductIds || [];
+                                const allowedProds = allowedIds.map(pid => products?.find(p => p.id === pid)).filter(Boolean);
+                                const totalGroupStock = allowedProds.reduce((sum, p) => sum + (p.stock || 0), 0);
+                                const isCoverageOk = totalGroupStock >= g.requiredQty;
+                                const groupSearch = (groupSearchTerms[g.id] || '').toLowerCase().trim();
+
+                                const filteredAvailable = nonComboProducts.filter(p => {
+                                    if (allowedIds.includes(p.id)) return false;
+                                    if (!groupSearch) return true;
+                                    return p.name.toLowerCase().includes(groupSearch);
+                                });
+
+                                return (
+                                    <div key={g.id} className="bg-white dark:bg-slate-900 border border-purple-200/80 dark:border-purple-800/50 p-3.5 rounded-2xl shadow-sm space-y-3">
+                                        {/* Header del grupo */}
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="text"
+                                                value={g.title}
+                                                onChange={e => updateModularGroup(g.id, 'title', e.target.value)}
+                                                placeholder="Nombre del grupo (ej: Cervezas)"
+                                                className="flex-1 bg-slate-50 dark:bg-slate-800/80 p-2.5 rounded-xl text-xs font-black text-slate-800 dark:text-white outline-none border border-slate-200/60 dark:border-slate-700 focus:ring-2 focus:ring-purple-400/40"
+                                            />
+                                            <div className="flex items-center gap-1.5 bg-purple-50 dark:bg-purple-900/30 px-2.5 py-1.5 rounded-xl border border-purple-200/50 dark:border-purple-800/40">
+                                                <span className="text-[10px] font-black uppercase text-purple-600 dark:text-purple-300">Cuota:</span>
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    value={g.requiredQty}
+                                                    onChange={e => updateModularGroup(g.id, 'requiredQty', Math.max(1, parseInt(e.target.value, 10) || 1))}
+                                                    className="w-8 bg-transparent text-center text-xs font-black text-purple-700 dark:text-purple-300 outline-none"
+                                                />
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => removeModularGroup(g.id)}
+                                                className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl transition-colors"
+                                                title="Eliminar grupo"
+                                            >
+                                                <X size={15} strokeWidth={2.5} />
+                                            </button>
+                                        </div>
+
+                                        {/* Resumen de Cobertura de Stock */}
+                                        <div className="flex items-center justify-between px-2 py-1 bg-slate-50 dark:bg-slate-800/50 rounded-lg text-[10px] font-bold">
+                                            <span className="text-slate-400">Productos asignados: {allowedProds.length}</span>
+                                            <span className={`px-2 py-0.5 rounded-full font-black ${
+                                                isCoverageOk
+                                                    ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400'
+                                                    : 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
+                                            }`}>
+                                                Stock total: {totalGroupStock} / Cuota: {g.requiredQty} {isCoverageOk ? '✓' : '⚠️'}
+                                            </span>
+                                        </div>
+
+                                        {/* Chips / Tags de Productos Asignados */}
+                                        {allowedProds.length > 0 && (
+                                            <div>
+                                                <div className="text-[9px] font-black text-slate-400 uppercase mb-1.5">Permitidos en este grupo:</div>
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {allowedProds.map(p => (
+                                                        <span
+                                                            key={p.id}
+                                                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-purple-100/80 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 text-xs font-bold border border-purple-200 dark:border-purple-800/60 transition-all hover:bg-purple-200/60"
+                                                        >
+                                                            <span className="capitalize">{p.name}</span>
+                                                            <span className={`text-[9px] px-1 rounded font-black ${
+                                                                (p.stock || 0) > 0 ? 'bg-purple-200/70 dark:bg-purple-800/60 text-purple-800 dark:text-purple-200' : 'bg-rose-100 text-rose-600'
+                                                            }`}>
+                                                                {p.stock ?? 0}
+                                                            </span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => toggleProductInGroup(g.id, p.id)}
+                                                                className="hover:text-rose-500 text-purple-400 p-0.5 rounded-full transition-colors"
+                                                                title="Quitar del grupo"
+                                                            >
+                                                                <X size={12} strokeWidth={3} />
+                                                            </button>
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Mini-Buscador de Productos a agregar */}
+                                        <div className="space-y-1.5 pt-1">
+                                            <div className="relative flex items-center">
+                                                <Search size={13} className="absolute left-3 text-slate-400" />
+                                                <input
+                                                    type="text"
+                                                    value={groupSearchTerms[g.id] || ''}
+                                                    onChange={e => setGroupSearchTerms(prev => ({ ...prev, [g.id]: e.target.value }))}
+                                                    placeholder="Buscar producto para permitir en este grupo..."
+                                                    className="w-full bg-slate-50 dark:bg-slate-800/80 pl-8 pr-7 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 outline-none border border-slate-200/50 dark:border-slate-700/50 focus:ring-1 focus:ring-purple-400/40 placeholder:text-slate-400/60"
+                                                />
+                                                {groupSearchTerms[g.id] && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setGroupSearchTerms(prev => ({ ...prev, [g.id]: '' }))}
+                                                        className="absolute right-2 p-1 text-slate-400 hover:text-slate-600"
+                                                    >
+                                                        <X size={12} />
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            {/* Lista filtrada para añadir */}
+                                            <div className="max-h-32 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                                                {filteredAvailable.slice(0, groupSearch ? 10 : 4).map(p => (
+                                                    <button
+                                                        key={p.id}
+                                                        type="button"
+                                                        onClick={() => toggleProductInGroup(g.id, p.id)}
+                                                        className="w-full flex items-center justify-between p-2 rounded-xl text-left text-xs font-bold bg-slate-50/70 dark:bg-slate-800/40 hover:bg-purple-50 dark:hover:bg-purple-900/20 text-slate-700 dark:text-slate-300 border border-slate-100 dark:border-slate-800 transition-all group"
+                                                    >
+                                                        <span className="truncate capitalize">{p.name}</span>
+                                                        <div className="flex items-center gap-2 shrink-0 ml-2">
+                                                            <span className={`text-[10px] font-bold ${
+                                                                (p.stock || 0) > 0 ? 'text-slate-400' : 'text-rose-400'
+                                                            }`}>
+                                                                stock: {p.stock ?? 0}
+                                                            </span>
+                                                            <span className="text-[10px] font-black text-purple-600 dark:text-purple-400 bg-purple-100/60 dark:bg-purple-900/40 px-2 py-0.5 rounded-lg group-hover:bg-purple-600 group-hover:text-white transition-colors">
+                                                                + Añadir
+                                                            </span>
+                                                        </div>
+                                                    </button>
+                                                ))}
+                                                {groupSearch && filteredAvailable.length === 0 && (
+                                                    <div className="text-[11px] text-center text-slate-400 py-2 font-medium">
+                                                        No se encontraron productos coincidentes
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+
+                            <button
+                                type="button"
+                                onClick={addModularGroup}
+                                className="w-full py-2.5 bg-purple-100 dark:bg-purple-900/30 hover:bg-purple-200 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded-2xl text-xs font-black transition-colors flex items-center justify-center gap-1.5 border border-purple-200/50 dark:border-purple-800/40"
+                            >
+                                <Plus size={15} strokeWidth={2.5} /> Añadir otro grupo de selección
+                            </button>
+                        </div>
+                    )}
+                </div>
+
                 {/* ── 3. Precio de Venta en USD y Bs ── */}
-                {comboItems.length > 0 && (
+                {(comboItems.length > 0 || (isModular && modularGroups.length > 0)) && (
                     <div className="space-y-3 animate-in fade-in duration-200">
                         <div className="flex items-center justify-between">
                             <label className="text-[10px] font-bold text-slate-400 ml-1 block uppercase flex items-center gap-1.5">
@@ -519,7 +759,7 @@ export default function ComboFormModal({
                 )}
 
                 {/* ── Vista Previa Final ── */}
-                {comboItems.length > 0 && parsedPrice > 0 && (
+                {(comboItems.length > 0 || (isModular && modularGroups.length > 0)) && parsedPrice > 0 && (
                     <div className="bg-brand-light/20 dark:bg-surface-800/10 border border-brand/10 dark:border-surface-850 rounded-xl p-3.5 animate-in fade-in duration-200">
                         <div className="flex items-center justify-between mb-2">
                             <span className="text-xs font-black text-brand flex items-center gap-1.5">
@@ -537,10 +777,18 @@ export default function ComboFormModal({
                                     <span className="text-slate-450">${((ci._product?.priceUsd || 0) * ci.qty).toFixed(2)}</span>
                                 </div>
                             ))}
-                            <div className="flex justify-between text-[11px] pt-1.5 border-t border-brand/10 dark:border-slate-800">
-                                <span className="text-slate-450">Individual</span>
-                                <span className="text-slate-400 line-through">${individualTotal.toFixed(2)}</span>
-                            </div>
+                            {isModular && modularGroups.map(g => (
+                                <div key={g.id} className="flex justify-between text-[11px] text-purple-600 dark:text-purple-400">
+                                    <span>🔀 {g.requiredQty}x {g.title} (Elección libre)</span>
+                                    <span>({g.allowedProductIds?.length || 0} opciones)</span>
+                                </div>
+                            ))}
+                            {comboItems.length > 0 && (
+                                <div className="flex justify-between text-[11px] pt-1.5 border-t border-brand/10 dark:border-slate-800">
+                                    <span className="text-slate-450">Individual</span>
+                                    <span className="text-slate-400 line-through">${individualTotal.toFixed(2)}</span>
+                                </div>
+                            )}
                             <div className="flex justify-between text-xs font-black text-brand pt-0.5">
                                 <span>Precio combo</span>
                                 <span>${parsedPrice.toFixed(2)} / {(parsedPriceBs > 0 ? parsedPriceBs : parsedPrice * effectiveRate).toFixed(2)} Bs</span>
@@ -551,7 +799,7 @@ export default function ComboFormModal({
 
                 {/* ── Botón Guardar ── */}
                 <button type="button" onClick={handleSave}
-                    disabled={!name.trim() || comboItems.length === 0 || parsedPrice <= 0}
+                    disabled={!name.trim() || (comboItems.length === 0 && (!isModular || modularGroups.length === 0)) || parsedPrice <= 0}
                     className="w-full py-3.5 rounded-2xl font-black text-white uppercase tracking-wider text-sm bg-brand hover:bg-brand-dark shadow-lg shadow-brand/25 transition-all active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100">
                     {editingCombo ? 'Guardar Cambios' : 'Crear Combo'}
                 </button>

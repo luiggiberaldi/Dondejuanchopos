@@ -69,7 +69,16 @@ export async function processVoidSale(sale, currentSales, currentProducts) {
                         const compRestoration = mulR(ci.qty, physicalQty);
                         addRestauracion(ci.productId, compRestoration);
                     });
-                } else {
+                }
+
+                if (item.isModular && item.modularSelections?.length > 0) {
+                    item.modularSelections.forEach(sel => {
+                        const compRestoration = mulR(sel.qty, physicalQty);
+                        addRestauracion(sel.productId, compRestoration);
+                    });
+                }
+
+                if (!prodObj?.isCombo && !item.isModular) {
                     addRestauracion(itemId, physicalQty);
                 }
             });

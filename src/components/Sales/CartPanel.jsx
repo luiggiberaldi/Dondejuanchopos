@@ -154,6 +154,16 @@ export default function CartPanel({
                                                 </div>
                                             )}
 
+                                            {item.isModular && item.modularSelections?.length > 0 && (
+                                                <div className="mb-1 space-y-0.5 border-l-2 border-purple-400 pl-1.5 py-0.5">
+                                                    {item.modularSelections.map((sel, idx) => (
+                                                        <div key={idx} className="text-[10px] font-semibold text-purple-700 dark:text-purple-300 leading-tight">
+                                                            ↳ {sel.qty}x {sel.productName}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+
                                             <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
                                                 {copEnabled && tasaCop > 0 ? (
                                                     copPrimary ? (

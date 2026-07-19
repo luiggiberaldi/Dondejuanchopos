@@ -28,6 +28,7 @@ import CustomAmountModal from '../components/Sales/CustomAmountModal';
 import KeyboardHelpModal from '../components/Sales/KeyboardHelpModal';
 import DiscountModal from '../components/Sales/DiscountModal';
 import CajaCerradaOverlay from '../components/Sales/CajaCerradaOverlay';
+import ModularComboPickerModal from '../components/Sales/ModularComboPickerModal';
 import { getLocalISODate } from '../utils/dateHelpers';
 import AperturaCajaModal from '../components/Dashboard/AperturaCajaModal';
 
@@ -73,6 +74,8 @@ export default function SalesView({ triggerHaptic, isActive }) {
     const [hierarchyPending, setHierarchyPending] = useState(null);
     const [weightPending, setWeightPending] = useState(null);
     const [selectedCustomerId, setSelectedCustomerId] = useState('');
+    const [modularComboPickerOpen, setModularComboPickerOpen] = useState(false);
+    const [pendingModularCombo, setPendingModularCombo] = useState(null);
 
     // Rate config
     const [showRateConfig, setShowRateConfig] = useState(false);
@@ -361,8 +364,43 @@ export default function SalesView({ triggerHaptic, isActive }) {
     });
 
     // ── Callbacks ─────────────────────────────────
+    const handleModularComboConfirm = useCallback((modularSelections) => {
+        setModularComboPickerOpen(false);
+        const combo = pendingModularCombo;
+        setPendingModularCombo(null);
+        if (!combo) return;
+
+        const cartId = `${combo.id}_modular_${Date.now()}`;
+        const itemCostBs = combo.costBs || (combo.costUsd ? combo.costUsd * effectiveRate : 0);
+
+        setCart(prev => [{
+            ...combo,
+            id: cartId,
+            name: combo.name,
+            priceUsd: CurrencyService.safeParse(combo.priceUsd) || 0,
+            priceBsManual: combo.priceBsManual ? CurrencyService.safeParse(combo.priceBsManual) : null,
+            costUsd: CurrencyService.safeParse(combo.costUsd) || 0,
+            costBs: itemCostBs,
+            qty: 1,
+            isWeight: false,
+            _originalId: combo.id,
+            _mode: 'unit',
+            isModular: true,
+            modularSelections
+        }, ...prev]);
+
+        playAdd();
+    }, [pendingModularCombo, playAdd, effectiveRate, setCart]);
+
     const addToCart = useCallback((product, qtyOverride = null, forceMode = null, isBarcodeSource = false) => {
         triggerHaptic && triggerHaptic();
+
+        // Intercepción: combo modular → abrir picker antes de agregar
+        if (product.isCombo && product.isModular && product.modularGroups?.length > 0) {
+            setPendingModularCombo(product);
+            setModularComboPickerOpen(true);
+            return;
+        }
 
         // Si tiene formatos habilitados y no hay modo forzado, mostrar selector
         if ((product.sellByBox || product.sellByHalfBox) && !forceMode && !qtyOverride) {
@@ -927,6 +965,18 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 copEnabled={copEnabled}
                 copPrimary={copPrimary}
             />
+
+            {/* Selector de Combos Modulares */}
+            {modularComboPickerOpen && pendingModularCombo && (
+                <ModularComboPickerModal
+                    isOpen={modularComboPickerOpen}
+                    onClose={() => { setModularComboPickerOpen(false); setPendingModularCombo(null); }}
+                    combo={pendingModularCombo}
+                    products={products}
+                    effectiveRate={effectiveRate}
+                    onConfirm={handleModularComboConfirm}
+                />
+            )}
         </div>
     );
 }
