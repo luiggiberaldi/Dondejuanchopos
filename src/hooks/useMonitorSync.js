@@ -60,6 +60,10 @@ export function useMonitorSync(pairedDeviceId) {
                 const now = new Date();
                 setLastSync(now);
                 localStorage.setItem('monitor_last_sync', now.toISOString());
+
+                // Notificar a los context (ProductContext, etc) para actualizar el estado React de inmediato
+                window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_products_v1' } }));
+                window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_sales_v1' } }));
             }
 
             setIsConnected(true);

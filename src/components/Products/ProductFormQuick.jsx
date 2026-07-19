@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Camera, X, AlertTriangle, Package, Tag, Scale, ChevronDown, ChevronUp, Barcode, Banknote, CheckCircle, Zap, Boxes } from 'lucide-react';
+import { Camera, X, AlertTriangle, Package, Tag, Scale, ChevronDown, ChevronUp, Barcode, Banknote, CheckCircle, Zap, Boxes, Landmark } from 'lucide-react';
 import CustomSelect from '../CustomSelect';
 
 export default function ProductFormQuick({
@@ -44,6 +44,7 @@ export default function ProductFormQuick({
     purchaseByBoxCost, setPurchaseByBoxCost,
     purchaseBoxUnits, setPurchaseBoxUnits,
     handleBoxPurchaseCalc,
+    forceBcv, setForceBcv,
 }) {
     const fileInputRef = useRef(null);
     const [showSummary, setShowSummary] = useState(false);
@@ -149,6 +150,7 @@ export default function ProductFormQuick({
                                     value={category}
                                     onChange={setCategory}
                                     options={categories.filter(c => c.id !== 'todos').map(c => ({ value: c.id, label: c.label }))}
+                                    openDirection="up"
                                 />
                             </div>
                             <button
@@ -167,8 +169,8 @@ export default function ProductFormQuick({
             {/* SECCIÓN COSTO */}
             <div className="bg-blue-500/5 dark:bg-blue-500/10 p-4 rounded-2xl border border-blue-500/20 space-y-3">
                 <div className="flex items-center justify-between">
-                    <span className="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest block ml-1">
-                        Costo de Adquisición
+                    <span className="text-xs font-black text-[#193275] dark:text-brand uppercase tracking-wider flex items-center gap-1.5 ml-1">
+                        <Banknote size={14} className="text-blue-500" /> Costo de Adquisición
                     </span>
                     <button
                         type="button"
@@ -370,14 +372,17 @@ export default function ProductFormQuick({
                         <button
                             type="button"
                             onClick={handleToggleAutoCalcUnit}
-                            title={autoCalcUnit ? 'Auto-Tasa activo: USD⇔Bs según tasa' : 'Activar cálculo automático USD ⇔ Bs'}
-                            className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 active:scale-95 ${
-                                autoCalcUnit
-                                    ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30'
-                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-slate-200 dark:border-slate-700'
+                            disabled={forceBcv}
+                            title={forceBcv ? 'Forzado a tasa BCV (Auto-Tasa obligatorio)' : (autoCalcUnit ? 'Auto-Tasa activo: USD⇔Bs según tasa' : 'Activar cálculo automático USD ⇔ Bs')}
+                            className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 ${
+                                forceBcv
+                                    ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/30 cursor-not-allowed opacity-80'
+                                    : autoCalcUnit
+                                        ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30 active:scale-95'
+                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-slate-200 dark:border-slate-700 active:scale-95'
                             }`}
                         >
-                            <Zap size={10} className={autoCalcUnit ? 'fill-white' : ''} /> Auto-Tasa
+                            <Zap size={10} className={(autoCalcUnit || forceBcv) ? 'fill-white' : ''} /> Auto-Tasa
                         </button>
                     </div>
 
@@ -388,7 +393,7 @@ export default function ProductFormQuick({
                                 type="text" 
                                 value={barcode} 
                                 onChange={e => setBarcode(e.target.value)} 
-                                placeholder="Escanear o ingresar..."
+                                placeholder="Escanear o ingresar (sep. con comas)..."
                                 className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
                             />
                             <Barcode size={14} className="absolute left-2.5 bottom-3.5 text-slate-400" />
@@ -410,7 +415,7 @@ export default function ProductFormQuick({
                                     PRECIO BS
                                 </span>
                                 {effectiveRate > 0 && parsedPrice > 0 && (
-                                    <span className="text-[8px] text-slate-400 font-medium whitespace-nowrap">Ref: {Math.round(parsedPrice * effectiveRate)} Bs</span>
+                                    <span className="text-[8px] text-slate-400 font-medium whitespace-nowrap">Ref: {Math.round(parsedPrice * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate))} Bs</span>
                                 )}
                             </label>
                             <input 
@@ -418,13 +423,38 @@ export default function ProductFormQuick({
                                 inputMode="decimal" 
                                 value={priceBsManual} 
                                 onChange={e => handleUnitPriceBsChange(e.target.value)} 
+                                disabled={forceBcv}
                                 placeholder="0.00"
                                 className={`w-full p-2.5 rounded-xl font-black text-xs outline-none border transition-all duration-200 ${
-                                    autoCalcUnit
-                                        ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
-                                        : 'bg-white dark:bg-slate-900 text-[#193275] dark:text-brand border-slate-200 dark:border-slate-850'
+                                    forceBcv
+                                        ? 'text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700 bg-blue-50/30 dark:bg-blue-900/10 cursor-not-allowed'
+                                        : autoCalcUnit
+                                            ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
+                                            : 'bg-white dark:bg-slate-900 text-[#193275] dark:text-brand border-slate-200 dark:border-slate-850'
                                 }`}
                             />
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 cursor-pointer select-none pt-2 border-t border-slate-200/40 dark:border-slate-800/40">
+                        <div 
+                            className={`w-9 h-5 rounded-full relative transition-colors duration-200 shrink-0 ${forceBcv ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+                            onClick={() => {
+                                setForceBcv(!forceBcv);
+                            }}
+                        >
+                            <div className={`absolute top-0.5 left-[2px] w-4 h-4 rounded-full bg-white shadow transition-all duration-200 ${forceBcv ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </div>
+                        <div 
+                            onClick={() => {
+                                setForceBcv(!forceBcv);
+                            }} 
+                            className="flex-1"
+                        >
+                            <span className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                                <Landmark size={14} className={forceBcv ? 'text-blue-500' : 'text-slate-400'} /> ¿Calcular siempre a tasa BCV?
+                            </span>
+                            <p className="text-[9px] text-slate-400 font-medium">Actívalo si este producto es un vívere o está sujeto a precio regulado.</p>
                         </div>
                     </div>
                 </div>
@@ -464,14 +494,17 @@ export default function ProductFormQuick({
                                 <button
                                     type="button"
                                     onClick={handleToggleAutoCalcBox}
-                                    title={autoCalcBox ? 'Auto-Tasa activo' : 'Activar cálculo automático USD ⇔ Bs'}
-                                    className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 active:scale-95 ${
-                                        autoCalcBox
-                                            ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30'
-                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-slate-200 dark:border-slate-700'
+                                    disabled={forceBcv}
+                                    title={forceBcv ? 'Forzado a tasa BCV (Auto-Tasa obligatorio)' : (autoCalcBox ? 'Auto-Tasa activo' : 'Activar cálculo automático USD ⇔ Bs')}
+                                    className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 ${
+                                        forceBcv
+                                            ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/30 cursor-not-allowed opacity-80'
+                                            : autoCalcBox
+                                                ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30 active:scale-95'
+                                                : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-650 dark:hover:text-slate-300 border border-slate-200 dark:border-slate-700 active:scale-95'
                                     }`}
                                 >
-                                    <Zap size={10} className={autoCalcBox ? 'fill-white' : ''} /> Auto-Tasa
+                                    <Zap size={10} className={(autoCalcBox || forceBcv) ? 'fill-white' : ''} /> Auto-Tasa
                                 </button>
                             </div>
                             <div>
@@ -491,7 +524,7 @@ export default function ProductFormQuick({
                                     type="text" 
                                     value={boxBarcode} 
                                     onChange={e => setBoxBarcode(e.target.value)} 
-                                    placeholder="Código caja..."
+                                    placeholder="Código caja (sep. con comas)..."
                                     className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
                                 />
                                 <Barcode size={14} className="absolute left-2.5 bottom-3.5 text-slate-400" />
@@ -509,9 +542,9 @@ export default function ProductFormQuick({
                             </div>
                             <div>
                                 <label className="text-[10px] font-bold ml-1 mb-1 h-4 flex items-center justify-between">
-                                    <span className={`transition-colors duration-200 ${ autoCalcBox ? 'text-emerald-500' : 'text-slate-400' }`}>PRECIO CAJA BS</span>
+                                    <span className={`transition-colors duration-200 ${ (autoCalcBox || forceBcv) ? 'text-emerald-500' : 'text-slate-400' }`}>PRECIO CAJA BS</span>
                                     {effectiveRate > 0 && Number(boxPriceUsd) > 0 && (
-                                        <span className="text-[8px] text-slate-400 font-medium whitespace-nowrap">Ref: {Math.round(Number(boxPriceUsd) * effectiveRate)} Bs</span>
+                                        <span className="text-[8px] text-slate-400 font-medium whitespace-nowrap">Ref: {Math.round(Number(boxPriceUsd) * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate))} Bs</span>
                                     )}
                                 </label>
                                 <input 
@@ -519,11 +552,14 @@ export default function ProductFormQuick({
                                     inputMode="decimal" 
                                     value={boxPriceBs} 
                                     onChange={e => handleBoxPriceBsChange(e.target.value)} 
+                                    disabled={forceBcv}
                                     placeholder="1700.00"
                                     className={`w-full p-2.5 rounded-xl font-black text-xs outline-none border transition-all duration-200 ${
-                                        autoCalcBox
-                                            ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
-                                            : 'bg-white dark:bg-slate-900 text-[#193275] dark:text-brand border-slate-200 dark:border-slate-850'
+                                        forceBcv
+                                            ? 'text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700 bg-blue-50/30 dark:bg-blue-900/10 cursor-not-allowed'
+                                            : autoCalcBox
+                                                ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
+                                                : 'bg-white dark:bg-slate-900 text-[#193275] dark:text-brand border-slate-200 dark:border-slate-850'
                                     }`}
                                 />
                             </div>
@@ -562,14 +598,17 @@ export default function ProductFormQuick({
                                 <button
                                     type="button"
                                     onClick={handleToggleAutoCalcHalfBox}
-                                    title={autoCalcHalfBox ? 'Auto-Tasa activo' : 'Activar cálculo automático USD ⇔ Bs'}
-                                    className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 active:scale-95 ${
-                                        autoCalcHalfBox
-                                            ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30'
-                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-slate-200 dark:border-slate-700'
+                                    disabled={forceBcv}
+                                    title={forceBcv ? 'Forzado a tasa BCV (Auto-Tasa obligatorio)' : (autoCalcHalfBox ? 'Auto-Tasa activo' : 'Activar cálculo automático USD ⇔ Bs')}
+                                    className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 ${
+                                        forceBcv
+                                            ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/30 cursor-not-allowed opacity-80'
+                                            : autoCalcHalfBox
+                                                ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30 active:scale-95'
+                                                : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-650 dark:hover:text-slate-300 border border-slate-200 dark:border-slate-700 active:scale-95'
                                     }`}
                                 >
-                                    <Zap size={10} className={autoCalcHalfBox ? 'fill-white' : ''} /> Auto-Tasa
+                                    <Zap size={10} className={(autoCalcHalfBox || forceBcv) ? 'fill-white' : ''} /> Auto-Tasa
                                 </button>
                             </div>
                             <div>
@@ -589,7 +628,7 @@ export default function ProductFormQuick({
                                     type="text" 
                                     value={halfBoxBarcode} 
                                     onChange={e => setHalfBoxBarcode(e.target.value)} 
-                                    placeholder="Código media..."
+                                    placeholder="Código media (sep. con comas)..."
                                     className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
                                 />
                                 <Barcode size={14} className="absolute left-2.5 bottom-3.5 text-slate-400" />
@@ -607,9 +646,9 @@ export default function ProductFormQuick({
                             </div>
                             <div>
                                 <label className="text-[10px] font-bold ml-1 mb-1 h-4 flex items-center justify-between">
-                                    <span className={`transition-colors duration-200 ${ autoCalcHalfBox ? 'text-emerald-500' : 'text-slate-400' }`}>PRECIO ½ CAJA BS</span>
+                                    <span className={`transition-colors duration-200 ${ (autoCalcHalfBox || forceBcv) ? 'text-emerald-500' : 'text-slate-400' }`}>PRECIO ½ CAJA BS</span>
                                     {effectiveRate > 0 && Number(halfBoxPriceUsd) > 0 && (
-                                        <span className="text-[8px] text-slate-400 font-medium whitespace-nowrap">Ref: {Math.round(Number(halfBoxPriceUsd) * effectiveRate)} Bs</span>
+                                        <span className="text-[8px] text-slate-400 font-medium whitespace-nowrap">Ref: {Math.round(Number(halfBoxPriceUsd) * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate))} Bs</span>
                                     )}
                                 </label>
                                 <input 
@@ -617,11 +656,14 @@ export default function ProductFormQuick({
                                     inputMode="decimal" 
                                     value={halfBoxPriceBs} 
                                     onChange={e => handleHalfBoxPriceBsChange(e.target.value)} 
+                                    disabled={forceBcv}
                                     placeholder="900.00"
                                     className={`w-full p-2.5 rounded-xl font-black text-xs outline-none border transition-all duration-200 ${
-                                        autoCalcHalfBox
-                                            ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
-                                            : 'bg-white dark:bg-slate-900 text-[#193275] dark:text-brand border-slate-200 dark:border-slate-850'
+                                        forceBcv
+                                            ? 'text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700 bg-blue-50/30 dark:bg-blue-900/10 cursor-not-allowed'
+                                            : autoCalcHalfBox
+                                                ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
+                                                : 'bg-white dark:bg-slate-900 text-[#193275] dark:text-brand border-slate-200 dark:border-slate-850'
                                     }`}
                                 />
                             </div>

@@ -4,7 +4,7 @@ import { Modal } from '../Modal';
 import ProductFormQuick from './ProductFormQuick';
 import ProductFormWizard from './ProductFormWizard';
 import { CurrencyService } from '../../services/CurrencyService';
-import { mulR, divR } from '../../utils/dinero';
+import { mulR, divR, round2 } from '../../utils/dinero';
 import { useProductContext } from '../../context/ProductContext';
 
 export default function ProductFormModal({
@@ -41,6 +41,7 @@ export default function ProductFormModal({
     setCostUsd, setCostBs,
 
     effectiveRate,
+    forceBcv, setForceBcv,
     isFormShaking,
     handleImageUpload,
     handleSave,
@@ -109,6 +110,65 @@ export default function ProductFormModal({
         }
     }, [sellByBox, sellByHalfBox, setSellByHalfBox]);
 
+    // Re-calcular precios en bolívares cuando cambia forceBcv o los precios en USD
+    useEffect(() => {
+        const bcvRate = rates?.bcv?.price > 0 ? rates.bcv.price : effectiveRate;
+        const activeRate = forceBcv ? bcvRate : effectiveRate;
+
+        // Si forceBcv se activa, forzamos auto-cálculo a true
+        if (forceBcv) {
+            setAutoCalcUnit(true);
+            setAutoCalcBox(true);
+            setAutoCalcHalfBox(true);
+        }
+
+        if (activeRate > 0) {
+            // Unidad
+            if (autoCalcUnit || forceBcv) {
+                const usd = CurrencyService.safeParse(priceUsd);
+                if (usd > 0) {
+                    setPriceBsManual(forceBcv 
+                        ? round2(mulR(usd, activeRate)).toFixed(2) 
+                        : Math.round(mulR(usd, activeRate)).toString()
+                    );
+                }
+            }
+            // Caja
+            if (autoCalcBox || forceBcv) {
+                const bUsd = CurrencyService.safeParse(boxPriceUsd);
+                if (bUsd > 0) {
+                    setBoxPriceBs(forceBcv 
+                        ? round2(mulR(bUsd, activeRate)).toFixed(2) 
+                        : Math.round(mulR(bUsd, activeRate)).toString()
+                    );
+                }
+            }
+            // Media Caja
+            if (autoCalcHalfBox || forceBcv) {
+                const hbUsd = CurrencyService.safeParse(halfBoxPriceUsd);
+                if (hbUsd > 0) {
+                    setHalfBoxPriceBs(forceBcv 
+                        ? round2(mulR(hbUsd, activeRate)).toFixed(2) 
+                        : Math.round(mulR(hbUsd, activeRate)).toString()
+                    );
+                }
+            }
+        }
+    }, [
+        forceBcv, 
+        autoCalcUnit, 
+        autoCalcBox, 
+        autoCalcHalfBox, 
+        priceUsd, 
+        boxPriceUsd, 
+        halfBoxPriceUsd, 
+        rates?.bcv?.price, 
+        effectiveRate, 
+        setPriceBsManual, 
+        setBoxPriceBs, 
+        setHalfBoxPriceBs
+    ]);
+
     if (!isOpen) return null;
 
     // Validación paso a paso para el asistente
@@ -132,6 +192,7 @@ export default function ProductFormModal({
 
     // Unidad
     const handleToggleAutoCalcUnit = () => {
+        if (forceBcv) return;
         const next = !autoCalcUnit;
         setAutoCalcUnit(next);
         if (next && effectiveRate > 0) {
@@ -146,12 +207,15 @@ export default function ProductFormModal({
     };
     const handleUnitPriceUsdChange = (val) => {
         handlePriceUsdChange(val);
-        if (autoCalcUnit && effectiveRate > 0) {
+        const bcvRate = rates?.bcv?.price > 0 ? rates.bcv.price : effectiveRate;
+        const activeRate = forceBcv ? bcvRate : effectiveRate;
+        if (autoCalcUnit && activeRate > 0) {
             const p = CurrencyService.safeParse(val);
-            setPriceBsManual(p > 0 ? Math.round(mulR(p, effectiveRate)).toString() : '');
+            setPriceBsManual(p > 0 ? (forceBcv ? round2(mulR(p, activeRate)).toFixed(2) : Math.round(mulR(p, activeRate)).toString()) : '');
         }
     };
     const handleUnitPriceBsChange = (val) => {
+        if (forceBcv) return;
         setPriceBsManual(val);
         if (autoCalcUnit && effectiveRate > 0) {
             const p = CurrencyService.safeParse(val);
@@ -161,6 +225,7 @@ export default function ProductFormModal({
 
     // Caja
     const handleToggleAutoCalcBox = () => {
+        if (forceBcv) return;
         const next = !autoCalcBox;
         setAutoCalcBox(next);
         if (next && effectiveRate > 0) {
@@ -175,12 +240,15 @@ export default function ProductFormModal({
     };
     const handleBoxPriceUsdChange = (val) => {
         setBoxPriceUsd(val);
-        if (autoCalcBox && effectiveRate > 0) {
+        const bcvRate = rates?.bcv?.price > 0 ? rates.bcv.price : effectiveRate;
+        const activeRate = forceBcv ? bcvRate : effectiveRate;
+        if (autoCalcBox && activeRate > 0) {
             const p = CurrencyService.safeParse(val);
-            setBoxPriceBs(p > 0 ? Math.round(mulR(p, effectiveRate)).toString() : '');
+            setBoxPriceBs(p > 0 ? (forceBcv ? round2(mulR(p, activeRate)).toFixed(2) : Math.round(mulR(p, activeRate)).toString()) : '');
         }
     };
     const handleBoxPriceBsChange = (val) => {
+        if (forceBcv) return;
         setBoxPriceBs(val);
         if (autoCalcBox && effectiveRate > 0) {
             const p = CurrencyService.safeParse(val);
@@ -190,6 +258,7 @@ export default function ProductFormModal({
 
     // Media Caja
     const handleToggleAutoCalcHalfBox = () => {
+        if (forceBcv) return;
         const next = !autoCalcHalfBox;
         setAutoCalcHalfBox(next);
         if (next && effectiveRate > 0) {
@@ -204,12 +273,15 @@ export default function ProductFormModal({
     };
     const handleHalfBoxPriceUsdChange = (val) => {
         setHalfBoxPriceUsd(val);
-        if (autoCalcHalfBox && effectiveRate > 0) {
+        const bcvRate = rates?.bcv?.price > 0 ? rates.bcv.price : effectiveRate;
+        const activeRate = forceBcv ? bcvRate : effectiveRate;
+        if (autoCalcHalfBox && activeRate > 0) {
             const p = CurrencyService.safeParse(val);
-            setHalfBoxPriceBs(p > 0 ? Math.round(mulR(p, effectiveRate)).toString() : '');
+            setHalfBoxPriceBs(p > 0 ? (forceBcv ? round2(mulR(p, activeRate)).toFixed(2) : Math.round(mulR(p, activeRate)).toString()) : '');
         }
     };
     const handleHalfBoxPriceBsChange = (val) => {
+        if (forceBcv) return;
         setHalfBoxPriceBs(val);
         if (autoCalcHalfBox && effectiveRate > 0) {
             const p = CurrencyService.safeParse(val);
@@ -357,6 +429,7 @@ export default function ProductFormModal({
         purchaseByBoxCost, setPurchaseByBoxCost,
         purchaseBoxUnits, setPurchaseBoxUnits,
         handleBoxPurchaseCalc,
+        forceBcv, setForceBcv,
     };
 
     return (

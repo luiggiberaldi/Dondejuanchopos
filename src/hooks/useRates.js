@@ -166,16 +166,18 @@ export function useRates() {
                 return;
             }
 
-            // Fallback: fetch directo a las fuentes externas
-            log("ℹ️ Fallback a fuentes directas", "info");
-            // Fetch en paralelo: datos privados (Google Script), dolarapi fallback, y external rates (Euro, COP)
+            // Fetch en paralelo: datos privados (Google Script), dolarapi fallback (dólares y euros), y external rates (Euro, COP)
             const taskPrivate = fetchGeneric(GOOGLE_SCRIPT_URL);
             const taskDolarApi = fetchGeneric('https://ve.dolarapi.com/v1/dolares');
+            const taskEuroApi = fetchGeneric('https://ve.dolarapi.com/v1/euros');
+            const taskCriptoya = fetchGeneric('https://criptoya.com/api/binancep2p/USDT/VES/1');
             const taskExternal = getExternalRatesFallback();
 
-            const [privateData, bcvFallbackData, externalRates] = await Promise.all([
+            const [privateData, bcvFallbackData, euroFallbackData, criptoyaData, externalRates] = await Promise.all([
                 taskPrivate.catch(() => null),
                 taskDolarApi.catch(() => null),
+                taskEuroApi.catch(() => null),
+                taskCriptoya.catch(() => null),
                 taskExternal.catch(() => ({ eur: DEFAULT_EUR_USD_RATIO, cop: null }))
             ]);
             
@@ -188,14 +190,37 @@ export function useRates() {
             let newBcvPrice = 0;
             let newEuroPrice = 0;
             let newUsdtPrice = 0;
+            let finalUsdtSource = 'Paralelo / Binance';
 
-            // Extraer USDT de privateData o DolarApi
+            // Extraer USDT de privateData o CriptoYa o DolarApi
             if (privateData && privateData.usdt) {
                 newUsdtPrice = parseSafeFloat(typeof privateData.usdt === 'object' ? privateData.usdt.price : privateData.usdt);
+                finalUsdtSource = 'Datos Privados';
             }
+            
+            if (!newUsdtPrice && criptoyaData) {
+                const avgAsk = typeof criptoyaData.ask === 'number' ? criptoyaData.ask
+                    : (Array.isArray(criptoyaData.ask) && criptoyaData.ask.length > 0
+                      ? criptoyaData.ask.slice(0, 3).reduce((s, i) => s + (i.price ?? i), 0) / Math.min(3, criptoyaData.ask.length)
+                      : 0);
+                const avgBid = typeof criptoyaData.bid === 'number' ? criptoyaData.bid
+                    : (Array.isArray(criptoyaData.bid) && criptoyaData.bid.length > 0
+                      ? criptoyaData.bid.slice(0, 3).reduce((s, i) => s + (i.price ?? i), 0) / Math.min(3, criptoyaData.bid.length)
+                      : 0);
+                      
+                if (avgAsk > 0 || avgBid > 0) {
+                    const basePrecio = (avgAsk > 0 && avgBid > 0) ? (avgAsk + avgBid) / 2 : (avgAsk || avgBid);
+                    newUsdtPrice = Math.ceil(basePrecio) + 2;
+                    finalUsdtSource = 'Binance P2P (CriptoYa)';
+                }
+            }
+
             if (!newUsdtPrice && bcvFallbackData) {
                 const usdtData = Array.isArray(bcvFallbackData) ? bcvFallbackData.find(d => d.nombre?.toLowerCase() === 'binance' || d.fuente === 'binance' || d.casa === 'binance') || bcvFallbackData.find(d => d.nombre?.toLowerCase() === 'paralelo' || d.fuente === 'paralelo' || d.casa === 'paralelo') : null;
-                if (usdtData?.promedio > 0) newUsdtPrice = parseSafeFloat(usdtData.promedio);
+                if (usdtData?.promedio > 0) {
+                    newUsdtPrice = parseSafeFloat(usdtData.promedio);
+                    finalUsdtSource = 'Paralelo (DolarApi)';
+                }
             }
 
             // Procesar BCV/Euro desde datos privados (Google Script)
@@ -211,8 +236,8 @@ export function useRates() {
 
                 // Validación de magnitud: si el precio es irrazonablemente bajo o alto, corregir
                 // HOOK-017: Pasar rango esperado como parámetro para no corromper COP u otras
-                // tasas con rangos muy distintos al BCV (que está entre 10 y 200).
-                const validateMagnitude = (val, min = 10, max = 200) => {
+                // tasas con rangos muy distintos al BCV (que está entre 10 y 20000).
+                const validateMagnitude = (val, min = 10, max = 20000) => {
                     if (!val || val <= 0) return val;
                     // Si el valor está por debajo del mínimo esperado, multiplicar por 10 hasta entrar.
                     if (val < min) {
@@ -232,8 +257,8 @@ export function useRates() {
                     return val;
                 };
 
-                newBcvPrice = validateMagnitude(bcvP, 10, 200);
-                newEuroPrice = validateMagnitude(euroP, 10, 250);
+                newBcvPrice = validateMagnitude(bcvP, 10, 20000);
+                newEuroPrice = validateMagnitude(euroP, 10, 22000);
 
                 if (newBcvPrice > 0) {
                     const meta = getMeta(newBcvPrice, newRates.bcv.price, newRates.bcv.change, apiBcvChange);
@@ -254,7 +279,13 @@ export function useRates() {
                     const meta = getMeta(newBcvPrice, newRates.bcv.price, newRates.bcv.change);
                     newRates.bcv = { ...newRates.bcv, ...meta, source: 'BCV Oficial (Respaldo)' };
 
-                    if (euroFactor) {
+                    // Intentar extraer Euro real de euros fallback
+                    const oficialEuro = Array.isArray(euroFallbackData) ? euroFallbackData.find(e => e.fuente === 'oficial' || e.nombre === 'Euro') : null;
+                    if (oficialEuro?.promedio > 0) {
+                        newEuroPrice = parseSafeFloat(oficialEuro.promedio);
+                        const metaEur = getMeta(newEuroPrice, newRates.euro.price, newRates.euro.change);
+                        newRates.euro = { ...newRates.euro, ...metaEur, source: 'Euro BCV (Respaldo)' };
+                    } else if (euroFactor) {
                         newEuroPrice = newBcvPrice * euroFactor;
                         const metaEur = getMeta(newEuroPrice, newRates.euro.price, newRates.euro.change);
                         newRates.euro = { ...newRates.euro, ...metaEur, source: 'Euro BCV (Triangulado)' };
@@ -265,7 +296,7 @@ export function useRates() {
             // Integrar tasa USDT si se obtuvo
             if (newUsdtPrice > 0) {
                 const metaUsdt = getMeta(newUsdtPrice, newRates.usdt?.price ?? 0, newRates.usdt?.change ?? 0);
-                newRates.usdt = { ...metaUsdt, source: 'Paralelo / Binance' };
+                newRates.usdt = { ...metaUsdt, source: finalUsdtSource };
             }
 
             // Integrar cálculo AutoCOP con TRM y USDT

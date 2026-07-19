@@ -62,6 +62,17 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
                 : `$${formatUsd(item.priceUsd)}`;
         }
 
+        let modularSubRows = '';
+        if (item.isModular && item.modularSelections?.length > 0) {
+            modularSubRows = item.modularSelections.map(sel => `
+                <tr>
+                    <td colspan="2" style="text-align:left;font-size:${fTiny};color:#555;padding:0 0 2px 10px;line-height:1.2;">
+                        ▪ ${sel.qty}x ${escapeHtml(sel.productName)}
+                    </td>
+                </tr>
+            `).join('');
+        }
+
         return `
             <tr>
                 <td colspan="2" style="text-align:left;font-size:${fBase};font-weight:bold;padding:6px 0 1px 0;line-height:1.25;word-break:break-word;">
@@ -75,7 +86,8 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
                 <td style="text-align:right;font-size:${fBase};font-weight:bold;padding:1px 0 6px 0;width:35%;vertical-align:middle;white-space:nowrap;border-bottom:1px dotted #ccc;">
                     ${totalStr}
                 </td>
-            </tr>`;
+            </tr>
+            ${modularSubRows}`;
     }).join('');
 
     // Generar filas de pagos

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Store, Plus, Trash2, Pencil, Search, LayoutGrid, List, Percent, CheckSquare, Gift, Boxes, ChevronDown, SlidersHorizontal } from 'lucide-react';
+import { Store, Plus, Trash2, Pencil, Search, LayoutGrid, List, Percent, CheckSquare, Gift, Boxes, ChevronDown, SlidersHorizontal, X } from 'lucide-react';
 import { CATEGORY_COLORS, getCategoryIcon } from '../../config/categories';
 
 const ProductsToolbar = ({
@@ -100,8 +100,21 @@ const ProductsToolbar = ({
                         placeholder="Buscar producto por nombre o código..."
                         value={searchTerm}
                         onChange={(e) => handleSetSearchTerm(e.target.value)}
-                        className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl py-2 pl-10 pr-4 text-xs text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/25 focus:border-brand shadow-inner transition-all duration-200"
+                        className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl py-2 pl-10 pr-8 text-xs text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/25 focus:border-brand shadow-inner transition-all duration-200"
                     />
+                    {searchTerm && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                handleSetSearchTerm('');
+                                triggerHaptic && triggerHaptic();
+                            }}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-650 dark:hover:text-slate-200 transition-colors p-0.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800"
+                            title="Limpiar búsqueda"
+                        >
+                            <X size={13} />
+                        </button>
+                    )}
                 </div>
 
                 {/* Actions & Toggle */}
@@ -262,6 +275,28 @@ const ProductsToolbar = ({
                             {getCategoryProductCount('todos')}
                         </span>
                     </button>
+
+                    {/* Pestaña estática para la categoría 'Combos' (se muestra automático al crear el primer combo) */}
+                    {getCategoryProductCount('combo') > 0 && (
+                        <button
+                            onClick={() => { handleSetActiveCategory('combo'); triggerHaptic && triggerHaptic(); }}
+                            className={`shrink-0 px-3 py-1.5 rounded-xl text-[10px] font-bold transition-all border flex items-center gap-1.5 cursor-pointer ${
+                                activeCategory === 'combo'
+                                    ? 'bg-violet-600 text-white border-transparent shadow-sm font-extrabold scale-102'
+                                    : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 active:scale-95 shadow-sm'
+                            }`}
+                        >
+                            <Gift size={12} className={activeCategory === 'combo' ? 'text-white' : 'text-violet-500'} />
+                            <span> Combos </span>
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                                activeCategory === 'combo' 
+                                    ? 'bg-white/20 text-white' 
+                                    : 'bg-slate-100 dark:bg-slate-850 text-slate-400 dark:text-slate-500'
+                            }`}>
+                                {getCategoryProductCount('combo')}
+                            </span>
+                        </button>
+                    )}
 
                     {filteredCategories.map(cat => {
                         const count = getCategoryProductCount(cat.id);

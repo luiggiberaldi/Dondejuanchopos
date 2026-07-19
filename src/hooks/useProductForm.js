@@ -32,6 +32,7 @@ const INITIAL_STATE = {
     purchaseByBoxCost: '',
     purchaseBoxUnits: '',
     purchaseBoxBcv: false,
+    forceBcv: false,
 };
 
 function reducer(state, action) {
@@ -81,6 +82,7 @@ export function useProductForm() {
     const setPurchaseByBoxCost = useCallback((v) => dispatch({ type: 'SET', field: 'purchaseByBoxCost', value: v }), []);
     const setPurchaseBoxUnits = useCallback((v) => dispatch({ type: 'SET', field: 'purchaseBoxUnits', value: v }), []);
     const setPurchaseBoxBcv = useCallback((v) => dispatch({ type: 'SET', field: 'purchaseBoxBcv', value: v }), []);
+    const setForceBcv = useCallback((v) => dispatch({ type: 'SET', field: 'forceBcv', value: v }), []);
 
     const resetForm = useCallback(() => {
         dispatch({ type: 'RESET' });
@@ -127,6 +129,7 @@ export function useProductForm() {
             purchaseByBoxCost: product.purchaseByBoxCost ? product.purchaseByBoxCost.toString() : '',
             purchaseBoxUnits: product.purchaseBoxUnits ? product.purchaseBoxUnits.toString() : '',
             purchaseBoxBcv: !!product.purchaseBoxBcv,
+            forceBcv: !!product.forceBcv,
         };
 
         dispatch({ type: 'PATCH', patch });
@@ -164,6 +167,7 @@ export function useProductForm() {
         purchaseByBoxCost: state.purchaseByBoxCost, setPurchaseByBoxCost,
         purchaseBoxUnits: state.purchaseBoxUnits, setPurchaseBoxUnits,
         purchaseBoxBcv: state.purchaseBoxBcv, setPurchaseBoxBcv,
+        forceBcv: state.forceBcv, setForceBcv,
 
         resetForm,
         populateForm,

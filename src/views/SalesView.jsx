@@ -28,6 +28,7 @@ import CustomAmountModal from '../components/Sales/CustomAmountModal';
 import KeyboardHelpModal from '../components/Sales/KeyboardHelpModal';
 import DiscountModal from '../components/Sales/DiscountModal';
 import CajaCerradaOverlay from '../components/Sales/CajaCerradaOverlay';
+import ModularComboPickerModal from '../components/Sales/ModularComboPickerModal';
 import { getLocalISODate } from '../utils/dateHelpers';
 import AperturaCajaModal from '../components/Dashboard/AperturaCajaModal';
 
@@ -36,9 +37,9 @@ import Confetti from '../components/Confetti';
 import { useSalesKeyboard } from '../hooks/useSalesKeyboard';
 import { buildReceiptWhatsAppUrl } from '../components/Sales/ReceiptShareHelper';
 
-// Extracted hooks
 import { useSalesData } from '../hooks/useSalesData';
 import { useCheckoutFlow } from '../hooks/useCheckoutFlow';
+import { compareBarcodes } from '../utils/calculatorUtils';
 
 export default function SalesView({ triggerHaptic, isActive }) {
     const { playAdd, playRemove, playCheckout, playError } = useSounds();
@@ -47,7 +48,8 @@ export default function SalesView({ triggerHaptic, isActive }) {
     // ── Global Context ──────────────────────────────────────
     const { products, setProducts, isLoadingProducts, rateMode, setRateMode, useAutoRate, setUseAutoRate, customRate, setCustomRate, effectiveRate, rates, copEnabled, copPrimary, tasaCop, autoCopEnabled, setAutoCopEnabled, tasaCopManual, setTasaCopManual, categories, checkoutMode, setCheckoutMode } = useProductContext();
 
-    // ── State ──────────────────────────────────────
+
+
     const [showConfetti, setShowConfetti] = useState(false);
     const [showClearCartConfirm, setShowClearCartConfirm] = useState(false);
     const [showCustomAmountModal, setShowCustomAmountModal] = useState(false);
@@ -72,6 +74,8 @@ export default function SalesView({ triggerHaptic, isActive }) {
     const [hierarchyPending, setHierarchyPending] = useState(null);
     const [weightPending, setWeightPending] = useState(null);
     const [selectedCustomerId, setSelectedCustomerId] = useState('');
+    const [modularComboPickerOpen, setModularComboPickerOpen] = useState(false);
+    const [pendingModularCombo, setPendingModularCombo] = useState(null);
 
     // Rate config
     const [showRateConfig, setShowRateConfig] = useState(false);
@@ -177,28 +181,23 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 if (p) { addToCart({ ...p, isWeight: true }, weightKg, null, true); return; }
             }
 
-            // Buscar producto y formato por código de barra
+            // Buscar producto y formato por código de barra (comparación robusta)
             let foundProduct = null;
             let foundMode = null;
             for (const p of products) {
-                const cleanBarcode = p.barcode ? String(p.barcode).trim() : '';
-                const cleanId = p.id ? String(p.id).trim() : '';
-                const cleanBoxBarcode = p.boxBarcode ? String(p.boxBarcode).trim() : '';
-                const cleanHalfBoxBarcode = p.halfBoxBarcode ? String(p.halfBoxBarcode).trim() : '';
-
-                if (cleanBarcode === barcode || cleanId === barcode) {
-                    foundProduct = p;
-                    foundMode = (p.sellByBox || p.sellByHalfBox) ? null : 'unit'; // Preguntar si tiene formatos, si no, es unidad
-                    break;
-                }
-                if (p.sellByBox && cleanBoxBarcode === barcode) {
+                if (p.sellByBox && compareBarcodes(p.boxBarcode, barcode)) {
                     foundProduct = p;
                     foundMode = 'box';
                     break;
                 }
-                if (p.sellByHalfBox && cleanHalfBoxBarcode === barcode) {
+                if (p.sellByHalfBox && compareBarcodes(p.halfBoxBarcode, barcode)) {
                     foundProduct = p;
                     foundMode = 'halfBox';
+                    break;
+                }
+                if (compareBarcodes(p.barcode, barcode) || compareBarcodes(p.id, barcode)) {
+                    foundProduct = p;
+                    foundMode = 'unit'; // Al escanear el código principal (unidad), se agrega directamente a la cesta
                     break;
                 }
             }
@@ -229,28 +228,23 @@ export default function SalesView({ triggerHaptic, isActive }) {
             }
         }
 
-        // Buscar producto y formato por código de barra pegado
+        // Buscar producto y formato por código de barra pegado (comparación robusta)
         let foundProduct = null;
         let foundMode = null;
         for (const p of products) {
-            const cleanBarcode = p.barcode ? String(p.barcode).trim() : '';
-            const cleanId = p.id ? String(p.id).trim() : '';
-            const cleanBoxBarcode = p.boxBarcode ? String(p.boxBarcode).trim() : '';
-            const cleanHalfBoxBarcode = p.halfBoxBarcode ? String(p.halfBoxBarcode).trim() : '';
-
-            if (cleanBarcode === pastedText || cleanId === pastedText) {
-                foundProduct = p;
-                foundMode = (p.sellByBox || p.sellByHalfBox) ? null : 'unit';
-                break;
-            }
-            if (p.sellByBox && cleanBoxBarcode === pastedText) {
+            if (p.sellByBox && compareBarcodes(p.boxBarcode, pastedText)) {
                 foundProduct = p;
                 foundMode = 'box';
                 break;
             }
-            if (p.sellByHalfBox && cleanHalfBoxBarcode === pastedText) {
+            if (p.sellByHalfBox && compareBarcodes(p.halfBoxBarcode, pastedText)) {
                 foundProduct = p;
                 foundMode = 'halfBox';
+                break;
+            }
+            if (compareBarcodes(p.barcode, pastedText) || compareBarcodes(p.id, pastedText)) {
+                foundProduct = p;
+                foundMode = 'unit'; // Al pegar el código principal (unidad), se agrega directamente a la cesta
                 break;
             }
         }
@@ -291,8 +285,8 @@ export default function SalesView({ triggerHaptic, isActive }) {
         totalBs: cartTotalBs,
         totalCop: cartTotalCop
     } = useMemo(() =>
-        FinancialEngine.buildCartTotals(cart, discount, effectiveRate, copEnabled ? tasaCop : 0)
-    , [cart, discount, effectiveRate, copEnabled, tasaCop]);
+        FinancialEngine.buildCartTotals(cart, discount, effectiveRate, copEnabled ? tasaCop : 0, rates?.bcv?.price || effectiveRate)
+    , [cart, discount, effectiveRate, copEnabled, tasaCop, rates]);
 
     // Variables estáticas para pasar a los componentes hijos
     const discountData = {
@@ -363,15 +357,50 @@ export default function SalesView({ triggerHaptic, isActive }) {
     const { handleCheckout, handleCreateCustomer, handleSaveApertura } = useCheckoutFlow({
         cart, cartTotalUsd, cartTotalBs, cartSubtotalUsd,
         selectedCustomerId, customers, setCustomers, products, setProducts,
-        effectiveRate, tasaCop, copEnabled, discountData, useAutoRate,
+        effectiveRate, tasaCop, copEnabled, discountData, useAutoRate, bcvRate: rates?.bcv?.price || effectiveRate,
         setSalesData, setShowReceipt, setShowCheckout, setSelectedCustomerId,
         setCart, setCartSelectedIndex, setShowConfetti, setTodayAperturaData, setIsAperturaOpen,
         playCheckout, playError, notifyLowStock, notifySaleComplete, triggerHaptic
     });
 
     // ── Callbacks ─────────────────────────────────
+    const handleModularComboConfirm = useCallback((modularSelections) => {
+        setModularComboPickerOpen(false);
+        const combo = pendingModularCombo;
+        setPendingModularCombo(null);
+        if (!combo) return;
+
+        const cartId = `${combo.id}_modular_${Date.now()}`;
+        const itemCostBs = combo.costBs || (combo.costUsd ? combo.costUsd * effectiveRate : 0);
+
+        setCart(prev => [{
+            ...combo,
+            id: cartId,
+            name: combo.name,
+            priceUsd: CurrencyService.safeParse(combo.priceUsd) || 0,
+            priceBsManual: combo.priceBsManual ? CurrencyService.safeParse(combo.priceBsManual) : null,
+            costUsd: CurrencyService.safeParse(combo.costUsd) || 0,
+            costBs: itemCostBs,
+            qty: 1,
+            isWeight: false,
+            _originalId: combo.id,
+            _mode: 'unit',
+            isModular: true,
+            modularSelections
+        }, ...prev]);
+
+        playAdd();
+    }, [pendingModularCombo, playAdd, effectiveRate, setCart]);
+
     const addToCart = useCallback((product, qtyOverride = null, forceMode = null, isBarcodeSource = false) => {
         triggerHaptic && triggerHaptic();
+
+        // Intercepción: combo modular → abrir picker antes de agregar
+        if (product.isCombo && product.isModular && product.modularGroups?.length > 0) {
+            setPendingModularCombo(product);
+            setModularComboPickerOpen(true);
+            return;
+        }
 
         // Si tiene formatos habilitados y no hay modo forzado, mostrar selector
         if ((product.sellByBox || product.sellByHalfBox) && !forceMode && !qtyOverride) {
@@ -557,24 +586,19 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 let exactMatch = null;
                 let exactMode = null;
                 for (const p of products) {
-                    const cleanBarcode = p.barcode ? String(p.barcode).trim() : '';
-                    const cleanId = p.id ? String(p.id).trim() : '';
-                    const cleanBoxBarcode = p.boxBarcode ? String(p.boxBarcode).trim() : '';
-                    const cleanHalfBoxBarcode = p.halfBoxBarcode ? String(p.halfBoxBarcode).trim() : '';
-
-                    if (cleanBarcode === trimmedTerm || cleanId === trimmedTerm) {
-                        exactMatch = p;
-                        exactMode = (p.sellByBox || p.sellByHalfBox) ? null : 'unit';
-                        break;
-                    }
-                    if (p.sellByBox && cleanBoxBarcode === trimmedTerm) {
+                    if (p.sellByBox && compareBarcodes(p.boxBarcode, trimmedTerm)) {
                         exactMatch = p;
                         exactMode = 'box';
                         break;
                     }
-                    if (p.sellByHalfBox && cleanHalfBoxBarcode === trimmedTerm) {
+                    if (p.sellByHalfBox && compareBarcodes(p.halfBoxBarcode, trimmedTerm)) {
                         exactMatch = p;
                         exactMode = 'halfBox';
+                        break;
+                    }
+                    if (compareBarcodes(p.barcode, trimmedTerm) || compareBarcodes(p.id, trimmedTerm)) {
+                        exactMatch = p;
+                        exactMode = 'unit'; // Al ingresar o escanear el código principal, se agrega directamente
                         break;
                     }
                 }
@@ -771,7 +795,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 {/* ── Right Column: Cart Sidebar — desktop only ── */}
                 <div className="hidden lg:flex lg:w-[380px] lg:shrink-0 lg:flex-col">
                     <CartPanel
-                        cart={cart} effectiveRate={effectiveRate}
+                        cart={cart} effectiveRate={effectiveRate} bcvRate={rates?.bcv?.price || effectiveRate}
                         cartSubtotalUsd={cartSubtotalUsd} cartSubtotalBs={cartSubtotalBs}
                         cartTotalUsd={cartTotalUsd} cartTotalBs={cartTotalBs} cartTotalCop={cartTotalCop} cartItemCount={cartItemCount}
                         discountData={discountData} onOpenDiscount={() => setShowDiscountModal(true)}
@@ -835,7 +859,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
                             </div>
                             <div className="flex-1 overflow-y-auto">
                                 <CartPanel
-                                    cart={cart} effectiveRate={effectiveRate}
+                                    cart={cart} effectiveRate={effectiveRate} bcvRate={rates?.bcv?.price || effectiveRate}
                                     cartSubtotalUsd={cartSubtotalUsd} cartSubtotalBs={cartSubtotalBs}
                                     cartTotalUsd={cartTotalUsd} cartTotalBs={cartTotalBs} cartTotalCop={cartTotalCop} cartItemCount={cartItemCount}
                                     discountData={discountData} onOpenDiscount={() => setShowDiscountModal(true)}
@@ -941,6 +965,18 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 copEnabled={copEnabled}
                 copPrimary={copPrimary}
             />
+
+            {/* Selector de Combos Modulares */}
+            {modularComboPickerOpen && pendingModularCombo && (
+                <ModularComboPickerModal
+                    isOpen={modularComboPickerOpen}
+                    onClose={() => { setModularComboPickerOpen(false); setPendingModularCombo(null); }}
+                    combo={pendingModularCombo}
+                    products={products}
+                    effectiveRate={effectiveRate}
+                    onConfirm={handleModularComboConfirm}
+                />
+            )}
         </div>
     );
 }

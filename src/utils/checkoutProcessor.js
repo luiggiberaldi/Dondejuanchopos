@@ -6,6 +6,7 @@ import { round2, sumR, subR, divR, mulR } from './dinero';
 import { withLock } from './withLock';          // FIN-007: feature detection + fallback.
 import { deepFreeze } from './deepFreeze';      // FIN-008: deep freeze (no solo shallow).
 import { FINANCIAL_EPSILON } from './securityConstants';
+import { FinancialEngine } from '../core/FinancialEngine';
 
 const SALES_KEY = 'bodega_sales_v1';
 const PRODUCTS_KEY = 'bodega_products_v1';
@@ -25,7 +26,8 @@ export async function processSaleTransaction({
     tasaCop,
     copEnabled,
     discountData,
-    useAutoRate
+    useAutoRate,
+    bcvRate
 }) {
     if (cart.length === 0) return { success: false, error: 'Carrito vacío' };
 
@@ -46,7 +48,8 @@ export async function processSaleTransaction({
         return { success: false, error: 'Tasa de cambio BCV inválida (<= 0). Configura la tasa antes de cobrar.' };
     }
     
-    const expectedBs = mulR(cartTotalUsd, effectiveRate);
+    const totals = FinancialEngine.buildCartTotals(cart, discountData, effectiveRate, copEnabled ? tasaCop : 0, bcvRate);
+    const expectedBs = totals.totalBs;
     const bsDrift = Math.abs(subR(cartTotalBs, expectedBs));
     if (bsDrift > FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_BS) {
         return { success: false, error: `Inconsistencia USD/Bs: drift de ${round2(bsDrift)} Bs (tasa ${effectiveRate}).` };
@@ -101,7 +104,10 @@ export async function processSaleTransaction({
             _mode: i._mode || i.mode || 'unit',
             boxUnits: i.boxUnits || null,
             halfBoxUnits: i.halfBoxUnits || null,
-            priceBsManual: i.priceBsManual || null
+            priceBsManual: i.priceBsManual || null,
+            forceBcv: i.forceBcv || null,
+            isModular: i.isModular || false,
+            modularSelections: i.modularSelections || []
         })),
         cartSubtotalUsd: cartSubtotalUsd,
         discountType:       discountData?.type      || null,
@@ -109,15 +115,7 @@ export async function processSaleTransaction({
         discountAmountUsd:  discountData?.amountUsd || 0,
         totalUsd:  cartTotalUsd,
         totalBs:   cartTotalBs,
-        // FIN-010: totalCop ahora alineado con buildCartTotals (divR + round2).
-        totalCop:  copEnabled && tasaCop > 0
-            ? (cart.every(i => i.priceCop > 0)
-                ? round2(mulR(
-                    cart.reduce((s, i) => sumR(s, mulR(i.priceCop, i.qty)), 0),
-                    subR(1, divR(discountData?.amountUsd || 0, cartSubtotalUsd || 1))
-                ))
-                : mulR(cartTotalUsd, tasaCop))
-            : 0,
+        totalCop:  totals.totalCop,
         payments:  normalizedPayments,          // ← Con currency + methodLabel
         rate:      effectiveRate,
         tasaCop:   copEnabled ? tasaCop : 0,
@@ -195,7 +193,16 @@ export async function processSaleTransaction({
                     const compDeduction = mulR(ci.qty, physicalQty);
                     addDeduccion(ci.productId, compDeduction);
                 });
-            } else {
+            }
+
+            if (item.isModular && item.modularSelections?.length > 0) {
+                item.modularSelections.forEach(sel => {
+                    const compDeduction = mulR(sel.qty, physicalQty);
+                    addDeduccion(sel.productId, compDeduction);
+                });
+            }
+
+            if (!prodObj?.isCombo && !item.isModular) {
                 addDeduccion(itemId, physicalQty);
             }
         });

@@ -158,7 +158,7 @@ export default function ShareInventoryModal({ isOpen, onClose }) {
         try {
             if (importResult.idb) {
                 for (const [key, value] of Object.entries(importResult.idb)) {
-                    await localforage.setItem(key, value);
+                    await storageService.setItem(key, value);
                 }
             }
             if (importResult.ls) {

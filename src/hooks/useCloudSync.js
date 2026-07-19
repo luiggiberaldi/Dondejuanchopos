@@ -63,9 +63,12 @@ function _debouncePush(key, value) {
 export const pushCloudSync = async (key, value) => {
     if (!supabaseCloud) return;
     if (isSyncingFromCloud) return;          // Nunca re-emitir lo que llegó de la nube
-    if (!isCloudSyncActive) return;          // Omitir si la sesión cloud no está activa
+    const isMonitor = localStorage.getItem('dj_pairing_mode') === 'monitor';
+    if (isMonitor) return;                  // Omitir si este dispositivo es un Monitor visor
+
     if (!SYNC_KEYS.includes(key)) return;
-    if (!_currentDeviceId) return;
+    const activeDeviceId = _currentDeviceId || localStorage.getItem('dj_device_id');
+    if (!activeDeviceId) return;
 
     // SEC-002: jamás empujar `abasto-auth-storage` aunque accidentalmente lo pidan.
     if (key === 'abasto-auth-storage') return;
@@ -73,13 +76,18 @@ export const pushCloudSync = async (key, value) => {
     try {
         const collectionType = LOCAL_KEYS.includes(key) ? 'local' : 'store';
 
-        await supabaseCloud.from('sync_documents').upsert({
-            device_id: _currentDeviceId,
+        const { error } = await supabaseCloud.from('sync_documents').upsert({
+            device_id: activeDeviceId,
             collection: collectionType,
             doc_id: key,
             data: { payload: value },
             updated_at: new Date().toISOString()
         }, { onConflict: 'device_id,collection,doc_id' });
+
+        if (error) {
+            console.warn(`[CloudSync] Error ${error.code || error.status} al subir ${key}:`, error.message);
+            return; // No guardar hash para reintentar cuando Supabase responda
+        }
 
         // Update local hash to prevent periodic push from re-uploading
         const hashKey = LAST_PUSH_HASH_PREFIX + key;
@@ -87,6 +95,41 @@ export const pushCloudSync = async (key, value) => {
 
     } catch (e) {
         // Silencioso en producción
+    }
+};
+
+/**
+ * Empuja de forma forzada TODOS los datos del punto de venta a la nube Supabase.
+ * Se invoca al iniciar la app o al generar un nuevo código de vinculación.
+ */
+export const forceSyncAllPOSData = async (overrideDeviceId) => {
+    if (!supabaseCloud) return;
+    const isMonitor = localStorage.getItem('dj_pairing_mode') === 'monitor';
+    if (isMonitor) return;
+
+    const activeDeviceId = overrideDeviceId || _currentDeviceId || localStorage.getItem('dj_device_id');
+    if (!activeDeviceId) return;
+
+    try {
+        const lf = localforage.createInstance({ name: 'BodegaApp', storeName: 'bodega_app_data' });
+        
+        for (const key of IDB_KEYS) {
+            const val = await lf.getItem(key);
+            if (val !== null) {
+                await pushCloudSync(key, val);
+            }
+        }
+        for (const key of LOCAL_KEYS) {
+            const val = localStorage.getItem(key);
+            if (val !== null) {
+                let parsed = val;
+                try { parsed = JSON.parse(val); } catch {}
+                await pushCloudSync(key, parsed);
+            }
+        }
+        console.log('[CloudSync] Sincronización forzada POS completada para device_id:', activeDeviceId);
+    } catch (e) {
+        console.warn('[CloudSync] Error en sincronización forzada POS:', e);
     }
 };
 
@@ -195,29 +238,17 @@ export function useCloudSync(deviceId) {
 
         const initSync = async () => {
             try {
-                let hasAuth = false;
-                try {
-                    const { data: { session } } = await supabaseCloud.auth.getSession();
-                    hasAuth = session && !(session.expires_at && session.expires_at * 1000 < Date.now());
-                } catch (e) {}
-
-                if (!hasAuth) {
-                    // Si no hay sesión, verificamos si está emparejado para permitir sync sin login
-                    const { data: pairing, error: pairingErr } = await supabaseCloud
-                        .from('device_pairings')
-                        .select('id')
-                        .eq('primary_device_id', deviceId)
-                        .maybeSingle();
-
-                    if (pairingErr || !pairing) {
-                        isCloudSyncActive = false;
-                        console.log('[CloudSync] Omitiendo sincronización: sin sesión cloud ni emparejamiento activo.');
-                        return;
-                    }
+                const isMonitor = localStorage.getItem('dj_pairing_mode') === 'monitor';
+                if (isMonitor) {
+                    isCloudSyncActive = false;
+                    return;
                 }
 
                 isCloudSyncActive = true;
                 isInitialized.current = true;
+
+                // Sincronizar automáticamente todos los datos del POS a la nube en segundo plano
+                forceSyncAllPOSData(deviceId).catch(() => {});
 
                 // ── Pull Inicial / Sincronización de Importación ──
                 const backupImported = localStorage.getItem('dj_backup_imported_flag') === 'true';

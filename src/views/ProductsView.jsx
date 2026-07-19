@@ -9,7 +9,7 @@ import { ProductShareModal } from '../components/ProductShareModal';
 import { useAuthStore } from '../hooks/store/useAuthStore';
 
 import ShareInventoryModal from '../components/ShareInventoryModal';
-import { formatBs, formatUsd, smartCashRounding, getCop, getUsd } from '../utils/calculatorUtils';
+import { formatBs, formatUsd, smartCashRounding, getCop, getUsd, compareBarcodes } from '../utils/calculatorUtils';
 import { generarEtiquetas } from '../utils/ticketGenerator';
 import { useWallet } from '../hooks/useWallet';
 import { BODEGA_CATEGORIES, UNITS, CATEGORY_COLORS } from '../config/categories';
@@ -317,6 +317,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
         purchaseByBoxCost, setPurchaseByBoxCost,
         purchaseBoxUnits, setPurchaseBoxUnits,
         purchaseBoxBcv, setPurchaseBoxBcv,
+        forceBcv, setForceBcv,
         resetForm,
         populateForm,
     } = useProductForm();
@@ -422,8 +423,10 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
         }
 
         // Validación de unicidad de los 3 barcodes (Unidad, Caja, Media Caja)
+        // Extraer todos los códigos individuales separados por comas
         const currentBarcodes = [barcode, sellByBox ? boxBarcode : '', sellByHalfBox ? halfBoxBarcode : '']
-            .map(b => b?.trim())
+            .map(b => b ? String(b).split(',').map(s => s.trim()) : [])
+            .flat()
             .filter(Boolean);
 
         // 1. Colisión interna
@@ -439,11 +442,13 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
             if (editingId && p.id === editingId) continue;
             
             const otherBarcodes = [p.barcode, p.boxBarcode, p.halfBoxBarcode]
-                .map(b => b?.trim())
+                .map(b => b ? String(b).split(',').map(s => s.trim()) : [])
+                .flat()
                 .filter(Boolean);
 
             for (const bc of currentBarcodes) {
-                if (otherBarcodes.includes(bc)) {
+                // Usar la función de comparación robusta (que a su vez ya maneja comas si hiciera falta)
+                if (otherBarcodes.some(obc => compareBarcodes(obc, bc))) {
                     setIsFormShaking(true);
                     setTimeout(() => setIsFormShaking(false), 500);
                     return showToast(`El código de barras "${bc}" ya está asignado al producto "${p.name}" o a uno de sus formatos`, 'warning');
@@ -456,7 +461,8 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
             category, lowStockAlert,
             sellByBox, boxUnits, boxBarcode, boxPriceUsd, boxPriceBs,
             sellByHalfBox, halfBoxUnits, halfBoxBarcode, halfBoxPriceUsd, halfBoxPriceBs,
-            purchaseByBoxCost, purchaseBoxUnits, purchaseBoxBcv
+            purchaseByBoxCost, purchaseBoxUnits, purchaseBoxBcv,
+            forceBcv
         }, effectiveRate);
 
         // Advertencia si el precio parece inusualmente alto
@@ -751,6 +757,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                                     <ProductCard
                                         product={p.isCombo ? { ...p, stock: getProductStock(p) } : p}
                                         effectiveRate={effectiveRate}
+                                        bcvRate={rates?.bcv?.price || effectiveRate}
                                         streetRate={streetRate}
                                         categories={categories}
                                         copEnabled={copEnabled}
@@ -931,6 +938,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 costBs={costBs} handleCostBsChange={handleCostBsChange}
                 stock={stock} setStock={setStock}
                 lowStockAlert={lowStockAlert} setLowStockAlert={setLowStockAlert}
+                forceBcv={forceBcv} setForceBcv={setForceBcv}
 
                 sellByBox={sellByBox} setSellByBox={setSellByBox}
                 boxUnits={boxUnits} setBoxUnits={setBoxUnits}

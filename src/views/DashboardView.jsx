@@ -32,7 +32,7 @@ import MonitorView from './MonitorView';
 import { useOfflineQueue } from '../hooks/useOfflineQueue';
 
 const SALES_KEY = 'bodega_sales_v1';
-export default function DashboardView({ rates, triggerHaptic, onNavigate, theme, toggleTheme, isActive }) {
+export default function DashboardView({ rates, onRefreshRates, loadingRates, triggerHaptic, onNavigate, theme, toggleTheme, isActive }) {
     const { notifyCierrePendiente, requestPermission } = useNotifications();
     const { deviceId } = useSecurity();
     const isAdmin = true;
@@ -876,9 +876,12 @@ export default function DashboardView({ rates, triggerHaptic, onNavigate, theme,
                 <div className="fixed inset-0 z-[150] bg-[#080E1C] flex flex-col">
                     <MonitorView
                         rates={rates}
-                        loading={false}
+                        loading={loadingRates}
                         isOffline={!isOnline}
-                        onRefresh={() => refreshData(setProducts)}
+                        onRefresh={async () => {
+                            if (onRefreshRates) await onRefreshRates();
+                            refreshData(setProducts);
+                        }}
                         toggleTheme={toggleTheme}
                         theme={theme}
                         addLog={console.log}
