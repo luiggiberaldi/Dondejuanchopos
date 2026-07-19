@@ -76,13 +76,18 @@ export const pushCloudSync = async (key, value) => {
     try {
         const collectionType = LOCAL_KEYS.includes(key) ? 'local' : 'store';
 
-        await supabaseCloud.from('sync_documents').upsert({
+        const { error } = await supabaseCloud.from('sync_documents').upsert({
             device_id: activeDeviceId,
             collection: collectionType,
             doc_id: key,
             data: { payload: value },
             updated_at: new Date().toISOString()
         }, { onConflict: 'device_id,collection,doc_id' });
+
+        if (error) {
+            console.warn(`[CloudSync] Error ${error.code || error.status} al subir ${key}:`, error.message);
+            return; // No guardar hash para reintentar cuando Supabase responda
+        }
 
         // Update local hash to prevent periodic push from re-uploading
         const hashKey = LAST_PUSH_HASH_PREFIX + key;
@@ -232,6 +237,7 @@ export function useCloudSync(deviceId) {
         _currentDeviceId = deviceId;
 
         const initSync = async () => {
+            try {
                 const isMonitor = localStorage.getItem('dj_pairing_mode') === 'monitor';
                 if (isMonitor) {
                     isCloudSyncActive = false;
