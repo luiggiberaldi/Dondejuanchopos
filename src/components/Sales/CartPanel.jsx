@@ -63,10 +63,10 @@ export default function CartPanel({
     };
 
     return (
-        <div className="lg:flex-1 lg:min-h-0 flex flex-col bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm">
+        <div className="lg:flex-1 lg:min-h-0 flex flex-col bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm relative overflow-hidden">
 
             {/* Header */}
-            <div className="shrink-0 px-4 py-4 border-b border-slate-100 dark:border-slate-800 bg-brand dark:bg-brand rounded-t-2xl sm:rounded-t-3xl">
+            <div className="shrink-0 px-4 py-4 border-b border-slate-100 dark:border-slate-800 bg-brand dark:bg-brand rounded-t-2xl sm:rounded-t-3xl relative z-10">
                 <div className="flex items-center justify-between">
                     <span className="text-sm font-black text-white flex items-center gap-2">
                         <ShoppingCart size={16} className="opacity-80" />
@@ -77,16 +77,26 @@ export default function CartPanel({
 
             {/* Cart Items — scrollable area with touch support */}
             <div
-                className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto overscroll-contain p-2 sm:p-3"
+                className="relative lg:flex-1 lg:min-h-0 lg:overflow-y-auto overscroll-contain p-2 sm:p-3 flex flex-col"
                 style={{ WebkitOverflowScrolling: 'touch' }}
             >
+                {/* Marca de agua del logo principal en el centro de la cesta */}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none p-6 z-0">
+                    <img 
+                        src="/logo.png" 
+                        alt="Donde Juancho Marca de Agua" 
+                        className="w-48 sm:w-60 max-h-48 object-contain opacity-[0.08] dark:opacity-[0.14] transition-opacity duration-300" 
+                    />
+                </div>
+
                 {cart.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center text-slate-300 dark:text-slate-700 p-8 text-center h-full gap-2">
-                        <ShoppingCart size={44} strokeWidth={1} className="opacity-30" />
-                        <p className="text-sm font-bold text-slate-400">Tu cesta está vacía</p>
+                    <div className="relative z-10 flex-1 flex flex-col justify-end items-center pb-4 text-center">
+                        <p className="text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+                            Tu cesta está vacía
+                        </p>
                     </div>
                 ) : (
-                    <div className="space-y-2">
+                    <div className="relative z-10 space-y-2">
                         {cart.map((item, idx) => {
                             const qtyDisplay = item.isWeight ? `${item.qty.toFixed(3)} Kg` : item.qty;
                             const isCustomProduct = item.id.toString().startsWith('custom_') || item.name === 'Venta Libre';
