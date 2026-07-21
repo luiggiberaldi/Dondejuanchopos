@@ -46,6 +46,7 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
     const [form, setForm] = useState(EMPTY);
     const [sending, setSending] = useState(false);
     const [tempBsInput, setTempBsInput] = useState('');
+    const [isPriceUsdFocused, setIsPriceUsdFocused] = useState(false);
     
     // Auto-tasa toggle para sincronizar USD ⇔ Bs en el supervisor
     const [autoCalcUnit, setAutoCalcUnit] = useState(true);
@@ -471,7 +472,9 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                             <input 
                                 type="number" 
                                 inputMode="decimal" 
-                                value={form.priceUsd} 
+                                value={isPriceUsdFocused ? form.priceUsd : (form.priceUsd && !isNaN(form.priceUsd) && Number(form.priceUsd) > 0 ? Number(form.priceUsd).toFixed(2) : form.priceUsd)} 
+                                onFocus={() => setIsPriceUsdFocused(true)}
+                                onBlur={() => setIsPriceUsdFocused(false)}
                                 onChange={set('priceUsd')} 
                                 placeholder="0.00" 
                                 className={`${inputCls} ${!priceOk && form.priceUsd ? 'border-amber-400 focus:ring-amber-400/40' : ''}`}
@@ -507,7 +510,7 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                                         const num = parseFloat(val);
                                         const activeRate = form.forceBcv ? (rates?.bcv?.price || effectiveRate) : effectiveRate;
                                         if (!isNaN(num) && num > 0 && activeRate > 0) {
-                                            const calculatedUsd = (num / activeRate).toFixed(4);
+                                            const calculatedUsd = (num / activeRate).toString();
                                             setForm(prev => ({ ...prev, priceUsd: calculatedUsd }));
                                         } else if (val === '') {
                                             setForm(prev => ({ ...prev, priceUsd: '' }));

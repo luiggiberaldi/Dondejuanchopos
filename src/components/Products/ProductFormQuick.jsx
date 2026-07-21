@@ -51,6 +51,7 @@ export default function ProductFormQuick({
 }) {
     const fileInputRef = useRef(null);
     const [showSummary, setShowSummary] = useState(false);
+    const [isPriceUsdFocused, setIsPriceUsdFocused] = useState(false);
     const [tempBsInput, setTempBsInput] = useState('');
 
     const [priceMode, setPriceMode] = useState(() => {
@@ -545,7 +546,9 @@ export default function ProductFormQuick({
                                     <input 
                                         type="number" 
                                         inputMode="decimal" 
-                                        value={priceUsd} 
+                                        value={isPriceUsdFocused ? priceUsd : (priceUsd && !isNaN(priceUsd) && Number(priceUsd) > 0 ? Number(priceUsd).toFixed(2) : priceUsd)} 
+                                        onFocus={() => setIsPriceUsdFocused(true)}
+                                        onBlur={() => setIsPriceUsdFocused(false)}
                                         onChange={e => {
                                             setTempBsInput('');
                                             handleUnitPriceUsdChange(e.target.value);
@@ -569,7 +572,7 @@ export default function ProductFormQuick({
                                             const activeRate = forceBcv ? (bcvRate || effectiveRate) : effectiveRate;
                                             if (!isNaN(num) && num > 0 && activeRate > 0) {
                                                 const calculatedUsd = num / activeRate;
-                                                handleUnitPriceUsdChange(calculatedUsd.toFixed(4));
+                                                handleUnitPriceUsdChange(calculatedUsd.toString());
                                             } else if (val === '') {
                                                 handleUnitPriceUsdChange('');
                                             }

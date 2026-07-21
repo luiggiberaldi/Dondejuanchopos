@@ -41,7 +41,7 @@ export function buildProductPayload(formData, effectiveRate) {
     const safeRate = effectiveRate > 0 ? effectiveRate : 1;
 
     // Normalizar costos y precios de unidad
-    const finalPriceUsd = priceUsd ? round2(CurrencyService.safeParse(priceUsd)) : 0;
+    const finalPriceUsd = priceUsd ? CurrencyService.safeParse(priceUsd) : 0;
     const finalPriceBsManual = priceBsManual ? round2(CurrencyService.safeParse(priceBsManual)) : null;
     const finalPriceBsUsdRef = priceBsUsdRef ? round2(CurrencyService.safeParse(priceBsUsdRef)) : null;
 
@@ -60,14 +60,14 @@ export function buildProductPayload(formData, effectiveRate) {
     const finalCostBs = (sellByBox && !isAlreadyUnitCost) ? round2(divR(baseCostBs, boxUnitsCount)) : baseCostBs;
 
     // Normalizar datos de Caja
-    const finalBoxPriceUsd = sellByBox && boxPriceUsd ? round2(CurrencyService.safeParse(boxPriceUsd)) : null;
+    const finalBoxPriceUsd = sellByBox && boxPriceUsd ? CurrencyService.safeParse(boxPriceUsd) : null;
     const finalBoxPriceBs = sellByBox && boxPriceBs ? round2(CurrencyService.safeParse(boxPriceBs)) : null;
     const finalBoxPriceBsUsdRef = sellByBox && boxPriceBsUsdRef ? round2(CurrencyService.safeParse(boxPriceBsUsdRef)) : null;
     const finalBoxBarcode = sellByBox && boxBarcode ? boxBarcode.trim() : null;
 
     // Normalizar datos de Media Caja
     const parsedHalfBoxUnits = sellByHalfBox && halfBoxUnits ? parseInt(halfBoxUnits, 10) : 1;
-    const finalHalfBoxPriceUsd = sellByHalfBox && halfBoxPriceUsd ? round2(CurrencyService.safeParse(halfBoxPriceUsd)) : null;
+    const finalHalfBoxPriceUsd = sellByHalfBox && halfBoxPriceUsd ? CurrencyService.safeParse(halfBoxPriceUsd) : null;
     const finalHalfBoxPriceBs = sellByHalfBox && halfBoxPriceBs ? round2(CurrencyService.safeParse(halfBoxPriceBs)) : null;
     const finalHalfBoxPriceBsUsdRef = sellByHalfBox && halfBoxPriceBsUsdRef ? round2(CurrencyService.safeParse(halfBoxPriceBsUsdRef)) : null;
     const finalHalfBoxBarcode = sellByHalfBox && halfBoxBarcode ? halfBoxBarcode.trim() : null;
