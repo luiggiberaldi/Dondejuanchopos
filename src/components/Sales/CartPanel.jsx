@@ -9,12 +9,14 @@ import { useAuthStore } from '../../hooks/store/useAuthStore';
 const itemBsUnit = (item, rate, bcvRate) => {
     const itemRate = item.forceBcv ? (bcvRate || rate) : rate;
     return item.priceBsManual != null && item.priceBsManual > 0 && !item.forceBcv ? item.priceBsManual
+    : item.priceBsUsdRef != null && item.priceBsUsdRef > 0 && !item.forceBcv ? mulR(item.priceBsUsdRef, itemRate)
     : item.exactBs != null && !item.forceBcv ? item.exactBs
     : mulR(item.priceUsd, itemRate);
 };
 const itemBsLine = (item, rate, bcvRate) => {
     const itemRate = item.forceBcv ? (bcvRate || rate) : rate;
     return item.priceBsManual != null && item.priceBsManual > 0 && !item.forceBcv ? mulR(item.priceBsManual, item.qty)
+    : item.priceBsUsdRef != null && item.priceBsUsdRef > 0 && !item.forceBcv ? mulR(mulR(item.priceBsUsdRef, item.qty), itemRate)
     : item.exactBs != null && !item.forceBcv ? mulR(item.exactBs, item.qty)
     : mulR(mulR(item.priceUsd, item.qty), itemRate);
 };

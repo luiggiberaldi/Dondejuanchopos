@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Camera, X, AlertTriangle, Package, Tag, Scale, ChevronDown, ChevronUp, Barcode, Banknote, CheckCircle, Zap, Boxes, Landmark } from 'lucide-react';
+import { Camera, X, AlertTriangle, Package, Tag, Scale, ChevronDown, ChevronUp, Barcode, Banknote, CheckCircle, Zap, Boxes, Landmark, DollarSign, Lock, ArrowLeftRight } from 'lucide-react';
 import CustomSelect from '../CustomSelect';
 
 export default function ProductFormQuick({
@@ -9,6 +9,7 @@ export default function ProductFormQuick({
     category, setCategory,
     priceUsd, handlePriceUsdChange,
     priceBsManual, setPriceBsManual,
+    priceBsUsdRef, setPriceBsUsdRef,
     costUsd, handleCostUsdChange,
     costBs, handleCostBsChange,
     stock, setStock,
@@ -19,12 +20,14 @@ export default function ProductFormQuick({
     boxBarcode, setBoxBarcode,
     boxPriceUsd, setBoxPriceUsd,
     boxPriceBs, setBoxPriceBs,
+    boxPriceBsUsdRef, setBoxPriceBsUsdRef,
 
     sellByHalfBox, setSellByHalfBox,
     halfBoxUnits, setHalfBoxUnits,
     halfBoxBarcode, setHalfBoxBarcode,
     halfBoxPriceUsd, setHalfBoxPriceUsd,
     halfBoxPriceBs, setHalfBoxPriceBs,
+    halfBoxPriceBsUsdRef, setHalfBoxPriceBsUsdRef,
 
     effectiveRate,
     handleImageUpload,
@@ -48,6 +51,39 @@ export default function ProductFormQuick({
 }) {
     const fileInputRef = useRef(null);
     const [showSummary, setShowSummary] = useState(false);
+
+    const [priceMode, setPriceMode] = useState(() => {
+        if (priceBsUsdRef && Number(priceBsUsdRef) > 0) return 'diferenciado';
+        if (priceBsManual && Number(priceBsManual) > 0) return 'fijo_bs';
+        return 'standard';
+    });
+
+    useEffect(() => {
+        if (priceBsUsdRef && Number(priceBsUsdRef) > 0) setPriceMode('diferenciado');
+        else if (priceBsManual && Number(priceBsManual) > 0) setPriceMode('fijo_bs');
+    }, [priceBsUsdRef, priceBsManual]);
+
+    const [boxPriceMode, setBoxPriceMode] = useState(() => {
+        if (boxPriceBsUsdRef && Number(boxPriceBsUsdRef) > 0) return 'diferenciado';
+        if (boxPriceBs && Number(boxPriceBs) > 0) return 'fijo_bs';
+        return 'standard';
+    });
+
+    useEffect(() => {
+        if (boxPriceBsUsdRef && Number(boxPriceBsUsdRef) > 0) setBoxPriceMode('diferenciado');
+        else if (boxPriceBs && Number(boxPriceBs) > 0) setBoxPriceMode('fijo_bs');
+    }, [boxPriceBsUsdRef, boxPriceBs]);
+
+    const [halfBoxPriceMode, setHalfBoxPriceMode] = useState(() => {
+        if (halfBoxPriceBsUsdRef && Number(halfBoxPriceBsUsdRef) > 0) return 'diferenciado';
+        if (halfBoxPriceBs && Number(halfBoxPriceBs) > 0) return 'fijo_bs';
+        return 'standard';
+    });
+
+    useEffect(() => {
+        if (halfBoxPriceBsUsdRef && Number(halfBoxPriceBsUsdRef) > 0) setHalfBoxPriceMode('diferenciado');
+        else if (halfBoxPriceBs && Number(halfBoxPriceBs) > 0) setHalfBoxPriceMode('fijo_bs');
+    }, [halfBoxPriceBsUsdRef, halfBoxPriceBs]);
 
     // Estado local para el stock por cajas
     const [localBoxes, setLocalBoxes] = useState('');
@@ -386,54 +422,157 @@ export default function ProductFormQuick({
                         </button>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* Selector de Estrategia de Precio */}
+                    <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl gap-1">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setPriceMode('standard');
+                                if (setPriceBsUsdRef) setPriceBsUsdRef('');
+                                if (setPriceBsManual) setPriceBsManual('');
+                            }}
+                            className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                                priceMode === 'standard'
+                                    ? 'bg-white dark:bg-slate-700 text-brand shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                            }`}
+                        >
+                            <DollarSign size={13} className={priceMode === 'standard' ? 'text-emerald-500' : 'text-slate-400'} /> Precio Único USD
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setPriceMode('diferenciado');
+                                if (setPriceBsManual) setPriceBsManual('');
+                            }}
+                            className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                                priceMode === 'diferenciado'
+                                    ? 'bg-purple-600 text-white shadow-sm shadow-purple-500/20'
+                                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                            }`}
+                        >
+                            <Zap size={13} className={priceMode === 'diferenciado' ? 'fill-white text-white' : 'text-purple-500'} /> Diferenciado ($ / Bs)
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setPriceMode('fijo_bs');
+                                if (setPriceBsUsdRef) setPriceBsUsdRef('');
+                            }}
+                            className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                                priceMode === 'fijo_bs'
+                                    ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-500/20'
+                                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                            }`}
+                        >
+                            <Lock size={12} className={priceMode === 'fijo_bs' ? 'text-white' : 'text-emerald-500'} /> Precio Fijo Bs
+                        </button>
+                    </div>
+
+                    {/* Fila de Inputs de Precios según modo activo */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="relative">
                             <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block">CÓD. BARRAS</label>
                             <input 
                                 type="text" 
                                 value={barcode} 
                                 onChange={e => setBarcode(e.target.value)} 
-                                placeholder="Escanear o ingresar (sep. con comas)..."
+                                placeholder="Escanear o ingresar..."
                                 className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
                             />
                             <Barcode size={14} className="absolute left-2.5 bottom-3.5 text-slate-400" />
                         </div>
-                        <div>
-                            <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block h-4 flex items-center">PRECIO USD ($)</label>
-                            <input 
-                                type="number" 
-                                inputMode="decimal" 
-                                value={priceUsd} 
-                                onChange={e => handleUnitPriceUsdChange(e.target.value)} 
-                                placeholder="1.50"
-                                className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
-                            />
-                        </div>
-                        <div>
-                            <label className="text-[10px] font-bold ml-1 mb-1 h-4 flex items-center justify-between">
-                                <span className={`transition-colors duration-200 ${ autoCalcUnit ? 'text-emerald-500' : 'text-slate-400' }`}>
-                                    PRECIO BS
-                                </span>
-                                {effectiveRate > 0 && parsedPrice > 0 && (
-                                    <span className="text-[8px] text-slate-400 font-medium whitespace-nowrap">Ref: {Math.round(parsedPrice * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate))} Bs</span>
-                                )}
-                            </label>
-                            <input 
-                                type="number" 
-                                inputMode="decimal" 
-                                value={priceBsManual} 
-                                onChange={e => handleUnitPriceBsChange(e.target.value)} 
-                                disabled={forceBcv}
-                                placeholder="0.00"
-                                className={`w-full p-2.5 rounded-xl font-black text-xs outline-none border transition-all duration-200 ${
-                                    forceBcv
-                                        ? 'text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700 bg-blue-50/30 dark:bg-blue-900/10 cursor-not-allowed'
-                                        : autoCalcUnit
-                                            ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
-                                            : 'bg-white dark:bg-slate-900 text-[#193275] dark:text-brand border-slate-200 dark:border-slate-850'
-                                }`}
-                            />
-                        </div>
+
+                        {priceMode === 'standard' && (
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 flex items-center justify-between">
+                                    <span className="flex items-center gap-1"><DollarSign size={11} className="text-emerald-500" /> PRECIO USD ($)</span>
+                                    {effectiveRate > 0 && parsedPrice > 0 && (
+                                        <span className="text-[8px] text-emerald-600 font-bold">Ref: {Math.round(parsedPrice * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate))} Bs</span>
+                                    )}
+                                </label>
+                                <input 
+                                    type="number" 
+                                    inputMode="decimal" 
+                                    value={priceUsd} 
+                                    onChange={e => handleUnitPriceUsdChange(e.target.value)} 
+                                    placeholder="25.00"
+                                    className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
+                                />
+                            </div>
+                        )}
+
+                        {priceMode === 'diferenciado' && (
+                            <>
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-500 dark:text-slate-300 ml-1 mb-1 flex items-center gap-1">
+                                        <Banknote size={12} className="text-emerald-500" /> PAGO DIVISA USD ($)
+                                    </label>
+                                    <input 
+                                        type="number" 
+                                        inputMode="decimal" 
+                                        value={priceUsd} 
+                                        onChange={e => handleUnitPriceUsdChange(e.target.value)} 
+                                        placeholder="25.00"
+                                        className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
+                                    />
+                                    <span className="text-[8px] text-slate-400 font-medium block mt-0.5 ml-1">En billetes efectivo/divisas</span>
+                                </div>
+                                <div className="sm:col-span-2">
+                                    <label className="text-[10px] font-black text-purple-600 dark:text-purple-400 ml-1 mb-1 flex items-center gap-1">
+                                        <Zap size={12} className="text-purple-500 fill-purple-500/20" /> PRECIO REF. BS ($)
+                                    </label>
+                                    <input 
+                                        type="number" 
+                                        inputMode="decimal" 
+                                        value={priceBsUsdRef} 
+                                        onChange={e => setPriceBsUsdRef && setPriceBsUsdRef(e.target.value)} 
+                                        placeholder="26.00"
+                                        className="w-full p-2.5 rounded-xl font-black text-xs outline-none border border-purple-300 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300 focus:ring-2 focus:ring-purple-500/40" 
+                                    />
+                                    {effectiveRate > 0 && Number(priceBsUsdRef) > 0 ? (
+                                        <span className="text-[8.5px] font-bold text-purple-600 dark:text-purple-400 block mt-0.5 ml-1">
+                                            = {Math.round(Number(priceBsUsdRef) * effectiveRate).toLocaleString('es-VE')} Bs al cobro en Bs
+                                        </span>
+                                    ) : (
+                                        <span className="text-[8px] text-purple-400 font-medium block mt-0.5 ml-1">Cobro en Pago Móvil/Punto</span>
+                                    )}
+                                </div>
+                            </>
+                        )}
+
+                        {priceMode === 'fijo_bs' && (
+                            <>
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 flex items-center gap-1">
+                                        <DollarSign size={11} className="text-emerald-500" /> PRECIO USD ($)
+                                    </label>
+                                    <input 
+                                        type="number" 
+                                        inputMode="decimal" 
+                                        value={priceUsd} 
+                                        onChange={e => handleUnitPriceUsdChange(e.target.value)} 
+                                        placeholder="1.50"
+                                        className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 ml-1 mb-1 flex items-center gap-1">
+                                        <Lock size={11} className="text-emerald-500" /> PRECIO BS (FIJO)
+                                    </label>
+                                    <input 
+                                        type="number" 
+                                        inputMode="decimal" 
+                                        value={priceBsManual} 
+                                        onChange={e => handleUnitPriceBsChange(e.target.value)} 
+                                        disabled={forceBcv}
+                                        placeholder="21000"
+                                        className="w-full p-2.5 rounded-xl font-black text-xs outline-none border border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300" 
+                                    />
+                                    <span className="text-[8px] text-emerald-500 font-medium block mt-0.5 ml-1">Monto fijo en Bolívares</span>
+                                </div>
+                            </>
+                        )}
                     </div>
 
                     <div className="flex items-center gap-3 cursor-pointer select-none pt-2 border-t border-slate-200/40 dark:border-slate-800/40">
@@ -488,9 +627,9 @@ export default function ProductFormQuick({
                     </label>
 
                     {sellByBox && (
-                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                            <div className="sm:col-span-4 flex items-center justify-between">
-                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Precios de Caja</span>
+                        <div className="space-y-3 pt-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                            <div className="flex items-center justify-between">
+                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Estrategia de Precios para Caja</span>
                                 <button
                                     type="button"
                                     onClick={handleToggleAutoCalcBox}
@@ -507,61 +646,168 @@ export default function ProductFormQuick({
                                     <Zap size={10} className={(autoCalcBox || forceBcv) ? 'fill-white' : ''} /> Auto-Tasa
                                 </button>
                             </div>
-                            <div>
-                                <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block">UDS POR CAJA</label>
-                                <input 
-                                    type="number" 
-                                    inputMode="numeric" 
-                                    value={boxUnits} 
-                                    onChange={e => setBoxUnits(e.target.value)} 
-                                    placeholder="Ej: 36"
-                                    className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
-                                />
-                            </div>
-                            <div className="relative">
-                                <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block">CÓD. BARRAS CAJA</label>
-                                <input 
-                                    type="text" 
-                                    value={boxBarcode} 
-                                    onChange={e => setBoxBarcode(e.target.value)} 
-                                    placeholder="Código caja (sep. con comas)..."
-                                    className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
-                                />
-                                <Barcode size={14} className="absolute left-2.5 bottom-3.5 text-slate-400" />
-                            </div>
-                            <div>
-                                <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block">PRECIO CAJA ($)</label>
-                                <input 
-                                    type="number" 
-                                    inputMode="decimal" 
-                                    value={boxPriceUsd} 
-                                    onChange={e => handleBoxPriceUsdChange(e.target.value)} 
-                                    placeholder="45.00"
-                                    className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
-                                />
-                            </div>
-                            <div>
-                                <label className="text-[10px] font-bold ml-1 mb-1 h-4 flex items-center justify-between">
-                                    <span className={`transition-colors duration-200 ${ (autoCalcBox || forceBcv) ? 'text-emerald-500' : 'text-slate-400' }`}>PRECIO CAJA BS</span>
-                                    {effectiveRate > 0 && Number(boxPriceUsd) > 0 && (
-                                        <span className="text-[8px] text-slate-400 font-medium whitespace-nowrap">Ref: {Math.round(Number(boxPriceUsd) * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate))} Bs</span>
-                                    )}
-                                </label>
-                                <input 
-                                    type="number" 
-                                    inputMode="decimal" 
-                                    value={boxPriceBs} 
-                                    onChange={e => handleBoxPriceBsChange(e.target.value)} 
-                                    disabled={forceBcv}
-                                    placeholder="1700.00"
-                                    className={`w-full p-2.5 rounded-xl font-black text-xs outline-none border transition-all duration-200 ${
-                                        forceBcv
-                                            ? 'text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700 bg-blue-50/30 dark:bg-blue-900/10 cursor-not-allowed'
-                                            : autoCalcBox
-                                                ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
-                                                : 'bg-white dark:bg-slate-900 text-[#193275] dark:text-brand border-slate-200 dark:border-slate-850'
+
+                            {/* Selector de Estrategia de Precio Caja */}
+                            <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl gap-1">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setBoxPriceMode('standard');
+                                        if (setBoxPriceBsUsdRef) setBoxPriceBsUsdRef('');
+                                        if (setBoxPriceBs) setBoxPriceBs('');
+                                    }}
+                                    className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                                        boxPriceMode === 'standard'
+                                            ? 'bg-white dark:bg-slate-700 text-brand shadow-sm'
+                                            : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
                                     }`}
-                                />
+                                >
+                                    <DollarSign size={13} className={boxPriceMode === 'standard' ? 'text-emerald-500' : 'text-slate-400'} /> Precio Único USD
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setBoxPriceMode('diferenciado');
+                                        if (setBoxPriceBs) setBoxPriceBs('');
+                                    }}
+                                    className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                                        boxPriceMode === 'diferenciado'
+                                            ? 'bg-purple-600 text-white shadow-sm shadow-purple-500/20'
+                                            : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                                    }`}
+                                >
+                                    <Zap size={13} className={boxPriceMode === 'diferenciado' ? 'fill-white text-white' : 'text-purple-500'} /> Diferenciado ($ / Bs)
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setBoxPriceMode('fijo_bs');
+                                        if (setBoxPriceBsUsdRef) setBoxPriceBsUsdRef('');
+                                    }}
+                                    className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                                        boxPriceMode === 'fijo_bs'
+                                            ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-500/20'
+                                            : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                                    }`}
+                                >
+                                    <Lock size={12} className={boxPriceMode === 'fijo_bs' ? 'text-white' : 'text-emerald-500'} /> Precio Fijo Bs
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block">UDS POR CAJA</label>
+                                    <input 
+                                        type="number" 
+                                        inputMode="numeric" 
+                                        value={boxUnits} 
+                                        onChange={e => setBoxUnits(e.target.value)} 
+                                        placeholder="Ej: 36"
+                                        className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
+                                    />
+                                </div>
+                                <div className="relative">
+                                    <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block">CÓD. BARRAS CAJA</label>
+                                    <input 
+                                        type="text" 
+                                        value={boxBarcode} 
+                                        onChange={e => setBoxBarcode(e.target.value)} 
+                                        placeholder="Código caja (sep. con comas)..."
+                                        className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
+                                    />
+                                    <Barcode size={14} className="absolute left-2.5 bottom-3.5 text-slate-400" />
+                                </div>
+
+                                {boxPriceMode === 'standard' && (
+                                    <div className="sm:col-span-2">
+                                        <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 flex items-center justify-between">
+                                            <span className="flex items-center gap-1"><DollarSign size={11} className="text-emerald-500" /> PRECIO CAJA USD ($)</span>
+                                            {effectiveRate > 0 && Number(boxPriceUsd) > 0 && (
+                                                <span className="text-[8px] text-emerald-600 font-bold">Ref: {Math.round(Number(boxPriceUsd) * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate))} Bs</span>
+                                            )}
+                                        </label>
+                                        <input 
+                                            type="number" 
+                                            inputMode="decimal" 
+                                            value={boxPriceUsd} 
+                                            onChange={e => handleBoxPriceUsdChange(e.target.value)} 
+                                            placeholder="45.00"
+                                            className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
+                                        />
+                                    </div>
+                                )}
+
+                                {boxPriceMode === 'diferenciado' && (
+                                    <>
+                                        <div>
+                                            <label className="text-[10px] font-black text-slate-500 dark:text-slate-300 ml-1 mb-1 flex items-center gap-1">
+                                                <Banknote size={12} className="text-emerald-500" /> PAGO DIVISA CAJA ($)
+                                            </label>
+                                            <input 
+                                                type="number" 
+                                                inputMode="decimal" 
+                                                value={boxPriceUsd} 
+                                                onChange={e => handleBoxPriceUsdChange(e.target.value)} 
+                                                placeholder="45.00"
+                                                className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
+                                            />
+                                            <span className="text-[8px] text-slate-400 font-medium block mt-0.5 ml-1">En billetes efectivo/divisas</span>
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-black text-purple-600 dark:text-purple-400 ml-1 mb-1 flex items-center gap-1">
+                                                <Zap size={12} className="text-purple-500 fill-purple-500/20" /> PRECIO REF. BS CAJA ($)
+                                            </label>
+                                            <input 
+                                                type="number" 
+                                                inputMode="decimal" 
+                                                value={boxPriceBsUsdRef} 
+                                                onChange={e => setBoxPriceBsUsdRef && setBoxPriceBsUsdRef(e.target.value)} 
+                                                placeholder="48.00"
+                                                className="w-full p-2.5 rounded-xl font-black text-xs outline-none border border-purple-300 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300 focus:ring-2 focus:ring-purple-500/40" 
+                                            />
+                                            {effectiveRate > 0 && Number(boxPriceBsUsdRef) > 0 ? (
+                                                <span className="text-[8.5px] font-bold text-purple-600 dark:text-purple-400 block mt-0.5 ml-1">
+                                                    = {Math.round(Number(boxPriceBsUsdRef) * effectiveRate).toLocaleString('es-VE')} Bs al cobro en Bs
+                                                </span>
+                                            ) : (
+                                                <span className="text-[8px] text-purple-400 font-medium block mt-0.5 ml-1">Cobro en Pago Móvil/Punto</span>
+                                            )}
+                                        </div>
+                                    </>
+                                )}
+
+                                {boxPriceMode === 'fijo_bs' && (
+                                    <>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 flex items-center gap-1">
+                                                <DollarSign size={11} className="text-emerald-500" /> PRECIO CAJA USD ($)
+                                            </label>
+                                            <input 
+                                                type="number" 
+                                                inputMode="decimal" 
+                                                value={boxPriceUsd} 
+                                                onChange={e => handleBoxPriceUsdChange(e.target.value)} 
+                                                placeholder="45.00"
+                                                className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 ml-1 mb-1 flex items-center gap-1">
+                                                <Lock size={11} className="text-emerald-500" /> PRECIO CAJA BS (FIJO)
+                                            </label>
+                                            <input 
+                                                type="number" 
+                                                inputMode="decimal" 
+                                                value={boxPriceBs} 
+                                                onChange={e => handleBoxPriceBsChange(e.target.value)} 
+                                                disabled={forceBcv}
+                                                placeholder="37800"
+                                                className="w-full p-2.5 rounded-xl font-black text-xs outline-none border border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300" 
+                                            />
+                                            <span className="text-[8px] text-emerald-500 font-medium block mt-0.5 ml-1">Monto fijo en Bolívares</span>
+                                        </div>
+                                    </>
+                                )}
                             </div>
                         </div>
                     )}
@@ -592,9 +838,9 @@ export default function ProductFormQuick({
                     </label>
 
                     {sellByHalfBox && (
-                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                            <div className="sm:col-span-4 flex items-center justify-between">
-                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Precios de ½ Caja</span>
+                        <div className="space-y-3 pt-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                            <div className="flex items-center justify-between">
+                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Estrategia de Precios para ½ Caja</span>
                                 <button
                                     type="button"
                                     onClick={handleToggleAutoCalcHalfBox}
@@ -611,61 +857,168 @@ export default function ProductFormQuick({
                                     <Zap size={10} className={(autoCalcHalfBox || forceBcv) ? 'fill-white' : ''} /> Auto-Tasa
                                 </button>
                             </div>
-                            <div>
-                                <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block">UDS POR ½ CAJA</label>
-                                <input 
-                                    type="number" 
-                                    inputMode="numeric" 
-                                    value={halfBoxUnits} 
-                                    onChange={e => setHalfBoxUnits(e.target.value)} 
-                                    placeholder={boxUnits ? Math.floor(parseInt(boxUnits, 10) / 2).toString() : "18"}
-                                    className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
-                                />
-                            </div>
-                            <div className="relative">
-                                <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block">CÓD. BARRAS ½ CAJA</label>
-                                <input 
-                                    type="text" 
-                                    value={halfBoxBarcode} 
-                                    onChange={e => setHalfBoxBarcode(e.target.value)} 
-                                    placeholder="Código media (sep. con comas)..."
-                                    className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
-                                />
-                                <Barcode size={14} className="absolute left-2.5 bottom-3.5 text-slate-400" />
-                            </div>
-                            <div>
-                                <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block">PRECIO ½ CAJA ($)</label>
-                                <input 
-                                    type="number" 
-                                    inputMode="decimal" 
-                                    value={halfBoxPriceUsd} 
-                                    onChange={e => handleHalfBoxPriceUsdChange(e.target.value)} 
-                                    placeholder="24.00"
-                                    className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
-                                />
-                            </div>
-                            <div>
-                                <label className="text-[10px] font-bold ml-1 mb-1 h-4 flex items-center justify-between">
-                                    <span className={`transition-colors duration-200 ${ (autoCalcHalfBox || forceBcv) ? 'text-emerald-500' : 'text-slate-400' }`}>PRECIO ½ CAJA BS</span>
-                                    {effectiveRate > 0 && Number(halfBoxPriceUsd) > 0 && (
-                                        <span className="text-[8px] text-slate-400 font-medium whitespace-nowrap">Ref: {Math.round(Number(halfBoxPriceUsd) * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate))} Bs</span>
-                                    )}
-                                </label>
-                                <input 
-                                    type="number" 
-                                    inputMode="decimal" 
-                                    value={halfBoxPriceBs} 
-                                    onChange={e => handleHalfBoxPriceBsChange(e.target.value)} 
-                                    disabled={forceBcv}
-                                    placeholder="900.00"
-                                    className={`w-full p-2.5 rounded-xl font-black text-xs outline-none border transition-all duration-200 ${
-                                        forceBcv
-                                            ? 'text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700 bg-blue-50/30 dark:bg-blue-900/10 cursor-not-allowed'
-                                            : autoCalcHalfBox
-                                                ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
-                                                : 'bg-white dark:bg-slate-900 text-[#193275] dark:text-brand border-slate-200 dark:border-slate-850'
+
+                            {/* Selector de Estrategia de Precio ½ Caja */}
+                            <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl gap-1">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setHalfBoxPriceMode('standard');
+                                        if (setHalfBoxPriceBsUsdRef) setHalfBoxPriceBsUsdRef('');
+                                        if (setHalfBoxPriceBs) setHalfBoxPriceBs('');
+                                    }}
+                                    className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                                        halfBoxPriceMode === 'standard'
+                                            ? 'bg-white dark:bg-slate-700 text-brand shadow-sm'
+                                            : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
                                     }`}
-                                />
+                                >
+                                    <DollarSign size={13} className={halfBoxPriceMode === 'standard' ? 'text-emerald-500' : 'text-slate-400'} /> Precio Único USD
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setHalfBoxPriceMode('diferenciado');
+                                        if (setHalfBoxPriceBs) setHalfBoxPriceBs('');
+                                    }}
+                                    className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                                        halfBoxPriceMode === 'diferenciado'
+                                            ? 'bg-purple-600 text-white shadow-sm shadow-purple-500/20'
+                                            : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                                    }`}
+                                >
+                                    <Zap size={13} className={halfBoxPriceMode === 'diferenciado' ? 'fill-white text-white' : 'text-purple-500'} /> Diferenciado ($ / Bs)
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setHalfBoxPriceMode('fijo_bs');
+                                        if (setHalfBoxPriceBsUsdRef) setHalfBoxPriceBsUsdRef('');
+                                    }}
+                                    className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                                        halfBoxPriceMode === 'fijo_bs'
+                                            ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-500/20'
+                                            : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                                    }`}
+                                >
+                                    <Lock size={12} className={halfBoxPriceMode === 'fijo_bs' ? 'text-white' : 'text-emerald-500'} /> Precio Fijo Bs
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block">UDS POR ½ CAJA</label>
+                                    <input 
+                                        type="number" 
+                                        inputMode="numeric" 
+                                        value={halfBoxUnits} 
+                                        onChange={e => setHalfBoxUnits(e.target.value)} 
+                                        placeholder={boxUnits ? Math.floor(parseInt(boxUnits, 10) / 2).toString() : "18"}
+                                        className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
+                                    />
+                                </div>
+                                <div className="relative">
+                                    <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block">CÓD. BARRAS ½ CAJA</label>
+                                    <input 
+                                        type="text" 
+                                        value={halfBoxBarcode} 
+                                        onChange={e => setHalfBoxBarcode(e.target.value)} 
+                                        placeholder="Código media (sep. con comas)..."
+                                        className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
+                                    />
+                                    <Barcode size={14} className="absolute left-2.5 bottom-3.5 text-slate-400" />
+                                </div>
+
+                                {halfBoxPriceMode === 'standard' && (
+                                    <div className="sm:col-span-2">
+                                        <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 flex items-center justify-between">
+                                            <span className="flex items-center gap-1"><DollarSign size={11} className="text-emerald-500" /> PRECIO ½ CAJA USD ($)</span>
+                                            {effectiveRate > 0 && Number(halfBoxPriceUsd) > 0 && (
+                                                <span className="text-[8px] text-emerald-600 font-bold">Ref: {Math.round(Number(halfBoxPriceUsd) * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate))} Bs</span>
+                                            )}
+                                        </label>
+                                        <input 
+                                            type="number" 
+                                            inputMode="decimal" 
+                                            value={halfBoxPriceUsd} 
+                                            onChange={e => handleHalfBoxPriceUsdChange(e.target.value)} 
+                                            placeholder="24.00"
+                                            className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
+                                        />
+                                    </div>
+                                )}
+
+                                {halfBoxPriceMode === 'diferenciado' && (
+                                    <>
+                                        <div>
+                                            <label className="text-[10px] font-black text-slate-500 dark:text-slate-300 ml-1 mb-1 flex items-center gap-1">
+                                                <Banknote size={12} className="text-emerald-500" /> PAGO DIVISA ½ CAJA ($)
+                                            </label>
+                                            <input 
+                                                type="number" 
+                                                inputMode="decimal" 
+                                                value={halfBoxPriceUsd} 
+                                                onChange={e => handleHalfBoxPriceUsdChange(e.target.value)} 
+                                                placeholder="24.00"
+                                                className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
+                                            />
+                                            <span className="text-[8px] text-slate-400 font-medium block mt-0.5 ml-1">En billetes efectivo/divisas</span>
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-black text-purple-600 dark:text-purple-400 ml-1 mb-1 flex items-center gap-1">
+                                                <Zap size={12} className="text-purple-500 fill-purple-500/20" /> PRECIO REF. BS ½ CAJA ($)
+                                            </label>
+                                            <input 
+                                                type="number" 
+                                                inputMode="decimal" 
+                                                value={halfBoxPriceBsUsdRef} 
+                                                onChange={e => setHalfBoxPriceBsUsdRef && setHalfBoxPriceBsUsdRef(e.target.value)} 
+                                                placeholder="25.00"
+                                                className="w-full p-2.5 rounded-xl font-black text-xs outline-none border border-purple-300 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300 focus:ring-2 focus:ring-purple-500/40" 
+                                            />
+                                            {effectiveRate > 0 && Number(halfBoxPriceBsUsdRef) > 0 ? (
+                                                <span className="text-[8.5px] font-bold text-purple-600 dark:text-purple-400 block mt-0.5 ml-1">
+                                                    = {Math.round(Number(halfBoxPriceBsUsdRef) * effectiveRate).toLocaleString('es-VE')} Bs al cobro en Bs
+                                                </span>
+                                            ) : (
+                                                <span className="text-[8px] text-purple-400 font-medium block mt-0.5 ml-1">Cobro en Pago Móvil/Punto</span>
+                                            )}
+                                        </div>
+                                    </>
+                                )}
+
+                                {halfBoxPriceMode === 'fijo_bs' && (
+                                    <>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 flex items-center gap-1">
+                                                <DollarSign size={11} className="text-emerald-500" /> PRECIO ½ CAJA USD ($)
+                                            </label>
+                                            <input 
+                                                type="number" 
+                                                inputMode="decimal" 
+                                                value={halfBoxPriceUsd} 
+                                                onChange={e => handleHalfBoxPriceUsdChange(e.target.value)} 
+                                                placeholder="24.00"
+                                                className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 ml-1 mb-1 flex items-center gap-1">
+                                                <Lock size={11} className="text-emerald-500" /> PRECIO ½ CAJA BS (FIJO)
+                                            </label>
+                                            <input 
+                                                type="number" 
+                                                inputMode="decimal" 
+                                                value={halfBoxPriceBs} 
+                                                onChange={e => handleHalfBoxPriceBsChange(e.target.value)} 
+                                                disabled={forceBcv}
+                                                placeholder="20000"
+                                                className="w-full p-2.5 rounded-xl font-black text-xs outline-none border border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300" 
+                                            />
+                                            <span className="text-[8px] text-emerald-500 font-medium block mt-0.5 ml-1">Monto fijo en Bolívares</span>
+                                        </div>
+                                    </>
+                                )}
                             </div>
                         </div>
                     )}

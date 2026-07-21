@@ -81,17 +81,23 @@ export async function uploadProductImage(dataUri, opts = {}) {
         const blob = dataUriToBlob(dataUri);
         if (blob.size === 0 || blob.size > MAX_BYTES) return null;
 
-        const deviceId = localStorage.getItem('dj_device_id') || 'shared';
+        const rawDeviceId = localStorage.getItem('dj_device_id') || 'shared';
+        const deviceId = rawDeviceId.replace(/[^a-zA-Z0-9_-]/g, '_');
         const ext = extFromMime(blob.type);
-        const id = opts.id
-            || (typeof crypto !== 'undefined' && crypto.randomUUID
-                ? crypto.randomUUID()
-                : `${blob.size}_${blob.type.length}`);
+        const id = String(opts.id || (typeof crypto !== 'undefined' && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `${blob.size}_${Date.now()}`)).replace(/[^a-zA-Z0-9_-]/g, '_');
+            
         const path = `${deviceId}/${id}.${ext}`;
+        const file = new File([blob], `${id}.${ext}`, { type: blob.type });
 
         const { error } = await supabaseCloud.storage
             .from(BUCKET)
-            .upload(path, blob, { contentType: blob.type, upsert: true });
+            .upload(path, file, {
+                cacheControl: '3600',
+                contentType: blob.type,
+                upsert: true
+            });
 
         if (error) return null;
 

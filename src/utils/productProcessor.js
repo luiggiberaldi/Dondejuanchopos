@@ -10,6 +10,7 @@ export function buildProductPayload(formData, effectiveRate) {
         barcode,
         priceUsd,
         priceBsManual,
+        priceBsUsdRef,
         costUsd,
         costBs,
         stock,
@@ -21,12 +22,14 @@ export function buildProductPayload(formData, effectiveRate) {
         boxBarcode,
         boxPriceUsd,
         boxPriceBs,
+        boxPriceBsUsdRef,
         
         sellByHalfBox,
         halfBoxUnits,
         halfBoxBarcode,
         halfBoxPriceUsd,
         halfBoxPriceBs,
+        halfBoxPriceBsUsdRef,
 
         purchaseByBoxCost,
         purchaseBoxUnits,
@@ -40,6 +43,7 @@ export function buildProductPayload(formData, effectiveRate) {
     // Normalizar costos y precios de unidad
     const finalPriceUsd = priceUsd ? round2(CurrencyService.safeParse(priceUsd)) : 0;
     const finalPriceBsManual = priceBsManual ? round2(CurrencyService.safeParse(priceBsManual)) : null;
+    const finalPriceBsUsdRef = priceBsUsdRef ? round2(CurrencyService.safeParse(priceBsUsdRef)) : null;
 
     // Normalizar datos de Caja (para usarse en la conversión del costo)
     const parsedBoxUnits = sellByBox && boxUnits ? parseInt(boxUnits, 10) : 1;
@@ -58,12 +62,14 @@ export function buildProductPayload(formData, effectiveRate) {
     // Normalizar datos de Caja
     const finalBoxPriceUsd = sellByBox && boxPriceUsd ? round2(CurrencyService.safeParse(boxPriceUsd)) : null;
     const finalBoxPriceBs = sellByBox && boxPriceBs ? round2(CurrencyService.safeParse(boxPriceBs)) : null;
+    const finalBoxPriceBsUsdRef = sellByBox && boxPriceBsUsdRef ? round2(CurrencyService.safeParse(boxPriceBsUsdRef)) : null;
     const finalBoxBarcode = sellByBox && boxBarcode ? boxBarcode.trim() : null;
 
     // Normalizar datos de Media Caja
     const parsedHalfBoxUnits = sellByHalfBox && halfBoxUnits ? parseInt(halfBoxUnits, 10) : 1;
     const finalHalfBoxPriceUsd = sellByHalfBox && halfBoxPriceUsd ? round2(CurrencyService.safeParse(halfBoxPriceUsd)) : null;
     const finalHalfBoxPriceBs = sellByHalfBox && halfBoxPriceBs ? round2(CurrencyService.safeParse(halfBoxPriceBs)) : null;
+    const finalHalfBoxPriceBsUsdRef = sellByHalfBox && halfBoxPriceBsUsdRef ? round2(CurrencyService.safeParse(halfBoxPriceBsUsdRef)) : null;
     const finalHalfBoxBarcode = sellByHalfBox && halfBoxBarcode ? halfBoxBarcode.trim() : null;
 
     return {
@@ -74,6 +80,7 @@ export function buildProductPayload(formData, effectiveRate) {
         priceUsd: finalPriceUsd,
         priceUsdt: finalPriceUsd, // Alias legacy
         priceBsManual: finalPriceBsManual,
+        priceBsUsdRef: finalPriceBsUsdRef,
         
         // Caja
         sellByBox: !!sellByBox,
@@ -81,6 +88,7 @@ export function buildProductPayload(formData, effectiveRate) {
         boxBarcode: finalBoxBarcode,
         boxPriceUsd: finalBoxPriceUsd,
         boxPriceBs: finalBoxPriceBs,
+        boxPriceBsUsdRef: finalBoxPriceBsUsdRef,
 
         // Media Caja
         sellByHalfBox: !!sellByHalfBox,
@@ -88,6 +96,7 @@ export function buildProductPayload(formData, effectiveRate) {
         halfBoxBarcode: finalHalfBoxBarcode,
         halfBoxPriceUsd: finalHalfBoxPriceUsd,
         halfBoxPriceBs: finalHalfBoxPriceBs,
+        halfBoxPriceBsUsdRef: finalHalfBoxPriceBsUsdRef,
 
         // Costo y Stock
         costUsd: finalCostUsd,

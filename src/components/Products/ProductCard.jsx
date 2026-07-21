@@ -1,5 +1,5 @@
 import React from 'react';
-import { Tag, Banknote, AlertTriangle, Box, Minus, Plus, Pencil, Trash2, Package, Layers, Clock, Printer, FileText, Gift, ChevronDown, Landmark } from 'lucide-react';
+import { Tag, Banknote, AlertTriangle, Box, Minus, Plus, Pencil, Trash2, Package, Layers, Clock, Printer, FileText, Gift, ChevronDown, Landmark, Zap } from 'lucide-react';
 import { CATEGORY_COLORS, getCategoryIcon, UNITS } from '../../config/categories';
 import { formatUsd, formatBs, formatCop, smartCashRounding, getCop, getUsd, getProductEffectiveRate } from '../../utils/calculatorUtils';
 import { calculateComboStock } from '../../utils/productProcessor';
@@ -321,12 +321,35 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
 
                 {/* Precios de la Unidad */}
                 <div className="space-y-1 mb-2.5">
-                    <p className="text-base font-black text-emerald-600 dark:text-emerald-400 leading-none">
-                        ${formatUsd(p.priceUsd)} <span className="text-[9px] font-bold text-slate-400">USD</span>
-                    </p>
-                    <p className="text-[11px] font-extrabold text-slate-500 dark:text-slate-450 leading-none">
-                        {p.priceBsManual && !p.forceBcv ? `${Number(p.priceBsManual).toFixed(2)}` : formatBs(p.priceUsd * activeRate)} Bs
-                        {p.priceBsManual && !p.forceBcv && <span className="text-[7px] bg-[#193275]/10 dark:bg-brand/10 text-[#193275] dark:text-brand px-1.5 py-0.5 rounded font-black ml-1.5">MANUAL</span>}
+                    <div className="flex items-center justify-between gap-1 flex-wrap">
+                        <p className="text-base font-black text-emerald-600 dark:text-emerald-400 leading-none">
+                            ${formatUsd(p.priceUsd)} <span className="text-[9px] font-bold text-slate-400">USD</span>
+                        </p>
+
+                        {p.priceBsUsdRef && !p.forceBcv && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-black text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/80 px-2 py-0.5 rounded-md border border-purple-300 dark:border-purple-800 shadow-xs">
+                                <Zap size={11} className="fill-purple-600 text-purple-600 dark:fill-purple-400 dark:text-purple-400" />
+                                Ref. ${Number(p.priceBsUsdRef).toFixed(2)}
+                            </span>
+                        )}
+                    </div>
+
+                    <p className="text-[11px] font-extrabold text-slate-500 dark:text-slate-450 leading-none flex items-center gap-1 flex-wrap">
+                        <span>
+                            {p.priceBsUsdRef && !p.forceBcv
+                                ? formatBs(p.priceBsUsdRef * activeRate)
+                                : p.priceBsManual && !p.forceBcv
+                                    ? `${Number(p.priceBsManual).toFixed(2)}`
+                                    : formatBs(p.priceUsd * activeRate)} Bs
+                        </span>
+                        {p.priceBsManual && !p.forceBcv && (
+                            <span className="text-[7px] bg-[#193275]/10 dark:bg-brand/10 text-[#193275] dark:text-brand px-1.5 py-0.5 rounded font-black">MANUAL</span>
+                        )}
+                        {p.priceBsUsdRef && !p.forceBcv && (
+                            <span className="text-[8.5px] font-bold text-purple-600 dark:text-purple-400">
+                                (al cobro en Bs)
+                            </span>
+                        )}
                     </p>
                 </div>
 
@@ -337,7 +360,13 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                             <div className="flex items-center justify-between text-[10px] font-bold text-[#193275] dark:text-brand bg-[#193275]/5 dark:bg-brand/5 px-2 py-1 rounded-lg">
                                 <span className="flex items-center gap-1"><Package size={10} /> Caja ({p.boxUnits} Uds)</span>
                                 <span className="font-black">
-                                    ${(p.boxPriceUsd ? Number(p.boxPriceUsd) : 0).toFixed(2)} | {p.boxPriceBs && !p.forceBcv ? `${Number(p.boxPriceBs).toFixed(0)} Bs` : `${((p.boxPriceUsd || 0) * activeRate).toFixed(0)} Bs`}
+                                    ${(p.boxPriceUsd ? Number(p.boxPriceUsd) : 0).toFixed(2)} | {
+                                        p.boxPriceBsUsdRef && !p.forceBcv
+                                            ? `${((p.boxPriceBsUsdRef || 0) * activeRate).toFixed(0)} Bs`
+                                            : p.boxPriceBs && !p.forceBcv
+                                                ? `${Number(p.boxPriceBs).toFixed(0)} Bs`
+                                                : `${((p.boxPriceUsd || 0) * activeRate).toFixed(0)} Bs`
+                                    }
                                 </span>
                             </div>
                         )}
@@ -345,7 +374,13 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                             <div className="flex items-center justify-between text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/20 px-2 py-1 rounded-lg">
                                 <span className="flex items-center gap-1"><Package size={10} /> ½ Caja ({p.halfBoxUnits} Uds)</span>
                                 <span className="font-black">
-                                    ${(p.halfBoxPriceUsd ? Number(p.halfBoxPriceUsd) : 0).toFixed(2)} | {p.halfBoxPriceBs && !p.forceBcv ? `${Number(p.halfBoxPriceBs).toFixed(0)} Bs` : `${((p.halfBoxPriceUsd || 0) * activeRate).toFixed(0)} Bs`}
+                                    ${(p.halfBoxPriceUsd ? Number(p.halfBoxPriceUsd) : 0).toFixed(2)} | {
+                                        p.halfBoxPriceBsUsdRef && !p.forceBcv
+                                            ? `${((p.halfBoxPriceBsUsdRef || 0) * activeRate).toFixed(0)} Bs`
+                                            : p.halfBoxPriceBs && !p.forceBcv
+                                                ? `${Number(p.halfBoxPriceBs).toFixed(0)} Bs`
+                                                : `${((p.halfBoxPriceUsd || 0) * activeRate).toFixed(0)} Bs`
+                                    }
                                 </span>
                             </div>
                         )}

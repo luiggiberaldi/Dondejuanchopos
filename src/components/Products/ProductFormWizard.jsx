@@ -10,6 +10,7 @@ export default function ProductFormWizard({
     category, setCategory,
     priceUsd, handlePriceUsdChange,
     priceBsManual, setPriceBsManual,
+    priceBsUsdRef, setPriceBsUsdRef,
     costUsd, handleCostUsdChange,
     costBs, handleCostBsChange,
     stock, setStock,
@@ -20,6 +21,7 @@ export default function ProductFormWizard({
     boxBarcode, setBoxBarcode,
     boxPriceUsd, setBoxPriceUsd,
     boxPriceBs, setBoxPriceBs,
+    boxPriceBsUsdRef, setBoxPriceBsUsdRef,
 
     sellByHalfBox, setSellByHalfBox,
     halfBoxUnits, setHalfBoxUnits,
@@ -532,6 +534,28 @@ export default function ProductFormWizard({
                                     <span className="text-[8px] text-slate-400 font-medium block mt-0.5 ml-1">Ref: {Math.round(Number(priceUsd) * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate))} Bs a tasa BCV</span>
                                 )}
                             </div>
+                        </div>
+
+                        {/* Precio Referencial USD para cobro en Bs */}
+                        <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/60">
+                            <div className="flex justify-between items-center mb-1">
+                                <span className="text-[9px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-wider flex items-center gap-1">
+                                    ⚡ PRECIO REF. BS ($)
+                                </span>
+                                {effectiveRate > 0 && Number(priceBsUsdRef) > 0 && (
+                                    <span className="text-[8.5px] font-bold text-purple-600 dark:text-purple-400">
+                                        = {Math.round(Number(priceBsUsdRef) * effectiveRate).toLocaleString('es-VE')} Bs al cobro en Bs
+                                    </span>
+                                )}
+                            </div>
+                            <input
+                                type="number"
+                                inputMode="decimal"
+                                value={priceBsUsdRef}
+                                onChange={e => setPriceBsUsdRef && setPriceBsUsdRef(e.target.value)}
+                                placeholder="Ej: 26.00 (si paga en Bs)"
+                                className="w-full p-2.5 rounded-xl font-bold text-xs outline-none border border-purple-200 dark:border-purple-900/50 bg-purple-50/30 dark:bg-purple-950/20 text-purple-700 dark:text-purple-300 focus:ring-2 focus:ring-purple-500/30 placeholder-purple-300 dark:placeholder-purple-700"
+                            />
                         </div>
 
                         <div className="flex items-center gap-3 cursor-pointer select-none pt-2 border-t border-slate-200/40 dark:border-slate-800/40 mt-2">

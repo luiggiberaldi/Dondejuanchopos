@@ -224,8 +224,48 @@ export default function CategoryBar({
 
                                     {/* Precio Bs: pequeño, color brand */}
                                     <p className="text-[10px] font-bold text-brand dark:text-brand mt-0.5 leading-none">
-                                        Bs {formatBs(getUsd(p, tasaCop) * (effectiveRate || 0))}
+                                        Bs {formatBs(
+                                            p.priceBsUsdRef && !p.forceBcv
+                                                ? Number(p.priceBsUsdRef) * (effectiveRate || 0)
+                                                : p.priceBsManual && !p.forceBcv
+                                                    ? Number(p.priceBsManual)
+                                                    : getUsd(p, tasaCop) * (effectiveRate || 0)
+                                        )}
                                     </p>
+
+                                    {/* Formatos Caja / ½ Caja */}
+                                    {(p.sellByBox || p.sellByHalfBox) && (
+                                        <div className="w-full mt-1.5 pt-1 border-t border-slate-100 dark:border-slate-800/60 space-y-0.5 text-left">
+                                            {p.sellByBox && (
+                                                <p className="text-[9.5px] font-black text-[#193275] dark:text-brand flex items-center justify-between leading-tight">
+                                                    <span className="flex items-center gap-1"><Package size={10} /> Caja:</span>
+                                                    <span>
+                                                        ${(p.boxPriceUsd ? Number(p.boxPriceUsd) : 0).toFixed(2)} | {formatBs(
+                                                            p.boxPriceBsUsdRef && !p.forceBcv
+                                                                ? Number(p.boxPriceBsUsdRef) * (effectiveRate || 0)
+                                                                : p.boxPriceBs && !p.forceBcv
+                                                                    ? Number(p.boxPriceBs)
+                                                                    : (Number(p.boxPriceUsd) || 0) * (effectiveRate || 0)
+                                                        )} Bs
+                                                    </span>
+                                                </p>
+                                            )}
+                                            {p.sellByHalfBox && (
+                                                <p className="text-[9.5px] font-black text-purple-600 dark:text-purple-400 flex items-center justify-between leading-tight">
+                                                    <span className="flex items-center gap-1"><Package size={10} /> ½ Caja:</span>
+                                                    <span>
+                                                        ${(p.halfBoxPriceUsd ? Number(p.halfBoxPriceUsd) : 0).toFixed(2)} | {formatBs(
+                                                            p.halfBoxPriceBsUsdRef && !p.forceBcv
+                                                                ? Number(p.halfBoxPriceBsUsdRef) * (effectiveRate || 0)
+                                                                : p.halfBoxPriceBs && !p.forceBcv
+                                                                    ? Number(p.halfBoxPriceBs)
+                                                                    : (Number(p.halfBoxPriceUsd) || 0) * (effectiveRate || 0)
+                                                        )} Bs
+                                                    </span>
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
                                 </button>
                             );
                         })}

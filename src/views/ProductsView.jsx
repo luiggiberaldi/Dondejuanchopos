@@ -288,6 +288,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
         barcode, setBarcode,
         priceUsd, setPriceUsd,
         priceBsManual, setPriceBsManual,
+        priceBsUsdRef, setPriceBsUsdRef,
         costUsd, setCostUsd,
         costBs, setCostBs,
         stock, setStock,
@@ -300,11 +301,13 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
         boxBarcode, setBoxBarcode,
         boxPriceUsd, setBoxPriceUsd,
         boxPriceBs, setBoxPriceBs,
+        boxPriceBsUsdRef, setBoxPriceBsUsdRef,
         sellByHalfBox, setSellByHalfBox,
         halfBoxUnits, setHalfBoxUnits,
         halfBoxBarcode, setHalfBoxBarcode,
         halfBoxPriceUsd, setHalfBoxPriceUsd,
         halfBoxPriceBs, setHalfBoxPriceBs,
+        halfBoxPriceBsUsdRef, setHalfBoxPriceBsUsdRef,
         purchaseByBoxCost, setPurchaseByBoxCost,
         purchaseBoxUnits, setPurchaseBoxUnits,
         purchaseBoxBcv, setPurchaseBoxBcv,
@@ -448,10 +451,10 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
         }
 
         const productData = buildProductPayload({
-            name, barcode, priceUsd, priceBsManual, costUsd, costBs, stock,
+            name, barcode, priceUsd, priceBsManual, priceBsUsdRef, costUsd, costBs, stock,
             category, lowStockAlert,
-            sellByBox, boxUnits, boxBarcode, boxPriceUsd, boxPriceBs,
-            sellByHalfBox, halfBoxUnits, halfBoxBarcode, halfBoxPriceUsd, halfBoxPriceBs,
+            sellByBox, boxUnits, boxBarcode, boxPriceUsd, boxPriceBs, boxPriceBsUsdRef,
+            sellByHalfBox, halfBoxUnits, halfBoxBarcode, halfBoxPriceUsd, halfBoxPriceBs, halfBoxPriceBsUsdRef,
             purchaseByBoxCost, purchaseBoxUnits, purchaseBoxBcv,
             forceBcv
         }, effectiveRate);
@@ -926,6 +929,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 category={category} setCategory={setCategory}
                 priceUsd={priceUsd} handlePriceUsdChange={handlePriceUsdChange}
                 priceBsManual={priceBsManual} setPriceBsManual={setPriceBsManual}
+                priceBsUsdRef={priceBsUsdRef} setPriceBsUsdRef={setPriceBsUsdRef}
                 costUsd={costUsd} handleCostUsdChange={handleCostUsdChange}
                 costBs={costBs} handleCostBsChange={handleCostBsChange}
                 stock={stock} setStock={setStock}
@@ -937,12 +941,14 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 boxBarcode={boxBarcode} setBoxBarcode={setBoxBarcode}
                 boxPriceUsd={boxPriceUsd} setBoxPriceUsd={setBoxPriceUsd}
                 boxPriceBs={boxPriceBs} setBoxPriceBs={setBoxPriceBs}
+                boxPriceBsUsdRef={boxPriceBsUsdRef} setBoxPriceBsUsdRef={setBoxPriceBsUsdRef}
 
                 sellByHalfBox={sellByHalfBox} setSellByHalfBox={setSellByHalfBox}
                 halfBoxUnits={halfBoxUnits} setHalfBoxUnits={setHalfBoxUnits}
                 halfBoxBarcode={halfBoxBarcode} setHalfBoxBarcode={setHalfBoxBarcode}
                 halfBoxPriceUsd={halfBoxPriceUsd} setHalfBoxPriceUsd={setHalfBoxPriceUsd}
                 halfBoxPriceBs={halfBoxPriceBs} setHalfBoxPriceBs={setHalfBoxPriceBs}
+                halfBoxPriceBsUsdRef={halfBoxPriceBsUsdRef} setHalfBoxPriceBsUsdRef={setHalfBoxPriceBsUsdRef}
 
                 purchaseByBoxCost={purchaseByBoxCost} setPurchaseByBoxCost={setPurchaseByBoxCost}
                 purchaseBoxUnits={purchaseBoxUnits} setPurchaseBoxUnits={setPurchaseBoxUnits}

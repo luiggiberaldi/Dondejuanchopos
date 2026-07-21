@@ -380,6 +380,10 @@ export class FinancialEngine {
             if (item.priceBsManual != null && item.priceBsManual > 0 && !item.forceBcv) {
                 return mulR(item.priceBsManual, item.qty);
             }
+            if (item.priceBsUsdRef != null && item.priceBsUsdRef > 0 && !item.forceBcv) {
+                const itemRate = item.forceBcv ? (realBcvRate || bcvRate) : bcvRate;
+                return mulR(mulR(item.priceBsUsdRef, item.qty), itemRate);
+            }
             if (item.exactBs != null && !item.forceBcv) {
                 return mulR(item.exactBs, item.qty);
             }

@@ -145,7 +145,15 @@ const SearchBar = forwardRef(function SearchBar({
                                                 ${getUsd(p, tasaCop).toFixed(2)}
                                             </p>
                                             <p className="text-[10px] font-medium text-slate-400">
-                                                {copEnabled && tasaCop > 0 ? `${formatCop(getCop(p, tasaCop))} COP` : `${formatBs(p.priceUsdt * effectiveRate)} Bs`}
+                                                {copEnabled && tasaCop > 0 
+                                                    ? `${formatCop(getCop(p, tasaCop))} COP` 
+                                                    : `${formatBs(
+                                                        p.priceBsUsdRef && !p.forceBcv
+                                                            ? p.priceBsUsdRef * effectiveRate
+                                                            : p.priceBsManual && !p.forceBcv
+                                                                ? Number(p.priceBsManual)
+                                                                : (p.priceUsdt || p.priceUsd || 0) * effectiveRate
+                                                      )} Bs`}
                                             </p>
                                         </>
                                     )}
@@ -184,7 +192,11 @@ const SearchBar = forwardRef(function SearchBar({
                             <div className="flex flex-col">
                                 <span className="text-xs font-black text-emerald-600 dark:text-emerald-400">${hierarchyPending.priceUsd?.toFixed(2)}</span>
                                 <span className="text-[9px] font-bold text-slate-400">
-                                    {hierarchyPending.priceBsManual ? `${Number(hierarchyPending.priceBsManual).toFixed(2)} Bs` : `${(hierarchyPending.priceUsd * effectiveRate).toFixed(2)} Bs`}
+                                    {hierarchyPending.priceBsUsdRef && !hierarchyPending.forceBcv
+                                        ? `${(hierarchyPending.priceBsUsdRef * effectiveRate).toFixed(2)} Bs`
+                                        : hierarchyPending.priceBsManual && !hierarchyPending.forceBcv
+                                            ? `${Number(hierarchyPending.priceBsManual).toFixed(2)} Bs`
+                                            : `${((hierarchyPending.priceUsd || 0) * effectiveRate).toFixed(2)} Bs`}
                                 </span>
                             </div>
                         </button>
@@ -198,7 +210,11 @@ const SearchBar = forwardRef(function SearchBar({
                                 <div className="flex flex-col">
                                     <span className="text-xs font-black text-[#193275] dark:text-brand">${hierarchyPending.boxPriceUsd?.toFixed(2)}</span>
                                     <span className="text-[9px] font-bold text-slate-450 dark:text-slate-400">
-                                        {hierarchyPending.boxPriceBs ? `${Number(hierarchyPending.boxPriceBs).toFixed(2)} Bs` : `${(hierarchyPending.boxPriceUsd * effectiveRate).toFixed(2)} Bs`}
+                                        {hierarchyPending.boxPriceBsUsdRef && !hierarchyPending.forceBcv
+                                            ? `${(hierarchyPending.boxPriceBsUsdRef * effectiveRate).toFixed(2)} Bs`
+                                            : hierarchyPending.boxPriceBs && !hierarchyPending.forceBcv
+                                                ? `${Number(hierarchyPending.boxPriceBs).toFixed(2)} Bs`
+                                                : `${((hierarchyPending.boxPriceUsd || 0) * effectiveRate).toFixed(2)} Bs`}
                                     </span>
                                 </div>
                             </button>
@@ -213,7 +229,11 @@ const SearchBar = forwardRef(function SearchBar({
                                 <div className="flex flex-col">
                                     <span className="text-xs font-black text-purple-600 dark:text-purple-400">${hierarchyPending.halfBoxPriceUsd?.toFixed(2)}</span>
                                     <span className="text-[9px] font-bold text-slate-400">
-                                        {hierarchyPending.halfBoxPriceBs ? `${Number(hierarchyPending.halfBoxPriceBs).toFixed(2)} Bs` : `${(hierarchyPending.halfBoxPriceUsd * effectiveRate).toFixed(2)} Bs`}
+                                        {hierarchyPending.halfBoxPriceBsUsdRef && !hierarchyPending.forceBcv
+                                            ? `${(hierarchyPending.halfBoxPriceBsUsdRef * effectiveRate).toFixed(2)} Bs`
+                                            : hierarchyPending.halfBoxPriceBs && !hierarchyPending.forceBcv
+                                                ? `${Number(hierarchyPending.halfBoxPriceBs).toFixed(2)} Bs`
+                                                : `${((hierarchyPending.halfBoxPriceUsd || 0) * effectiveRate).toFixed(2)} Bs`}
                                     </span>
                                 </div>
                             </button>

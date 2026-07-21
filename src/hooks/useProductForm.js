@@ -6,6 +6,7 @@ const INITIAL_STATE = {
     barcode: '',
     priceUsd: '',
     priceBsManual: '', // Precio unidad en Bs (Manual)
+    priceBsUsdRef: '', // Precio referencial USD para cobro en Bs
     costUsd: '',
     costBs: '',
     stock: '',
@@ -20,6 +21,7 @@ const INITIAL_STATE = {
     boxBarcode: '',
     boxPriceUsd: '',
     boxPriceBs: '',
+    boxPriceBsUsdRef: '',
 
     // Media Caja
     sellByHalfBox: false,
@@ -27,6 +29,7 @@ const INITIAL_STATE = {
     halfBoxBarcode: '',
     halfBoxPriceUsd: '',
     halfBoxPriceBs: '',
+    halfBoxPriceBsUsdRef: '',
 
     // Costo de compra por caja (Calculadora auxiliar)
     purchaseByBoxCost: '',
@@ -56,6 +59,7 @@ export function useProductForm() {
     const setBarcode = useCallback((v) => dispatch({ type: 'SET', field: 'barcode', value: v }), []);
     const setPriceUsd = useCallback((v) => dispatch({ type: 'SET', field: 'priceUsd', value: v }), []);
     const setPriceBsManual = useCallback((v) => dispatch({ type: 'SET', field: 'priceBsManual', value: v }), []);
+    const setPriceBsUsdRef = useCallback((v) => dispatch({ type: 'SET', field: 'priceBsUsdRef', value: v }), []);
     const setCostUsd = useCallback((v) => dispatch({ type: 'SET', field: 'costUsd', value: v }), []);
     const setCostBs = useCallback((v) => dispatch({ type: 'SET', field: 'costBs', value: v }), []);
     const setStock = useCallback((v) => dispatch({ type: 'SET', field: 'stock', value: v }), []);
@@ -70,6 +74,7 @@ export function useProductForm() {
     const setBoxBarcode = useCallback((v) => dispatch({ type: 'SET', field: 'boxBarcode', value: v }), []);
     const setBoxPriceUsd = useCallback((v) => dispatch({ type: 'SET', field: 'boxPriceUsd', value: v }), []);
     const setBoxPriceBs = useCallback((v) => dispatch({ type: 'SET', field: 'boxPriceBs', value: v }), []);
+    const setBoxPriceBsUsdRef = useCallback((v) => dispatch({ type: 'SET', field: 'boxPriceBsUsdRef', value: v }), []);
 
     // Setters Media Caja
     const setSellByHalfBox = useCallback((v) => dispatch({ type: 'SET', field: 'sellByHalfBox', value: v }), []);
@@ -77,6 +82,7 @@ export function useProductForm() {
     const setHalfBoxBarcode = useCallback((v) => dispatch({ type: 'SET', field: 'halfBoxBarcode', value: v }), []);
     const setHalfBoxPriceUsd = useCallback((v) => dispatch({ type: 'SET', field: 'halfBoxPriceUsd', value: v }), []);
     const setHalfBoxPriceBs = useCallback((v) => dispatch({ type: 'SET', field: 'halfBoxPriceBs', value: v }), []);
+    const setHalfBoxPriceBsUsdRef = useCallback((v) => dispatch({ type: 'SET', field: 'halfBoxPriceBsUsdRef', value: v }), []);
 
     // Setters Costo de compra por caja
     const setPurchaseByBoxCost = useCallback((v) => dispatch({ type: 'SET', field: 'purchaseByBoxCost', value: v }), []);
@@ -103,7 +109,8 @@ export function useProductForm() {
             name: product.name,
             barcode: product.barcode || '',
             priceUsd: currentPriceUsd > 0 ? currentPriceUsd.toString() : '',
-            priceBsManual: product.priceBsManual ? product.priceBsManual.toString() : (product.priceBs ? product.priceBs.toString() : ''),
+            priceBsManual: product.priceBsManual ? product.priceBsManual.toString() : '',
+            priceBsUsdRef: product.priceBsUsdRef ? product.priceBsUsdRef.toString() : '',
             costUsd: formCostUsd > 0 ? formCostUsd.toFixed(2) : '',
             costBs: formCostBs > 0 ? formCostBs.toFixed(2) : '',
             stock: product.stock ?? '',
@@ -117,6 +124,7 @@ export function useProductForm() {
             boxBarcode: product.boxBarcode || '',
             boxPriceUsd: product.boxPriceUsd ? product.boxPriceUsd.toString() : '',
             boxPriceBs: product.boxPriceBs ? product.boxPriceBs.toString() : '',
+            boxPriceBsUsdRef: product.boxPriceBsUsdRef ? product.boxPriceBsUsdRef.toString() : '',
 
             // Media Caja
             sellByHalfBox: !!product.sellByHalfBox,
@@ -124,6 +132,7 @@ export function useProductForm() {
             halfBoxBarcode: product.halfBoxBarcode || '',
             halfBoxPriceUsd: product.halfBoxPriceUsd ? product.halfBoxPriceUsd.toString() : '',
             halfBoxPriceBs: product.halfBoxPriceBs ? product.halfBoxPriceBs.toString() : '',
+            halfBoxPriceBsUsdRef: product.halfBoxPriceBsUsdRef ? product.halfBoxPriceBsUsdRef.toString() : '',
 
             // Costo de compra por caja
             purchaseByBoxCost: product.purchaseByBoxCost ? product.purchaseByBoxCost.toString() : '',
@@ -141,6 +150,7 @@ export function useProductForm() {
         barcode: state.barcode, setBarcode,
         priceUsd: state.priceUsd, setPriceUsd,
         priceBsManual: state.priceBsManual, setPriceBsManual,
+        priceBsUsdRef: state.priceBsUsdRef, setPriceBsUsdRef,
         costUsd: state.costUsd, setCostUsd,
         costBs: state.costBs, setCostBs,
         stock: state.stock, setStock,
@@ -155,6 +165,7 @@ export function useProductForm() {
         boxBarcode: state.boxBarcode, setBoxBarcode,
         boxPriceUsd: state.boxPriceUsd, setBoxPriceUsd,
         boxPriceBs: state.boxPriceBs, setBoxPriceBs,
+        boxPriceBsUsdRef: state.boxPriceBsUsdRef, setBoxPriceBsUsdRef,
 
         // Media Caja
         sellByHalfBox: state.sellByHalfBox, setSellByHalfBox,
@@ -162,6 +173,7 @@ export function useProductForm() {
         halfBoxBarcode: state.halfBoxBarcode, setHalfBoxBarcode,
         halfBoxPriceUsd: state.halfBoxPriceUsd, setHalfBoxPriceUsd,
         halfBoxPriceBs: state.halfBoxPriceBs, setHalfBoxPriceBs,
+        halfBoxPriceBsUsdRef: state.halfBoxPriceBsUsdRef, setHalfBoxPriceBsUsdRef,
 
         // Costo de compra por caja
         purchaseByBoxCost: state.purchaseByBoxCost, setPurchaseByBoxCost,

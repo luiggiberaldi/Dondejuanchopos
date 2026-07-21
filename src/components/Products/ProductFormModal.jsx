@@ -18,6 +18,7 @@ export default function ProductFormModal({
     category, setCategory,
     priceUsd, handlePriceUsdChange,
     priceBsManual, setPriceBsManual,
+    priceBsUsdRef, setPriceBsUsdRef,
     costUsd, handleCostUsdChange,
     costBs, handleCostBsChange,
     stock, setStock,
@@ -28,12 +29,14 @@ export default function ProductFormModal({
     boxBarcode, setBoxBarcode,
     boxPriceUsd, setBoxPriceUsd,
     boxPriceBs, setBoxPriceBs,
+    boxPriceBsUsdRef, setBoxPriceBsUsdRef,
 
     sellByHalfBox, setSellByHalfBox,
     halfBoxUnits, setHalfBoxUnits,
     halfBoxBarcode, setHalfBoxBarcode,
     halfBoxPriceUsd, setHalfBoxPriceUsd,
     halfBoxPriceBs, setHalfBoxPriceBs,
+    halfBoxPriceBsUsdRef, setHalfBoxPriceBsUsdRef,
 
     purchaseByBoxCost, setPurchaseByBoxCost,
     purchaseBoxUnits, setPurchaseBoxUnits,
@@ -110,63 +113,32 @@ export default function ProductFormModal({
         }
     }, [sellByBox, sellByHalfBox, setSellByHalfBox]);
 
-    // Re-calcular precios en bolívares cuando cambia forceBcv o los precios en USD
+    // Re-calcular precios en bolívares cuando cambia forceBcv o las tasas de cambio
     useEffect(() => {
         const bcvRate = rates?.bcv?.price > 0 ? rates.bcv.price : effectiveRate;
         const activeRate = forceBcv ? bcvRate : effectiveRate;
 
-        // Si forceBcv se activa, forzamos auto-cálculo a true
+        // Si forceBcv se activa, forzamos auto-cálculo a true y recalculamos
         if (forceBcv) {
             setAutoCalcUnit(true);
             setAutoCalcBox(true);
             setAutoCalcHalfBox(true);
-        }
 
-        if (activeRate > 0) {
-            // Unidad
-            if (autoCalcUnit || forceBcv) {
+            if (activeRate > 0) {
                 const usd = CurrencyService.safeParse(priceUsd);
-                if (usd > 0) {
-                    setPriceBsManual(forceBcv 
-                        ? round2(mulR(usd, activeRate)).toFixed(2) 
-                        : Math.round(mulR(usd, activeRate)).toString()
-                    );
-                }
-            }
-            // Caja
-            if (autoCalcBox || forceBcv) {
+                if (usd > 0) setPriceBsManual(round2(mulR(usd, activeRate)).toFixed(2));
+
                 const bUsd = CurrencyService.safeParse(boxPriceUsd);
-                if (bUsd > 0) {
-                    setBoxPriceBs(forceBcv 
-                        ? round2(mulR(bUsd, activeRate)).toFixed(2) 
-                        : Math.round(mulR(bUsd, activeRate)).toString()
-                    );
-                }
-            }
-            // Media Caja
-            if (autoCalcHalfBox || forceBcv) {
+                if (bUsd > 0) setBoxPriceBs(round2(mulR(bUsd, activeRate)).toFixed(2));
+
                 const hbUsd = CurrencyService.safeParse(halfBoxPriceUsd);
-                if (hbUsd > 0) {
-                    setHalfBoxPriceBs(forceBcv 
-                        ? round2(mulR(hbUsd, activeRate)).toFixed(2) 
-                        : Math.round(mulR(hbUsd, activeRate)).toString()
-                    );
-                }
+                if (hbUsd > 0) setHalfBoxPriceBs(round2(mulR(hbUsd, activeRate)).toFixed(2));
             }
         }
     }, [
         forceBcv, 
-        autoCalcUnit, 
-        autoCalcBox, 
-        autoCalcHalfBox, 
-        priceUsd, 
-        boxPriceUsd, 
-        halfBoxPriceUsd, 
         rates?.bcv?.price, 
-        effectiveRate, 
-        setPriceBsManual, 
-        setBoxPriceBs, 
-        setHalfBoxPriceBs
+        effectiveRate
     ]);
 
     if (!isOpen) return null;
@@ -219,7 +191,12 @@ export default function ProductFormModal({
         setPriceBsManual(val);
         if (autoCalcUnit && effectiveRate > 0) {
             const p = CurrencyService.safeParse(val);
-            handlePriceUsdChange(p > 0 ? divR(p, effectiveRate).toFixed(2) : '');
+            if (!val || p <= 0) {
+                handlePriceUsdChange('');
+            } else {
+                const usd = divR(p, effectiveRate);
+                handlePriceUsdChange(usd >= 0.01 ? usd.toFixed(2) : usd.toFixed(4));
+            }
         }
     };
 
@@ -252,7 +229,12 @@ export default function ProductFormModal({
         setBoxPriceBs(val);
         if (autoCalcBox && effectiveRate > 0) {
             const p = CurrencyService.safeParse(val);
-            setBoxPriceUsd(p > 0 ? divR(p, effectiveRate).toFixed(2) : '');
+            if (!val || p <= 0) {
+                setBoxPriceUsd('');
+            } else {
+                const usd = divR(p, effectiveRate);
+                setBoxPriceUsd(usd >= 0.01 ? usd.toFixed(2) : usd.toFixed(4));
+            }
         }
     };
 
@@ -285,7 +267,12 @@ export default function ProductFormModal({
         setHalfBoxPriceBs(val);
         if (autoCalcHalfBox && effectiveRate > 0) {
             const p = CurrencyService.safeParse(val);
-            setHalfBoxPriceUsd(p > 0 ? divR(p, effectiveRate).toFixed(2) : '');
+            if (!val || p <= 0) {
+                setHalfBoxPriceUsd('');
+            } else {
+                const usd = divR(p, effectiveRate);
+                setHalfBoxPriceUsd(usd >= 0.01 ? usd.toFixed(2) : usd.toFixed(4));
+            }
         }
     };
 
@@ -391,6 +378,7 @@ export default function ProductFormModal({
         category, setCategory,
         priceUsd, handlePriceUsdChange,
         priceBsManual, setPriceBsManual,
+        priceBsUsdRef, setPriceBsUsdRef,
         costUsd, handleCostUsdChange,
         costBs, handleCostBsChange,
         stock, setStock,
@@ -401,12 +389,14 @@ export default function ProductFormModal({
         boxBarcode, setBoxBarcode,
         boxPriceUsd, setBoxPriceUsd,
         boxPriceBs, setBoxPriceBs,
+        boxPriceBsUsdRef, setBoxPriceBsUsdRef,
 
         sellByHalfBox, setSellByHalfBox,
         halfBoxUnits, setHalfBoxUnits,
         halfBoxBarcode, setHalfBoxBarcode,
         halfBoxPriceUsd, setHalfBoxPriceUsd,
         halfBoxPriceBs, setHalfBoxPriceBs,
+        halfBoxPriceBsUsdRef, setHalfBoxPriceBsUsdRef,
 
         effectiveRate,
         handleImageUpload,

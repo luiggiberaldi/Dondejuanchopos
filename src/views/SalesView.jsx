@@ -417,6 +417,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
         const mode = forceMode || 'unit';
         let priceToUse = CurrencyService.safeParse(product.priceUsd) || 0;
         let priceBsToUse = product.priceBsManual ? CurrencyService.safeParse(product.priceBsManual) : null;
+        let priceBsUsdRefToUse = product.priceBsUsdRef ? CurrencyService.safeParse(product.priceBsUsdRef) : null;
         let cartId = product.id;
         let cartName = product.name;
         let unitsMultiplier = 1;
@@ -424,12 +425,14 @@ export default function SalesView({ triggerHaptic, isActive }) {
         if (mode === 'box') {
             priceToUse = CurrencyService.safeParse(product.boxPriceUsd) || 0;
             priceBsToUse = product.boxPriceBs ? CurrencyService.safeParse(product.boxPriceBs) : null;
+            priceBsUsdRefToUse = product.boxPriceBsUsdRef ? CurrencyService.safeParse(product.boxPriceBsUsdRef) : null;
             cartId = product.id + '_box';
             cartName = product.name + ' (Caja)';
             unitsMultiplier = parseInt(product.boxUnits, 10) || 1;
         } else if (mode === 'halfBox') {
             priceToUse = CurrencyService.safeParse(product.halfBoxPriceUsd) || 0;
             priceBsToUse = product.halfBoxPriceBs ? CurrencyService.safeParse(product.halfBoxPriceBs) : null;
+            priceBsUsdRefToUse = product.halfBoxPriceBsUsdRef ? CurrencyService.safeParse(product.halfBoxPriceBsUsdRef) : null;
             cartId = product.id + '_half';
             cartName = product.name + ' (½ Caja)';
             unitsMultiplier = parseInt(product.halfBoxUnits, 10) || 1;
@@ -481,6 +484,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 name: cartName,
                 priceUsd: priceToUse,
                 priceBsManual: priceBsToUse,
+                priceBsUsdRef: priceBsUsdRefToUse,
                 costUsd: product.costUsd ? CurrencyService.safeParse(product.costUsd) * unitsMultiplier : 0,
                 costBs: itemCostBs * unitsMultiplier,
                 qty: qtyToAdd,
