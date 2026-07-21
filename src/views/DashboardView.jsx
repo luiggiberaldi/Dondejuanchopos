@@ -30,6 +30,9 @@ import { TicketClientModal, DeleteHistoryModal, RecycleOfferModal } from '../com
 import { useReveal } from '../hooks/useReveal';
 import MonitorView from './MonitorView';
 import { useOfflineQueue } from '../hooks/useOfflineQueue';
+import { useGastosInternos } from '../hooks/useGastosInternos';
+import GastosInternosModal from '../components/GastosInternos/GastosInternosModal';
+import { Receipt } from 'lucide-react';
 
 const SALES_KEY = 'bodega_sales_v1';
 export default function DashboardView({ rates, onRefreshRates, loadingRates, triggerHaptic, onNavigate, theme, toggleTheme, isActive }) {
@@ -49,6 +52,11 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
     // Data loading
     const { sales, setSales, customers, setCustomers, isLoadingLocal, refreshData } = useDashboardData(isActive, requestPermission);
     const isLoading = isLoadingProducts || isLoadingLocal;
+
+    // Gastos Internos & Autoconsumo hook
+    const { isAddGastoOpen, setIsAddGastoOpen, registrarGasto, registrarAutoconsumo, anularGasto } = useGastosInternos({
+        bcvRate, tasaCop, copEnabled, triggerHaptic, auditLog, sales, setSales
+    });
 
     // UI state
     const [showMonitor, setShowMonitor] = useState(false);
@@ -534,6 +542,13 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                         <TrendingUp size={18} />
                         <span>Monitor</span>
                     </button>
+                    <button 
+                        onClick={() => { triggerHaptic && triggerHaptic(); setIsAddGastoOpen(true); }} 
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 font-bold text-sm transition-all hover:scale-[1.02] active:scale-95 cursor-pointer"
+                    >
+                        <Receipt size={18} />
+                        <span>Gastos</span>
+                    </button>
                 </div>
 
                 {/* Lado Derecho en PC: Reloj, fecha y Sincronización */}
@@ -576,34 +591,41 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
             </div>
 
             {/* Acciones Rápidas en Móvil (Ocultas en PC) */}
-            <div className="grid grid-cols-4 gap-2 mb-5 md:hidden">
+            <div className="grid grid-cols-5 gap-1.5 mb-5 md:hidden">
                 <button 
                     onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('ventas'); } }} 
-                    className="bg-brand hover:bg-brand-dark text-white dark:text-slate-950 rounded-xl p-2.5 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
+                    className="bg-brand hover:bg-brand-dark text-white dark:text-slate-950 rounded-xl p-2 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
                 >
-                    <ShoppingCart size={18} />
-                    <span className="text-[10px] font-bold">Vender</span>
+                    <ShoppingCart size={16} />
+                    <span className="text-[9px] font-bold">Vender</span>
                 </button>
                 <button 
                     onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('catalogo'); } }} 
-                    className="bg-brand hover:bg-brand-dark text-white dark:text-slate-950 rounded-xl p-2.5 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
+                    className="bg-brand hover:bg-brand-dark text-white dark:text-slate-950 rounded-xl p-2 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
                 >
-                    <Store size={18} />
-                    <span className="text-[10px] font-bold">Inventario</span>
+                    <Store size={16} />
+                    <span className="text-[9px] font-bold">Inventario</span>
                 </button>
                 <button 
                     onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('clientes'); } }} 
-                    className="bg-brand hover:bg-brand-dark text-white dark:text-slate-950 rounded-xl p-2.5 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
+                    className="bg-brand hover:bg-brand-dark text-white dark:text-slate-950 rounded-xl p-2 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
                 >
-                    <Users size={18} />
-                    <span className="text-[10px] font-bold">Clientes</span>
+                    <Users size={16} />
+                    <span className="text-[9px] font-bold">Clientes</span>
                 </button>
                 <button 
                     onClick={() => { triggerHaptic(); setShowMonitor(true); }} 
-                    className="bg-brand hover:bg-brand-dark text-white dark:text-slate-950 rounded-xl p-2.5 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
+                    className="bg-brand hover:bg-brand-dark text-white dark:text-slate-950 rounded-xl p-2 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
                 >
-                    <TrendingUp size={18} />
-                    <span className="text-[10px] font-bold">Monitor</span>
+                    <TrendingUp size={16} />
+                    <span className="text-[9px] font-bold">Monitor</span>
+                </button>
+                <button 
+                    onClick={() => { triggerHaptic && triggerHaptic(); setIsAddGastoOpen(true); }} 
+                    className="bg-rose-500 hover:bg-rose-600 text-white rounded-xl p-2 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
+                >
+                    <Receipt size={16} />
+                    <span className="text-[9px] font-bold">Gastos</span>
                 </button>
             </div>
 
@@ -871,6 +893,19 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                 onShare={() => {
                     generateDailyClosePDF({ ...cierreSummaryData, action: 'share' });
                 }}
+            />
+            <GastosInternosModal
+                isOpen={isAddGastoOpen}
+                onClose={() => setIsAddGastoOpen(false)}
+                sales={sales}
+                products={products}
+                bcvRate={bcvRate}
+                tasaCop={tasaCop}
+                copEnabled={copEnabled}
+                registrarGasto={registrarGasto}
+                registrarAutoconsumo={registrarAutoconsumo}
+                anularGasto={anularGasto}
+                triggerHaptic={triggerHaptic}
             />
             {showMonitor && (
                 <div className="fixed inset-0 z-[150] bg-[#080E1C] flex flex-col">

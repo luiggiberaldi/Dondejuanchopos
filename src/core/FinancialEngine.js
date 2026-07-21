@@ -158,6 +158,51 @@ export class FinancialEngine {
                 return; // Do NOT count opening as revenue
             }
 
+            // ── GASTO_INTERNO: egreso de caja chica (o autoconsumo inofensivo para la caja) ──
+            if (sale.tipo === 'GASTO_INTERNO') {
+                if (!sale.afectaCaja) return; // Autoconsumo: no afecta arqueo de caja física
+
+                if (sale.payments && sale.payments.length > 0) {
+                    sale.payments.forEach(p => {
+                        if (!breakdown[p.methodId]) {
+                            const resolvedLabel = (p.methodLabel && p.methodLabel !== p.methodId)
+                                ? p.methodLabel
+                                : _resolveMethodLabel(p.methodId);
+                            breakdown[p.methodId] = {
+                                total: 0,
+                                currency: p.currency || 'BS',
+                                label: resolvedLabel
+                            };
+                        }
+                        let val = 0;
+                        if (p.currency === 'USD') val = p.amountUsd;
+                        else if (p.currency === 'BS') val = p.amountBs;
+                        else if (p.currency === 'COP') val = p.amountCop || p.amountBs;
+
+                        const valToDeduct = val < 0 ? val : -Math.abs(val);
+                        breakdown[p.methodId].total = round2(breakdown[p.methodId].total + round2(valToDeduct));
+                    });
+                } else {
+                    const method = sale.paymentMethod || 'efectivo_bs';
+                    let currency = 'BS';
+                    let valToDeduct = -Math.abs(sale.totalBs || 0);
+
+                    if (method.includes('usd') || method.includes('zelle') || method.includes('binance')) {
+                        currency = 'USD';
+                        valToDeduct = -Math.abs(sale.totalUsd || 0);
+                    } else if (method.includes('cop')) {
+                        currency = 'COP';
+                        valToDeduct = -Math.abs(sale.totalCop || 0);
+                    }
+
+                    if (!breakdown[method]) {
+                        breakdown[method] = { total: 0, currency: currency, label: _resolveMethodLabel(method) };
+                    }
+                    breakdown[method].total = round2(breakdown[method].total + round2(valToDeduct));
+                }
+                return;
+            }
+
             // Fiado sales: bucket "fiado" tracks the *outstanding debt* generated (fiadoUsd),
             // NOT the total sale (which may have partial real payments).
             // FIN-004: usar sale.fiadoUsd || sale.totalUsd para ventas legacy sin fiadoUsd,

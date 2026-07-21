@@ -315,15 +315,60 @@ export default function ComboFormModal({
 
                 {/* ── Cabecera ── */}
                 <div className="flex items-center gap-3 -mt-2">
-                    <div className="w-10 h-10 bg-brand-light/60 dark:bg-surface-800/30 rounded-xl flex items-center justify-center">
-                        <Gift size={20} className="text-brand" />
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${
+                        isModular 
+                            ? 'bg-purple-100 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400' 
+                            : 'bg-brand-light/60 dark:bg-surface-800/30 text-brand'
+                    }`}>
+                        {isModular ? <Sparkles size={20} /> : <Gift size={20} />}
                     </div>
                     <div>
                         <h3 className="font-black text-slate-800 dark:text-white text-lg tracking-tight">
-                            {editingCombo ? 'Editar Combo' : 'Crear Combo'}
+                            {editingCombo 
+                                ? (isModular ? 'Editar Combo Modular' : 'Editar Combo Normal') 
+                                : (isModular ? 'Crear Combo Modular' : 'Crear Combo Normal')}
                         </h3>
-                        <p className="text-[11px] text-slate-400 font-bold">Agrupa varios productos en un solo precio</p>
+                        <p className="text-[11px] text-slate-400 font-bold">
+                            {isModular 
+                                ? 'Combo personalizable con grupos de elección libre' 
+                                : 'Agrupa productos fijos en un solo precio'}
+                        </p>
                     </div>
+                </div>
+
+                {/* ── Tabs Selector: Combo Normal vs Combo Modular ── */}
+                <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-2xl border border-slate-200/30 dark:border-slate-700/30">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setIsModular(false);
+                        }}
+                        className={`flex-1 py-2.5 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                            !isModular
+                                ? 'bg-white dark:bg-slate-700 text-brand shadow-md shadow-slate-200/50 dark:shadow-none'
+                                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                        }`}
+                    >
+                        <Package size={15} />
+                        Combo Normal
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setIsModular(true);
+                            if (modularGroups.length === 0) {
+                                addModularGroup();
+                            }
+                        }}
+                        className={`flex-1 py-2.5 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                            isModular
+                                ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-500/20'
+                                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                        }`}
+                    >
+                        <Sparkles size={15} />
+                        Combo Modular
+                    </button>
                 </div>
 
                 {/* ── 1. Información Básica ── */}
@@ -365,7 +410,7 @@ export default function ComboFormModal({
                 <div className="space-y-3">
                     <div className="flex items-center justify-between">
                         <label className="text-[10px] font-bold text-slate-400 ml-1 block uppercase flex items-center gap-1.5">
-                            <Package size={11} /> Productos en el combo
+                            <Package size={11} /> {isModular ? 'Productos base fijos (Opcional)' : 'Productos en el combo'}
                         </label>
                         {comboItems.length > 0 && (
                             <span className="text-[10px] font-black bg-brand-light/60 dark:bg-surface-800/30 text-brand px-2 py-0.5 rounded-full">
@@ -387,7 +432,7 @@ export default function ComboFormModal({
                                 onChange={e => handleSearchChange(e.target.value)}
                                 onFocus={() => setIsSearchFocused(true)}
                                 onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
-                                placeholder="Buscar producto para agregar..."
+                                placeholder={isModular ? "Buscar producto base obligatorio..." : "Buscar producto para agregar..."}
                                 className="flex-1 bg-transparent p-3 font-bold text-slate-700 dark:text-white outline-none text-sm placeholder:text-slate-400/60"
                             />
                             {searchTerm && (
@@ -445,8 +490,14 @@ export default function ComboFormModal({
                             <div className="w-10 h-10 bg-brand-light/60 dark:bg-slate-800/60 rounded-xl flex items-center justify-center mx-auto mb-2 text-brand">
                                 <Gift size={20} />
                             </div>
-                            <p className="text-xs font-bold text-slate-600 dark:text-slate-300">Sin ítems fijos obligatorios</p>
-                            <p className="text-[11px] text-slate-400 mt-0.5">Usa el buscador para añadir productos fijos (opcional si usas grupos modulares)</p>
+                            <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                                {isModular ? 'Sin productos base fijos' : 'Sin productos fijos en el combo'}
+                            </p>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                                {isModular 
+                                    ? 'Usa el buscador para añadir productos fijos (opcional si solo usas grupos modulares)'
+                                    : 'Usa el buscador para añadir los productos que integran este combo'}
+                            </p>
                         </div>
                     ) : (
                         <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
@@ -501,30 +552,22 @@ export default function ComboFormModal({
                     )}
                 </div>
 
-                {/* ── 2.5. Grupos de Selección Libre (Combo Modular Híbrido) ── */}
-                <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center justify-between">
-                        <label className="text-[10px] font-bold text-slate-400 ml-1 block uppercase flex items-center gap-1.5">
-                            <Tag size={11} className="text-purple-500" /> Grupos Modulares (Elección libre)
-                        </label>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                const next = !isModular;
-                                setIsModular(next);
-                                if (next && modularGroups.length === 0) addModularGroup();
-                            }}
-                            className={`px-3 py-1.5 text-[10px] font-black rounded-xl transition-all ${
-                                isModular
-                                    ? 'bg-purple-600 text-white shadow-md shadow-purple-500/25 ring-2 ring-purple-400/30'
-                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700'
-                            }`}
-                        >
-                            {isModular ? '✓ Modular Activo' : '+ Activar Modular'}
-                        </button>
-                    </div>
+                {/* ── 2.5. Grupos de Selección Libre (Solo para Combo Modular) ── */}
+                {isModular && (
+                    <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center justify-between">
+                            <label className="text-[10px] font-bold text-slate-400 ml-1 block uppercase flex items-center gap-1.5">
+                                <Sparkles size={11} className="text-purple-500" /> Grupos Modulares (Elección libre)
+                            </label>
+                            <button
+                                type="button"
+                                onClick={addModularGroup}
+                                className="px-3 py-1.5 text-[10px] font-black rounded-xl bg-purple-600 text-white shadow-md shadow-purple-500/20 hover:bg-purple-700 transition-all flex items-center gap-1 cursor-pointer"
+                            >
+                                <Plus size={12} strokeWidth={2.5} /> Añadir Grupo
+                            </button>
+                        </div>
 
-                    {isModular && (
                         <div className="space-y-3 bg-purple-50/40 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/40 p-3 rounded-2xl">
                             {modularGroups.map((g) => {
                                 const allowedIds = g.allowedProductIds || [];
@@ -670,13 +713,13 @@ export default function ComboFormModal({
                             <button
                                 type="button"
                                 onClick={addModularGroup}
-                                className="w-full py-2.5 bg-purple-100 dark:bg-purple-900/30 hover:bg-purple-200 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded-2xl text-xs font-black transition-colors flex items-center justify-center gap-1.5 border border-purple-200/50 dark:border-purple-800/40"
+                                className="w-full py-2.5 bg-purple-100 dark:bg-purple-900/30 hover:bg-purple-200 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded-2xl text-xs font-black transition-colors flex items-center justify-center gap-1.5 border border-purple-200/50 dark:border-purple-800/40 cursor-pointer"
                             >
                                 <Plus size={15} strokeWidth={2.5} /> Añadir otro grupo de selección
                             </button>
                         </div>
-                    )}
-                </div>
+                    </div>
+                )}
 
                 {/* ── 3. Precio de Venta en USD y Bs ── */}
                 {(comboItems.length > 0 || (isModular && modularGroups.length > 0)) && (
