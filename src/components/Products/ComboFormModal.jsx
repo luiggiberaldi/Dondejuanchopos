@@ -147,7 +147,7 @@ export default function ComboFormModal({
             );
 
             setBarcode(editingCombo.barcode || '');
-            setIsModular(!!editingCombo.isModular);
+            setIsModular(!!editingCombo.isModular || (editingCombo.modularGroups && editingCombo.modularGroups.length > 0));
             setModularGroups(editingCombo.modularGroups || []);
             // Mapear items
             let items = [];
@@ -252,7 +252,7 @@ export default function ComboFormModal({
 
     const handleSave = () => {
         const hasFixed = comboItems.length > 0;
-        const hasModular = isModular && modularGroups.length > 0;
+        const hasModular = (isModular || modularGroups.length > 0) && modularGroups.length > 0;
         if (!name.trim() || (!hasFixed && !hasModular) || parsedPrice <= 0) {
             setIsFormShaking(true);
             setTimeout(() => setIsFormShaking(false), 500);

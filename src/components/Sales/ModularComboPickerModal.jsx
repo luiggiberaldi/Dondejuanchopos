@@ -65,6 +65,47 @@ export default function ModularComboPickerModal({
         });
     };
 
+    const handleDirectQtyChange = (groupId, productId, valString) => {
+        const group = combo.modularGroups?.find(g => g.id === groupId);
+        if (!group) return;
+
+        if (valString === '' || valString === null) {
+            setSelections(prev => {
+                const groupSel = { ...(prev[groupId] || {}) };
+                delete groupSel[productId];
+                return { ...prev, [groupId]: groupSel };
+            });
+            return;
+        }
+
+        let parsed = parseInt(valString, 10);
+        if (isNaN(parsed) || parsed < 0) parsed = 0;
+
+        const currentGroupTotal = getGroupTotal(groupId);
+        const currentQty = selections[groupId]?.[productId] || 0;
+        const targetProduct = products.find(p => p.id === productId);
+        const availableStock = targetProduct?.stock ?? 0;
+
+        const otherQty = currentGroupTotal - currentQty;
+        const maxForGroup = (group.requiredQty || 1) - otherQty;
+        const allowedMax = Math.max(0, Math.min(availableStock, maxForGroup));
+
+        const finalQty = Math.min(parsed, allowedMax);
+
+        setSelections(prev => {
+            const groupSel = { ...(prev[groupId] || {}) };
+            if (finalQty === 0) {
+                delete groupSel[productId];
+            } else {
+                groupSel[productId] = finalQty;
+            }
+            return {
+                ...prev,
+                [groupId]: groupSel
+            };
+        });
+    };
+
     const handleConfirm = () => {
         if (!isAllFulfilled) return;
 
@@ -209,9 +250,16 @@ export default function ModularComboPickerModal({
                                                     >
                                                         <Minus size={12} strokeWidth={3} />
                                                     </button>
-                                                    <span className="w-6 text-center text-xs font-black text-purple-600 dark:text-purple-400">
-                                                        {qtySelected}
-                                                    </span>
+                                                    <input
+                                                        type="number"
+                                                        min={0}
+                                                        max={stock}
+                                                        value={qtySelected === 0 ? '' : qtySelected}
+                                                        placeholder="0"
+                                                        onChange={(e) => handleDirectQtyChange(group.id, pid, e.target.value)}
+                                                        onFocus={(e) => e.target.select()}
+                                                        className="w-10 text-center text-xs font-black text-purple-600 dark:text-purple-400 bg-slate-50/80 dark:bg-slate-800/80 outline-none focus:ring-2 focus:ring-purple-500/50 rounded-lg py-1 px-0.5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none cursor-text selection:bg-purple-200"
+                                                    />
                                                     <button
                                                         type="button"
                                                         onClick={() => handleUpdateQty(group.id, pid, 1)}

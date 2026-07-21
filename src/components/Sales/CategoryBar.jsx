@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Package, Calculator, ChevronDown, Clock, HelpCircle, Trash2 } from 'lucide-react';
+import { Package, Calculator, ChevronDown, Clock, HelpCircle, Trash2, Gift, Sparkles } from 'lucide-react';
 import { BODEGA_CATEGORIES, getCategoryIcon, CATEGORY_COLORS } from '../../config/categories';
 import { formatCop, formatBs, getCop, getUsd } from '../../utils/calculatorUtils';
 
@@ -142,25 +142,48 @@ export default function CategoryBar({
                             const isOut = (p.stock ?? 0) <= 0;
                             const isDisabled = isOut && !allowNegativeStock;
                             const CatIcon = getCategoryIcon(p.category) || Package;
+                            const isModularCombo = p.isCombo && (p.isModular || (p.modularGroups && p.modularGroups.length > 0));
+
+                            const comboBorderClass = p.isCombo
+                                ? isModularCombo
+                                    ? 'border-purple-300 dark:border-purple-900/60 bg-purple-50/20 dark:bg-purple-950/10 shadow-sm shadow-purple-500/10 hover:border-purple-500 hover:shadow-purple-500/20'
+                                    : 'border-violet-200 dark:border-violet-900/40 bg-violet-50/20 dark:bg-violet-950/10 hover:border-violet-400'
+                                : 'border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-brand/40 hover:shadow-md';
+
                             return (
                                 <button
                                     key={p.id}
                                     onClick={() => addToCart(p)}
                                     disabled={isDisabled}
-                                    className={`relative bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl p-2.5 flex flex-col text-left transition-all active:scale-95 hover:border-brand/40 hover:shadow-md ${isDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+                                    className={`relative border rounded-2xl p-2.5 flex flex-col text-left transition-all active:scale-95 ${comboBorderClass} ${isDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
                                 >
+                                    {/* Badge identificador de combo — esquina superior izquierda */}
+                                    {p.isCombo && (
+                                        isModularCombo ? (
+                                            <span className="absolute top-1.5 left-1.5 z-10 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-md px-1.5 py-0.5 text-[8px] font-black tracking-wider flex items-center gap-1 shadow-md shadow-purple-500/20">
+                                                <Sparkles size={9} /> MODULAR
+                                            </span>
+                                        ) : (
+                                            <span className="absolute top-1.5 left-1.5 z-10 bg-violet-100 dark:bg-violet-950/80 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800/60 rounded-md px-1.5 py-0.5 text-[8px] font-black tracking-wider flex items-center gap-1">
+                                                <Gift size={9} /> COMBO
+                                            </span>
+                                        )
+                                    )}
+
                                     {/* Badge de stock — esquina superior derecha */}
-                                    <span className={`absolute top-1.5 right-1.5 border rounded px-1 py-0.5 text-[8px] font-black leading-none
+                                    <span className={`absolute top-1.5 right-1.5 z-10 border rounded px-1 py-0.5 text-[8px] font-black leading-none shadow-sm
                                         ${isOut
                                             ? 'bg-red-50 text-red-700 border-red-100 dark:bg-red-950/20 dark:text-red-400 dark:border-red-900/50'
-                                            : 'bg-emerald-50 text-emerald-700 border-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800'
+                                            : p.isCombo
+                                                ? 'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-950 text-purple-700 dark:text-purple-300 dark:border-purple-800'
+                                                : 'bg-emerald-50 text-emerald-700 border-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800'
                                         }`}
                                     >
-                                        {isOut ? 'AGOT.' : `${p.stock ?? 0} UNDS`}
+                                        {isOut ? 'AGOT.' : p.isCombo ? `${p.stock ?? 0} DISP.` : `${p.stock ?? 0} UNDS`}
                                     </span>
 
                                     {/* Imagen centrada */}
-                                    <div className="w-full aspect-square rounded-lg bg-slate-50 dark:bg-slate-950 flex items-center justify-center mb-2 overflow-hidden">
+                                    <div className="w-full aspect-square rounded-lg bg-slate-50 dark:bg-slate-950 flex items-center justify-center mb-2 overflow-hidden relative">
                                         {p.image
                                             ? <img src={p.image} className="w-full h-full object-contain" alt={p.name} />
                                             : <CatIcon size={22} className="text-slate-300" />
@@ -168,10 +191,25 @@ export default function CategoryBar({
                                     </div>
 
                                     {/* Nombre: izquierda, 2 líneas */}
-                                    <p className="text-[11px] font-bold text-slate-700 dark:text-slate-200 leading-tight line-clamp-2 mb-1.5 min-h-[2.4em]">{p.name}</p>
+                                    <p className="text-[11px] font-bold text-slate-700 dark:text-slate-200 leading-tight line-clamp-2 mb-1 min-h-[2.4em]">{p.name}</p>
 
-                                    {/* Códigos / Barcodes */}
-                                    {(p.barcode || (p.sellByBox && p.boxBarcode) || (p.sellByHalfBox && p.halfBoxBarcode)) && (
+                                    {/* Pie identificador de contenido de Combo */}
+                                    {p.isCombo && (
+                                        <div className="mb-1">
+                                            {isModularCombo ? (
+                                                <span className="text-[9px] font-black text-purple-600 dark:text-purple-400 flex items-center gap-0.5">
+                                                    ✨ Armable libre
+                                                </span>
+                                            ) : (
+                                                <span className="text-[9px] font-bold text-violet-600 dark:text-violet-400 flex items-center gap-0.5">
+                                                    📦 {p.comboItems?.length || 0} ítems fijos
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Códigos / Barcodes (si no es combo) */}
+                                    {!p.isCombo && (p.barcode || (p.sellByBox && p.boxBarcode) || (p.sellByHalfBox && p.halfBoxBarcode)) && (
                                         <div className="text-[9px] text-slate-450 dark:text-slate-500 font-bold mb-1.5 leading-tight truncate w-full select-all">
                                             {p.barcode && <div className="truncate">U: {p.barcode}</div>}
                                             {p.sellByBox && p.boxBarcode && <div className="truncate">Cj: {p.boxBarcode}</div>}
@@ -180,7 +218,7 @@ export default function CategoryBar({
                                     )}
 
                                     {/* Precio USD: grande */}
-                                    <p className="text-sm font-extrabold text-slate-900 dark:text-white leading-none">
+                                    <p className="text-sm font-extrabold text-slate-900 dark:text-white leading-none mt-auto">
                                         ${getUsd(p, tasaCop).toFixed(2)}
                                     </p>
 

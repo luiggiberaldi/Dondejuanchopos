@@ -125,7 +125,9 @@ export function calculateComboStock(comboProduct, allProducts = []) {
     }
 
     const { comboItems = [], isModular, modularGroups = [] } = comboProduct;
-    if (comboItems.length === 0 && (!isModular || modularGroups.length === 0)) {
+    const effectiveModular = isModular || (modularGroups && modularGroups.length > 0);
+
+    if (comboItems.length === 0 && (!effectiveModular || modularGroups.length === 0)) {
         return 0;
     }
 
@@ -134,7 +136,7 @@ export function calculateComboStock(comboProduct, allProducts = []) {
     // 1. Límite por ítems fijos
     if (comboItems.length > 0) {
         comboItems.forEach(ci => {
-            const p = ci._product || allProducts.find(x => x.id === ci.productId);
+            const p = ci._product || allProducts.find(x => String(x.id) === String(ci.productId));
             if (!p || ci.qty <= 0) {
                 avails.push(0);
             } else {
@@ -144,13 +146,13 @@ export function calculateComboStock(comboProduct, allProducts = []) {
     }
 
     // 2. Límite por grupos modulares (Propuesta A: Capacidad combinada del grupo)
-    if (isModular && modularGroups.length > 0) {
+    if (effectiveModular && modularGroups.length > 0) {
         modularGroups.forEach(g => {
             const allowedIds = g.allowedProductIds || [];
             const reqQty = Math.max(1, parseInt(g.requiredQty, 10) || 1);
             
             const totalGroupStock = allowedIds.reduce((sum, pid) => {
-                const p = allProducts.find(x => x.id === pid);
+                const p = allProducts.find(x => String(x.id) === String(pid));
                 return sum + (p?.stock ?? 0);
             }, 0);
 
