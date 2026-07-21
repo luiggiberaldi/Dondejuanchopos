@@ -507,7 +507,7 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                                         const num = parseFloat(val);
                                         const activeRate = form.forceBcv ? (rates?.bcv?.price || effectiveRate) : effectiveRate;
                                         if (!isNaN(num) && num > 0 && activeRate > 0) {
-                                            const calculatedUsd = (num / activeRate).toFixed(2);
+                                            const calculatedUsd = (num / activeRate).toFixed(4);
                                             setForm(prev => ({ ...prev, priceUsd: calculatedUsd }));
                                         } else if (val === '') {
                                             setForm(prev => ({ ...prev, priceUsd: '' }));

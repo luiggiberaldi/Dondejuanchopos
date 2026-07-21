@@ -569,7 +569,7 @@ export default function ProductFormQuick({
                                             const activeRate = forceBcv ? (bcvRate || effectiveRate) : effectiveRate;
                                             if (!isNaN(num) && num > 0 && activeRate > 0) {
                                                 const calculatedUsd = num / activeRate;
-                                                handleUnitPriceUsdChange(calculatedUsd >= 0.01 ? calculatedUsd.toFixed(2) : calculatedUsd.toFixed(4));
+                                                handleUnitPriceUsdChange(calculatedUsd.toFixed(4));
                                             } else if (val === '') {
                                                 handleUnitPriceUsdChange('');
                                             }
