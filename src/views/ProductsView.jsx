@@ -18,6 +18,7 @@ import ProductFormModal from '../components/Products/ProductFormModal';
 import ProductsToolbar from '../components/Products/ProductsToolbar';
 import ConfirmModal from '../components/ConfirmModal';
 import CategoryManagerModal from '../components/Products/CategoryManagerModal';
+import { buildProductPayload, calculateComboStock } from '../utils/productProcessor';
 import BulkPriceAdjustModal from '../components/Products/BulkPriceAdjustModal';
 import { useProductContext } from '../context/ProductContext';
 import EmptyState from '../components/EmptyState';
@@ -27,7 +28,6 @@ import { useInventoryVelocity } from '../hooks/useInventoryVelocity';
 import { useProductFiltering } from '../hooks/useProductFiltering';
 import { useProductForm } from '../hooks/useProductForm';
 import { useProductSorting } from '../hooks/useProductSorting';
-import { buildProductPayload } from '../utils/productProcessor';
 import { CurrencyService } from '../services/CurrencyService';
 import { mulR, divR } from '../utils/dinero';
 import { uploadProductImage, migrateProductImagesToStorage } from '../utils/imageUpload';
@@ -59,16 +59,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
 
     // ─── FUNCIONES DE COMBOS VIRTUALES ────────────────────────
     const getProductStock = (p) => {
-        if (p.isCombo) {
-            if (!p.comboItems || p.comboItems.length === 0) return 0;
-            const avails = p.comboItems.map(ci => {
-                const component = products.find(prod => prod.id === ci.productId);
-                if (!component || ci.qty <= 0) return 0;
-                return Math.floor((component.stock || 0) / ci.qty);
-            });
-            return Math.min(...avails);
-        }
-        return p.stock ?? 0;
+        return calculateComboStock(p, products);
     };
 
     const handleChangeCategory = async (productId, newCategoryId) => {
@@ -756,6 +747,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                                 >
                                     <ProductCard
                                         product={p.isCombo ? { ...p, stock: getProductStock(p) } : p}
+                                        allProducts={products}
                                         effectiveRate={effectiveRate}
                                         bcvRate={rates?.bcv?.price || effectiveRate}
                                         streetRate={streetRate}

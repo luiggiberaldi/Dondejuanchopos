@@ -188,9 +188,15 @@ export default function ModularComboPickerModal({
                                                     <div className="text-[10px] text-slate-400 font-medium flex items-center gap-2">
                                                         <span>${(prod.priceUsd || 0).toFixed(2)} c/u</span>
                                                         <span>·</span>
-                                                        <span className={stock > 0 ? 'text-slate-400' : 'text-rose-400 font-bold'}>
-                                                            Stock: {stock}
-                                                        </span>
+                                                        {stock > 0 ? (
+                                                            <span className="text-[10px] font-bold text-slate-400">
+                                                                Disponibles: {stock}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400">
+                                                                Agotado (0)
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 </div>
 

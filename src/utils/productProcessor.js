@@ -1,7 +1,7 @@
 // FIN-017: Reemplaza Math.round(raw/safeRate*100)/100 por divR + round2 de dinero.js.
 // FIN-030: Mantiene `priceUsdt` (typo histórico) pero añade alias `priceUsd` (mismo valor)
 //          para migración gradual hacia el nombre canónico.
-import { round2, divR, mulR } from './dinero';
+import { round2, divR, mulR } from './dinero.js';
 import { CurrencyService } from '../services/CurrencyService'; // FIN-017-pattern: safeParse en vez de parseFloat.
 
 export function buildProductPayload(formData, effectiveRate) {
@@ -110,4 +110,53 @@ export function buildProductPayload(formData, effectiveRate) {
         category: category,
         lowStockAlert: lowStockAlert ? parseInt(lowStockAlert) : 5,
     };
+}
+
+/**
+ * Propuesta A: Calcula el stock disponible de un combo (normal o modular).
+ * 
+ * @param {Object} comboProduct - El objeto producto combo
+ * @param {Array} allProducts - Lista completa de productos para resolver componentes
+ * @returns {number} Número entero de combos armables
+ */
+export function calculateComboStock(comboProduct, allProducts = []) {
+    if (!comboProduct || !comboProduct.isCombo) {
+        return comboProduct?.stock ?? 0;
+    }
+
+    const { comboItems = [], isModular, modularGroups = [] } = comboProduct;
+    if (comboItems.length === 0 && (!isModular || modularGroups.length === 0)) {
+        return 0;
+    }
+
+    const avails = [];
+
+    // 1. Límite por ítems fijos
+    if (comboItems.length > 0) {
+        comboItems.forEach(ci => {
+            const p = ci._product || allProducts.find(x => x.id === ci.productId);
+            if (!p || ci.qty <= 0) {
+                avails.push(0);
+            } else {
+                avails.push(Math.floor((p.stock ?? 0) / ci.qty));
+            }
+        });
+    }
+
+    // 2. Límite por grupos modulares (Propuesta A: Capacidad combinada del grupo)
+    if (isModular && modularGroups.length > 0) {
+        modularGroups.forEach(g => {
+            const allowedIds = g.allowedProductIds || [];
+            const reqQty = Math.max(1, parseInt(g.requiredQty, 10) || 1);
+            
+            const totalGroupStock = allowedIds.reduce((sum, pid) => {
+                const p = allProducts.find(x => x.id === pid);
+                return sum + (p?.stock ?? 0);
+            }, 0);
+
+            avails.push(Math.floor(totalGroupStock / reqQty));
+        });
+    }
+
+    return avails.length > 0 ? Math.max(0, Math.min(...avails)) : 0;
 }

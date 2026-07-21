@@ -2,6 +2,7 @@ import React from 'react';
 import { Tag, Banknote, AlertTriangle, Box, Minus, Plus, Pencil, Trash2, Package, Layers, Clock, Printer, FileText, Gift, ChevronDown, Landmark } from 'lucide-react';
 import { CATEGORY_COLORS, getCategoryIcon, UNITS } from '../../config/categories';
 import { formatUsd, formatBs, formatCop, smartCashRounding, getCop, getUsd, getProductEffectiveRate } from '../../utils/calculatorUtils';
+import { calculateComboStock } from '../../utils/productProcessor';
 import { showToast } from '../Toast';
 
 export default function ProductCard({
@@ -19,7 +20,7 @@ export default function ProductCard({
     onToggleSelect,
     onPrint,
     readOnly = false,
-
+    allProducts = [],
     onEdit,
     onDelete,
     onChangeCategory
@@ -370,25 +371,41 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                             <Minus size={18} strokeWidth={2.5} />
                         </button>
                         )}
-                        <div className="flex flex-col items-center justify-center px-2 text-center min-w-[50px]">
-                            <span className={`text-base font-black leading-none mb-0.5 ${isLowStock ? 'text-amber-500' : 'text-slate-700 dark:text-slate-200'}`}>
-                                {p.stock ?? 0}
-                            </span>
-                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none">{(p.unit === 'kg' || p.unit === 'litro') ? unitInfo?.short : 'UND'}</span>
-                            {p.unit === 'paquete' && p.unitsPerPackage > 0 && Math.floor((p.stock ?? 0) / p.unitsPerPackage) > 0 && (
-                                <span className="text-[8px] text-slate-400 leading-none">= {Math.floor((p.stock ?? 0) / p.unitsPerPackage)} bultos</span>
-                            )}
-                            {p.sellByBox && p.boxUnits > 0 && (p.stock ?? 0) > 0 && (
-                                <span className="text-[8px] text-slate-400 dark:text-slate-500 leading-none mt-0.5 font-bold">
-                                    ≈ {((p.stock ?? 0) / p.boxUnits).toFixed(1)} cajas
+                        {p.isCombo ? (
+                            (() => {
+                                const comboStock = calculateComboStock(p, allProducts);
+                                return (
+                                    <div className="flex flex-col items-center justify-center px-2 text-center py-0.5">
+                                        <span className={`text-base font-black leading-none mb-0.5 ${comboStock > 0 ? 'text-purple-600 dark:text-purple-400' : 'text-rose-500'}`}>
+                                            {comboStock}
+                                        </span>
+                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider leading-none">
+                                            {comboStock === 1 ? 'COMBO DISP.' : 'COMBOS DISP.'}
+                                        </span>
+                                    </div>
+                                );
+                            })()
+                        ) : (
+                            <div className="flex flex-col items-center justify-center px-2 text-center min-w-[50px]">
+                                <span className={`text-base font-black leading-none mb-0.5 ${isLowStock ? 'text-amber-500' : 'text-slate-700 dark:text-slate-200'}`}>
+                                    {p.stock ?? 0}
                                 </span>
-                            )}
-                            {!p.sellByBox && p.sellByHalfBox && p.halfBoxUnits > 0 && (p.stock ?? 0) > 0 && (
-                                <span className="text-[8px] text-slate-400 dark:text-slate-500 leading-none mt-0.5 font-bold">
-                                    ≈ {((p.stock ?? 0) / (p.halfBoxUnits * 2)).toFixed(1)} cajas
-                                </span>
-                            )}
-                        </div>
+                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none">{(p.unit === 'kg' || p.unit === 'litro') ? unitInfo?.short : 'UND'}</span>
+                                {p.unit === 'paquete' && p.unitsPerPackage > 0 && Math.floor((p.stock ?? 0) / p.unitsPerPackage) > 0 && (
+                                    <span className="text-[8px] text-slate-400 leading-none">= {Math.floor((p.stock ?? 0) / p.unitsPerPackage)} bultos</span>
+                                )}
+                                {p.sellByBox && p.boxUnits > 0 && (p.stock ?? 0) > 0 && (
+                                    <span className="text-[8px] text-slate-400 dark:text-slate-500 leading-none mt-0.5 font-bold">
+                                        ≈ {((p.stock ?? 0) / p.boxUnits).toFixed(1)} cajas
+                                    </span>
+                                )}
+                                {!p.sellByBox && p.sellByHalfBox && p.halfBoxUnits > 0 && (p.stock ?? 0) > 0 && (
+                                    <span className="text-[8px] text-slate-400 dark:text-slate-500 leading-none mt-0.5 font-bold">
+                                        ≈ {((p.stock ?? 0) / (p.halfBoxUnits * 2)).toFixed(1)} cajas
+                                    </span>
+                                )}
+                            </div>
+                        )}
                         {!readOnly && !p.isCombo && (
                         <button onClick={() => onAdjustStock(p.id, 1)} className="w-10 h-10 rounded-lg bg-white dark:bg-slate-700 flex items-center justify-center text-slate-500 hover:text-emerald-500 shadow-sm active:scale-95 transition-all">
                             <Plus size={18} strokeWidth={2.5} />

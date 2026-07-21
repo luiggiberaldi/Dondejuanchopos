@@ -5,6 +5,7 @@ import { BODEGA_CATEGORIES } from '../config/categories';
 // (SEC-009), los callers que escriben claves `LOCAL_KEYS` deben invocar `pushLocalSync`
 // explícitamente para que el cambio se propague a `sync_documents` (colección 'local').
 import { pushLocalSync } from '../hooks/useCloudSync';
+import { calculateComboStock } from '../utils/productProcessor';
 
 const ProductContext = createContext();
 
@@ -59,18 +60,9 @@ export function ProductProvider({ children, rates }) {
         });
     }, []);
 
-    // Calcular dinámicamente el stock de los combos basados en el stock de sus componentes
+    // Calcular dinámicamente el stock de los combos (normales y modulares - Propuesta A)
     const getProductStock = useCallback((p, allProducts) => {
-        if (p.isCombo) {
-            if (!p.comboItems || p.comboItems.length === 0) return 0;
-            const avails = p.comboItems.map(ci => {
-                const component = allProducts.find(prod => prod.id === ci.productId);
-                if (!component || ci.qty <= 0) return 0;
-                return Math.floor((component.stock || 0) / ci.qty);
-            });
-            return Math.min(...avails);
-        }
-        return p.stock ?? 0;
+        return calculateComboStock(p, allProducts);
     }, []);
 
     const products = useMemo(() => {
@@ -78,12 +70,12 @@ export function ProductProvider({ children, rates }) {
             if (p.isCombo) {
                 return {
                     ...p,
-                    stock: getProductStock(p, rawProducts)
+                    stock: calculateComboStock(p, rawProducts)
                 };
             }
             return p;
         });
-    }, [rawProducts, getProductStock]);
+    }, [rawProducts]);
 
     const [categories, setRawCategories] = useState(() => normalizeCategories(BODEGA_CATEGORIES));
     const setCategories = useCallback((cats) => {

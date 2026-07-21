@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { processSaleTransaction } from '../src/utils/checkoutProcessor';
 import { processVoidSale } from '../src/utils/voidSaleProcessor';
 import { storageService } from '../src/utils/storageService';
+import { calculateComboStock } from '../src/utils/productProcessor';
 
 // Mock storageService to run in memory
 vi.mock('../src/utils/storageService', () => {
@@ -152,5 +153,33 @@ describe('Modular Combo Stock Processing', () => {
         expect(polar.stock).toBe(20); // 14 + 6
         expect(ice.stock).toBe(15);   // 11 + 4
         expect(tobo.stock).toBe(5);   // 4 + 1
+    });
+
+    it('debe calcular el stock de combos modulares usando la Propuesta A (Capacidad Combinada del Grupo)', () => {
+        const products = [
+            { id: 'p-solera', name: 'Solera', stock: 12 },
+            { id: 'p-light', name: 'Polar Light', stock: 8 },
+            { id: 'p-zulia', name: 'Zulia', stock: 5 },
+            { id: 'p-hielo', name: 'Bolsa de Hielo', stock: 5 },
+        ];
+
+        const comboModular = {
+            id: 'combo-1',
+            isCombo: true,
+            isModular: true,
+            comboItems: [{ productId: 'p-hielo', qty: 1 }],
+            modularGroups: [
+                {
+                    id: 'g-beers',
+                    title: 'Cuota de Cervezas',
+                    requiredQty: 10,
+                    allowedProductIds: ['p-solera', 'p-light', 'p-zulia']
+                }
+            ]
+        };
+
+        // Total cervezas (25) / cuota 10 = 2. Hielos (5) / 1 = 5. Límite = min(5, 2) = 2 combos
+        const count = calculateComboStock(comboModular, products);
+        expect(count).toBe(2);
     });
 });

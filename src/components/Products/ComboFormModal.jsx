@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Gift, Search, X, Plus, Minus, Camera, Tag, Percent, Package, CheckCircle, Sparkles, AlertTriangle, Zap } from 'lucide-react';
 import { Modal } from '../Modal';
+import { calculateComboStock } from '../../utils/productProcessor';
 
 export default function ComboFormModal({
     isOpen,
@@ -90,27 +91,12 @@ export default function ComboFormModal({
     const savingsUsd = individualTotal > 0 && parsedPrice > 0 ? Math.max(0, individualTotal - parsedPrice) : 0;
     const savingsPct = individualTotal > 0 && parsedPrice > 0 ? ((savingsUsd / individualTotal) * 100) : 0;
 
-    // ── Stock virtual disponible del combo en base al limitante ──
+    // ── Stock virtual disponible del combo en base al limitante (Propuesta A) ──
     const availableCombos = useMemo(() => {
-        if (comboItems.length === 0 && (!isModular || modularGroups.length === 0)) return 0;
-        let avails = [];
-        if (comboItems.length > 0) {
-            avails = comboItems.map(ci => {
-                if (!ci._product || ci.qty <= 0) return 0;
-                return Math.floor((ci._product.stock || 0) / ci.qty);
-            });
-        }
-        if (isModular && modularGroups.length > 0) {
-            modularGroups.forEach(g => {
-                const totalStock = (g.allowedProductIds || []).reduce((sum, pid) => {
-                    const p = products?.find(x => x.id === pid);
-                    return sum + (p?.stock || 0);
-                }, 0);
-                const req = g.requiredQty || 1;
-                avails.push(Math.floor(totalStock / req));
-            });
-        }
-        return avails.length > 0 ? Math.min(...avails) : 0;
+        return calculateComboStock(
+            { isCombo: true, comboItems, isModular, modularGroups },
+            products
+        );
     }, [comboItems, isModular, modularGroups, products]);
 
     // ── Gestores de Grupos Modulares ──

@@ -1,12 +1,20 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
 
+const renderIcon = (Icon, defaultProps) => {
+    if (!Icon) return null;
+    if (React.isValidElement(Icon)) {
+        return Icon;
+    }
+    return <Icon {...defaultProps} />;
+};
+
 export default function CustomSelect({ value, onChange, options, className = '', placeholder = 'Seleccionar...', openDirection = 'down' }) {
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef(null);
 
     const selectedOption = options.find(opt => opt.value === value);
-    const SelectedIcon = selectedOption?.icon;
+    const selectedIcon = selectedOption?.icon;
 
     useEffect(() => {
         const handleClickOutside = (event) => {
@@ -26,7 +34,7 @@ export default function CustomSelect({ value, onChange, options, className = '',
                 className="w-full bg-slate-50 dark:bg-slate-800 p-3.5 rounded-xl font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/50 text-sm flex items-center justify-between text-left border border-transparent shadow-sm transition-all cursor-pointer"
             >
                 <span className="flex items-center gap-2.5 truncate">
-                    {SelectedIcon && <SelectedIcon size={18} className="text-slate-400 dark:text-slate-500 shrink-0" />}
+                    {renderIcon(selectedIcon, { size: 18, className: "text-slate-400 dark:text-slate-500 shrink-0" })}
                     <span>{selectedOption ? selectedOption.label : placeholder}</span>
                 </span>
                 <ChevronDown size={16} className={`text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
@@ -38,7 +46,7 @@ export default function CustomSelect({ value, onChange, options, className = '',
                         : 'top-full mt-1.5 slide-in-from-top-2'
                 }`}>
                     {options.map((opt) => {
-                        const OptIcon = opt.icon;
+                        const optIcon = opt.icon;
                         const isSelected = opt.value === value;
                         return (
                             <button
@@ -54,7 +62,7 @@ export default function CustomSelect({ value, onChange, options, className = '',
                                         : 'text-slate-700 dark:text-slate-350'
                                 }`}
                             >
-                                {OptIcon && <OptIcon size={18} className={`shrink-0 ${isSelected ? 'text-emerald-650 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'}`} />}
+                                {renderIcon(optIcon, { size: 18, className: `shrink-0 ${isSelected ? 'text-emerald-650 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'}` })}
                                 <span className="truncate">{opt.label}</span>
                             </button>
                         );
