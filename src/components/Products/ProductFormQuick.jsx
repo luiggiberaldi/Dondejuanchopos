@@ -51,6 +51,7 @@ export default function ProductFormQuick({
 }) {
     const fileInputRef = useRef(null);
     const [showSummary, setShowSummary] = useState(false);
+    const [tempBsInput, setTempBsInput] = useState('');
 
     const [priceMode, setPriceMode] = useState(() => {
         if (priceBsUsdRef && Number(priceBsUsdRef) > 0) return 'diferenciado';
@@ -59,9 +60,10 @@ export default function ProductFormQuick({
     });
 
     useEffect(() => {
-        if (priceBsUsdRef && Number(priceBsUsdRef) > 0) setPriceMode('diferenciado');
-        else if (priceBsManual && Number(priceBsManual) > 0) setPriceMode('fijo_bs');
-    }, [priceBsUsdRef, priceBsManual]);
+        if (priceBsUsdRef && Number(priceBsUsdRef) > 0) {
+            setPriceMode('diferenciado');
+        }
+    }, [priceBsUsdRef]);
 
     const [boxPriceMode, setBoxPriceMode] = useState(() => {
         if (boxPriceBsUsdRef && Number(boxPriceBsUsdRef) > 0) return 'diferenciado';
@@ -401,73 +403,121 @@ export default function ProductFormQuick({
                 
                 {/* Formato 1: Unidad (Fijo) */}
                 <div className="bg-emerald-500/5 dark:bg-emerald-500/10 p-4 rounded-2xl border border-emerald-500/20 space-y-3">
+                    {/* Header Venta por Unidad */}
                     <div className="flex items-center justify-between">
-                        <span className="text-xs font-black text-[#193275] dark:text-brand uppercase tracking-wider flex items-center gap-1.5">
-                            <Tag size={14} className="text-emerald-500" /> Venta por Unidad (Fijo)
+                        <span className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1">
+                            <Tag size={13} className="text-emerald-500" /> Venta por Unidad
                         </span>
-                        <button
-                            type="button"
-                            onClick={handleToggleAutoCalcUnit}
-                            disabled={forceBcv}
-                            title={forceBcv ? 'Forzado a tasa BCV (Auto-Tasa obligatorio)' : (autoCalcUnit ? 'Auto-Tasa activo: USD⇔Bs según tasa' : 'Activar cálculo automático USD ⇔ Bs')}
-                            className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 ${
-                                forceBcv
-                                    ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/30 cursor-not-allowed opacity-80'
-                                    : autoCalcUnit
-                                        ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30 active:scale-95'
-                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-slate-200 dark:border-slate-700 active:scale-95'
-                            }`}
-                        >
-                            <Zap size={10} className={(autoCalcUnit || forceBcv) ? 'fill-white' : ''} /> Auto-Tasa
-                        </button>
                     </div>
 
-                    {/* Selector de Estrategia de Precio */}
-                    <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl gap-1">
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setPriceMode('standard');
-                                if (setPriceBsUsdRef) setPriceBsUsdRef('');
-                                if (setPriceBsManual) setPriceBsManual('');
-                            }}
-                            className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                                priceMode === 'standard'
-                                    ? 'bg-white dark:bg-slate-700 text-brand shadow-sm'
-                                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                            }`}
-                        >
-                            <DollarSign size={13} className={priceMode === 'standard' ? 'text-emerald-500' : 'text-slate-400'} /> Precio Único USD
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setPriceMode('diferenciado');
-                                if (setPriceBsManual) setPriceBsManual('');
-                            }}
-                            className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                                priceMode === 'diferenciado'
-                                    ? 'bg-purple-600 text-white shadow-sm shadow-purple-500/20'
-                                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                            }`}
-                        >
-                            <Zap size={13} className={priceMode === 'diferenciado' ? 'fill-white text-white' : 'text-purple-500'} /> Diferenciado ($ / Bs)
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setPriceMode('fijo_bs');
-                                if (setPriceBsUsdRef) setPriceBsUsdRef('');
-                            }}
-                            className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                                priceMode === 'fijo_bs'
-                                    ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-500/20'
-                                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                            }`}
-                        >
-                            <Lock size={12} className={priceMode === 'fijo_bs' ? 'text-white' : 'text-emerald-500'} /> Precio Fijo Bs
-                        </button>
+                    {/* Selector Principal de Regla de Tasa de Cobro */}
+                    <div className="space-y-1.5">
+                        <label className="text-[9px] font-black uppercase text-slate-400 dark:text-slate-400 tracking-wider block">
+                            Regla de Tasa de Cambio
+                        </label>
+                        <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setForceBcv(false);
+                                    if (priceMode === 'fijo_bs') {
+                                        setPriceMode('standard');
+                                        if (setPriceBsManual) setPriceBsManual('');
+                                    }
+                                }}
+                                className={`py-2 px-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
+                                    !forceBcv && priceMode !== 'fijo_bs'
+                                        ? 'bg-purple-600 text-white shadow-sm shadow-purple-500/20'
+                                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                                }`}
+                            >
+                                <Zap size={13} className={!forceBcv && priceMode !== 'fijo_bs' ? 'fill-white text-white' : 'text-purple-500'} />
+                                <span className="truncate">Tasa del Día ({effectiveRate} Bs)</span>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setForceBcv(true);
+                                    if (priceMode === 'fijo_bs') {
+                                        setPriceMode('standard');
+                                        if (setPriceBsManual) setPriceBsManual('');
+                                    }
+                                    if (setPriceBsUsdRef) setPriceBsUsdRef('');
+                                }}
+                                className={`py-2 px-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
+                                    forceBcv
+                                        ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
+                                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                                }`}
+                            >
+                                <Landmark size={13} className={forceBcv ? 'text-white' : 'text-blue-500'} />
+                                <span className="truncate">Tasa BCV ({bcvRate || effectiveRate} Bs)</span>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setForceBcv(false);
+                                    setPriceMode('fijo_bs');
+                                    if (setPriceBsUsdRef) setPriceBsUsdRef('');
+                                }}
+                                className={`py-2 px-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
+                                    !forceBcv && priceMode === 'fijo_bs'
+                                        ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-500/20'
+                                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                                }`}
+                            >
+                                <Lock size={12} className={!forceBcv && priceMode === 'fijo_bs' ? 'text-white' : 'text-emerald-500'} />
+                                <span className="truncate">Precio Fijo Bs</span>
+                            </button>
+                        </div>
                     </div>
+
+                    {/* Sub-selector de Estrategia para Tasa del Día */}
+                    {!forceBcv && priceMode !== 'fijo_bs' && (
+                        <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl gap-1">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setPriceMode('standard');
+                                    if (setPriceBsUsdRef) setPriceBsUsdRef('');
+                                    if (setPriceBsManual) setPriceBsManual('');
+                                }}
+                                className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                                    priceMode === 'standard'
+                                        ? 'bg-white dark:bg-slate-700 text-brand shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                                }`}
+                            >
+                                <DollarSign size={13} className={priceMode === 'standard' ? 'text-emerald-500' : 'text-slate-400'} /> Precio Único USD
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setPriceMode('diferenciado');
+                                    if (setPriceBsManual) setPriceBsManual('');
+                                }}
+                                className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                                    priceMode === 'diferenciado'
+                                        ? 'bg-purple-600 text-white shadow-sm shadow-purple-500/20'
+                                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                                }`}
+                            >
+                                <Zap size={13} className={priceMode === 'diferenciado' ? 'fill-white text-white' : 'text-purple-500'} /> Diferenciado ($ / Bs)
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Banner informativo de Tasa BCV Oficial */}
+                    {forceBcv && (
+                        <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-xs font-medium text-blue-700 dark:text-blue-300 flex items-center gap-2">
+                            <Landmark size={16} className="shrink-0 text-blue-600 dark:text-blue-400" />
+                            <span>
+                                <strong>Producto Regulado (Víveres):</strong> Se calculará en Bolívares a la Tasa BCV Oficial vigente ({bcvRate || effectiveRate} Bs/$).
+                            </span>
+                        </div>
+                    )}
 
                     {/* Fila de Inputs de Precios según modo activo */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -484,22 +534,52 @@ export default function ProductFormQuick({
                         </div>
 
                         {priceMode === 'standard' && (
-                            <div>
-                                <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 flex items-center justify-between">
-                                    <span className="flex items-center gap-1"><DollarSign size={11} className="text-emerald-500" /> PRECIO USD ($)</span>
-                                    {effectiveRate > 0 && parsedPrice > 0 && (
-                                        <span className="text-[8px] text-emerald-600 font-bold">Ref: {Math.round(parsedPrice * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate))} Bs</span>
-                                    )}
-                                </label>
-                                <input 
-                                    type="number" 
-                                    inputMode="decimal" 
-                                    value={priceUsd} 
-                                    onChange={e => handleUnitPriceUsdChange(e.target.value)} 
-                                    placeholder="25.00"
-                                    className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
-                                />
-                            </div>
+                            <>
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 flex items-center justify-between">
+                                        <span className="flex items-center gap-1"><DollarSign size={11} className="text-emerald-500" /> PRECIO USD ($)</span>
+                                        {effectiveRate > 0 && parsedPrice > 0 && (
+                                            <span className="text-[8px] text-emerald-600 font-bold">Ref: {Math.round(parsedPrice * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate))} Bs</span>
+                                        )}
+                                    </label>
+                                    <input 
+                                        type="number" 
+                                        inputMode="decimal" 
+                                        value={priceUsd} 
+                                        onChange={e => {
+                                            setTempBsInput('');
+                                            handleUnitPriceUsdChange(e.target.value);
+                                        }} 
+                                        placeholder="25.00"
+                                        className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-purple-600 dark:text-purple-400 ml-1 mb-1 flex items-center justify-between">
+                                        <span>INGRESAR EN BS (CALCULA USD)</span>
+                                    </label>
+                                    <input 
+                                        type="number" 
+                                        inputMode="decimal" 
+                                        value={tempBsInput} 
+                                        onChange={e => {
+                                            const val = e.target.value;
+                                            setTempBsInput(val);
+                                            const num = parseFloat(val);
+                                            const activeRate = forceBcv ? (bcvRate || effectiveRate) : effectiveRate;
+                                            if (!isNaN(num) && num > 0 && activeRate > 0) {
+                                                const calculatedUsd = num / activeRate;
+                                                handleUnitPriceUsdChange(calculatedUsd >= 0.01 ? calculatedUsd.toFixed(2) : calculatedUsd.toFixed(4));
+                                            } else if (val === '') {
+                                                handleUnitPriceUsdChange('');
+                                            }
+                                        }} 
+                                        placeholder="Ej: 650"
+                                        className="w-full bg-purple-50/40 dark:bg-purple-950/20 p-2.5 rounded-xl font-black text-xs text-purple-700 dark:text-purple-300 outline-none border border-purple-200 dark:border-purple-800" 
+                                    />
+                                    <span className="text-[8px] text-purple-500 font-medium block mt-0.5 ml-1">Escribe en Bs y calcula USD automático</span>
+                                </div>
+                            </>
                         )}
 
                         {priceMode === 'diferenciado' && (
@@ -574,28 +654,6 @@ export default function ProductFormQuick({
                             </>
                         )}
                     </div>
-
-                    <div className="flex items-center gap-3 cursor-pointer select-none pt-2 border-t border-slate-200/40 dark:border-slate-800/40">
-                        <div 
-                            className={`w-9 h-5 rounded-full relative transition-colors duration-200 shrink-0 ${forceBcv ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-600'}`}
-                            onClick={() => {
-                                setForceBcv(!forceBcv);
-                            }}
-                        >
-                            <div className={`absolute top-0.5 left-[2px] w-4 h-4 rounded-full bg-white shadow transition-all duration-200 ${forceBcv ? 'translate-x-4' : 'translate-x-0'}`} />
-                        </div>
-                        <div 
-                            onClick={() => {
-                                setForceBcv(!forceBcv);
-                            }} 
-                            className="flex-1"
-                        >
-                            <span className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                                <Landmark size={14} className={forceBcv ? 'text-blue-500' : 'text-slate-400'} /> ¿Calcular siempre a tasa BCV?
-                            </span>
-                            <p className="text-[9px] text-slate-400 font-medium">Actívalo si este producto es un vívere o está sujeto a precio regulado.</p>
-                        </div>
-                    </div>
                 </div>
 
                 {/* Formato 2: Caja (Toggle) */}
@@ -628,24 +686,7 @@ export default function ProductFormQuick({
 
                     {sellByBox && (
                         <div className="space-y-3 pt-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                            <div className="flex items-center justify-between">
-                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Estrategia de Precios para Caja</span>
-                                <button
-                                    type="button"
-                                    onClick={handleToggleAutoCalcBox}
-                                    disabled={forceBcv}
-                                    title={forceBcv ? 'Forzado a tasa BCV (Auto-Tasa obligatorio)' : (autoCalcBox ? 'Auto-Tasa activo' : 'Activar cálculo automático USD ⇔ Bs')}
-                                    className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 ${
-                                        forceBcv
-                                            ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/30 cursor-not-allowed opacity-80'
-                                            : autoCalcBox
-                                                ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30 active:scale-95'
-                                                : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-650 dark:hover:text-slate-300 border border-slate-200 dark:border-slate-700 active:scale-95'
-                                    }`}
-                                >
-                                    <Zap size={10} className={(autoCalcBox || forceBcv) ? 'fill-white' : ''} /> Auto-Tasa
-                                </button>
-                            </div>
+                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Estrategia de Precios para Caja</span>
 
                             {/* Selector de Estrategia de Precio Caja */}
                             <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl gap-1">
@@ -839,24 +880,7 @@ export default function ProductFormQuick({
 
                     {sellByHalfBox && (
                         <div className="space-y-3 pt-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                            <div className="flex items-center justify-between">
-                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Estrategia de Precios para ½ Caja</span>
-                                <button
-                                    type="button"
-                                    onClick={handleToggleAutoCalcHalfBox}
-                                    disabled={forceBcv}
-                                    title={forceBcv ? 'Forzado a tasa BCV (Auto-Tasa obligatorio)' : (autoCalcHalfBox ? 'Auto-Tasa activo' : 'Activar cálculo automático USD ⇔ Bs')}
-                                    className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all duration-200 ${
-                                        forceBcv
-                                            ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/30 cursor-not-allowed opacity-80'
-                                            : autoCalcHalfBox
-                                                ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30 active:scale-95'
-                                                : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-650 dark:hover:text-slate-300 border border-slate-200 dark:border-slate-700 active:scale-95'
-                                    }`}
-                                >
-                                    <Zap size={10} className={(autoCalcHalfBox || forceBcv) ? 'fill-white' : ''} /> Auto-Tasa
-                                </button>
-                            </div>
+                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Estrategia de Precios para ½ Caja</span>
 
                             {/* Selector de Estrategia de Precio ½ Caja */}
                             <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl gap-1">

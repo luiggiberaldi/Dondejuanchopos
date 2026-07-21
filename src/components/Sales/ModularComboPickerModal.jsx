@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Gift, CheckCircle, Package, Plus, Minus } from 'lucide-react';
+import { Gift, CheckCircle, Package, Plus, Minus, Zap } from 'lucide-react';
 import { Modal } from '../Modal';
 
 export default function ModularComboPickerModal({
@@ -32,6 +32,31 @@ export default function ModularComboPickerModal({
     const isAllFulfilled = (combo.modularGroups || []).every(g => {
         return getGroupTotal(g.id) === (g.requiredQty || 1);
     });
+
+    const handleFillRemaining = (groupId, productId) => {
+        const group = combo.modularGroups?.find(g => g.id === groupId);
+        if (!group) return;
+
+        const reqQty = group.requiredQty || 1;
+        const currentGroupTotal = getGroupTotal(groupId);
+        const currentQty = selections[groupId]?.[productId] || 0;
+        const targetProduct = products.find(p => p.id === productId);
+        const availableStock = targetProduct?.stock ?? 0;
+
+        const remainingForGroup = reqQty - (currentGroupTotal - currentQty);
+        if (remainingForGroup <= 0) return;
+
+        const qtyToAssign = Math.min(remainingForGroup, availableStock);
+        if (qtyToAssign <= 0) return;
+
+        setSelections(prev => {
+            const groupSel = { ...(prev[groupId] || {}), [productId]: qtyToAssign };
+            return {
+                ...prev,
+                [groupId]: groupSel
+            };
+        });
+    };
 
     const handleUpdateQty = (groupId, productId, delta) => {
         const group = combo.modularGroups?.find(g => g.id === groupId);
@@ -241,33 +266,48 @@ export default function ModularComboPickerModal({
                                                     </div>
                                                 </div>
 
-                                                <div className="flex items-center gap-1 shrink-0 bg-white dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleUpdateQty(group.id, pid, -1)}
-                                                        disabled={qtySelected === 0}
-                                                        className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30"
-                                                    >
-                                                        <Minus size={12} strokeWidth={3} />
-                                                    </button>
-                                                    <input
-                                                        type="number"
-                                                        min={0}
-                                                        max={stock}
-                                                        value={qtySelected === 0 ? '' : qtySelected}
-                                                        placeholder="0"
-                                                        onChange={(e) => handleDirectQtyChange(group.id, pid, e.target.value)}
-                                                        onFocus={(e) => e.target.select()}
-                                                        className="w-10 text-center text-xs font-black text-purple-600 dark:text-purple-400 bg-slate-50/80 dark:bg-slate-800/80 outline-none focus:ring-2 focus:ring-purple-500/50 rounded-lg py-1 px-0.5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none cursor-text selection:bg-purple-200"
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleUpdateQty(group.id, pid, 1)}
-                                                        disabled={!canAdd}
-                                                        className="w-7 h-7 rounded-lg flex items-center justify-center text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-30 disabled:bg-slate-300 dark:disabled:bg-slate-700"
-                                                    >
-                                                        <Plus size={12} strokeWidth={3} />
-                                                    </button>
+                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                    {/* Botón rápido Llenar Todo/Restante */}
+                                                    {stock > 0 && currentTotal < reqQty && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleFillRemaining(group.id, pid)}
+                                                            title={`Asignar ${Math.min(reqQty - (currentTotal - qtySelected), stock)} unidades con 1 solo clic`}
+                                                            className="px-2.5 py-1.5 rounded-xl text-[10px] font-black bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 hover:bg-purple-600 hover:text-white dark:hover:bg-purple-600 border border-purple-200 dark:border-purple-800/80 transition-all active:scale-95 flex items-center gap-1 shadow-xs cursor-pointer"
+                                                        >
+                                                            <Zap size={11} className="fill-current" />
+                                                            <span>Llenar ({Math.min(reqQty - (currentTotal - qtySelected), stock)})</span>
+                                                        </button>
+                                                    )}
+
+                                                    <div className="flex items-center gap-1 bg-white dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleUpdateQty(group.id, pid, -1)}
+                                                            disabled={qtySelected === 0}
+                                                            className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30"
+                                                        >
+                                                            <Minus size={12} strokeWidth={3} />
+                                                        </button>
+                                                        <input
+                                                            type="number"
+                                                            min={0}
+                                                            max={stock}
+                                                            value={qtySelected === 0 ? '' : qtySelected}
+                                                            placeholder="0"
+                                                            onChange={(e) => handleDirectQtyChange(group.id, pid, e.target.value)}
+                                                            onFocus={(e) => e.target.select()}
+                                                            className="w-10 text-center text-xs font-black text-purple-600 dark:text-purple-400 bg-slate-50/80 dark:bg-slate-800/80 outline-none focus:ring-2 focus:ring-purple-500/50 rounded-lg py-1 px-0.5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none cursor-text selection:bg-purple-200"
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleUpdateQty(group.id, pid, 1)}
+                                                            disabled={!canAdd}
+                                                            className="w-7 h-7 rounded-lg flex items-center justify-center text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-30 disabled:bg-slate-300 dark:disabled:bg-slate-700"
+                                                        >
+                                                            <Plus size={12} strokeWidth={3} />
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             </div>
                                         );

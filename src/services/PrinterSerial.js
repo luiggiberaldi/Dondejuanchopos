@@ -274,6 +274,16 @@ class PrinterSerial {
                 chunks.push(encode(twoCol(nameShort, lineTotal, w) + '\n'));
                 // Price per unit line (indented)
                 chunks.push(encode(`  @ ${fmtUsd(item.priceUsd)}/u\n`));
+
+                // Combo sub-items breakdown
+                const comboBreakdown = item.modularSelections || item.selectedModularItems || item.comboItems;
+                if (comboBreakdown && comboBreakdown.length > 0) {
+                    for (const sub of comboBreakdown) {
+                        const subName = sub.productName || sub.name || sub.productId;
+                        const subQty = sub.qty || sub.quantity || 1;
+                        chunks.push(encode(`   -> ${subQty}x ${subName}\n`));
+                    }
+                }
             }
         }
         chunks.push(encode(line(w)));

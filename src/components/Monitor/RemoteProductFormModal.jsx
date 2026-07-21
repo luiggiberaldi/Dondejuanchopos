@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
     X, Package, Barcode, Tag, AlertTriangle, Send, Loader2, 
     TrendingUp, Layers, Sparkles, PlusCircle, Camera, Banknote, 
-    Zap, Boxes, Coins, ShieldCheck, Landmark 
+    Zap, Boxes, Coins, ShieldCheck, Landmark, Lock, DollarSign 
 } from 'lucide-react';
 import { useProductContext } from '../../context/ProductContext';
 import { CurrencyService } from '../../services/CurrencyService';
@@ -10,10 +10,11 @@ import { mulR, divR, round2 } from '../../utils/dinero';
 
 const EMPTY = {
     name: '', category: '', barcode: '',
-    priceUsd: '', priceBsManual: '', costUsd: '', stock: '', lowStockAlert: '5',
-    sellByBox: false, boxUnits: '', boxBarcode: '', boxPriceUsd: '', boxPriceBs: '',
-    sellByHalfBox: false, halfBoxUnits: '', halfBoxBarcode: '', halfBoxPriceUsd: '', halfBoxPriceBs: '',
+    priceUsd: '', priceBsManual: '', priceBsUsdRef: '', costUsd: '', stock: '', lowStockAlert: '5',
+    sellByBox: false, boxUnits: '', boxBarcode: '', boxPriceUsd: '', boxPriceBs: '', boxPriceBsUsdRef: '',
+    sellByHalfBox: false, halfBoxUnits: '', halfBoxBarcode: '', halfBoxPriceUsd: '', halfBoxPriceBs: '', halfBoxPriceBsUsdRef: '',
     forceBcv: false,
+    priceMode: 'standard',
     // Campos para costo por caja
     calcCostByBox: false, purchaseByBoxCost: '', purchaseBoxUnits: '',
 };
@@ -21,15 +22,18 @@ const EMPTY = {
 function productToForm(p) {
     if (!p) return { ...EMPTY };
     const s = (v) => (v == null ? '' : String(v));
+    const isDiferenciado = Boolean(p.priceBsUsdRef && Number(p.priceBsUsdRef) > 0);
+    const isFijoBs = Boolean(p.priceBsManual && Number(p.priceBsManual) > 0 && !p.forceBcv && !isDiferenciado);
     return {
         name: s(p.name), category: s(p.category), barcode: s(p.barcode),
-        priceUsd: s(p.priceUsd), priceBsManual: s(p.priceBsManual),
+        priceUsd: s(p.priceUsd), priceBsManual: s(p.priceBsManual), priceBsUsdRef: s(p.priceBsUsdRef),
         costUsd: s(p.costUsd), stock: s(p.stock), lowStockAlert: s(p.lowStockAlert ?? 5),
         sellByBox: Boolean(p.sellByBox), boxUnits: s(p.boxUnits), boxBarcode: s(p.boxBarcode),
-        boxPriceUsd: s(p.boxPriceUsd), boxPriceBs: s(p.boxPriceBs),
+        boxPriceUsd: s(p.boxPriceUsd), boxPriceBs: s(p.boxPriceBs), boxPriceBsUsdRef: s(p.boxPriceBsUsdRef),
         sellByHalfBox: Boolean(p.sellByHalfBox), halfBoxUnits: s(p.halfBoxUnits), halfBoxBarcode: s(p.halfBoxBarcode),
-        halfBoxPriceUsd: s(p.halfBoxPriceUsd), halfBoxPriceBs: s(p.halfBoxPriceBs),
+        halfBoxPriceUsd: s(p.halfBoxPriceUsd), halfBoxPriceBs: s(p.halfBoxPriceBs), halfBoxPriceBsUsdRef: s(p.halfBoxPriceBsUsdRef),
         forceBcv: Boolean(p.forceBcv),
+        priceMode: isFijoBs ? 'fijo_bs' : (isDiferenciado ? 'diferenciado' : 'standard'),
         calcCostByBox: false, purchaseByBoxCost: '', purchaseBoxUnits: '',
     };
 }
@@ -41,6 +45,7 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
     const { categories, rates } = useProductContext();
     const [form, setForm] = useState(EMPTY);
     const [sending, setSending] = useState(false);
+    const [tempBsInput, setTempBsInput] = useState('');
     
     // Auto-tasa toggle para sincronizar USD ⇔ Bs en el supervisor
     const [autoCalcUnit, setAutoCalcUnit] = useState(true);
@@ -51,6 +56,7 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
             setForm(productToForm(editingProduct));
             setAutoCalcUnit(true);
             setCustomCatInput(false);
+            setTempBsInput('');
         }
     }, [isOpen, editingProduct]);
 
@@ -79,18 +85,10 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
         setForm(prev => {
             const next = { ...prev, [field]: value };
             
-            // Auto-cálculo de precio Bs si Auto-Tasa está activo
-            if (autoCalcUnit && effectiveRate > 0) {
-                if (field === 'priceUsd') {
-                    const usdVal = parseFloat(value) || 0;
-                    next.priceBsManual = usdVal > 0 ? (usdVal * effectiveRate).toFixed(2) : '';
-                } else if (field === 'boxPriceUsd') {
-                    const bUsd = parseFloat(value) || 0;
-                    next.boxPriceBs = bUsd > 0 ? (bUsd * effectiveRate).toFixed(2) : '';
-                } else if (field === 'halfBoxPriceUsd') {
-                    const hbUsd = parseFloat(value) || 0;
-                    next.halfBoxPriceBs = hbUsd > 0 ? (hbUsd * effectiveRate).toFixed(2) : '';
-                }
+            // Auto-cálculo de precio USD si se ingresa en Bs en modo estándar
+            if (field === 'priceBsManual' && prev.priceMode === 'standard' && effectiveRate > 0) {
+                const bsVal = parseFloat(value) || 0;
+                next.priceUsd = bsVal > 0 ? (bsVal / (prev.forceBcv ? (rates?.bcv?.price || effectiveRate) : effectiveRate)).toFixed(2) : '';
             }
 
             // Recalcular costo unitario si cambia compra por caja
@@ -135,6 +133,7 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                 barcode: form.barcode.trim() || null,
                 priceUsd: parseFloat(form.priceUsd) || 0,
                 priceBsManual: form.priceBsManual !== '' ? parseFloat(form.priceBsManual) : null,
+                priceBsUsdRef: form.priceBsUsdRef !== '' ? parseFloat(form.priceBsUsdRef) : null,
                 costUsd: parseFloat(form.costUsd) || 0,
                 stock: parseInt(form.stock, 10) || 0,
                 lowStockAlert: parseInt(form.lowStockAlert, 10) || 5,
@@ -143,11 +142,13 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                 boxBarcode: form.sellByBox ? form.boxBarcode.trim() || null : null,
                 boxPriceUsd: form.sellByBox && form.boxPriceUsd !== '' ? parseFloat(form.boxPriceUsd) : null,
                 boxPriceBs: form.sellByBox && form.boxPriceBs !== '' ? parseFloat(form.boxPriceBs) : null,
+                boxPriceBsUsdRef: form.sellByBox && form.boxPriceBsUsdRef !== '' ? parseFloat(form.boxPriceBsUsdRef) : null,
                 sellByHalfBox: form.sellByBox && form.sellByHalfBox,
                 halfBoxUnits: form.sellByHalfBox ? parseInt(form.halfBoxUnits, 10) || null : null,
                 halfBoxBarcode: form.sellByHalfBox ? form.halfBoxBarcode.trim() || null : null,
                 halfBoxPriceUsd: form.sellByHalfBox && form.halfBoxPriceUsd !== '' ? parseFloat(form.halfBoxPriceUsd) : null,
                 halfBoxPriceBs: form.sellByHalfBox && form.halfBoxPriceBs !== '' ? parseFloat(form.halfBoxPriceBs) : null,
+                halfBoxPriceBsUsdRef: form.sellByHalfBox && form.halfBoxPriceBsUsdRef !== '' ? parseFloat(form.halfBoxPriceBsUsdRef) : null,
                 forceBcv: Boolean(form.forceBcv),
             };
 
@@ -355,18 +356,114 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                         <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
                             <Tag size={13} /> Precio de Venta (Unidad)
                         </span>
-                        
-                        <button
-                            type="button"
-                            onClick={handleToggleAutoCalcUnit}
-                            className={`flex items-center gap-1 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all ${
-                                autoCalcUnit ? 'bg-emerald-500 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'
-                            }`}
-                            title="Auto-Tasa: recalcula el precio en Bs según la tasa activa"
-                        >
-                            <Zap size={10} className={autoCalcUnit ? 'fill-white' : ''} /> Auto-Tasa
-                        </button>
                     </div>
+
+                    {/* Selector Principal de Regla de Tasa de Cobro */}
+                    <div className="space-y-1.5">
+                        <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider block">
+                            Regla de Tasa de Cambio
+                        </label>
+                        <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setForm(prev => ({
+                                        ...prev,
+                                        forceBcv: false,
+                                        priceMode: prev.priceMode === 'fijo_bs' ? 'standard' : prev.priceMode,
+                                        priceBsManual: prev.priceMode === 'fijo_bs' ? '' : prev.priceBsManual,
+                                    }));
+                                }}
+                                className={`py-2 px-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
+                                    !form.forceBcv && form.priceMode !== 'fijo_bs'
+                                        ? 'bg-purple-600 text-white shadow-sm shadow-purple-500/20'
+                                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                                }`}
+                            >
+                                <Zap size={13} className={!form.forceBcv && form.priceMode !== 'fijo_bs' ? 'fill-white text-white' : 'text-purple-500'} />
+                                <span className="truncate">Tasa del Día ({effectiveRate} Bs)</span>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setForm(prev => ({
+                                        ...prev,
+                                        forceBcv: true,
+                                        priceMode: prev.priceMode === 'fijo_bs' ? 'standard' : prev.priceMode,
+                                        priceBsManual: prev.priceMode === 'fijo_bs' ? '' : prev.priceBsManual,
+                                        priceBsUsdRef: '',
+                                    }));
+                                }}
+                                className={`py-2 px-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
+                                    form.forceBcv
+                                        ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
+                                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                                }`}
+                            >
+                                <Landmark size={13} className={form.forceBcv ? 'text-white' : 'text-blue-500'} />
+                                <span className="truncate">Tasa BCV ({rates?.bcv?.price || effectiveRate} Bs)</span>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setForm(prev => ({
+                                        ...prev,
+                                        forceBcv: false,
+                                        priceMode: 'fijo_bs',
+                                        priceBsUsdRef: '',
+                                    }));
+                                }}
+                                className={`py-2 px-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
+                                    !form.forceBcv && form.priceMode === 'fijo_bs'
+                                        ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-500/20'
+                                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                                }`}
+                            >
+                                <Lock size={12} className={!form.forceBcv && form.priceMode === 'fijo_bs' ? 'text-white' : 'text-emerald-500'} />
+                                <span className="truncate">Precio Fijo Bs</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Sub-selector de Estrategia para Tasa del Día */}
+                    {!form.forceBcv && form.priceMode !== 'fijo_bs' && (
+                        <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl gap-1">
+                            <button
+                                type="button"
+                                onClick={() => setForm(prev => ({ ...prev, priceMode: 'standard', priceBsUsdRef: '', priceBsManual: '' }))}
+                                className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                                    form.priceMode === 'standard'
+                                        ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                                }`}
+                            >
+                                <DollarSign size={13} className={form.priceMode === 'standard' ? 'text-emerald-500' : 'text-slate-400'} /> Precio Único USD
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setForm(prev => ({ ...prev, priceMode: 'diferenciado', priceBsManual: '' }))}
+                                className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                                    form.priceMode === 'diferenciado'
+                                        ? 'bg-purple-600 text-white shadow-sm shadow-purple-500/20'
+                                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                                }`}
+                            >
+                                <Zap size={13} className={form.priceMode === 'diferenciado' ? 'fill-white text-white' : 'text-purple-500'} /> Diferenciado ($ / Bs)
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Banner informativo de Tasa BCV Oficial */}
+                    {form.forceBcv && (
+                        <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-xs font-medium text-blue-700 dark:text-blue-300 flex items-center gap-2">
+                            <Landmark size={16} className="shrink-0 text-blue-600 dark:text-blue-400" />
+                            <span>
+                                <strong>Producto Regulado (Víveres):</strong> Se calculará en Bolívares a la Tasa BCV Oficial vigente ({rates?.bcv?.price || effectiveRate} Bs/$).
+                            </span>
+                        </div>
+                    )}
 
                     <div className="grid grid-cols-2 gap-3">
                         <div>
@@ -380,18 +477,73 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                                 className={`${inputCls} ${!priceOk && form.priceUsd ? 'border-amber-400 focus:ring-amber-400/40' : ''}`}
                             />
                         </div>
-                        <div>
-                            <label className={labelCls}>Precio Bs {autoCalcUnit ? '(Auto)' : '(Manual)'}</label>
-                            <input 
-                                type="number" 
-                                inputMode="decimal" 
-                                value={form.priceBsManual} 
-                                onChange={set('priceBsManual')} 
-                                placeholder="0.00" 
-                                disabled={autoCalcUnit}
-                                className={`${inputCls} ${autoCalcUnit ? 'bg-slate-100 dark:bg-slate-800/50 text-slate-400 cursor-not-allowed' : ''}`} 
-                            />
-                        </div>
+
+                        {form.priceMode === 'fijo_bs' && (
+                            <div>
+                                <label className={labelCls}>Precio Bs (Fijo)</label>
+                                <input 
+                                    type="number" 
+                                    inputMode="decimal" 
+                                    value={form.priceBsManual} 
+                                    onChange={set('priceBsManual')} 
+                                    placeholder="0.00" 
+                                    className={inputCls} 
+                                />
+                            </div>
+                        )}
+
+                        {form.priceMode === 'standard' && (
+                            <div>
+                                <label className="text-[10px] font-black text-purple-600 dark:text-purple-400 ml-1 mb-1 block uppercase tracking-wider">
+                                    Ingresar en Bs (Calcula USD)
+                                </label>
+                                <input 
+                                    type="number" 
+                                    inputMode="decimal" 
+                                    value={tempBsInput} 
+                                    onChange={e => {
+                                        const val = e.target.value;
+                                        setTempBsInput(val);
+                                        const num = parseFloat(val);
+                                        const activeRate = form.forceBcv ? (rates?.bcv?.price || effectiveRate) : effectiveRate;
+                                        if (!isNaN(num) && num > 0 && activeRate > 0) {
+                                            const calculatedUsd = (num / activeRate).toFixed(2);
+                                            setForm(prev => ({ ...prev, priceUsd: calculatedUsd }));
+                                        } else if (val === '') {
+                                            setForm(prev => ({ ...prev, priceUsd: '' }));
+                                        }
+                                    }} 
+                                    placeholder="Ej: 650" 
+                                    className={`${inputCls} border-purple-300 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300`} 
+                                />
+                                {priceNum > 0 && effectiveRate > 0 && (
+                                    <span className="text-[8.5px] font-bold text-emerald-600 dark:text-emerald-400 block mt-0.5 ml-1">
+                                        = {(priceNum * (form.forceBcv ? (rates?.bcv?.price || effectiveRate) : effectiveRate)).toFixed(2)} Bs a Tasa ({form.forceBcv ? 'BCV' : 'Día'})
+                                    </span>
+                                )}
+                            </div>
+                        )}
+
+                        {form.priceMode === 'diferenciado' && (
+                            <div>
+                                <label className="text-[10px] font-black text-purple-600 dark:text-purple-400 ml-1 mb-1 block uppercase tracking-wider flex items-center gap-1">
+                                    <Zap size={12} className="text-purple-500 fill-purple-500/20" /> Precio Ref. Bs ($)
+                                </label>
+                                <input 
+                                    type="number" 
+                                    inputMode="decimal" 
+                                    value={form.priceBsUsdRef} 
+                                    onChange={set('priceBsUsdRef')} 
+                                    placeholder="Ej: 26.00" 
+                                    className={`${inputCls} border-purple-300 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300`} 
+                                />
+                                {effectiveRate > 0 && Number(form.priceBsUsdRef) > 0 && (
+                                    <span className="text-[8.5px] font-bold text-purple-600 dark:text-purple-400 block mt-0.5 ml-1">
+                                        = {Math.round(Number(form.priceBsUsdRef) * effectiveRate).toLocaleString('es-VE')} Bs al cobro en Bs
+                                    </span>
+                                )}
+                            </div>
+                        )}
                     </div>
 
                     {/* Badge de Ganancia Estimada */}
@@ -405,39 +557,6 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                             </span>
                         </div>
                     )}
-
-                    {/* Toggle Tasa BCV (Forzar siempre a Tasa Oficial BCV) */}
-                    <div className="flex items-center justify-between pt-2.5 border-t border-emerald-500/20">
-                        <div className="flex items-center gap-2">
-                            <Landmark size={15} className="text-blue-500" />
-                            <div>
-                                <span className="text-xs font-black text-slate-700 dark:text-slate-200 block">Tasa BCV</span>
-                                <span className="text-[9px] font-bold text-slate-400 block">Forzar siempre a Tasa Oficial BCV</span>
-                            </div>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                const nextBcv = !form.forceBcv;
-                                setForm(prev => {
-                                    const next = { ...prev, forceBcv: nextBcv };
-                                    if (nextBcv && effectiveRate > 0) {
-                                        setAutoCalcUnit(true);
-                                        const usdVal = parseFloat(prev.priceUsd) || 0;
-                                        next.priceBsManual = usdVal > 0 ? (usdVal * effectiveRate).toFixed(2) : prev.priceBsManual;
-                                    }
-                                    return next;
-                                });
-                            }}
-                            className={`w-11 h-6 rounded-full p-0.5 transition-colors duration-200 ease-in-out ${
-                                form.forceBcv ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-700'
-                            }`}
-                        >
-                            <div className={`w-5 h-5 rounded-full bg-white shadow-md transform transition-transform duration-200 ease-in-out ${
-                                form.forceBcv ? 'translate-x-5' : 'translate-x-0'
-                            }`} />
-                        </button>
-                    </div>
                 </div>
 
                 {/* 4. Formatos por Caja / ½ Caja (Switches Táctiles) */}

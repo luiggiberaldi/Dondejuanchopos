@@ -204,27 +204,44 @@ export default function SalesHistory({
                                         <div className="space-y-1 mb-3 pt-2">
                                             <p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">Productos ({s.items.length})</p>
                                             {s.items.map((item, i) => (
-                                                <div key={i} className={`flex justify-between items-center text-xs ${isCanceled ? 'text-slate-400 line-through' : 'text-slate-600 dark:text-slate-300'}`}>
-                                                    <span className="truncate pr-2">
-                                                        {item.isWeight ? `${item.qty.toFixed(3)}kg` : `${item.qty}u`} {item.name}
-                                                        {(item.isWeight || item.qty !== 1) && (
-                                                            <span className="text-[10px] text-slate-400 font-normal ml-1">
-                                                                ({item.isWeight ? '' : 'c/u '}{copEnabled && copPrimary && tasaCop > 0 ? `${formatCop(item.priceCop || Math.round(item.priceUsd * tasaCop))} COP` : `$${item.priceUsd.toFixed(2)}`})
-                                                            </span>
-                                                        )}
-                                                    </span>
-                                                    <span className="font-medium text-right">
-                                                        {copEnabled && copPrimary
-                                                            ? <span className="text-amber-600 dark:text-amber-400">{formatCop((item.priceCop || Math.round(item.priceUsd * tasaCop)) * item.qty)} COP</span>
-                                                            : <span>${(item.priceUsd * item.qty).toFixed(2)}</span>}
-                                                        {copEnabled && tasaCop > 0
-                                                            ? <span className="text-slate-400 font-normal ml-1">
-                                                                {copPrimary
-                                                                    ? <>${(item.priceUsd * item.qty).toFixed(2)} · <span className="text-brand dark:text-brand">{formatBs(item.priceUsd * item.qty * (s.rate || bcvRate))} Bs</span></>
-                                                                    : <>{formatCop((item.priceCop || Math.round(item.priceUsd * tasaCop)) * item.qty)} COP · <span className="text-brand dark:text-brand">{formatBs(item.priceUsd * item.qty * (s.rate || bcvRate))} Bs</span></>}
-                                                              </span>
-                                                            : <span className="text-slate-400 font-normal ml-1">· {formatBs(item.priceUsd * item.qty * (s.rate || bcvRate))} Bs</span>}
-                                                    </span>
+                                                <div key={i} className="mb-1.5 last:mb-0">
+                                                    <div className={`flex justify-between items-center text-xs ${isCanceled ? 'text-slate-400 line-through' : 'text-slate-600 dark:text-slate-300'}`}>
+                                                        <span className="truncate pr-2">
+                                                            {item.isWeight ? `${item.qty.toFixed(3)}kg` : `${item.qty}u`} {item.name}
+                                                            {(item.isWeight || item.qty !== 1) && (
+                                                                <span className="text-[10px] text-slate-400 font-normal ml-1">
+                                                                    ({item.isWeight ? '' : 'c/u '}{copEnabled && copPrimary && tasaCop > 0 ? `${formatCop(item.priceCop || Math.round(item.priceUsd * tasaCop))} COP` : `$${item.priceUsd.toFixed(2)}`})
+                                                                </span>
+                                                            )}
+                                                        </span>
+                                                        <span className="font-medium text-right shrink-0">
+                                                            {copEnabled && copPrimary
+                                                                ? <span className="text-amber-600 dark:text-amber-400">{formatCop((item.priceCop || Math.round(item.priceUsd * tasaCop)) * item.qty)} COP</span>
+                                                                : <span>${(item.priceUsd * item.qty).toFixed(2)}</span>}
+                                                            {copEnabled && tasaCop > 0
+                                                                ? <span className="text-slate-400 font-normal ml-1">
+                                                                    {copPrimary
+                                                                        ? <>${(item.priceUsd * item.qty).toFixed(2)} · <span className="text-brand dark:text-brand">{formatBs(item.priceUsd * item.qty * (s.rate || bcvRate))} Bs</span></>
+                                                                        : <>{formatCop((item.priceCop || Math.round(item.priceUsd * tasaCop)) * item.qty)} COP · <span className="text-brand dark:text-brand">{formatBs(item.priceUsd * item.qty * (s.rate || bcvRate))} Bs</span></>}
+                                                                  </span>
+                                                                : <span className="text-slate-400 font-normal ml-1">· {formatBs(item.priceUsd * item.qty * (s.rate || bcvRate))} Bs</span>}
+                                                        </span>
+                                                    </div>
+
+                                                    {/* Desglose de artículos específicos del combo */}
+                                                    {((item.isModular && item.modularSelections?.length > 0) || (item.isCombo && item.comboItems?.length > 0) || (item.selectedModularItems?.length > 0)) && (
+                                                        <div className="pl-3 mt-0.5 border-l-2 border-purple-400 dark:border-purple-600 space-y-0.5 ml-1">
+                                                            {(item.modularSelections || item.selectedModularItems || item.comboItems || []).map((sub, sIdx) => {
+                                                                const subName = sub.productName || sub.name || sub.productId;
+                                                                const subQty = sub.qty || sub.quantity || 1;
+                                                                return (
+                                                                    <div key={sIdx} className="text-[10px] font-semibold text-purple-700 dark:text-purple-300 leading-tight">
+                                                                        ↳ {subQty}x {subName}
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             ))}
                                         </div>

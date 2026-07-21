@@ -29,22 +29,28 @@ export function buildReceiptWhatsAppUrl(receipt, currentRate) {
         const priceBs = item.priceUsd * (r.rate || 1);
         const subBs = item.priceUsd * item.qty * (r.rate || 1);
 
+        const comboBreakdown = item.modularSelections || item.selectedModularItems || item.comboItems;
+        let comboSubText = '';
+        if (comboBreakdown && comboBreakdown.length > 0) {
+            comboSubText = '\n' + comboBreakdown.map(sub => `   └ ${sub.qty || sub.quantity || 1}x ${sub.productName || sub.name || sub.productId}`).join('\n');
+        }
+
         if (receiptCurrencyMode === 'usd') {
             const subStr = isCop ? `USD ${subUsd}` : `$${subUsd}`;
             const unitStr = isCop ? `USD ${unitPriceUsd}` : `$${unitPriceUsd}`;
-            return `- ${item.name}\n  ${qty} x ${unitStr} = ${subStr}`;
+            return `- ${item.name}${comboSubText}\n  ${qty} x ${unitStr} = ${subStr}`;
         }
         
         if (receiptCurrencyMode === 'bs') {
             const subStr = `Bs ${formatBs(subBs)}`;
             const unitStr = `Bs ${formatBs(priceBs)}`;
-            return `- ${item.name}\n  ${qty} x ${unitStr} = ${subStr}`;
+            return `- ${item.name}${comboSubText}\n  ${qty} x ${unitStr} = ${subStr}`;
         }
 
         // mixto
         const subStr = isCop ? `USD ${subUsd}` : `$${subUsd}`;
         const unitStr = isCop ? `USD ${unitPriceUsd}` : `$${unitPriceUsd}`;
-        let line = `- ${item.name}\n  ${qty} x ${unitStr} = ${subStr}`;
+        let line = `- ${item.name}${comboSubText}\n  ${qty} x ${unitStr} = ${subStr}`;
         if (isCop) {
             const copSub = (item.priceUsd * item.qty * r.tasaCop).toLocaleString('es-CO', { maximumFractionDigits: 0 });
             line += ` (${copSub} COP)`;

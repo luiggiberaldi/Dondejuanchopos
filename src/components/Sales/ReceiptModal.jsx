@@ -93,11 +93,27 @@ export default function ReceiptModal({ receipt, onClose, onShareWhatsApp, curren
                                 const priceBs = hasManual ? Number(item.priceBsManual) : (item.priceUsd * (receipt.rate || 0));
                                 const totalBs = hasManual ? (Number(item.priceBsManual) * item.qty) : (item.priceUsd * item.qty * (receipt.rate || 0));
 
+                                const comboBreakdown = item.modularSelections || item.selectedModularItems || item.comboItems;
+
+                                const renderComboSubItems = () => {
+                                    if (!comboBreakdown || comboBreakdown.length === 0) return null;
+                                    return (
+                                        <div className="pl-2 border-l-2 border-purple-400 space-y-0.5 my-1">
+                                            {comboBreakdown.map((sub, sIdx) => (
+                                                <div key={sIdx} className="text-[10px] font-bold text-purple-700 leading-tight">
+                                                    ↳ {(sub.qty || sub.quantity || 1)}x {sub.productName || sub.name || sub.productId}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    );
+                                };
+
                                 if (receiptCurrencyMode === 'usd') {
                                     return (
                                         <div key={i} className="flex justify-between items-start text-sm border-b border-slate-200/50 pb-2 last:border-0 last:pb-0">
                                             <div className="flex-1 pr-4">
                                                 <span className="font-bold text-slate-700 block leading-tight">{item.name}</span>
+                                                {renderComboSubItems()}
                                                 <span className="text-xs text-slate-400">{item.isWeight ? `${item.qty.toFixed(3)} Kg` : `${item.qty} u`} × ${item.priceUsd.toFixed(2)}</span>
                                             </div>
                                             <div className="text-right">
@@ -112,6 +128,7 @@ export default function ReceiptModal({ receipt, onClose, onShareWhatsApp, curren
                                         <div key={i} className="flex justify-between items-start text-sm border-b border-slate-200/50 pb-2 last:border-0 last:pb-0">
                                             <div className="flex-1 pr-4">
                                                 <span className="font-bold text-slate-700 block leading-tight">{item.name}</span>
+                                                {renderComboSubItems()}
                                                 <span className="text-xs text-slate-400">{item.isWeight ? `${item.qty.toFixed(3)} Kg` : `${item.qty} u`} × Bs {formatBs(priceBs)}</span>
                                             </div>
                                             <div className="text-right">
@@ -126,6 +143,7 @@ export default function ReceiptModal({ receipt, onClose, onShareWhatsApp, curren
                                     <div key={i} className="flex justify-between items-start text-sm border-b border-slate-200/50 pb-2 last:border-0 last:pb-0">
                                         <div className="flex-1 pr-4">
                                             <span className="font-bold text-slate-700 block leading-tight">{item.name}</span>
+                                            {renderComboSubItems()}
                                             {isCop ? (
                                                 copPrimary ? (
                                                     <>
