@@ -101,6 +101,13 @@ export const usePaymentCalculations = ({
         };
     }, [hasNonBs, bsPaid, nonBsMethodsUsd, safeTotalUSD, safeTotalBS, tasaSegura, casheaAmountUsd, pagoSaldoFavorNum]);
 
+    // Falta directo en USD (siempre asume régimen USD para el llenado directo de divisas)
+    const faltaPorPagarUsdDirect = useMemo(() => {
+        const bsPaidUsd = tasaSegura > 0 ? divR(bsPaid, tasaSegura) : 0;
+        const pagadoGlobal = round2(nonBsMethodsUsd + bsPaidUsd + casheaAmountUsd + pagoSaldoFavorNum);
+        return round2(Math.max(0, subR(safeTotalUSD, pagadoGlobal)));
+    }, [bsPaid, nonBsMethodsUsd, safeTotalUSD, tasaSegura, casheaAmountUsd, pagoSaldoFavorNum]);
+
     // IGTF — simplificado (la bodega no usa FinancialController de Listo POS)
     const montoIGTF = 0; // La bodega calcula IGTF en useCheckoutCalculations; en POS mode no se recalcula aquí
     const totalConIGTF = totalUSD;
@@ -112,6 +119,7 @@ export const usePaymentCalculations = ({
         totalPagadoGlobalUSD,
         faltaPorPagar,
         faltaPorPagarBS,
+        faltaPorPagarUsdDirect,
         cambioUSD,
         montoIGTF,
         totalConIGTF,

@@ -143,6 +143,7 @@ export default function CheckoutModalPOS({
         totalPagadoGlobalUSD,
         faltaPorPagar,
         faltaPorPagarBS,
+        faltaPorPagarUsdDirect,
         cambioUSD,
         montoIGTF,
         totalConIGTF,
@@ -220,7 +221,7 @@ export default function CheckoutModalPOS({
     const llenarSaldo = (id, moneda) => {
         const actual = parseFloat(pagos[id] || 0);
         let valorFinal = 0;
-        if (moneda === 'USD') valorFinal = round2(actual + faltaPorPagar);
+        if (moneda === 'USD') valorFinal = round2(actual + faltaPorPagarUsdDirect);
         if (moneda === 'BS') valorFinal = round2(actual + faltaPorPagarBS);
         if (moneda === 'COP' && tasaCop > 0) valorFinal = round2(actual + (faltaPorPagar * tasaCop));
         setPagos(prev => ({ ...prev, [id]: valorFinal }));
