@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useProductContext } from '../context/ProductContext';
 import { useMonitorSync } from '../hooks/useMonitorSync';
 import { storageService } from '../utils/storageService';
@@ -33,6 +33,8 @@ function getMethodIcon(methodId) {
     return PAYMENT_METHOD_ICONS[methodId] || Wallet;
 }
 
+const PENDING_KEY = 'dj_pending_inventory_changes_v1';
+
 export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) {
     const pairedDeviceId = localStorage.getItem('dj_paired_device_id');
     const { products, effectiveRate: bcvRate, copEnabled, tasaCop, rates } = useProductContext();
@@ -52,11 +54,6 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const [showRemoteForm, setShowRemoteForm] = useState(false);
     const [remoteEditingProduct, setRemoteEditingProduct] = useState(null);
     const [remoteDeleteTarget, setRemoteDeleteTarget] = useState(null);
-
-    // Cola de cambios PENDIENTES: nada se envía a la caja hasta pulsar «Subir al
-    // sistema». Persistida en localStorage para sobrevivir recargas del monitor.
-    // Cada entrada: { action, productId, data, queuedAt }.
-    const PENDING_KEY = 'dj_pending_inventory_changes_v1';
     const [pendingChanges, setPendingChanges] = useState(() => {
         try {
             const raw = localStorage.getItem(PENDING_KEY);
@@ -66,51 +63,52 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     });
     const [uploading, setUploading] = useState(false);
 
-    const persistPending = (next) => {
+    const persistPending = useCallback((next) => {
         setPendingChanges(next);
         try { localStorage.setItem(PENDING_KEY, JSON.stringify(next)); } catch { /* storage lleno */ }
-    };
+    }, []);
 
-    // Fusión de cambios en cola (coalescing) para minimizar comandos y egress:
-    //  - adjust_stock del mismo producto: se suman los deltas (neto 0 → se elimina).
-    //  - edit del mismo producto: queda la última edición (si había un 'add' local, se fusiona en él).
-    //  - delete: cancela ediciones/ajustes pendientes; si cancelaba un 'add' aún no subido, no se envía nada.
-    const queueInventoryChange = (action, productId, data) => {
-        const next = [...pendingChanges];
-        const idxOf = (act) => next.findIndex(c => c.productId === productId && c.action === act);
+    // Fusión de cambios en cola con setPendingChanges(prev => ...) para evitar
+    // closure stale cuando el usuario pulsa +/- rápidamente antes del re-render.
+    const queueInventoryChange = useCallback((action, productId, data) => {
+        setPendingChanges(prev => {
+            const next = [...prev];
+            const idxOf = (act) => next.findIndex(c => c.productId === productId && c.action === act);
 
-        if (action === 'adjust_stock') {
-            const i = idxOf('adjust_stock');
-            if (i >= 0) {
-                const newDelta = (Number(next[i].data?.delta) || 0) + (Number(data?.delta) || 0);
-                if (newDelta === 0) next.splice(i, 1);
-                else next[i] = { ...next[i], data: { delta: newDelta }, queuedAt: new Date().toISOString() };
+            if (action === 'adjust_stock') {
+                const i = idxOf('adjust_stock');
+                if (i >= 0) {
+                    const newDelta = (Number(next[i].data?.delta) || 0) + (Number(data?.delta) || 0);
+                    if (newDelta === 0) next.splice(i, 1);
+                    else next[i] = { ...next[i], data: { delta: newDelta }, queuedAt: new Date().toISOString() };
+                } else {
+                    next.push({ action, productId, data, queuedAt: new Date().toISOString() });
+                }
+            } else if (action === 'edit') {
+                const addIdx = idxOf('add');
+                if (addIdx >= 0) {
+                    next[addIdx] = { ...next[addIdx], data: { ...data, id: productId }, queuedAt: new Date().toISOString() };
+                } else {
+                    const i = idxOf('edit');
+                    if (i >= 0) next[i] = { ...next[i], data, queuedAt: new Date().toISOString() };
+                    else next.push({ action, productId, data, queuedAt: new Date().toISOString() });
+                }
+            } else if (action === 'delete') {
+                const hadAdd = idxOf('add') >= 0;
+                for (let i = next.length - 1; i >= 0; i--) {
+                    if (next[i].productId === productId) next.splice(i, 1);
+                }
+                if (!hadAdd) next.push({ action, productId, data: null, queuedAt: new Date().toISOString() });
             } else {
                 next.push({ action, productId, data, queuedAt: new Date().toISOString() });
             }
-        } else if (action === 'edit') {
-            const addIdx = idxOf('add');
-            if (addIdx >= 0) {
-                next[addIdx] = { ...next[addIdx], data: { ...data, id: productId }, queuedAt: new Date().toISOString() };
-            } else {
-                const i = idxOf('edit');
-                if (i >= 0) next[i] = { ...next[i], data, queuedAt: new Date().toISOString() };
-                else next.push({ action, productId, data, queuedAt: new Date().toISOString() });
-            }
-        } else if (action === 'delete') {
-            const hadAdd = idxOf('add') >= 0;
-            for (let i = next.length - 1; i >= 0; i--) {
-                if (next[i].productId === productId) next.splice(i, 1);
-            }
-            if (!hadAdd) next.push({ action, productId, data: null, queuedAt: new Date().toISOString() });
-        } else { // add
-            next.push({ action, productId, data, queuedAt: new Date().toISOString() });
-        }
 
-        persistPending(next);
+            try { localStorage.setItem(PENDING_KEY, JSON.stringify(next)); } catch { /* storage lleno */ }
+            return next;
+        });
         showToast('Cambio en cola — pulsa «Subir al sistema» para enviarlo', 'info');
         return true;
-    };
+    }, []);
 
     // Delta de stock pendiente por producto (para proyectar en la fila)
     const pendingStockDelta = (productId) =>
