@@ -852,7 +852,7 @@ export default function ProductFormWizard({
                                 {name || 'Sin nombre'}
                             </h3>
                             <div className="text-xs font-black text-slate-800 dark:text-white mt-1">
-                                ${parsedPrice.toFixed(2)} / {priceBsManual ? `${Number(priceBsManual).toFixed(2)} Bs` : `${(parsedPrice * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate)).toFixed(2)} Bs`}
+                                ${parsedPrice.toFixed(2)} / {priceBsManual ? `${Number(priceBsManual).toFixed(2)} Bs` : `${(parsedPrice * (pricingMode === 'bcv' ? (bcvRate || effectiveRate) : effectiveRate)).toFixed(2)} Bs`}
                             </div>
                         </div>
                         <div className="absolute right-3 top-3">
