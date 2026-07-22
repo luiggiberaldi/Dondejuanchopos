@@ -214,7 +214,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
         products.forEach(p => {
             const stock = p.stock || 0;
-            const cost = p.costPrice || 0;
+            const cost = p.costUsd || p.costPrice || 0;
             const retail = p.priceUsd || 0;
             const minStock = p.minStock || 5;
 
@@ -324,8 +324,8 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             if (!s.items) return;
             s.items.forEach(item => {
                 const prod = products.find(p => p.id === item.productId || p.id === item.id);
-                if (prod && prod.costPrice) {
-                    costSum += prod.costPrice * item.qty;
+                if (prod && (prod.costUsd || prod.costPrice)) {
+                    costSum += (prod.costUsd || prod.costPrice) * item.qty;
                 }
             });
         });
@@ -940,7 +940,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                         <div key={prod.id} className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800 last:border-0">
                                                             <div className="min-w-0 pr-2">
                                                                 <span className="text-xs font-bold text-slate-700 dark:text-slate-200 block truncate">{prod.name}</span>
-                                                                <span className="font-outfit text-[10px] text-slate-400">Precio: ${prod.price?.toFixed(2)}</span>
+                                                                <span className="font-outfit text-[10px] text-slate-400">Precio: ${(prod.priceUsd ?? prod.price ?? 0).toFixed(2)}</span>
                                                             </div>
                                                             <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-rose-50 dark:bg-rose-950/20 text-rose-600 shrink-0">
                                                                 Agotado
@@ -1315,7 +1315,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                         const minStock = p.minStock || 5;
                                         const isAgotado = stock <= 0;
                                         const isBajo = !isAgotado && stock <= minStock;
-                                        const profitUsd = Math.max(0, p.priceUsd - (p.costPrice || 0));
+                                        const profitUsd = Math.max(0, p.priceUsd - (p.costUsd || p.costPrice || 0));
                                         const profitPct = p.priceUsd > 0 ? Math.round((profitUsd / p.priceUsd) * 100) : 0;
 
                                         return (
@@ -1361,7 +1361,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                         {/* Costo */}
                                                         <div>
                                                             <span className="text-[8px] text-slate-400 uppercase font-black block">Costo</span>
-                                                            <span className="font-outfit text-xs font-black text-slate-500 tabular-nums">${(p.costPrice || 0).toFixed(2)}</span>
+                                                            <span className="font-outfit text-xs font-black text-slate-500 tabular-nums">${(p.costUsd || p.costPrice || 0).toFixed(2)}</span>
                                                         </div>
                                                         {/* Venta */}
                                                         <div>

@@ -134,4 +134,28 @@ describe('applyInventoryCommand — comandos remotos de inventario', () => {
         const res = await applyInventoryCommand({ action: 'destroy_all', productId: 'p1' });
         expect(res.success).toBe(false);
     });
+
+    it('normalizeProduct aplica D4: modo bcv limpia priceBsManual y deriva forceBcv', async () => {
+        const res = await applyInventoryCommand({
+            action: 'edit', productId: 'p1',
+            data: { name: 'Ron Santa Teresa', priceUsd: 10, priceBsManual: 820, pricingMode: 'bcv', barcode: '111', sellByBox: true, boxUnits: 12, boxBarcode: '222' },
+        });
+        expect(res.success).toBe(true);
+        const [p] = await storageService.getItem(PRODUCTS_KEY);
+        expect(p.priceBsManual).toBeNull();  // basura limpiada por D4
+        expect(p.forceBcv).toBe(true);       // derivado del modo
+        expect(p.pricingMode).toBe('bcv');
+    });
+
+    it('normalizeProduct aplica D4: modo dual_usd conserva priceBsUsdRef y limpia priceBsManual', async () => {
+        const res = await applyInventoryCommand({
+            action: 'edit', productId: 'p1',
+            data: { name: 'Ron Santa Teresa', priceUsd: 1, priceBsUsdRef: 2, priceBsManual: 999, pricingMode: 'dual_usd', barcode: '111', sellByBox: true, boxUnits: 12, boxBarcode: '222' },
+        });
+        expect(res.success).toBe(true);
+        const [p] = await storageService.getItem(PRODUCTS_KEY);
+        expect(p.priceBsUsdRef).toBe(2);
+        expect(p.priceBsManual).toBeNull();
+        expect(p.forceBcv).toBe(false);
+    });
 });

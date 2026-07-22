@@ -71,6 +71,17 @@ function normalizeProduct(data) {
     normalized.unit = data.unit || 'unidad';
     normalized.packagingType = data.packagingType || 'suelto';
     normalized.lowStockAlert = Number(data.lowStockAlert) || 5;
+
+    // D4: si el payload trae pricingMode, limpiar los campos Bs que no corresponden
+    // (mismo contrato que buildProductPayload — evita priceBsManual basura en modo bcv)
+    const VALID_MODES = ['tasa_dia', 'bcv', 'dual_usd', 'bs_fijo'];
+    if (VALID_MODES.includes(data.pricingMode)) {
+        normalized.pricingMode = data.pricingMode;
+        normalized.forceBcv = data.pricingMode === 'bcv';
+        if (data.pricingMode !== 'bs_fijo') normalized.priceBsManual = null;
+        if (data.pricingMode !== 'dual_usd') normalized.priceBsUsdRef = null;
+    }
+
     return normalized;
 }
 
