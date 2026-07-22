@@ -1533,6 +1533,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 editingProduct={remoteEditingProduct}
                 onSubmit={(action, productId, data) => queueInventoryChange(action, productId, data)}
                 effectiveRate={bcvRate}
+                bcvRate={rates?.bcv?.price || bcvRate}
             />
 
             {/* Confirmación de eliminación remota */}

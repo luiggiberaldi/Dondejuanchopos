@@ -61,6 +61,10 @@ export default function SupervisorRateModal({ isOpen, onClose, rates, primaryDev
             localStorage.setItem('bodega_use_auto_rate', JSON.stringify(rateMode !== 'manual'));
             if (rateMode === 'manual') {
                 localStorage.setItem('bodega_custom_rate', String(customRate));
+            } else {
+                // Limpiar la tasa manual vieja: si queda, el monitor la muestra
+                // como referencia aunque el modo activo sea BCV/euro/paralelo
+                localStorage.removeItem('bodega_custom_rate');
             }
             window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_rate_mode' } }));
             window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_custom_rate' } }));
