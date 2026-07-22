@@ -1,6 +1,8 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Camera, X, AlertTriangle, Package, Tag, Barcode, Eye, ShoppingBag, Zap, Boxes, Landmark, Banknote, Lock, DollarSign } from 'lucide-react';
+import { Camera, X, AlertTriangle, Package, Tag, Barcode, Eye, ShoppingBag, Zap, Boxes, Landmark, Banknote, Lock, DollarSign, ArrowLeftRight } from 'lucide-react';
 import CustomSelect from '../CustomSelect';
+import PricingModeSelector from './PricingModeSelector';
+import PricePreviewLine from './PricePreviewLine';
 
 export default function ProductFormWizard({
     wizardStep,
@@ -28,6 +30,7 @@ export default function ProductFormWizard({
     halfBoxBarcode, setHalfBoxBarcode,
     halfBoxPriceUsd, setHalfBoxPriceUsd,
     halfBoxPriceBs, setHalfBoxPriceBs,
+    halfBoxPriceBsUsdRef, setHalfBoxPriceBsUsdRef,
 
     effectiveRate,
     handleImageUpload,
@@ -48,22 +51,25 @@ export default function ProductFormWizard({
     purchaseBoxUnits, setPurchaseBoxUnits,
     handleBoxPurchaseCalc,
     forceBcv, setForceBcv,
+
+    // Modo de precio canónico (misma fuente única que Quick: useProductForm vía Modal)
+    pricingMode, boxPricingMode, halfBoxPricingMode,
+    handlePricingModeChange,
 }) {
     const fileInputRef = useRef(null);
     const [isPriceUsdFocused, setIsPriceUsdFocused] = useState(false);
     const [tempBsInput, setTempBsInput] = useState('');
+    const [showBsCalc, setShowBsCalc] = useState(false); // D8: calculadora Bs→USD colapsada
 
-    const [priceMode, setPriceMode] = useState(() => {
-        if (priceBsUsdRef && Number(priceBsUsdRef) > 0) return 'diferenciado';
-        if (priceBsManual && Number(priceBsManual) > 0) return 'fijo_bs';
-        return 'standard';
-    });
-
-    useEffect(() => {
-        if (priceBsUsdRef && Number(priceBsUsdRef) > 0) {
-            setPriceMode('diferenciado');
-        }
-    }, [priceBsUsdRef]);
+    // Modo efectivo por formato: 'inherit' sigue la regla de la Unidad (D6)
+    const effBoxMode = boxPricingMode === 'inherit' ? pricingMode : boxPricingMode;
+    const effHalfBoxMode = halfBoxPricingMode === 'inherit' ? pricingMode : halfBoxPricingMode;
+    const MODE_LABELS = {
+        tasa_dia: '⚡ Tasa del Día',
+        bcv: '🏛️ Siempre BCV',
+        dual_usd: '💵 Dos Precios en $',
+        bs_fijo: '🔒 Bs Congelado',
+    };
 
     // Estado local para el stock por cajas
     const [localBoxes, setLocalBoxes] = useState('');
@@ -523,309 +529,260 @@ export default function ProductFormWizard({
                             Regla de Tasa y Precio Venta Unidad
                         </span>
 
-                        {/* Selector Principal de Regla de Tasa de Cobro */}
-                        <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl">
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setForceBcv(false);
-                                    if (priceMode === 'fijo_bs') {
-                                        setPriceMode('standard');
-                                        if (setPriceBsManual) setPriceBsManual('');
-                                    }
-                                }}
-                                className={`py-2 px-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
-                                    !forceBcv && priceMode !== 'fijo_bs'
-                                        ? 'bg-purple-600 text-white shadow-sm shadow-purple-500/20'
-                                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                                }`}
-                            >
-                                <Zap size={13} className={!forceBcv && priceMode !== 'fijo_bs' ? 'fill-white text-white' : 'text-purple-500'} />
-                                <span className="truncate">Tasa del Día ({effectiveRate} Bs)</span>
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setForceBcv(true);
-                                    if (priceMode === 'fijo_bs') {
-                                        setPriceMode('standard');
-                                        if (setPriceBsManual) setPriceBsManual('');
-                                    }
-                                    if (setPriceBsUsdRef) setPriceBsUsdRef('');
-                                }}
-                                className={`py-2 px-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
-                                    forceBcv
-                                        ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                                }`}
-                            >
-                                <Landmark size={13} className={forceBcv ? 'text-white' : 'text-blue-500'} />
-                                <span className="truncate">Tasa BCV ({bcvRate || effectiveRate} Bs)</span>
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setForceBcv(false);
-                                    setPriceMode('fijo_bs');
-                                    if (setPriceBsUsdRef) setPriceBsUsdRef('');
-                                }}
-                                className={`py-2 px-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
-                                    !forceBcv && priceMode === 'fijo_bs'
-                                        ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-500/20'
-                                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                                }`}
-                            >
-                                <Lock size={12} className={!forceBcv && priceMode === 'fijo_bs' ? 'text-white' : 'text-emerald-500'} />
-                                <span className="truncate">Precio Fijo Bs</span>
-                            </button>
-                        </div>
-
-                        {/* Sub-selector de Estrategia para Tasa del Día */}
-                        {!forceBcv && priceMode !== 'fijo_bs' && (
-                            <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl gap-1">
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setPriceMode('standard');
-                                        if (setPriceBsUsdRef) setPriceBsUsdRef('');
-                                        if (setPriceBsManual) setPriceBsManual('');
-                                    }}
-                                    className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                                        priceMode === 'standard'
-                                            ? 'bg-white dark:bg-slate-700 text-[#193275] dark:text-brand shadow-sm'
-                                            : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                                    }`}
-                                >
-                                    <DollarSign size={13} className={priceMode === 'standard' ? 'text-emerald-500' : 'text-slate-400'} /> Precio Único USD
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setPriceMode('diferenciado');
-                                        if (setPriceBsManual) setPriceBsManual('');
-                                    }}
-                                    className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                                        priceMode === 'diferenciado'
-                                            ? 'bg-purple-600 text-white shadow-sm shadow-purple-500/20'
-                                            : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                                    }`}
-                                >
-                                    <Zap size={13} className={priceMode === 'diferenciado' ? 'fill-white text-white' : 'text-purple-500'} /> Diferenciado ($ / Bs)
-                                </button>
-                            </div>
-                        )}
-
-                        {/* Banner informativo de Tasa BCV Oficial */}
-                        {forceBcv && (
-                            <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-xs font-medium text-blue-700 dark:text-blue-300 flex items-center gap-2">
-                                <Landmark size={16} className="shrink-0 text-blue-600 dark:text-blue-400" />
-                                <span>
-                                    <strong>Producto Regulado (Víveres):</strong> Se calculará en Bolívares a la Tasa BCV Oficial vigente ({bcvRate || effectiveRate} Bs/$).
-                                </span>
-                            </div>
-                        )}
+                        {/* Selector único de modo de precio (4 tarjetas) */}
+                        <PricingModeSelector
+                            value={pricingMode}
+                            onChange={(mode) => handlePricingModeChange('unit', mode)}
+                            effectiveRate={effectiveRate}
+                            bcvRate={bcvRate}
+                        />
 
                         {/* Fila de Inputs de Precios según modo activo */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                            {priceMode === 'standard' && (
-                                <>
-                                    <div>
-                                        <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 flex items-center justify-between">
-                                            <span className="flex items-center gap-1"><DollarSign size={11} className="text-emerald-500" /> PRECIO USD ($)</span>
-                                            {effectiveRate > 0 && parsedPrice > 0 && (
-                                                <span className="text-[8px] text-emerald-600 font-bold">Ref: {Math.round(parsedPrice * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate))} Bs</span>
-                                            )}
-                                        </label>
-                                        <input 
-                                            type="number" 
-                                            inputMode="decimal" 
-                                            value={isPriceUsdFocused ? priceUsd : (priceUsd && !isNaN(priceUsd) && Number(priceUsd) > 0 ? Number(priceUsd).toFixed(2) : priceUsd)} 
-                                            onFocus={() => setIsPriceUsdFocused(true)}
-                                            onBlur={() => setIsPriceUsdFocused(false)}
-                                            onChange={e => {
-                                                setTempBsInput('');
-                                                handleUnitPriceUsdChange(e.target.value);
-                                            }} 
-                                            placeholder="25.00"
-                                            className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] font-bold text-purple-600 dark:text-purple-400 ml-1 mb-1 flex items-center justify-between">
-                                            <span>INGRESAR EN BS (CALCULA USD)</span>
-                                        </label>
-                                        <input 
-                                            type="number" 
-                                            inputMode="decimal" 
-                                            value={tempBsInput} 
-                                            onChange={e => {
-                                                const val = e.target.value;
-                                                setTempBsInput(val);
-                                                const num = parseFloat(val);
-                                                const activeRate = forceBcv ? (bcvRate || effectiveRate) : effectiveRate;
-                                                if (!isNaN(num) && num > 0 && activeRate > 0) {
-                                                    const calculatedUsd = num / activeRate;
-                                                    handleUnitPriceUsdChange(calculatedUsd.toString());
-                                                } else if (val === '') {
-                                                    handleUnitPriceUsdChange('');
-                                                }
-                                            }} 
-                                            placeholder="Ej: 650"
-                                            className="w-full bg-purple-50/40 dark:bg-purple-950/20 p-2.5 rounded-xl font-black text-xs text-purple-700 dark:text-purple-300 outline-none border border-purple-200 dark:border-purple-800" 
-                                        />
-                                        <span className="text-[8px] text-purple-500 font-medium block mt-0.5 ml-1">Escribe en Bs y calcula USD automático</span>
-                                    </div>
-                                </>
+                            {(pricingMode === 'tasa_dia' || pricingMode === 'bcv') && (
+                                <div className={pricingMode === 'bcv' ? 'sm:col-span-2' : ''}>
+                                    <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 flex items-center justify-between">
+                                        <span className="flex items-center gap-1"><DollarSign size={11} className="text-emerald-500" /> PRECIO USD ($)</span>
+                                        {pricingMode === 'tasa_dia' && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowBsCalc(v => !v)}
+                                                className="flex items-center gap-0.5 text-[8px] font-black text-purple-500 hover:text-purple-600 uppercase cursor-pointer"
+                                                title="Escribir el monto en Bs y calcular el USD"
+                                            >
+                                                <ArrowLeftRight size={9} /> {showBsCalc ? 'Ocultar' : 'Tengo el precio en Bs'}
+                                            </button>
+                                        )}
+                                    </label>
+                                    <input
+                                        type="number"
+                                        inputMode="decimal"
+                                        value={isPriceUsdFocused ? priceUsd : (priceUsd && !isNaN(priceUsd) && Number(priceUsd) > 0 ? Number(priceUsd).toFixed(2) : priceUsd)}
+                                        onFocus={() => setIsPriceUsdFocused(true)}
+                                        onBlur={() => setIsPriceUsdFocused(false)}
+                                        onChange={e => {
+                                            setTempBsInput('');
+                                            handleUnitPriceUsdChange(e.target.value);
+                                        }}
+                                        placeholder="25.00"
+                                        className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850"
+                                    />
+                                </div>
                             )}
 
-                            {priceMode === 'diferenciado' && (
+                            {pricingMode === 'tasa_dia' && showBsCalc && (
+                                <div>
+                                    <label className="text-[10px] font-bold text-purple-600 dark:text-purple-400 ml-1 mb-1 block">
+                                        INGRESAR EN BS (CALCULA USD)
+                                    </label>
+                                    <input
+                                        type="number"
+                                        inputMode="decimal"
+                                        value={tempBsInput}
+                                        onChange={e => {
+                                            const val = e.target.value;
+                                            setTempBsInput(val);
+                                            const num = Number(val);
+                                            if (!isNaN(num) && num > 0 && effectiveRate > 0) {
+                                                handleUnitPriceUsdChange((num / effectiveRate).toString());
+                                            } else if (val === '') {
+                                                handleUnitPriceUsdChange('');
+                                            }
+                                        }}
+                                        placeholder="Ej: 650"
+                                        className="w-full bg-purple-50/40 dark:bg-purple-950/20 p-2.5 rounded-xl font-black text-xs text-purple-700 dark:text-purple-300 outline-none border border-purple-200 dark:border-purple-800"
+                                    />
+                                    <span className="text-[8px] text-purple-500 font-medium block mt-0.5 ml-1">Escribe en Bs y calcula USD automático</span>
+                                </div>
+                            )}
+
+                            {pricingMode === 'dual_usd' && (
                                 <>
                                     <div>
                                         <label className="text-[10px] font-black text-slate-500 dark:text-slate-300 ml-1 mb-1 flex items-center gap-1">
-                                            <Banknote size={12} className="text-emerald-500" /> PAGO DIVISA USD ($)
+                                            <Banknote size={12} className="text-emerald-500" /> $ EN DIVISA
                                         </label>
-                                        <input 
-                                            type="number" 
-                                            inputMode="decimal" 
-                                            value={priceUsd} 
-                                            onChange={e => handleUnitPriceUsdChange(e.target.value)} 
-                                            placeholder="25.00"
-                                            className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
+                                        <input
+                                            type="number"
+                                            inputMode="decimal"
+                                            value={priceUsd}
+                                            onChange={e => handleUnitPriceUsdChange(e.target.value)}
+                                            placeholder="1.00"
+                                            className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850"
                                         />
-                                        <span className="text-[8px] text-slate-400 font-medium block mt-0.5 ml-1">En billetes efectivo/divisas</span>
+                                        <span className="text-[8px] text-slate-400 font-medium block mt-0.5 ml-1">Si paga con billetes/divisas</span>
                                     </div>
                                     <div>
                                         <label className="text-[10px] font-black text-purple-600 dark:text-purple-400 ml-1 mb-1 flex items-center gap-1">
-                                            <Zap size={12} className="text-purple-500 fill-purple-500/20" /> PRECIO REF. BS ($)
+                                            <Zap size={12} className="text-purple-500 fill-purple-500/20" /> $ SI PAGA EN BS
                                         </label>
-                                        <input 
-                                            type="number" 
-                                            inputMode="decimal" 
-                                            value={priceBsUsdRef} 
-                                            onChange={e => setPriceBsUsdRef && setPriceBsUsdRef(e.target.value)} 
-                                            placeholder="26.00"
-                                            className="w-full bg-purple-50/50 dark:bg-purple-950/30 p-2.5 rounded-xl font-black text-xs text-purple-700 dark:text-purple-300 outline-none border border-purple-200 dark:border-purple-800" 
+                                        <input
+                                            type="number"
+                                            inputMode="decimal"
+                                            value={priceBsUsdRef}
+                                            onChange={e => setPriceBsUsdRef && setPriceBsUsdRef(e.target.value)}
+                                            placeholder="2.00"
+                                            className="w-full bg-purple-50/50 dark:bg-purple-950/30 p-2.5 rounded-xl font-black text-xs text-purple-700 dark:text-purple-300 outline-none border border-purple-200 dark:border-purple-800"
                                         />
-                                        {effectiveRate > 0 && Number(priceBsUsdRef) > 0 && (
-                                            <span className="text-[8px] text-purple-600 dark:text-purple-400 font-bold block mt-0.5 ml-1">
-                                                = {Math.round(Number(priceBsUsdRef) * effectiveRate).toLocaleString('es-VE')} Bs al cobro en Bs
-                                            </span>
-                                        )}
+                                        <span className="text-[8px] text-purple-400 font-medium block mt-0.5 ml-1">Pago Móvil/Punto: este $ se convierte a Bs con la tasa del momento</span>
                                     </div>
                                 </>
                             )}
 
-                            {priceMode === 'fijo_bs' && (
+                            {pricingMode === 'bs_fijo' && (
                                 <>
                                     <div>
                                         <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block">PRECIO USD ($)</label>
-                                        <input 
-                                            type="number" 
-                                            inputMode="decimal" 
-                                            value={priceUsd} 
-                                            onChange={e => handleUnitPriceUsdChange(e.target.value)} 
+                                        <input
+                                            type="number"
+                                            inputMode="decimal"
+                                            value={priceUsd}
+                                            onChange={e => handleUnitPriceUsdChange(e.target.value)}
                                             placeholder="25.00"
-                                            className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850" 
+                                            className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-black text-xs text-[#193275] dark:text-brand outline-none border border-slate-200 dark:border-slate-850"
                                         />
                                     </div>
                                     <div>
-                                        <label className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 ml-1 mb-1 block">PRECIO BS (FIJO)</label>
-                                        <input 
-                                            type="number" 
-                                            inputMode="decimal" 
-                                            value={priceBsManual} 
-                                            onChange={e => handleUnitPriceBsChange(e.target.value)} 
+                                        <label className="text-[10px] font-bold text-amber-600 dark:text-amber-400 ml-1 mb-1 block">PRECIO BS (FIJO)</label>
+                                        <input
+                                            type="number"
+                                            inputMode="decimal"
+                                            value={priceBsManual}
+                                            onChange={e => handleUnitPriceBsChange(e.target.value)}
                                             placeholder="650.00"
-                                            className="w-full bg-emerald-50/50 dark:bg-emerald-950/20 p-2.5 rounded-xl font-black text-xs text-emerald-600 dark:text-emerald-400 outline-none border border-emerald-300 dark:border-emerald-700" 
+                                            className="w-full bg-amber-50/50 dark:bg-amber-950/20 p-2.5 rounded-xl font-black text-xs text-amber-600 dark:text-amber-400 outline-none border border-amber-300 dark:border-amber-700"
                                         />
                                     </div>
                                 </>
                             )}
                         </div>
+
+                        {/* Vista previa del cobro (D7) */}
+                        <PricePreviewLine
+                            mode={pricingMode}
+                            usd={priceUsd}
+                            bsManual={priceBsManual}
+                            bsUsdRef={priceBsUsdRef}
+                            effectiveRate={effectiveRate}
+                            bcvRate={bcvRate}
+                        />
                     </div>
 
-                    {/* Precios Caja */}
+                    {/* Precios Caja — hereda la regla de la Unidad (D6) */}
                     {sellByBox && (
-                        <div className="bg-emerald-500/5 dark:bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20 animate-in fade-in slide-in-from-top-1">
-                            <div className="flex items-center justify-between mb-1.5">
+                        <div className="bg-emerald-500/5 dark:bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20 animate-in fade-in slide-in-from-top-1 space-y-2">
+                            <div className="flex items-center justify-between gap-2">
                                 <span className="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest ml-1">Precio de Venta Caja ({boxUnits} uds)</span>
-                                <button
-                                    type="button"
-                                    onClick={handleToggleAutoCalcBox}
-                                    disabled={forceBcv}
-                                    title={forceBcv ? 'Forzado a tasa BCV (Auto-Tasa obligatorio)' : (autoCalcBox ? 'Auto-Tasa activo' : 'Activar cálculo automático USD ⇔ Bs')}
-                                    className={`flex items-center gap-1 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all ${
-                                        forceBcv
-                                            ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/30 cursor-not-allowed opacity-80'
-                                            : autoCalcBox
-                                                ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30 active:scale-95'
-                                                : 'bg-white/70 dark:bg-slate-800 text-slate-400 hover:text-slate-655 dark:hover:text-slate-350 border border-emerald-200 dark:border-slate-700 active:scale-95'
-                                    }`}
-                                >
-                                    <Zap size={10} className={(autoCalcBox || forceBcv) ? 'fill-white' : ''} /> Auto-Tasa
-                                </button>
+                                {boxPricingMode === 'inherit' ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => handlePricingModeChange('box', pricingMode)}
+                                        className="text-[9px] font-black text-brand hover:underline uppercase cursor-pointer shrink-0"
+                                    >
+                                        Usar otra regla
+                                    </button>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={() => handlePricingModeChange('box', 'inherit')}
+                                        className="text-[9px] font-black text-slate-400 hover:text-brand uppercase cursor-pointer shrink-0"
+                                    >
+                                        Volver a heredar
+                                    </button>
+                                )}
                             </div>
+                            {boxPricingMode === 'inherit' ? (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-[9px] font-black text-slate-500 dark:text-slate-300 uppercase tracking-wider">
+                                    Sigue la regla de la Unidad ({MODE_LABELS[pricingMode]})
+                                </span>
+                            ) : (
+                                <PricingModeSelector
+                                    compact
+                                    value={boxPricingMode}
+                                    onChange={(mode) => handlePricingModeChange('box', mode)}
+                                    effectiveRate={effectiveRate}
+                                    bcvRate={bcvRate}
+                                />
+                            )}
                             <div className="grid grid-cols-2 gap-3">
-                                <input type="number" inputMode="decimal" value={boxPriceUsd} onChange={e => handleBoxPriceUsdChange(e.target.value)} placeholder="Precio USD ($)"
+                                <input type="number" inputMode="decimal" value={boxPriceUsd} onChange={e => handleBoxPriceUsdChange(e.target.value)} placeholder={effBoxMode === 'dual_usd' ? '$ en divisa' : 'Precio USD ($)'}
                                     className="w-full bg-white dark:bg-slate-900 p-2 rounded-xl font-black text-xs text-slate-750 dark:text-blue-500 outline-none border border-slate-200 dark:border-slate-800" />
-                                <div>
-                                    <input type="number" inputMode="decimal" value={boxPriceBs} onChange={e => handleBoxPriceBsChange(e.target.value)} placeholder="Precio Bs (Manual)"
-                                        disabled={forceBcv}
-                                        className={`w-full p-2 rounded-xl font-black text-xs outline-none border transition-all duration-200 ${
-                                            forceBcv
-                                                ? 'text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700 bg-blue-50/30 dark:bg-blue-900/10 cursor-not-allowed'
-                                                : autoCalcBox
-                                                    ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
-                                                    : 'text-slate-750 dark:text-blue-500 border-slate-200 dark:border-slate-800'
-                                        }`} />
-                                    {effectiveRate > 0 && Number(boxPriceUsd) > 0 && (
-                                        <span className="text-[8px] text-slate-400 font-medium block mt-0.5 ml-1">Ref: {Math.round(Number(boxPriceUsd) * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate))} Bs</span>
-                                    )}
-                                </div>
+                                {effBoxMode === 'dual_usd' && (
+                                    <input type="number" inputMode="decimal" value={boxPriceBsUsdRef} onChange={e => setBoxPriceBsUsdRef && setBoxPriceBsUsdRef(e.target.value)} placeholder="$ si paga en Bs"
+                                        className="w-full p-2 rounded-xl font-black text-xs outline-none border border-purple-300 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300" />
+                                )}
+                                {effBoxMode === 'bs_fijo' && (
+                                    <input type="number" inputMode="decimal" value={boxPriceBs} onChange={e => handleBoxPriceBsChange(e.target.value)} placeholder="Precio Bs (Fijo)"
+                                        className="w-full p-2 rounded-xl font-black text-xs outline-none border border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300" />
+                                )}
                             </div>
+                            <PricePreviewLine
+                                mode={effBoxMode}
+                                usd={boxPriceUsd}
+                                bsManual={boxPriceBs}
+                                bsUsdRef={boxPriceBsUsdRef}
+                                effectiveRate={effectiveRate}
+                                bcvRate={bcvRate}
+                            />
                         </div>
                     )}
 
+                    {/* Precios ½ Caja — hereda la regla de la Unidad (D6) */}
                     {sellByHalfBox && (
-                        <div className="bg-emerald-500/5 dark:bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20 animate-in fade-in slide-in-from-top-1">
-                            <div className="flex items-center justify-between mb-1.5">
+                        <div className="bg-emerald-500/5 dark:bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20 animate-in fade-in slide-in-from-top-1 space-y-2">
+                            <div className="flex items-center justify-between gap-2">
                                 <span className="text-[9px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-widest ml-1">Precio de Venta ½ Caja ({halfBoxUnits} uds)</span>
-                                <button
-                                    type="button"
-                                    onClick={handleToggleAutoCalcHalfBox}
-                                    disabled={forceBcv}
-                                    title={forceBcv ? 'Forzado a tasa BCV (Auto-Tasa obligatorio)' : (autoCalcHalfBox ? 'Auto-Tasa activo' : 'Activar cálculo automático USD ⇔ Bs')}
-                                    className={`flex items-center gap-1 text-[9px] font-black px-2.5 py-1 rounded-lg transition-all ${
-                                        forceBcv
-                                            ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/30 cursor-not-allowed opacity-80'
-                                            : autoCalcHalfBox
-                                                ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30 active:scale-95'
-                                                : 'bg-white/70 dark:bg-slate-800 text-slate-400 hover:text-slate-655 dark:hover:text-slate-350 border border-purple-200 dark:border-slate-700 active:scale-95'
-                                    }`}
-                                >
-                                    <Zap size={10} className={(autoCalcHalfBox || forceBcv) ? 'fill-white' : ''} /> Auto-Tasa
-                                </button>
+                                {halfBoxPricingMode === 'inherit' ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => handlePricingModeChange('halfBox', pricingMode)}
+                                        className="text-[9px] font-black text-brand hover:underline uppercase cursor-pointer shrink-0"
+                                    >
+                                        Usar otra regla
+                                    </button>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={() => handlePricingModeChange('halfBox', 'inherit')}
+                                        className="text-[9px] font-black text-slate-400 hover:text-brand uppercase cursor-pointer shrink-0"
+                                    >
+                                        Volver a heredar
+                                    </button>
+                                )}
                             </div>
+                            {halfBoxPricingMode === 'inherit' ? (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-[9px] font-black text-slate-500 dark:text-slate-300 uppercase tracking-wider">
+                                    Sigue la regla de la Unidad ({MODE_LABELS[pricingMode]})
+                                </span>
+                            ) : (
+                                <PricingModeSelector
+                                    compact
+                                    value={halfBoxPricingMode}
+                                    onChange={(mode) => handlePricingModeChange('halfBox', mode)}
+                                    effectiveRate={effectiveRate}
+                                    bcvRate={bcvRate}
+                                />
+                            )}
                             <div className="grid grid-cols-2 gap-3">
-                                <input type="number" inputMode="decimal" value={halfBoxPriceUsd} onChange={e => handleHalfBoxPriceUsdChange(e.target.value)} placeholder="Precio USD ($)"
+                                <input type="number" inputMode="decimal" value={halfBoxPriceUsd} onChange={e => handleHalfBoxPriceUsdChange(e.target.value)} placeholder={effHalfBoxMode === 'dual_usd' ? '$ en divisa' : 'Precio USD ($)'}
                                     className="w-full bg-white dark:bg-slate-900 p-2 rounded-xl font-black text-xs text-slate-750 dark:text-purple-500 outline-none border border-slate-200 dark:border-slate-800" />
-                                <div>
-                                    <input type="number" inputMode="decimal" value={halfBoxPriceBs} onChange={e => handleHalfBoxPriceBsChange(e.target.value)} placeholder="Precio Bs (Manual)"
-                                        disabled={forceBcv}
-                                        className={`w-full p-2 rounded-xl font-black text-xs outline-none border transition-all duration-200 ${
-                                            forceBcv
-                                                ? 'text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700 bg-blue-50/30 dark:bg-blue-900/10 cursor-not-allowed'
-                                                : autoCalcHalfBox
-                                                    ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/10'
-                                                    : 'text-slate-750 dark:text-purple-500 border-slate-200 dark:border-slate-800'
-                                        }`} />
-                                    {effectiveRate > 0 && Number(halfBoxPriceUsd) > 0 && (
-                                        <span className="text-[8px] text-slate-400 font-medium block mt-0.5 ml-1">Ref: {Math.round(Number(halfBoxPriceUsd) * (forceBcv ? (bcvRate || effectiveRate) : effectiveRate))} Bs</span>
-                                    )}
-                                </div>
+                                {effHalfBoxMode === 'dual_usd' && (
+                                    <input type="number" inputMode="decimal" value={halfBoxPriceBsUsdRef} onChange={e => setHalfBoxPriceBsUsdRef && setHalfBoxPriceBsUsdRef(e.target.value)} placeholder="$ si paga en Bs"
+                                        className="w-full p-2 rounded-xl font-black text-xs outline-none border border-purple-300 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300" />
+                                )}
+                                {effHalfBoxMode === 'bs_fijo' && (
+                                    <input type="number" inputMode="decimal" value={halfBoxPriceBs} onChange={e => handleHalfBoxPriceBsChange(e.target.value)} placeholder="Precio Bs (Fijo)"
+                                        className="w-full p-2 rounded-xl font-black text-xs outline-none border border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300" />
+                                )}
                             </div>
+                            <PricePreviewLine
+                                mode={effHalfBoxMode}
+                                usd={halfBoxPriceUsd}
+                                bsManual={halfBoxPriceBs}
+                                bsUsdRef={halfBoxPriceBsUsdRef}
+                                effectiveRate={effectiveRate}
+                                bcvRate={bcvRate}
+                            />
                         </div>
                     )}
 
