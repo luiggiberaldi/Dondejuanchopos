@@ -1,5 +1,31 @@
 import { useReducer, useCallback } from 'react';
 
+export const PRICING_MODES = ['tasa_dia', 'bcv', 'dual_usd', 'bs_fijo'];
+
+/**
+ * Deriva el modo de precio de un producto guardado (compatibilidad hacia atrás,
+ * sin migración de datos). format: 'unit' | 'box' | 'halfBox'.
+ * Para box/halfBox devuelve 'inherit' cuando el formato no define regla propia.
+ */
+export function derivePricingMode(product, format = 'unit') {
+    if (!product) return format === 'unit' ? 'tasa_dia' : 'inherit';
+
+    if (format === 'unit') {
+        if (PRICING_MODES.includes(product.pricingMode)) return product.pricingMode;
+        if (product.forceBcv) return 'bcv';
+        if (Number(product.priceBsUsdRef) > 0) return 'dual_usd';
+        if (Number(product.priceBsManual) > 0) return 'bs_fijo';
+        return 'tasa_dia';
+    }
+
+    const prefix = format === 'box' ? 'box' : 'halfBox';
+    const saved = product[`${prefix}PricingMode`];
+    if (PRICING_MODES.includes(saved)) return saved;
+    if (Number(product[`${prefix}PriceBsUsdRef`]) > 0) return 'dual_usd';
+    if (Number(product[`${prefix}PriceBs`]) > 0) return 'bs_fijo';
+    return 'inherit';
+}
+
 const INITIAL_STATE = {
     editingId: null,
     name: '',
@@ -36,6 +62,12 @@ const INITIAL_STATE = {
     purchaseBoxUnits: '',
     purchaseBoxBcv: false,
     forceBcv: false,
+
+    // Modo de precio canónico por formato (fuente de verdad del formulario).
+    // forceBcv pasa a ser un derivado de salida en el payload (pricingMode === 'bcv').
+    pricingMode: 'tasa_dia',       // 'tasa_dia' | 'bcv' | 'dual_usd' | 'bs_fijo'
+    boxPricingMode: 'inherit',     // idem + 'inherit' (sigue la regla de la unidad)
+    halfBoxPricingMode: 'inherit',
 };
 
 function reducer(state, action) {
@@ -90,6 +122,11 @@ export function useProductForm() {
     const setPurchaseBoxBcv = useCallback((v) => dispatch({ type: 'SET', field: 'purchaseBoxBcv', value: v }), []);
     const setForceBcv = useCallback((v) => dispatch({ type: 'SET', field: 'forceBcv', value: v }), []);
 
+    // Setters de modo de precio
+    const setPricingMode = useCallback((v) => dispatch({ type: 'SET', field: 'pricingMode', value: v }), []);
+    const setBoxPricingMode = useCallback((v) => dispatch({ type: 'SET', field: 'boxPricingMode', value: v }), []);
+    const setHalfBoxPricingMode = useCallback((v) => dispatch({ type: 'SET', field: 'halfBoxPricingMode', value: v }), []);
+
     const resetForm = useCallback(() => {
         dispatch({ type: 'RESET' });
     }, []);
@@ -139,6 +176,11 @@ export function useProductForm() {
             purchaseBoxUnits: product.purchaseBoxUnits ? product.purchaseBoxUnits.toString() : '',
             purchaseBoxBcv: !!product.purchaseBoxBcv,
             forceBcv: !!product.forceBcv,
+
+            // Modo de precio (D2: derivado de los campos guardados, sin migración)
+            pricingMode: derivePricingMode(product, 'unit'),
+            boxPricingMode: derivePricingMode(product, 'box'),
+            halfBoxPricingMode: derivePricingMode(product, 'halfBox'),
         };
 
         dispatch({ type: 'PATCH', patch });
@@ -180,6 +222,11 @@ export function useProductForm() {
         purchaseBoxUnits: state.purchaseBoxUnits, setPurchaseBoxUnits,
         purchaseBoxBcv: state.purchaseBoxBcv, setPurchaseBoxBcv,
         forceBcv: state.forceBcv, setForceBcv,
+
+        // Modo de precio
+        pricingMode: state.pricingMode, setPricingMode,
+        boxPricingMode: state.boxPricingMode, setBoxPricingMode,
+        halfBoxPricingMode: state.halfBoxPricingMode, setHalfBoxPricingMode,
 
         resetForm,
         populateForm,

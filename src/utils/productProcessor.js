@@ -34,16 +34,39 @@ export function buildProductPayload(formData, effectiveRate) {
         purchaseByBoxCost,
         purchaseBoxUnits,
         purchaseBoxBcv,
-        forceBcv
+        forceBcv,
+        pricingMode,
+        boxPricingMode,
+        halfBoxPricingMode
     } = formData;
 
     const formattedName = name.replace(/(^\w{1})|(\s+\w{1})/g, letter => letter.toUpperCase());
     const safeRate = effectiveRate > 0 ? effectiveRate : 1;
 
+    // ── Modo de precio canónico (D1-D4 del plan precios_simplificados) ──────
+    // 'tasa_dia' | 'bcv' | 'dual_usd' | 'bs_fijo'. Si el form no lo trae
+    // (llamadas legacy), se deriva de los campos como antes (D2).
+    const VALID_MODES = ['tasa_dia', 'bcv', 'dual_usd', 'bs_fijo'];
+    const unitMode = VALID_MODES.includes(pricingMode)
+        ? pricingMode
+        : (forceBcv ? 'bcv'
+            : (priceBsUsdRef && CurrencyService.safeParse(priceBsUsdRef) > 0) ? 'dual_usd'
+            : (priceBsManual && CurrencyService.safeParse(priceBsManual) > 0) ? 'bs_fijo'
+            : 'tasa_dia');
+    // 'inherit' (o ausente/ inválido) resuelve al modo de la unidad — se persiste el valor resuelto.
+    const resolvedBoxMode = VALID_MODES.includes(boxPricingMode) ? boxPricingMode : unitMode;
+    const resolvedHalfBoxMode = VALID_MODES.includes(halfBoxPricingMode) ? halfBoxPricingMode : unitMode;
+
+    // D4: campos Bs coherentes con el modo. En 'tasa_dia'/'bcv' NO se persiste
+    // ningún Bs propio (fix del hallazgo: forceBcv congelaba un priceBsManual
+    // basura que el motor ignora pero confundía a la UI y al monitor remoto).
+    const keepsManual = (mode) => mode === 'bs_fijo';
+    const keepsUsdRef = (mode) => mode === 'dual_usd';
+
     // Normalizar costos y precios de unidad
     const finalPriceUsd = priceUsd ? CurrencyService.safeParse(priceUsd) : 0;
-    const finalPriceBsManual = priceBsManual ? round2(CurrencyService.safeParse(priceBsManual)) : null;
-    const finalPriceBsUsdRef = priceBsUsdRef ? round2(CurrencyService.safeParse(priceBsUsdRef)) : null;
+    const finalPriceBsManual = keepsManual(unitMode) && priceBsManual ? round2(CurrencyService.safeParse(priceBsManual)) : null;
+    const finalPriceBsUsdRef = keepsUsdRef(unitMode) && priceBsUsdRef ? round2(CurrencyService.safeParse(priceBsUsdRef)) : null;
 
     // Normalizar datos de Caja (para usarse en la conversión del costo)
     const parsedBoxUnits = sellByBox && boxUnits ? parseInt(boxUnits, 10) : 1;
@@ -59,17 +82,17 @@ export function buildProductPayload(formData, effectiveRate) {
     const finalCostUsd = (sellByBox && !isAlreadyUnitCost) ? round2(divR(baseCostUsd, boxUnitsCount)) : baseCostUsd;
     const finalCostBs = (sellByBox && !isAlreadyUnitCost) ? round2(divR(baseCostBs, boxUnitsCount)) : baseCostBs;
 
-    // Normalizar datos de Caja
+    // Normalizar datos de Caja (Bs coherentes con el modo del formato — D4)
     const finalBoxPriceUsd = sellByBox && boxPriceUsd ? CurrencyService.safeParse(boxPriceUsd) : null;
-    const finalBoxPriceBs = sellByBox && boxPriceBs ? round2(CurrencyService.safeParse(boxPriceBs)) : null;
-    const finalBoxPriceBsUsdRef = sellByBox && boxPriceBsUsdRef ? round2(CurrencyService.safeParse(boxPriceBsUsdRef)) : null;
+    const finalBoxPriceBs = sellByBox && keepsManual(resolvedBoxMode) && boxPriceBs ? round2(CurrencyService.safeParse(boxPriceBs)) : null;
+    const finalBoxPriceBsUsdRef = sellByBox && keepsUsdRef(resolvedBoxMode) && boxPriceBsUsdRef ? round2(CurrencyService.safeParse(boxPriceBsUsdRef)) : null;
     const finalBoxBarcode = sellByBox && boxBarcode ? boxBarcode.trim() : null;
 
     // Normalizar datos de Media Caja
     const parsedHalfBoxUnits = sellByHalfBox && halfBoxUnits ? parseInt(halfBoxUnits, 10) : 1;
     const finalHalfBoxPriceUsd = sellByHalfBox && halfBoxPriceUsd ? CurrencyService.safeParse(halfBoxPriceUsd) : null;
-    const finalHalfBoxPriceBs = sellByHalfBox && halfBoxPriceBs ? round2(CurrencyService.safeParse(halfBoxPriceBs)) : null;
-    const finalHalfBoxPriceBsUsdRef = sellByHalfBox && halfBoxPriceBsUsdRef ? round2(CurrencyService.safeParse(halfBoxPriceBsUsdRef)) : null;
+    const finalHalfBoxPriceBs = sellByHalfBox && keepsManual(resolvedHalfBoxMode) && halfBoxPriceBs ? round2(CurrencyService.safeParse(halfBoxPriceBs)) : null;
+    const finalHalfBoxPriceBsUsdRef = sellByHalfBox && keepsUsdRef(resolvedHalfBoxMode) && halfBoxPriceBsUsdRef ? round2(CurrencyService.safeParse(halfBoxPriceBsUsdRef)) : null;
     const finalHalfBoxBarcode = sellByHalfBox && halfBoxBarcode ? halfBoxBarcode.trim() : null;
 
     return {
@@ -107,7 +130,13 @@ export function buildProductPayload(formData, effectiveRate) {
         purchaseByBoxCost: purchaseByBoxCost ? round2(CurrencyService.safeParse(purchaseByBoxCost)) : null,
         purchaseBoxUnits: purchaseBoxUnits ? parseInt(purchaseBoxUnits, 10) : null,
         purchaseBoxBcv: purchaseBoxBcv ? true : false,
-        forceBcv: forceBcv ? true : false,
+        // D3: forceBcv es un DERIVADO del modo — FinancialEngine/CartContext lo siguen leyendo.
+        forceBcv: unitMode === 'bcv',
+
+        // Modo de precio canónico por formato (resuelto, nunca 'inherit')
+        pricingMode: unitMode,
+        boxPricingMode: resolvedBoxMode,
+        halfBoxPricingMode: resolvedHalfBoxMode,
 
         // Campos Legacy para evitar errores en otros componentes
         packagingType: 'suelto',

@@ -312,6 +312,9 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
         purchaseBoxUnits, setPurchaseBoxUnits,
         purchaseBoxBcv, setPurchaseBoxBcv,
         forceBcv, setForceBcv,
+        pricingMode, setPricingMode,
+        boxPricingMode, setBoxPricingMode,
+        halfBoxPricingMode, setHalfBoxPricingMode,
         resetForm,
         populateForm,
     } = useProductForm();
@@ -456,7 +459,8 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
             sellByBox, boxUnits, boxBarcode, boxPriceUsd, boxPriceBs, boxPriceBsUsdRef,
             sellByHalfBox, halfBoxUnits, halfBoxBarcode, halfBoxPriceUsd, halfBoxPriceBs, halfBoxPriceBsUsdRef,
             purchaseByBoxCost, purchaseBoxUnits, purchaseBoxBcv,
-            forceBcv
+            forceBcv,
+            pricingMode, boxPricingMode, halfBoxPricingMode
         }, effectiveRate);
 
         // Advertencia si el precio parece inusualmente alto
