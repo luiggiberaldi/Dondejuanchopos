@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Package, Calculator, ChevronDown, Clock, HelpCircle, Trash2, Gift, Sparkles } from 'lucide-react';
+import { Package, Calculator, ChevronDown, Clock, HelpCircle, Trash2, Gift, Sparkles, SlidersHorizontal } from 'lucide-react';
 import { BODEGA_CATEGORIES, getCategoryIcon, CATEGORY_COLORS } from '../../config/categories';
 import { formatCop, formatBs, getCop, getUsd } from '../../utils/calculatorUtils';
 
@@ -197,12 +197,12 @@ export default function CategoryBar({
                                     {p.isCombo && (
                                         <div className="mb-1">
                                             {isModularCombo ? (
-                                                <span className="text-[9px] font-black text-purple-600 dark:text-purple-400 flex items-center gap-0.5">
-                                                    ✨ Armable libre
+                                                <span className="text-[9px] font-black text-purple-600 dark:text-purple-400 flex items-center gap-1">
+                                                    <SlidersHorizontal size={11} className="text-purple-500 shrink-0" /> Armable libre
                                                 </span>
                                             ) : (
-                                                <span className="text-[9px] font-bold text-violet-600 dark:text-violet-400 flex items-center gap-0.5">
-                                                    📦 {p.comboItems?.length || 0} ítems fijos
+                                                <span className="text-[9px] font-bold text-violet-600 dark:text-violet-400 flex items-center gap-1">
+                                                    <Package size={11} className="text-violet-500 shrink-0" /> {p.comboItems?.length || 0} ítems fijos
                                                 </span>
                                             )}
                                         </div>

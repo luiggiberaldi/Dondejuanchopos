@@ -30,6 +30,15 @@ export default function CierreCajaWizard({
     const [actualBs, setActualBs] = useState('');
     const [actualCop, setActualCop] = useState('');
 
+    useEffect(() => {
+        if (!isOpen) return;
+        const originalOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => {
+            document.body.style.overflow = originalOverflow;
+        };
+    }, [isOpen]);
+
     if (!isOpen) return null;
 
     const expectedUsd = round2((paymentBreakdown['efectivo_usd']?.total || 0) - (paymentBreakdown['_vuelto_usd']?.total || 0));
@@ -158,7 +167,7 @@ export default function CierreCajaWizard({
                 </div>
 
                 {/* Content */}
-                <div className="flex-1 overflow-y-auto px-6 pb-6 scrollbar-hide">
+                <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6 scrollbar-hide overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
 
                     {/* ═══ STEP 1: Resumen del Dia ═══ */}
                     {step === 1 && (

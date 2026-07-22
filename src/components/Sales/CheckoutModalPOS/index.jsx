@@ -54,6 +54,14 @@ export default function CheckoutModalPOS({
 }) {
     const { setCheckoutMode } = useProductContext();
 
+    useEffect(() => {
+        const originalOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => {
+            document.body.style.overflow = originalOverflow;
+        };
+    }, []);
+
     // Separar métodos por tipo para los inputs
     const metodosActivos = paymentMethods.filter(m => !m.disabled && m.enabled !== false);
     const metodosDivisa = metodosActivos.filter(m => m.currency === 'USD');
@@ -445,7 +453,7 @@ export default function CheckoutModalPOS({
 
                     {/* Columna Derecha — inputs */}
                     <div className="flex-1 flex flex-col bg-white dark:bg-slate-950 overflow-hidden">
-                        <div className="flex-1 overflow-y-auto p-5">
+                        <div className="flex-1 min-h-0 overflow-y-auto p-5 overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
                             {/* Saldo a Favor */}
                             <WalletSection
                                 cliente={selectedCustomer}

@@ -522,16 +522,18 @@ export default function ProductFormQuick({
 
                     {/* Fila de Inputs de Precios según modo activo */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div className="relative">
+                        <div>
                             <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block">CÓD. BARRAS</label>
-                            <input 
-                                type="text" 
-                                value={barcode} 
-                                onChange={e => setBarcode(e.target.value)} 
-                                placeholder="Escanear o ingresar..."
-                                className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
-                            />
-                            <Barcode size={14} className="absolute left-2.5 bottom-3.5 text-slate-400" />
+                            <div className="relative">
+                                <Barcode size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                <input 
+                                    type="text" 
+                                    value={barcode} 
+                                    onChange={e => setBarcode(e.target.value)} 
+                                    placeholder="Escanear o ingresar..."
+                                    className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
+                                />
+                            </div>
                         </div>
 
                         {priceMode === 'standard' && (
@@ -750,16 +752,18 @@ export default function ProductFormQuick({
                                         className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
                                     />
                                 </div>
-                                <div className="relative">
+                                <div>
                                     <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block">CÓD. BARRAS CAJA</label>
-                                    <input 
-                                        type="text" 
-                                        value={boxBarcode} 
-                                        onChange={e => setBoxBarcode(e.target.value)} 
-                                        placeholder="Código caja (sep. con comas)..."
-                                        className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
-                                    />
-                                    <Barcode size={14} className="absolute left-2.5 bottom-3.5 text-slate-400" />
+                                    <div className="relative">
+                                        <Barcode size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                        <input 
+                                            type="text" 
+                                            value={boxBarcode} 
+                                            onChange={e => setBoxBarcode(e.target.value)} 
+                                            placeholder="Código caja (sep. con comas)..."
+                                            className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
+                                        />
+                                    </div>
                                 </div>
 
                                 {boxPriceMode === 'standard' && (
@@ -944,16 +948,18 @@ export default function ProductFormQuick({
                                         className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
                                     />
                                 </div>
-                                <div className="relative">
+                                <div>
                                     <label className="text-[10px] font-bold text-slate-400 ml-1 mb-1 block">CÓD. BARRAS ½ CAJA</label>
-                                    <input 
-                                        type="text" 
-                                        value={halfBoxBarcode} 
-                                        onChange={e => setHalfBoxBarcode(e.target.value)} 
-                                        placeholder="Código media (sep. con comas)..."
-                                        className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
-                                    />
-                                    <Barcode size={14} className="absolute left-2.5 bottom-3.5 text-slate-400" />
+                                    <div className="relative">
+                                        <Barcode size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                        <input 
+                                            type="text" 
+                                            value={halfBoxBarcode} 
+                                            onChange={e => setHalfBoxBarcode(e.target.value)} 
+                                            placeholder="Código media (sep. con comas)..."
+                                            className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-750 dark:text-white outline-none border border-slate-200 dark:border-slate-850" 
+                                        />
+                                    </div>
                                 </div>
 
                                 {halfBoxPriceMode === 'standard' && (

@@ -61,6 +61,15 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
         }
     }, [isOpen, editingProduct]);
 
+    useEffect(() => {
+        if (!isOpen) return;
+        const originalOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => {
+            document.body.style.overflow = originalOverflow;
+        };
+    }, [isOpen]);
+
     if (!isOpen) return null;
 
     const handleToggleAutoCalcUnit = () => {
@@ -197,10 +206,10 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
 
     return (
         <div className="fixed inset-0 z-[300] bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
-            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-5 max-w-xl w-full shadow-2xl animate-in zoom-in-95 duration-200 max-h-[94vh] overflow-y-auto space-y-5 custom-scrollbar">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl max-w-xl w-full shadow-2xl animate-in zoom-in-95 duration-200 max-h-[88vh] sm:max-h-[92vh] flex flex-col overflow-hidden">
                 
                 {/* Cabecera idéntica a la vista real */}
-                <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 dark:border-slate-800">
+                <div className="shrink-0 flex items-center justify-between p-5 pb-3.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50">
                     <div className="flex items-center gap-3">
                         <div className="w-11 h-11 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 rounded-2xl flex items-center justify-center shrink-0">
                             {editingProduct ? <Package size={22} /> : <PlusCircle size={22} />}
@@ -227,8 +236,10 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                     </button>
                 </div>
 
-                {/* 1. Datos del Artículo (Nombre y Categoría) */}
-                <div className="space-y-3.5">
+                {/* Body con Scroll Independiente */}
+                <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-5 custom-scrollbar overscroll-contain pb-8" style={{ WebkitOverflowScrolling: 'touch' }}>
+                    {/* 1. Datos del Artículo (Nombre y Categoría) */}
+                    <div className="space-y-3.5">
                     <div>
                         <label className={labelCls}>Nombre del Artículo *</label>
                         <input 
@@ -643,6 +654,7 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                     <p className="text-[9px] font-bold text-slate-400 text-center mt-2">
                         Se enviará a la caja al pulsar «Subir al sistema» en el panel del supervisor.
                     </p>
+                </div>
                 </div>
             </div>
         </div>

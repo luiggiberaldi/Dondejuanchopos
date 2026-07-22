@@ -204,15 +204,17 @@ export default function ProductFormWizard({
                         <div className="text-xs font-black text-[#193275] dark:text-brand uppercase tracking-wider flex items-center gap-1">
                             <Tag size={12} className="text-emerald-500" /> Unidad (Fijo)
                         </div>
-                        <div className="relative">
+                        <div>
                             <label className="text-[9px] font-bold text-slate-400 ml-1 mb-0.5 block">CÓDIGO DE BARRAS DE UNIDAD</label>
-                            <input 
-                                value={barcode} 
-                                onChange={e => setBarcode(e.target.value)} 
-                                placeholder="Escanear código (sep. con comas)..."
-                                className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-700 dark:text-white outline-none border border-slate-200 dark:border-slate-800" 
-                            />
-                            <Barcode size={14} className="absolute left-2.5 bottom-3.5 text-slate-400" />
+                            <div className="relative">
+                                <Barcode size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                <input 
+                                    value={barcode} 
+                                    onChange={e => setBarcode(e.target.value)} 
+                                    placeholder="Escanear código (sep. con comas)..."
+                                    className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-700 dark:text-white outline-none border border-slate-200 dark:border-slate-800" 
+                                />
+                            </div>
                         </div>
                     </div>
 
@@ -249,16 +251,18 @@ export default function ProductFormWizard({
                                         className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-bold text-xs text-slate-700 dark:text-white outline-none border border-slate-200 dark:border-slate-800" 
                                     />
                                 </div>
-                                <div className="relative">
+                                <div>
                                     <label className="text-[9px] font-bold text-slate-400 ml-1 mb-0.5 block">CÓD. BARRAS CAJA</label>
-                                    <input 
-                                        type="text" 
-                                        value={boxBarcode} 
-                                        onChange={e => setBoxBarcode(e.target.value)} 
-                                        placeholder="Código caja (sep. con comas)..."
-                                        className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-700 dark:text-white outline-none border border-slate-200 dark:border-slate-800" 
-                                    />
-                                    <Barcode size={14} className="absolute left-2.5 bottom-3.5 text-slate-400" />
+                                    <div className="relative">
+                                        <Barcode size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                        <input 
+                                            type="text" 
+                                            value={boxBarcode} 
+                                            onChange={e => setBoxBarcode(e.target.value)} 
+                                            placeholder="Código caja (sep. con comas)..."
+                                            className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-700 dark:text-white outline-none border border-slate-200 dark:border-slate-800" 
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -293,16 +297,18 @@ export default function ProductFormWizard({
                                         className="w-full bg-white dark:bg-slate-900 p-2.5 rounded-xl font-bold text-xs text-slate-700 dark:text-white outline-none border border-slate-200 dark:border-slate-800" 
                                     />
                                 </div>
-                                <div className="relative">
+                                <div>
                                     <label className="text-[9px] font-bold text-slate-400 ml-1 mb-0.5 block">CÓD. BARRAS ½ CAJA</label>
-                                    <input 
-                                        type="text" 
-                                        value={halfBoxBarcode} 
-                                        onChange={e => setHalfBoxBarcode(e.target.value)} 
-                                        placeholder="Código media (sep. con comas)..."
-                                        className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-700 dark:text-white outline-none border border-slate-200 dark:border-slate-800" 
-                                    />
-                                    <Barcode size={14} className="absolute left-2.5 bottom-3.5 text-slate-400" />
+                                    <div className="relative">
+                                        <Barcode size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                        <input 
+                                            type="text" 
+                                            value={halfBoxBarcode} 
+                                            onChange={e => setHalfBoxBarcode(e.target.value)} 
+                                            placeholder="Código media (sep. con comas)..."
+                                            className="w-full bg-white dark:bg-slate-900 p-2.5 pl-8 rounded-xl font-bold text-xs text-slate-700 dark:text-white outline-none border border-slate-200 dark:border-slate-800" 
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         )}

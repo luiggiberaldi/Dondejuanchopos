@@ -66,6 +66,12 @@
   background: oklch(0.38 0.018 85);
 }
 
+/* ── Custom Scrollbar (utility) ── */
+.custom-scrollbar {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
 /* ── Scrollbar hide (utility) ── */
 .scrollbar-hide::-webkit-scrollbar { display: none; }
 .scrollbar-hide {
