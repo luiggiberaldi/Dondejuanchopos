@@ -939,6 +939,9 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 stock={stock} setStock={setStock}
                 lowStockAlert={lowStockAlert} setLowStockAlert={setLowStockAlert}
                 forceBcv={forceBcv} setForceBcv={setForceBcv}
+                pricingMode={pricingMode} setPricingMode={setPricingMode}
+                boxPricingMode={boxPricingMode} setBoxPricingMode={setBoxPricingMode}
+                halfBoxPricingMode={halfBoxPricingMode} setHalfBoxPricingMode={setHalfBoxPricingMode}
 
                 sellByBox={sellByBox} setSellByBox={setSellByBox}
                 boxUnits={boxUnits} setBoxUnits={setBoxUnits}

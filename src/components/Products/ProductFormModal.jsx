@@ -45,6 +45,9 @@ export default function ProductFormModal({
 
     effectiveRate,
     forceBcv, setForceBcv,
+    pricingMode, setPricingMode,
+    boxPricingMode, setBoxPricingMode,
+    halfBoxPricingMode, setHalfBoxPricingMode,
     isFormShaking,
     handleImageUpload,
     handleSave,
@@ -113,33 +116,31 @@ export default function ProductFormModal({
         }
     }, [sellByBox, sellByHalfBox, setSellByHalfBox]);
 
-    // Re-calcular precios en bolívares cuando cambia forceBcv o las tasas de cambio
-    useEffect(() => {
-        const bcvRate = rates?.bcv?.price > 0 ? rates.bcv.price : effectiveRate;
-        const activeRate = forceBcv ? bcvRate : effectiveRate;
+    // D5 (fix del hallazgo): se eliminó el efecto que congelaba priceBsManual
+    // (= $ × BCV) al activar forceBcv. El motor de venta SIEMPRE recalcula BCV
+    // en vivo e ignoraba ese valor; solo dejaba basura persistida que confundía
+    // a la UI y al monitor remoto. La conversión BCV ahora es solo visual
+    // (PricePreviewLine) y el payload normaliza los campos según pricingMode.
 
-        // Si forceBcv se activa, forzamos auto-cálculo a true y recalculamos
-        if (forceBcv) {
-            setAutoCalcUnit(true);
-            setAutoCalcBox(true);
-            setAutoCalcHalfBox(true);
-
-            if (activeRate > 0) {
-                const usd = CurrencyService.safeParse(priceUsd);
-                if (usd > 0) setPriceBsManual(round2(mulR(usd, activeRate)).toFixed(2));
-
-                const bUsd = CurrencyService.safeParse(boxPriceUsd);
-                if (bUsd > 0) setBoxPriceBs(round2(mulR(bUsd, activeRate)).toFixed(2));
-
-                const hbUsd = CurrencyService.safeParse(halfBoxPriceUsd);
-                if (hbUsd > 0) setHalfBoxPriceBs(round2(mulR(hbUsd, activeRate)).toFixed(2));
-            }
+    // ── Cambio de modo de precio: ÚNICO lugar que limpia los campos que no
+    // aplican al modo elegido (antes cada botón del selector limpiaba a mano).
+    const handlePricingModeChange = (format, mode) => {
+        if (format === 'unit') {
+            setPricingMode(mode);
+            setForceBcv(mode === 'bcv'); // espejo para consumidores legacy del form
+            if (mode !== 'bs_fijo') setPriceBsManual('');
+            if (mode !== 'dual_usd') setPriceBsUsdRef('');
+            if (mode === 'bcv' || mode === 'tasa_dia') setAutoCalcUnit(false);
+        } else if (format === 'box') {
+            setBoxPricingMode(mode);
+            if (mode !== 'bs_fijo') setBoxPriceBs('');
+            if (mode !== 'dual_usd') setBoxPriceBsUsdRef('');
+        } else if (format === 'halfBox') {
+            setHalfBoxPricingMode(mode);
+            if (mode !== 'bs_fijo') setHalfBoxPriceBs('');
+            if (mode !== 'dual_usd') setHalfBoxPriceBsUsdRef('');
         }
-    }, [
-        forceBcv, 
-        rates?.bcv?.price, 
-        effectiveRate
-    ]);
+    };
 
     if (!isOpen) return null;
 
@@ -420,6 +421,10 @@ export default function ProductFormModal({
         purchaseBoxUnits, setPurchaseBoxUnits,
         handleBoxPurchaseCalc,
         forceBcv, setForceBcv,
+
+        // Modo de precio canónico (selector único de 4 tarjetas)
+        pricingMode, boxPricingMode, halfBoxPricingMode,
+        handlePricingModeChange,
     };
 
     return (
