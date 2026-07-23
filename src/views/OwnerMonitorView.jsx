@@ -1341,6 +1341,11 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                                 ½ Caja{p.halfBoxUnits ? ` ×${p.halfBoxUnits}` : ''}
                                                             </span>
                                                         )}
+                                                        {hasPendingFor(p.id) && pendingStockDelta(p.id) === 0 && (
+                                                            <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400 animate-pulse">
+                                                                Cambio pendiente
+                                                            </span>
+                                                        )}
                                                     </div>
                                                     <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-1 font-medium">
                                                         {p.barcode && (
@@ -1570,8 +1575,8 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 </div>
             )}
 
-            {/* Barra flotante «Subir al sistema» — visible solo con cambios en cola */}
-            {pendingChanges.length > 0 && (
+            {/* Barra flotante «Subir al sistema» — visible solo con cambios en cola y en la pestaña Inventario */}
+            {pendingChanges.length > 0 && viewTab === 'inventario' && (
                 <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[250] w-full max-w-md px-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
                     <div className="bg-[#193275] dark:bg-slate-900 border border-white/10 text-white rounded-3xl p-3 pl-4 shadow-2xl flex items-center gap-3 backdrop-blur-md">
                         <div className="flex-1 min-w-0">
