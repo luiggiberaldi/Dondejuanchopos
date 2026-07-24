@@ -65,6 +65,7 @@ export const pushCloudSync = async (key, value) => {
     if (isSyncingFromCloud) return;          // Nunca re-emitir lo que llegó de la nube
     const isMonitor = localStorage.getItem('dj_pairing_mode') === 'monitor';
     if (isMonitor) return;                  // Omitir si este dispositivo es un Monitor visor
+    if (!isCloudSyncActive) return;          // Omitir si el dispositivo no está autenticado o emparejado en la nube
 
     if (!SYNC_KEYS.includes(key)) return;
     const activeDeviceId = _currentDeviceId || localStorage.getItem('dj_device_id');
@@ -85,7 +86,13 @@ export const pushCloudSync = async (key, value) => {
         }, { onConflict: 'device_id,collection,doc_id' });
 
         if (error) {
-            console.warn(`[CloudSync] Error ${error.code || error.status} al subir ${key}:`, error.message);
+            if (error.code === '42501' || error.status === 401) {
+                // RLS rechazó el upsert porque el dispositivo no está registrado en device_pairings ni autenticado.
+                // Pausar sync activo para evitar peticiones fallidas repetitivas.
+                isCloudSyncActive = false;
+            } else {
+                console.warn(`[CloudSync] Error ${error.code || error.status} al subir ${key}:`, error.message);
+            }
             return; // No guardar hash para reintentar cuando Supabase responda
         }
 
@@ -109,6 +116,9 @@ export const forceSyncAllPOSData = async (overrideDeviceId) => {
 
     const activeDeviceId = overrideDeviceId || _currentDeviceId || localStorage.getItem('dj_device_id');
     if (!activeDeviceId) return;
+
+    // Habilitar sync activo cuando se fuerza la sincronización explícitamente (ej: al generar código QR de emparejamiento)
+    isCloudSyncActive = true;
 
     try {
         const lf = localforage.createInstance({ name: 'BodegaApp', storeName: 'bodega_app_data' });
@@ -241,6 +251,30 @@ export function useCloudSync(deviceId) {
                 const isMonitor = localStorage.getItem('dj_pairing_mode') === 'monitor';
                 if (isMonitor) {
                     isCloudSyncActive = false;
+                    return;
+                }
+
+                // ── Verificar Permisos / Estado de Registro del Dispositivo antes de activar CloudSync ──
+                let hasAuth = false;
+                try {
+                    const { data: { session } } = await supabaseCloud.auth.getSession();
+                    hasAuth = !!(session && !(session.expires_at && session.expires_at * 1000 < Date.now()));
+                } catch (e) {}
+
+                let isRegisteredOrPaired = false;
+                try {
+                    const { data: pairing } = await supabaseCloud
+                        .from('device_pairings')
+                        .select('primary_device_id')
+                        .eq('primary_device_id', deviceId)
+                        .maybeSingle();
+                    isRegisteredOrPaired = !!pairing;
+                } catch (e) {}
+
+                if (!hasAuth && !isRegisteredOrPaired) {
+                    isCloudSyncActive = false;
+                    isInitialized.current = true;
+                    console.log('[CloudSync] Dispositivo sin sesión ni vinculación remota. Sincronización en la nube pausada (Modo Local/Offline).');
                     return;
                 }
 
