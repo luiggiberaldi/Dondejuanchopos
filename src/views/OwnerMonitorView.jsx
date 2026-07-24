@@ -4,6 +4,7 @@ import { useMonitorSync } from '../hooks/useMonitorSync';
 import { storageService } from '../utils/storageService';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { showToast } from '../components/Toast';
+import { calculateComboStock } from '../utils/productProcessor';
 import SupervisorRateModal from '../components/SupervisorRateModal';
 import RemoteProductFormModal from '../components/Monitor/RemoteProductFormModal';
 import {
@@ -216,6 +217,15 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 });
             }
         }
+
+        // Recalcular stock dinámico para combos basándonos en la proyección de sus insumos
+        list = list.map(p => {
+            if (p.isCombo || p.type === 'combo' || p.category === 'combo') {
+                const dynamicStock = calculateComboStock(p, list);
+                return { ...p, stock: dynamicStock, _isCombo: true };
+            }
+            return p;
+        });
 
         return list;
     }, [products, pendingChanges]);
@@ -1450,50 +1460,67 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                     {/* Controles de Stock y Acciones */}
                                                     <div className="flex items-center justify-between sm:justify-end gap-2.5">
                                                         {/* Botones +/- y Badge de Stock */}
-                                                        <div className="flex items-center gap-1.5">
-                                                            <button
-                                                                onClick={() => { triggerHaptic?.(); queueInventoryChange('adjust_stock', p.id, { delta: -1 }); }}
-                                                                title="Restar 1 unidad (en cola)"
-                                                                className="w-8 h-8 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-rose-500 hover:border-rose-200 transition-colors active:scale-90"
+                                                        {p.isCombo || p.type === 'combo' || p._isCombo ? (
+                                                            <div 
+                                                                title="El stock de los combos es dinámico y se calcula automáticamente en función del stock disponible de sus insumos componentes."
+                                                                className="relative w-24 sm:w-28 text-center py-1.5 px-2 rounded-2xl border border-blue-200/80 bg-blue-50/60 dark:bg-blue-950/30 dark:border-blue-900/50 text-blue-700 dark:text-blue-300 shadow-sm cursor-help"
                                                             >
-                                                                <MinusCircle size={14} />
-                                                            </button>
-                                                            <button
-                                                                onClick={() => { triggerHaptic?.(); setStockAdjustProduct(p); }}
-                                                                title="Toca para ingresar stock (+40, -10) o fijar cantidad exacta"
-                                                                className={`relative w-20 text-center py-1.5 px-2 rounded-2xl border transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-sm ${
-                                                                    isAgotado
-                                                                        ? 'bg-rose-50/50 border-rose-150/70 text-rose-700 dark:bg-rose-950/20 dark:border-rose-900/30 dark:text-rose-455 hover:border-rose-400'
-                                                                        : isBajo
-                                                                            ? 'bg-amber-50/50 border-amber-150/70 text-amber-700 dark:bg-amber-950/20 dark:border-amber-900/30 dark:text-amber-455 hover:border-amber-400'
-                                                                            : 'bg-slate-50 border-slate-150/70 text-slate-700 dark:bg-slate-850/60 dark:border-slate-800 dark:text-slate-300 hover:border-emerald-400 hover:bg-emerald-50/20'
-                                                                }`}
-                                                            >
-                                                                <span className="text-[8px] uppercase font-black block leading-none mb-0.5 text-slate-400 flex items-center justify-center gap-0.5">
-                                                                    Stock <Pencil size={7} />
+                                                                <span className="text-[8px] uppercase font-black block leading-none mb-0.5 opacity-80">
+                                                                    Combo • Auto
                                                                 </span>
                                                                 <span className="font-outfit text-xs font-black tabular-nums leading-none">
-                                                                    {p.isWeight ? `${stock.toFixed(3)} Kg` : `${stock} u`}
+                                                                    {stock} u
                                                                 </span>
-                                                                {p.sellByBox && p.boxUnits > 0 && !p.isWeight && (
-                                                                    <span className="text-[7px] font-bold block leading-none mt-0.5 opacity-70 truncate">
-                                                                        ≈ {(stock / p.boxUnits).toFixed(1)} cj
+                                                                <span className="text-[7px] font-bold block leading-none mt-0.5 opacity-70">
+                                                                    (Dinámico)
+                                                                </span>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="flex items-center gap-1.5">
+                                                                <button
+                                                                    onClick={() => { triggerHaptic?.(); queueInventoryChange('adjust_stock', p.id, { delta: -1 }); }}
+                                                                    title="Restar 1 unidad (en cola)"
+                                                                    className="w-8 h-8 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-rose-500 hover:border-rose-200 transition-colors active:scale-90"
+                                                                >
+                                                                    <MinusCircle size={14} />
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => { triggerHaptic?.(); setStockAdjustProduct(p); }}
+                                                                    title="Toca para ingresar stock (+40, -10) o fijar cantidad exacta"
+                                                                    className={`relative w-20 text-center py-1.5 px-2 rounded-2xl border transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-sm ${
+                                                                        isAgotado
+                                                                            ? 'bg-rose-50/50 border-rose-150/70 text-rose-700 dark:bg-rose-950/20 dark:border-rose-900/30 dark:text-rose-455 hover:border-rose-400'
+                                                                            : isBajo
+                                                                                ? 'bg-amber-50/50 border-amber-150/70 text-amber-700 dark:bg-amber-950/20 dark:border-amber-900/30 dark:text-amber-455 hover:border-amber-400'
+                                                                                : 'bg-slate-50 border-slate-150/70 text-slate-700 dark:bg-slate-850/60 dark:border-slate-800 dark:text-slate-300 hover:border-emerald-400 hover:bg-emerald-50/20'
+                                                                    }`}
+                                                                >
+                                                                    <span className="text-[8px] uppercase font-black block leading-none mb-0.5 text-slate-400 flex items-center justify-center gap-0.5">
+                                                                        Stock <Pencil size={7} />
                                                                     </span>
-                                                                )}
-                                                                {pendingStockDelta(p.id) !== 0 && (
-                                                                    <span className={`absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded-full text-[8px] font-black text-white shadow ${pendingStockDelta(p.id) > 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}>
-                                                                        {pendingStockDelta(p.id) > 0 ? '+' : ''}{pendingStockDelta(p.id)}
+                                                                    <span className="font-outfit text-xs font-black tabular-nums leading-none">
+                                                                        {p.isWeight ? `${stock.toFixed(3)} Kg` : `${stock} u`}
                                                                     </span>
-                                                                )}
-                                                            </button>
-                                                            <button
-                                                                onClick={() => { triggerHaptic?.(); queueInventoryChange('adjust_stock', p.id, { delta: 1 }); }}
-                                                                title="Sumar 1 unidad (en cola)"
-                                                                className="w-8 h-8 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-emerald-500 hover:border-emerald-200 transition-colors active:scale-90"
-                                                            >
-                                                                <PlusCircle size={14} />
-                                                            </button>
-                                                        </div>
+                                                                    {p.sellByBox && p.boxUnits > 0 && !p.isWeight && (
+                                                                        <span className="text-[7px] font-bold block leading-none mt-0.5 opacity-70 truncate">
+                                                                            ≈ {(stock / p.boxUnits).toFixed(1)} cj
+                                                                        </span>
+                                                                    )}
+                                                                    {pendingStockDelta(p.id) !== 0 && (
+                                                                        <span className={`absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded-full text-[8px] font-black text-white shadow ${pendingStockDelta(p.id) > 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}>
+                                                                            {pendingStockDelta(p.id) > 0 ? '+' : ''}{pendingStockDelta(p.id)}
+                                                                        </span>
+                                                                    )}
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => { triggerHaptic?.(); queueInventoryChange('adjust_stock', p.id, { delta: 1 }); }}
+                                                                    title="Sumar 1 unidad (en cola)"
+                                                                    className="w-8 h-8 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-emerald-500 hover:border-emerald-200 transition-colors active:scale-90"
+                                                                >
+                                                                    <PlusCircle size={14} />
+                                                                </button>
+                                                            </div>
+                                                        )}
 
                                                         {/* Botones Editar / Eliminar horizontales */}
                                                         <div className="flex items-center gap-1.5 ml-1">
