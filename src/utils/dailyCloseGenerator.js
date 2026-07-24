@@ -358,7 +358,7 @@ export async function generateDailyClosePDF({
                 doc.setTextColor(...BLUE);
                 doc.text('Hora', M + 4, yy + 0.2);
                 doc.text('Cliente / Estado', M + 18, yy + 0.2);
-                doc.text('Artículos / Desglose de Pago', M + 68, yy + 0.2);
+                doc.text('Artículos / Desglose de Pago', M + 54, yy + 0.2);
                 doc.text('Total (USD / Bs)', RIGHT - 4, yy + 0.2, { align: 'right' });
             };
 
@@ -398,8 +398,10 @@ export async function generateDailyClosePDF({
                 }
 
                 const fullDetail = `${itemsText}\n${paymentsText}`;
-                const detailLines = doc.splitTextToSize(fullDetail, 105);
-                const rowHeight = Math.max(12, detailLines.length * 4.2 + 4);
+                const detailLines = doc.splitTextToSize(fullDetail, 96);
+                const clienteText = isCanceled ? `${cliente}\n(ANULADA)` : cliente;
+                const clienteLines = doc.splitTextToSize(clienteText, 32);
+                const rowHeight = Math.max(12, detailLines.length * 4.2 + 3, clienteLines.length * 4.2 + 3);
 
                 checkPageBreak(rowHeight);
 
@@ -425,17 +427,17 @@ export async function generateDailyClosePDF({
                 if (isCanceled) {
                     doc.setTextColor(...RED);
                     doc.setFont('helvetica', 'bold');
-                    doc.text(`${cliente}\n(ANULADA)`, M + 18, y);
+                    doc.text(clienteLines, M + 18, y);
                 } else {
                     doc.setTextColor(...BODY);
                     doc.setFont('helvetica', 'normal');
-                    doc.text(cliente, M + 18, y);
+                    doc.text(clienteLines, M + 18, y);
                 }
 
                 // Detalle
                 doc.setFont('helvetica', 'normal');
                 doc.setTextColor(...MUTED);
-                doc.text(detailLines, M + 68, y);
+                doc.text(detailLines, M + 54, y);
 
                 // Total
                 doc.setFont('helvetica', 'bold');
