@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { X, Package, Barcode, Tag, AlertTriangle, Send, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Package, Barcode, Tag, AlertTriangle, Send, Loader2, Camera } from 'lucide-react';
 import { useProductContext } from '../../context/ProductContext';
 import { derivePricingMode } from '../../hooks/useProductForm';
 import PricingModeSelector from '../Products/PricingModeSelector';
@@ -13,7 +13,7 @@ const MODE_LABELS = {
 };
 
 const EMPTY = {
-    name: '', category: '', barcode: '',
+    name: '', category: '', barcode: '', image: '',
     priceUsd: '', priceBsManual: '', priceBsUsdRef: '', costUsd: '', stock: '', lowStockAlert: '5',
     sellByBox: false, boxUnits: '', boxBarcode: '', boxPriceUsd: '', boxPriceBs: '', boxPriceBsUsdRef: '', boxPricingMode: 'inherit',
     sellByHalfBox: false, halfBoxUnits: '', halfBoxBarcode: '', halfBoxPriceUsd: '', halfBoxPriceBs: '', halfBoxPriceBsUsdRef: '', halfBoxPricingMode: 'inherit',
@@ -24,9 +24,9 @@ function productToForm(p) {
     if (!p) return { ...EMPTY };
     const s = (v) => (v == null ? '' : String(v));
     return {
-        name: s(p.name), category: s(p.category), barcode: s(p.barcode),
+        name: s(p.name), category: s(p.category), barcode: s(p.barcode), image: s(p.image),
         priceUsd: s(p.priceUsd), priceBsManual: s(p.priceBsManual), priceBsUsdRef: s(p.priceBsUsdRef),
-        costUsd: s(p.costUsd), stock: s(p.stock), lowStockAlert: s(p.lowStockAlert ?? 5),
+        costUsd: s(p.costUsd || p.costPrice), stock: s(p.stock), lowStockAlert: s(p.lowStockAlert ?? 5),
         sellByBox: Boolean(p.sellByBox), boxUnits: s(p.boxUnits), boxBarcode: s(p.boxBarcode),
         boxPriceUsd: s(p.boxPriceUsd), boxPriceBs: s(p.boxPriceBs), boxPriceBsUsdRef: s(p.boxPriceBsUsdRef),
         boxPricingMode: derivePricingMode(p, 'box'),
@@ -43,11 +43,32 @@ const labelCls = 'text-[9px] font-bold text-slate-400 ml-1 mb-0.5 block uppercas
 export default function RemoteProductFormModal({ isOpen, onClose, editingProduct, onSubmit, effectiveRate, bcvRate }) {
     const { categories } = useProductContext();
     const [form, setForm] = useState(EMPTY);
+    const [bsInputs, setBsInputs] = useState({ unit: '', box: '', halfBox: '' });
     const [sending, setSending] = useState(false);
+    const fileInputRef = useRef(null);
 
     useEffect(() => {
-        if (isOpen) setForm(productToForm(editingProduct));
-    }, [isOpen, editingProduct]);
+        if (isOpen) {
+            const initialForm = productToForm(editingProduct);
+            setForm(initialForm);
+
+            const getBs = (usdVal, mode) => {
+                const rate = mode === 'bcv' ? (bcvRate > 0 ? bcvRate : effectiveRate) : (effectiveRate > 0 ? effectiveRate : bcvRate);
+                const num = parseFloat(usdVal);
+                return (!isNaN(num) && num > 0 && rate > 0) ? (num * rate).toFixed(2) : '';
+            };
+
+            const unitMode = initialForm.pricingMode;
+            const boxMode = initialForm.boxPricingMode === 'inherit' ? unitMode : initialForm.boxPricingMode;
+            const halfBoxMode = initialForm.halfBoxPricingMode === 'inherit' ? unitMode : initialForm.halfBoxPricingMode;
+
+            setBsInputs({
+                unit: getBs(initialForm.priceUsd, unitMode),
+                box: getBs(initialForm.boxPriceUsd, boxMode),
+                halfBox: getBs(initialForm.halfBoxPriceUsd, halfBoxMode),
+            });
+        }
+    }, [isOpen, editingProduct, bcvRate, effectiveRate]);
 
     if (!isOpen) return null;
 
@@ -61,6 +82,44 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
         return next;
     });
 
+    const handleImageUpload = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const MAX_WIDTH = 400;
+                const MAX_HEIGHT = 400;
+                let width = img.width;
+                let height = img.height;
+
+                if (width > height) {
+                    if (width > MAX_WIDTH) {
+                        height *= MAX_WIDTH / width;
+                        width = MAX_WIDTH;
+                    }
+                } else {
+                    if (height > MAX_HEIGHT) {
+                        width *= MAX_HEIGHT / height;
+                        height = MAX_HEIGHT;
+                    }
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                setForm(prev => ({ ...prev, image: dataUrl }));
+            };
+            img.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+    };
+
     const handleModeChange = (mode) => {
         setForm(prev => ({
             ...prev,
@@ -68,15 +127,32 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
             priceBsManual: mode !== 'bs_fijo' ? '' : prev.priceBsManual,
             priceBsUsdRef: mode !== 'dual_usd' ? '' : prev.priceBsUsdRef,
         }));
+        const rate = mode === 'bcv' ? (bcvRate > 0 ? bcvRate : effectiveRate) : (effectiveRate > 0 ? effectiveRate : bcvRate);
+        const num = parseFloat(form.priceUsd);
+        if (!isNaN(num) && num > 0 && rate > 0) {
+            setBsInputs(prev => ({ ...prev, unit: (num * rate).toFixed(2) }));
+        }
     };
 
-    const handleBsChangeForUsd = (usdField, bsValue, mode) => {
+    const handleUsdChange = (usdField, key, value, mode) => {
         const rate = mode === 'bcv' ? (bcvRate > 0 ? bcvRate : effectiveRate) : (effectiveRate > 0 ? effectiveRate : bcvRate);
-        const bsNum = parseFloat(bsValue);
+        const usdNum = parseFloat(value);
+        const calculatedBs = (!isNaN(usdNum) && usdNum > 0 && rate > 0) ? (usdNum * rate).toFixed(2) : '';
+
+        setForm(prev => ({ ...prev, [usdField]: value }));
+        setBsInputs(prev => ({ ...prev, [key]: calculatedBs }));
+    };
+
+    const handleBsChange = (usdField, key, value, mode) => {
+        const rate = mode === 'bcv' ? (bcvRate > 0 ? bcvRate : effectiveRate) : (effectiveRate > 0 ? effectiveRate : bcvRate);
+        const bsNum = parseFloat(value);
+
+        setBsInputs(prev => ({ ...prev, [key]: value }));
+
         if (!isNaN(bsNum) && bsNum > 0 && rate > 0) {
             const usdCalc = (bsNum / rate).toFixed(2);
             setForm(prev => ({ ...prev, [usdField]: usdCalc }));
-        } else if (bsValue === '') {
+        } else if (value === '') {
             setForm(prev => ({ ...prev, [usdField]: '' }));
         }
     };
@@ -99,6 +175,7 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                 name: form.name.trim(),
                 category: form.category || editingProduct?.category || 'varios',
                 barcode: form.barcode.trim() || null,
+                image: form.image || null,
                 priceUsd: Number(form.priceUsd) || 0,
                 priceBsManual: mode === 'bs_fijo' && form.priceBsManual !== '' ? Number(form.priceBsManual) : null,
                 priceBsUsdRef: mode === 'dual_usd' && form.priceBsUsdRef !== '' ? Number(form.priceBsUsdRef) : null,
@@ -124,7 +201,7 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                 halfBoxPriceBs: form.sellByHalfBox && halfBoxEffMode === 'bs_fijo' && form.halfBoxPriceBs !== '' ? Number(form.halfBoxPriceBs) : null,
                 halfBoxPriceBsUsdRef: form.sellByHalfBox && halfBoxEffMode === 'dual_usd' && form.halfBoxPriceBsUsdRef !== '' ? Number(form.halfBoxPriceBsUsdRef) : null,
             };
-            delete data.image;
+
             if (!editingProduct) data.id = crypto.randomUUID();
             await onSubmit(editingProduct ? 'edit' : 'add', data.id, data);
             onClose();
@@ -133,7 +210,7 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
         }
     };
 
-    const formatBlock = (title, color, modeField, unitsField, barcodeField, usdField, bsField, bsUsdRefField, unitsPlaceholder) => {
+    const formatBlock = (title, color, modeField, bsKey, unitsField, barcodeField, usdField, bsField, bsUsdRefField, unitsPlaceholder) => {
         const effMode = form[modeField] === 'inherit' ? form.pricingMode : form[modeField];
         const activeRate = effMode === 'bcv' ? (bcvRate > 0 ? bcvRate : effectiveRate) : (effectiveRate > 0 ? effectiveRate : bcvRate);
 
@@ -188,18 +265,25 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                     </div>
                     <div>
                         <label className={labelCls}>{effMode === 'dual_usd' ? '$ en divisa' : 'Precio USD ($)'}</label>
-                        <input type="number" inputMode="decimal" value={form[usdField]} onChange={set(usdField)} placeholder="0.00" className={inputCls} />
+                        <input
+                            type="number"
+                            inputMode="decimal"
+                            value={form[usdField]}
+                            onChange={(e) => handleUsdChange(usdField, bsKey, e.target.value, effMode)}
+                            placeholder="0.00"
+                            className={inputCls}
+                        />
                     </div>
                     {(effMode === 'bcv' || effMode === 'tasa_dia') && (
                         <div>
                             <label className={labelCls}>
-                                Precio Bs ({effMode === 'bcv' ? 'tasa BCV' : 'tasa Día'}: {activeRate ? activeRate.toFixed(2) : 'N/D'})
+                                Precio Bs ({effMode === 'bcv' ? 'tasa BCV' : 'tasa Día'})
                             </label>
                             <input
                                 type="number"
                                 inputMode="decimal"
-                                value={Number(form[usdField]) > 0 && activeRate > 0 ? (Number(form[usdField]) * activeRate).toFixed(2) : ''}
-                                onChange={(e) => handleBsChangeForUsd(usdField, e.target.value, effMode)}
+                                value={bsInputs[bsKey]}
+                                onChange={(e) => handleBsChange(usdField, bsKey, e.target.value, effMode)}
                                 placeholder="0.00 Bs"
                                 className={inputCls}
                             />
@@ -253,25 +337,63 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                     </button>
                 </div>
 
-                {/* Identidad */}
-                <div className="space-y-2">
-                    <div>
-                        <label className={labelCls}>Nombre</label>
-                        <input value={form.name} onChange={set('name')} placeholder="Ej: Ron Santa Teresa 750ml" className={inputCls} />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                        <div>
-                            <label className={labelCls}>Categoría</label>
-                            <select value={form.category} onChange={set('category')} className={inputCls}>
-                                <option value="">Seleccionar...</option>
-                                {(categories || []).filter(c => c.id !== 'todos').map(c => (
-                                    <option key={c.id} value={c.id}>{c.label}</option>
-                                ))}
-                            </select>
+                {/* Identidad del Producto + Subir Foto */}
+                <div className="flex items-start gap-3">
+                    {/* Foto */}
+                    <div className="shrink-0">
+                        <label className={labelCls}>Foto</label>
+                        <div
+                            onClick={() => fileInputRef.current?.click()}
+                            className="w-20 h-20 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex flex-col items-center justify-center cursor-pointer hover:border-brand transition-all relative overflow-hidden group shadow-sm"
+                        >
+                            {form.image ? (
+                                <>
+                                    <img src={form.image} className="w-full h-full object-cover" alt="Product" />
+                                    <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); setForm(prev => ({ ...prev, image: '' })); }}
+                                        className="absolute top-1 right-1 p-1 bg-rose-500 text-white rounded-full opacity-80 hover:opacity-100 transition-opacity shadow"
+                                        title="Quitar foto"
+                                    >
+                                        <X size={10} />
+                                    </button>
+                                </>
+                            ) : (
+                                <div className="text-center p-1">
+                                    <Camera size={18} className="text-slate-400 mx-auto mb-0.5" />
+                                    <span className="text-[8px] font-black text-slate-400 uppercase block leading-tight">Subir foto</span>
+                                </div>
+                            )}
                         </div>
+                        <input
+                            type="file"
+                            ref={fileInputRef}
+                            className="hidden"
+                            accept="image/*"
+                            onChange={handleImageUpload}
+                        />
+                    </div>
+
+                    {/* Nombre, Categoría y Código */}
+                    <div className="flex-1 space-y-2 min-w-0">
                         <div>
-                            <label className={labelCls}><Barcode size={9} className="inline mr-0.5" />Cód. barras unidad</label>
-                            <input value={form.barcode} onChange={set('barcode')} placeholder="Escanear..." className={inputCls} />
+                            <label className={labelCls}>Nombre</label>
+                            <input value={form.name} onChange={set('name')} placeholder="Ej: Cheekesitos Pequeño" className={inputCls} />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <div>
+                                <label className={labelCls}>Categoría</label>
+                                <select value={form.category} onChange={set('category')} className={inputCls}>
+                                    <option value="">Seleccionar...</option>
+                                    {(categories || []).filter(c => c.id !== 'todos').map(c => (
+                                        <option key={c.id} value={c.id}>{c.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className={labelCls}><Barcode size={9} className="inline mr-0.5" />Cód. barras</label>
+                                <input value={form.barcode} onChange={set('barcode')} placeholder="Escanear..." className={inputCls} />
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -287,24 +409,42 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                     />
                 </div>
 
-                {/* Precio Unidad */}
-                <div className="p-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 space-y-2">
+                {/* Precio y Costo Unidad */}
+                <div className="p-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 space-y-2.5">
                     <span className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1"><Tag size={10} /> Unidad</span>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
+                        <div>
+                            <label className={labelCls}>Costo USD ($)</label>
+                            <input
+                                type="number"
+                                inputMode="decimal"
+                                value={form.costUsd}
+                                onChange={set('costUsd')}
+                                placeholder="0.00"
+                                className={inputCls}
+                            />
+                        </div>
                         <div>
                             <label className={labelCls}>{form.pricingMode === 'dual_usd' ? '$ en divisa' : 'Precio USD ($)'}</label>
-                            <input type="number" inputMode="decimal" value={form.priceUsd} onChange={set('priceUsd')} placeholder="0.00" className={inputCls} />
+                            <input
+                                type="number"
+                                inputMode="decimal"
+                                value={form.priceUsd}
+                                onChange={(e) => handleUsdChange('priceUsd', 'unit', e.target.value, form.pricingMode)}
+                                placeholder="0.00"
+                                className={inputCls}
+                            />
                         </div>
                         {(form.pricingMode === 'bcv' || form.pricingMode === 'tasa_dia') && (
                             <div>
                                 <label className={labelCls}>
-                                    Precio Bs ({form.pricingMode === 'bcv' ? 'tasa BCV' : 'tasa Día'}: {unitActiveRate ? unitActiveRate.toFixed(2) : 'N/D'})
+                                    Precio Bs ({form.pricingMode === 'bcv' ? 'tasa BCV' : 'tasa Día'})
                                 </label>
                                 <input
                                     type="number"
                                     inputMode="decimal"
-                                    value={Number(form.priceUsd) > 0 && unitActiveRate > 0 ? (Number(form.priceUsd) * unitActiveRate).toFixed(2) : ''}
-                                    onChange={(e) => handleBsChangeForUsd('priceUsd', e.target.value, form.pricingMode)}
+                                    value={bsInputs.unit}
+                                    onChange={(e) => handleBsChange('priceUsd', 'unit', e.target.value, form.pricingMode)}
                                     placeholder="0.00 Bs"
                                     className={inputCls}
                                 />
@@ -338,7 +478,7 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                     <input type="checkbox" checked={form.sellByBox} onChange={toggle('sellByBox')} className="w-4 h-4 accent-emerald-500" />
                     <span className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider">Vender por Caja</span>
                 </label>
-                {form.sellByBox && formatBlock('Caja', 'border-blue-500/20 bg-blue-500/5 text-blue-600 dark:text-blue-400', 'boxPricingMode', 'boxUnits', 'boxBarcode', 'boxPriceUsd', 'boxPriceBs', 'boxPriceBsUsdRef', 'Ej: 36')}
+                {form.sellByBox && formatBlock('Caja', 'border-blue-500/20 bg-blue-500/5 text-blue-600 dark:text-blue-400', 'boxPricingMode', 'box', 'boxUnits', 'boxBarcode', 'boxPriceUsd', 'boxPriceBs', 'boxPriceBsUsdRef', 'Ej: 36')}
 
                 {/* Toggle ½ Caja */}
                 <label className={`flex items-center gap-2.5 select-none ${form.sellByBox ? 'cursor-pointer' : 'cursor-not-allowed opacity-40'}`}>
@@ -347,14 +487,10 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                         Vender por ½ Caja {!form.sellByBox && <span className="text-rose-500 normal-case">(requiere Caja)</span>}
                     </span>
                 </label>
-                {form.sellByHalfBox && formatBlock('½ Caja', 'border-purple-500/20 bg-purple-500/5 text-purple-600 dark:text-purple-400', 'halfBoxPricingMode', 'halfBoxUnits', 'halfBoxBarcode', 'halfBoxPriceUsd', 'halfBoxPriceBs', 'halfBoxPriceBsUsdRef', form.boxUnits ? String(Math.floor((parseInt(form.boxUnits, 10) || 0) / 2)) : '18')}
+                {form.sellByHalfBox && formatBlock('½ Caja', 'border-purple-500/20 bg-purple-500/5 text-purple-600 dark:text-purple-400', 'halfBoxPricingMode', 'halfBox', 'halfBoxUnits', 'halfBoxBarcode', 'halfBoxPriceUsd', 'halfBoxPriceBs', 'halfBoxPriceBsUsdRef', form.boxUnits ? String(Math.floor((parseInt(form.boxUnits, 10) || 0) / 2)) : '18')}
 
-                {/* Costo / Stock / Alerta */}
-                <div className="grid grid-cols-3 gap-2">
-                    <div>
-                        <label className={labelCls}>Costo USD</label>
-                        <input type="number" inputMode="decimal" value={form.costUsd} onChange={set('costUsd')} placeholder="0.00" className={inputCls} />
-                    </div>
+                {/* Stock / Alerta */}
+                <div className="grid grid-cols-2 gap-2">
                     <div>
                         <label className={labelCls}>Stock (Uds)</label>
                         <input
@@ -379,7 +515,6 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                     {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
                     {sending ? 'Guardando...' : 'Guardar en cola'}
                 </button>
-                <p className="text-[9px] text-slate-400 text-center -mt-1">Se enviará a la caja al pulsar «Subir al sistema». La foto se gestiona desde la caja.</p>
             </div>
         </div>
     );
