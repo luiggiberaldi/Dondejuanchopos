@@ -5,11 +5,18 @@ import { derivePricingMode } from '../../hooks/useProductForm';
 import PricingModeSelector from '../Products/PricingModeSelector';
 import PricePreviewLine from '../Products/PricePreviewLine';
 
+const MODE_LABELS = {
+    tasa_dia: 'Tasa del día',
+    bcv: 'Siempre BCV',
+    dual_usd: 'Dos precios en $',
+    bs_fijo: 'Bs congelado',
+};
+
 const EMPTY = {
     name: '', category: '', barcode: '',
     priceUsd: '', priceBsManual: '', priceBsUsdRef: '', costUsd: '', stock: '', lowStockAlert: '5',
-    sellByBox: false, boxUnits: '', boxBarcode: '', boxPriceUsd: '', boxPriceBs: '', boxPriceBsUsdRef: '',
-    sellByHalfBox: false, halfBoxUnits: '', halfBoxBarcode: '', halfBoxPriceUsd: '', halfBoxPriceBs: '', halfBoxPriceBsUsdRef: '',
+    sellByBox: false, boxUnits: '', boxBarcode: '', boxPriceUsd: '', boxPriceBs: '', boxPriceBsUsdRef: '', boxPricingMode: 'inherit',
+    sellByHalfBox: false, halfBoxUnits: '', halfBoxBarcode: '', halfBoxPriceUsd: '', halfBoxPriceBs: '', halfBoxPriceBsUsdRef: '', halfBoxPricingMode: 'inherit',
     pricingMode: 'tasa_dia',
 };
 
@@ -22,8 +29,10 @@ function productToForm(p) {
         costUsd: s(p.costUsd), stock: s(p.stock), lowStockAlert: s(p.lowStockAlert ?? 5),
         sellByBox: Boolean(p.sellByBox), boxUnits: s(p.boxUnits), boxBarcode: s(p.boxBarcode),
         boxPriceUsd: s(p.boxPriceUsd), boxPriceBs: s(p.boxPriceBs), boxPriceBsUsdRef: s(p.boxPriceBsUsdRef),
+        boxPricingMode: derivePricingMode(p, 'box'),
         sellByHalfBox: Boolean(p.sellByHalfBox), halfBoxUnits: s(p.halfBoxUnits), halfBoxBarcode: s(p.halfBoxBarcode),
         halfBoxPriceUsd: s(p.halfBoxPriceUsd), halfBoxPriceBs: s(p.halfBoxPriceBs), halfBoxPriceBsUsdRef: s(p.halfBoxPriceBsUsdRef),
+        halfBoxPricingMode: derivePricingMode(p, 'halfBox'),
         pricingMode: derivePricingMode(p, 'unit'),
     };
 }
@@ -71,6 +80,9 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
         setSending(true);
         try {
             const mode = form.pricingMode;
+            const boxEffMode = form.boxPricingMode === 'inherit' ? mode : form.boxPricingMode;
+            const halfBoxEffMode = form.halfBoxPricingMode === 'inherit' ? mode : form.halfBoxPricingMode;
+
             const data = {
                 ...(editingProduct || {}),
                 name: form.name.trim(),
@@ -85,18 +97,22 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                 costUsd: Number(form.costUsd) || 0,
                 stock: parseInt(form.stock, 10) || 0,
                 lowStockAlert: parseInt(form.lowStockAlert, 10) || 5,
+
                 sellByBox: form.sellByBox,
                 boxUnits: form.sellByBox ? parseInt(form.boxUnits, 10) || null : null,
                 boxBarcode: form.sellByBox ? form.boxBarcode.trim() || null : null,
+                boxPricingMode: form.sellByBox ? form.boxPricingMode : 'inherit',
                 boxPriceUsd: form.sellByBox && form.boxPriceUsd !== '' ? Number(form.boxPriceUsd) : null,
-                boxPriceBs: form.sellByBox && form.boxPriceBs !== '' ? Number(form.boxPriceBs) : null,
-                boxPriceBsUsdRef: form.sellByBox && form.boxPriceBsUsdRef !== '' ? Number(form.boxPriceBsUsdRef) : null,
+                boxPriceBs: form.sellByBox && boxEffMode === 'bs_fijo' && form.boxPriceBs !== '' ? Number(form.boxPriceBs) : null,
+                boxPriceBsUsdRef: form.sellByBox && boxEffMode === 'dual_usd' && form.boxPriceBsUsdRef !== '' ? Number(form.boxPriceBsUsdRef) : null,
+
                 sellByHalfBox: form.sellByBox && form.sellByHalfBox,
                 halfBoxUnits: form.sellByHalfBox ? parseInt(form.halfBoxUnits, 10) || null : null,
                 halfBoxBarcode: form.sellByHalfBox ? form.halfBoxBarcode.trim() || null : null,
+                halfBoxPricingMode: form.sellByHalfBox ? form.halfBoxPricingMode : 'inherit',
                 halfBoxPriceUsd: form.sellByHalfBox && form.halfBoxPriceUsd !== '' ? Number(form.halfBoxPriceUsd) : null,
-                halfBoxPriceBs: form.sellByHalfBox && form.halfBoxPriceBs !== '' ? Number(form.halfBoxPriceBs) : null,
-                halfBoxPriceBsUsdRef: form.sellByHalfBox && form.halfBoxPriceBsUsdRef !== '' ? Number(form.halfBoxPriceBsUsdRef) : null,
+                halfBoxPriceBs: form.sellByHalfBox && halfBoxEffMode === 'bs_fijo' && form.halfBoxPriceBs !== '' ? Number(form.halfBoxPriceBs) : null,
+                halfBoxPriceBsUsdRef: form.sellByHalfBox && halfBoxEffMode === 'dual_usd' && form.halfBoxPriceBsUsdRef !== '' ? Number(form.halfBoxPriceBsUsdRef) : null,
             };
             delete data.image;
             if (!editingProduct) data.id = crypto.randomUUID();
@@ -107,37 +123,87 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
         }
     };
 
-    const formatBlock = (title, color, unitsField, barcodeField, usdField, bsField, bsUsdRefField, unitsPlaceholder) => (
-        <div className={`p-3 rounded-xl border space-y-2 ${color}`}>
-            <span className="text-[9px] font-black uppercase tracking-wider">{title}</span>
-            <div className="grid grid-cols-2 gap-2">
-                <div>
-                    <label className={labelCls}>Unidades</label>
-                    <input type="number" inputMode="numeric" value={form[unitsField]} onChange={set(unitsField)} placeholder={unitsPlaceholder} className={inputCls} />
+    const formatBlock = (title, color, modeField, unitsField, barcodeField, usdField, bsField, bsUsdRefField, unitsPlaceholder) => {
+        const effMode = form[modeField] === 'inherit' ? form.pricingMode : form[modeField];
+
+        return (
+            <div className={`p-3 rounded-2xl border space-y-2.5 ${color}`}>
+                <div className="flex items-center justify-between border-b border-slate-200/40 dark:border-slate-800/40 pb-2">
+                    <span className="text-[10px] font-black uppercase tracking-wider">{title}</span>
+                    {form[modeField] === 'inherit' ? (
+                        <button
+                            type="button"
+                            onClick={() => setForm(f => ({ ...f, [modeField]: form.pricingMode }))}
+                            className="text-[9px] font-black text-brand hover:underline uppercase cursor-pointer"
+                        >
+                            Usar otra regla
+                        </button>
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={() => setForm(f => ({ ...f, [modeField]: 'inherit' }))}
+                            className="text-[9px] font-black text-slate-400 hover:text-brand uppercase cursor-pointer"
+                        >
+                            Volver a heredar
+                        </button>
+                    )}
                 </div>
-                <div>
-                    <label className={labelCls}>Cód. barras</label>
-                    <input type="text" value={form[barcodeField]} onChange={set(barcodeField)} placeholder="Escanear..." className={inputCls} />
-                </div>
-                <div>
-                    <label className={labelCls}>Precio USD</label>
-                    <input type="number" inputMode="decimal" value={form[usdField]} onChange={set(usdField)} placeholder="0.00" className={inputCls} />
-                </div>
-                {form.pricingMode === 'bs_fijo' && (
-                    <div>
-                        <label className={labelCls}>Precio Bs (Fijo)</label>
-                        <input type="number" inputMode="decimal" value={form[bsField]} onChange={set(bsField)} placeholder="0.00" className={inputCls} />
+
+                {form[modeField] === 'inherit' ? (
+                    <div className="px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800/60 text-[9px] font-bold text-slate-500 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <span>Regla: Sigue la regla de la Unidad ({MODE_LABELS[form.pricingMode] || 'Tasa del día'})</span>
+                    </div>
+                ) : (
+                    <div className="space-y-1">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Regla propia para {title}</span>
+                        <PricingModeSelector
+                            compact
+                            value={form[modeField]}
+                            onChange={(m) => setForm(f => ({ ...f, [modeField]: m }))}
+                            effectiveRate={effectiveRate}
+                            bcvRate={bcvRate}
+                        />
                     </div>
                 )}
-                {form.pricingMode === 'dual_usd' && (
+
+                <div className="grid grid-cols-2 gap-2">
                     <div>
-                        <label className={labelCls}>$ si paga en Bs</label>
-                        <input type="number" inputMode="decimal" value={form[bsUsdRefField]} onChange={set(bsUsdRefField)} placeholder="0.00" className={inputCls} />
+                        <label className={labelCls}>Unidades</label>
+                        <input type="number" inputMode="numeric" value={form[unitsField]} onChange={set(unitsField)} placeholder={unitsPlaceholder} className={inputCls} />
                     </div>
-                )}
+                    <div>
+                        <label className={labelCls}>Cód. barras</label>
+                        <input type="text" value={form[barcodeField]} onChange={set(barcodeField)} placeholder="Escanear..." className={inputCls} />
+                    </div>
+                    <div>
+                        <label className={labelCls}>{effMode === 'dual_usd' ? '$ en divisa' : 'Precio USD ($)'}</label>
+                        <input type="number" inputMode="decimal" value={form[usdField]} onChange={set(usdField)} placeholder="0.00" className={inputCls} />
+                    </div>
+                    {effMode === 'bs_fijo' && (
+                        <div>
+                            <label className={labelCls}>Precio Bs (Fijo)</label>
+                            <input type="number" inputMode="decimal" value={form[bsField]} onChange={set(bsField)} placeholder="0.00" className={inputCls} />
+                        </div>
+                    )}
+                    {effMode === 'dual_usd' && (
+                        <div>
+                            <label className={labelCls}>$ si paga en Bs</label>
+                            <input type="number" inputMode="decimal" value={form[bsUsdRefField]} onChange={set(bsUsdRefField)} placeholder="0.00" className={inputCls} />
+                        </div>
+                    )}
+                </div>
+
+                <PricePreviewLine
+                    mode={effMode}
+                    usd={form[usdField]}
+                    bsManual={form[bsField]}
+                    bsUsdRef={form[bsUsdRefField]}
+                    effectiveRate={effectiveRate}
+                    bcvRate={bcvRate}
+                />
             </div>
-        </div>
-    );
+        );
+    };
 
     return (
         <div className="fixed inset-0 z-[300] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -182,9 +248,9 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                     </div>
                 </div>
 
-                {/* Modo de precio */}
+                {/* Modo de precio Unidad */}
                 <div className="space-y-1.5">
-                    <label className={labelCls}>¿Cómo se cobra?</label>
+                    <label className={labelCls}>¿Cómo se cobra la Unidad?</label>
                     <PricingModeSelector
                         value={form.pricingMode}
                         onChange={handleModeChange}
@@ -229,7 +295,7 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                     <input type="checkbox" checked={form.sellByBox} onChange={toggle('sellByBox')} className="w-4 h-4 accent-emerald-500" />
                     <span className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider">Vender por Caja</span>
                 </label>
-                {form.sellByBox && formatBlock('Caja', 'border-blue-500/20 bg-blue-500/5 text-blue-600 dark:text-blue-400', 'boxUnits', 'boxBarcode', 'boxPriceUsd', 'boxPriceBs', 'boxPriceBsUsdRef', 'Ej: 36')}
+                {form.sellByBox && formatBlock('Caja', 'border-blue-500/20 bg-blue-500/5 text-blue-600 dark:text-blue-400', 'boxPricingMode', 'boxUnits', 'boxBarcode', 'boxPriceUsd', 'boxPriceBs', 'boxPriceBsUsdRef', 'Ej: 36')}
 
                 {/* Toggle ½ Caja */}
                 <label className={`flex items-center gap-2.5 select-none ${form.sellByBox ? 'cursor-pointer' : 'cursor-not-allowed opacity-40'}`}>
@@ -238,7 +304,7 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                         Vender por ½ Caja {!form.sellByBox && <span className="text-rose-500 normal-case">(requiere Caja)</span>}
                     </span>
                 </label>
-                {form.sellByHalfBox && formatBlock('½ Caja', 'border-purple-500/20 bg-purple-500/5 text-purple-600 dark:text-purple-400', 'halfBoxUnits', 'halfBoxBarcode', 'halfBoxPriceUsd', 'halfBoxPriceBs', 'halfBoxPriceBsUsdRef', form.boxUnits ? String(Math.floor((parseInt(form.boxUnits, 10) || 0) / 2)) : '18')}
+                {form.sellByHalfBox && formatBlock('½ Caja', 'border-purple-500/20 bg-purple-500/5 text-purple-600 dark:text-purple-400', 'halfBoxPricingMode', 'halfBoxUnits', 'halfBoxBarcode', 'halfBoxPriceUsd', 'halfBoxPriceBs', 'halfBoxPriceBsUsdRef', form.boxUnits ? String(Math.floor((parseInt(form.boxUnits, 10) || 0) / 2)) : '18')}
 
                 {/* Costo / Stock / Alerta */}
                 <div className="grid grid-cols-3 gap-2">
