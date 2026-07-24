@@ -790,7 +790,11 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                 </div>
                                 <div className="mt-2.5 min-w-0">
                                     <span className="text-sm sm:text-base lg:text-lg font-black text-slate-800 dark:text-white block truncate leading-none">
-                                        {isShiftActive ? activeCashier.nombre : 'Ninguno'}
+                                        {isShiftActive ? (
+                                            activeCashier.nombre !== 'Ninguno' 
+                                                ? activeCashier.nombre 
+                                                : (activeShiftSales.find(s => s.cajero || s.usuarioNombre || s.usuario)?.cajero || activeShiftApertura?.cajero || 'Cajero General')
+                                        ) : 'Ninguno'}
                                     </span>
                                     <span className="text-[9px] text-slate-400 block font-medium mt-1">
                                         {activeShiftMetrics.count} {activeShiftMetrics.count === 1 ? 'venta' : 'ventas'} en curso
