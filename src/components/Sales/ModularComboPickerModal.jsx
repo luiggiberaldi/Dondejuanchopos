@@ -8,17 +8,27 @@ export default function ModularComboPickerModal({
     combo,
     products = [],
     effectiveRate = 1,
+    initialSelections = null,
     onConfirm
 }) {
     // selections: { [groupId]: { [productId]: qty } }
     const [selections, setSelections] = useState({});
 
-    // Reset when modal opens for a combo
+    // Reset or populate when modal opens for a combo
     React.useEffect(() => {
         if (isOpen) {
-            setSelections({});
+            if (initialSelections && Array.isArray(initialSelections)) {
+                const map = {};
+                initialSelections.forEach(s => {
+                    if (!map[s.groupId]) map[s.groupId] = {};
+                    map[s.groupId][s.productId] = s.qty;
+                });
+                setSelections(map);
+            } else {
+                setSelections({});
+            }
         }
-    }, [isOpen, combo]);
+    }, [isOpen, combo, initialSelections]);
 
     if (!isOpen || !combo) return null;
 
@@ -276,7 +286,7 @@ export default function ModularComboPickerModal({
                                                             className="px-2.5 py-1.5 rounded-xl text-[10px] font-black bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 hover:bg-purple-600 hover:text-white dark:hover:bg-purple-600 border border-purple-200 dark:border-purple-800/80 transition-all active:scale-95 flex items-center gap-1 shadow-xs cursor-pointer"
                                                         >
                                                             <Zap size={11} className="fill-current" />
-                                                            <span>Llenar ({Math.min(reqQty - (currentTotal - qtySelected), stock)})</span>
+                                                            <span>Completar ({Math.min(reqQty - (currentTotal - qtySelected), stock)})</span>
                                                         </button>
                                                     )}
 

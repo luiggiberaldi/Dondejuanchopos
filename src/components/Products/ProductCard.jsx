@@ -1,5 +1,5 @@
 import React from 'react';
-import { Tag, Banknote, AlertTriangle, Box, Minus, Plus, Pencil, Trash2, Package, Layers, Clock, Printer, FileText, Gift, ChevronDown, Landmark, Zap } from 'lucide-react';
+import { Tag, Banknote, AlertTriangle, Box, Minus, Plus, Pencil, Trash2, Package, Layers, Clock, Printer, FileText, Gift, ChevronDown, Landmark, Zap, Sparkles } from 'lucide-react';
 import { CATEGORY_COLORS, getCategoryIcon, UNITS } from '../../config/categories';
 import { formatUsd, formatBs, formatCop, smartCashRounding, getCop, getUsd, getProductEffectiveRate } from '../../utils/calculatorUtils';
 import { calculateComboStock } from '../../utils/productProcessor';
@@ -231,8 +231,13 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                 )}
                 {/* Category badge / selector */}
                 {p.isCombo ? (
-                    <div className="absolute top-1 left-8 text-[9px] font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5 bg-violet-100 dark:bg-violet-950/30 text-violet-750 dark:text-violet-400">
-                        <Gift size={9} /> Combo
+                    <div className={`absolute top-1 left-8 text-[9px] font-black px-1.5 py-0.5 rounded flex items-center gap-0.5 shadow-xs ${
+                        p.isModular || (p.modularGroups && p.modularGroups.length > 0)
+                            ? 'bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
+                            : 'bg-cyan-100 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800'
+                    }`} title={p.isModular ? 'Combo con Opciones (Personalizable por el cliente)' : 'Combo Fijo (Productos fijos)'}>
+                        {p.isModular ? <Sparkles size={9} /> : <Gift size={9} />}
+                        <span>{p.isModular ? 'Con Opciones' : 'Combo Fijo'}</span>
                     </div>
                 ) : (
                     readOnly ? (

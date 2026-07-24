@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShoppingCart, Plus, Minus, X, CheckCircle, Package, Trash2, DollarSign, Percent, Search, Pause, Gift } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, X, CheckCircle, Package, Trash2, DollarSign, Percent, Search, Pause, Gift, Sliders } from 'lucide-react';
 import { formatBs, formatCop, getCop, formatUsd } from '../../utils/calculatorUtils';
 import { mulR } from '../../utils/dinero';
 import { useAuthStore } from '../../hooks/store/useAuthStore';
@@ -41,7 +41,8 @@ export default function CartPanel({
     cartSelectedIndex,
     copEnabled,
     copPrimary,
-    tasaCop
+    tasaCop,
+    onEditModularCombo
 }) {
     const isCajero = useAuthStore(s => s.requireLogin && s.usuarioActivo?.rol === 'CAJERO');
     const [editingQtyId, setEditingQtyId] = React.useState(null);
@@ -173,6 +174,16 @@ export default function CartPanel({
                                                             ↳ {sel.qty}x {sel.productName}
                                                         </div>
                                                     ))}
+                                                    {onEditModularCombo && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => onEditModularCombo(item)}
+                                                            className="mt-1 text-[9px] font-black text-purple-600 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/40 hover:bg-purple-200 px-2 py-0.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                                                            title="Cambiar opciones de este combo"
+                                                        >
+                                                            <Sliders size={10} /> Cambiar opciones
+                                                        </button>
+                                                    )}
                                                 </div>
                                             )}
 

@@ -4,7 +4,7 @@ import { useMonitorSync } from '../hooks/useMonitorSync';
 import { storageService } from '../utils/storageService';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { showToast } from '../components/Toast';
-import { calculateComboStock } from '../utils/productProcessor';
+import { calculateComboStock, getEffectiveCostUsd } from '../utils/productProcessor';
 import SupervisorRateModal from '../components/SupervisorRateModal';
 import RemoteProductFormModal from '../components/Monitor/RemoteProductFormModal';
 import {
@@ -218,13 +218,14 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             }
         }
 
-        // Recalcular stock dinámico para combos basándonos en la proyección de sus insumos
+        // Recalcular stock dinámico y costo efectivo para combos basándonos en la proyección de sus insumos
         list = list.map(p => {
+            const effCost = getEffectiveCostUsd(p, list);
             if (p.isCombo || p.type === 'combo' || p.category === 'combo') {
                 const dynamicStock = calculateComboStock(p, list);
-                return { ...p, stock: dynamicStock, _isCombo: true };
+                return { ...p, stock: dynamicStock, _isCombo: true, _effectiveCost: effCost, costUsd: p.costUsd || effCost };
             }
-            return p;
+            return { ...p, _effectiveCost: effCost, costUsd: p.costUsd || effCost };
         });
 
         return list;
@@ -273,7 +274,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
         projectedProducts.forEach(p => {
             const stock = p.stock || 0;
-            const cost = p.costUsd || p.costPrice || 0;
+            const cost = p._effectiveCost ?? (p.costUsd || p.costPrice || 0);
             const retail = p.priceUsd || 0;
             const minStock = p.minStock || 5;
 
@@ -613,33 +614,34 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-sans pb-12 transition-colors duration-300 overflow-x-hidden">
             {/* Header del Monitor */}
-            <header className="sticky top-0 z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 py-3 flex items-center justify-between shadow-sm">
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/20 text-white font-bold">
-                        <ShieldCheck size={20} />
+            <header className="sticky top-0 z-50 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3 sm:px-4 py-2.5 sm:py-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 shadow-sm">
+                <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-2xl bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/20 text-white font-bold shrink-0">
+                        <ShieldCheck size={18} className="sm:hidden" />
+                        <ShieldCheck size={20} className="hidden sm:block" />
                     </div>
-                    <div>
-                        <h1 className="text-base font-black leading-tight text-slate-800 dark:text-white">Panel de Supervisión</h1>
-                        <p className="text-[10px] text-slate-400 font-medium">Monitoreo en vivo • {localStorage.getItem('business_name') || 'Mi Negocio'}</p>
+                    <div className="min-w-0">
+                        <h1 className="text-xs sm:text-base font-black leading-tight text-slate-800 dark:text-white truncate">Panel de Supervisión</h1>
+                        <p className="text-[9px] sm:text-[10px] text-slate-400 font-medium truncate">Monitoreo en vivo • {localStorage.getItem('business_name') || 'Mi Negocio'}</p>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 ml-auto sm:ml-0">
                     {/* Status Badge */}
-                    <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black tracking-wider uppercase shadow-sm transition-colors duration-300 ${
+                    <div className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full text-[9px] sm:text-[10px] font-black tracking-wider uppercase shadow-sm transition-colors duration-300 ${
                         isConnected 
                             ? 'bg-emerald-50 border border-emerald-200/50 text-emerald-600 dark:bg-emerald-950/20 dark:border-emerald-800/30 dark:text-emerald-400' 
                             : 'bg-rose-50 border border-rose-200/50 text-rose-600 dark:bg-rose-950/20 dark:border-rose-800/30 dark:text-rose-400 animate-pulse'
                     }`}>
                         {isConnected ? (
                             <>
-                                <Wifi size={12} className="shrink-0" />
-                                <span>En Vivo</span>
+                                <Wifi size={11} className="shrink-0" />
+                                <span className="hidden sm:inline">En Vivo</span>
                             </>
                         ) : (
                             <>
-                                <WifiOff size={12} className="shrink-0" />
-                                <span>Desconectado</span>
+                                <WifiOff size={11} className="shrink-0" />
+                                <span className="hidden sm:inline">Desconectado</span>
                             </>
                         )}
                     </div>
@@ -651,26 +653,26 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             showToast?.('Datos actualizados', 'success');
                         }}
                         disabled={syncLoading}
-                        className="p-2.5 rounded-2xl text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-emerald-400 transition-colors disabled:opacity-50"
+                        className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-emerald-400 transition-colors disabled:opacity-50"
                         title="Actualizar Datos"
                     >
-                        <RefreshCw size={16} className={syncLoading ? "animate-spin text-emerald-500" : ""} />
+                        <RefreshCw size={15} className={syncLoading ? "animate-spin text-emerald-500" : ""} />
                     </button>
 
                     <button 
                         onClick={() => { triggerHaptic?.(); setShowRateModal(true); }}
-                        className="p-2.5 rounded-2xl text-slate-400 hover:text-brand hover:bg-brand-light border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-brand transition-colors"
+                        className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl text-slate-400 hover:text-brand hover:bg-brand-light border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-brand transition-colors"
                         title="Cambiar Tasa Remota"
                     >
-                        <TrendingUp size={16} />
+                        <TrendingUp size={15} />
                     </button>
 
                     <button 
                         onClick={() => { triggerHaptic?.(); setShowDisconnectConfirm(true); }}
-                        className="p-2.5 rounded-2xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-rose-400 transition-colors"
+                        className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-rose-400 transition-colors"
                         title="Desvincular Dispositivo"
                     >
-                        <LogOut size={16} />
+                        <LogOut size={15} />
                     </button>
                 </div>
             </header>
@@ -687,38 +689,42 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
             {/* Contenido Principal */}
             <main className="max-w-7xl mx-auto px-4 mt-6 space-y-6">
-                {/* Selector de Pestañas */}
-                <div className="flex bg-slate-200/60 dark:bg-slate-900/60 p-1 rounded-2xl w-full max-w-sm shadow-sm">
-                    <button
-                        onClick={() => { triggerHaptic?.(); setViewTab('activo'); }}
-                        className={`flex-1 py-2 text-[10px] sm:text-xs font-black rounded-xl transition-all ${
-                            viewTab === 'activo' 
-                                ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
-                                : 'text-slate-400 hover:text-slate-650 dark:hover:text-slate-200'
-                        }`}
-                    >
-                        Turno Activo (En Vivo)
-                    </button>
-                    <button
-                        onClick={() => { triggerHaptic?.(); setViewTab('cierres'); }}
-                        className={`flex-1 py-2 text-[10px] sm:text-xs font-black rounded-xl transition-all ${
-                            viewTab === 'cierres' 
-                                ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
-                                : 'text-slate-400 hover:text-slate-650 dark:hover:text-slate-200'
-                        }`}
-                    >
-                        Cierres de Caja
-                    </button>
-                    <button
-                        onClick={() => { triggerHaptic?.(); setViewTab('inventario'); }}
-                        className={`flex-1 py-2 text-[10px] sm:text-xs font-black rounded-xl transition-all ${
-                            viewTab === 'inventario' 
-                                ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
-                                : 'text-slate-400 hover:text-slate-650 dark:hover:text-slate-200'
-                        }`}
-                    >
-                        Inventario
-                    </button>
+                {/* Selector de Pestañas (100% Responsivo) */}
+                <div className="bg-slate-200/60 dark:bg-slate-900/60 p-1 rounded-2xl w-full sm:max-w-md shadow-sm">
+                    <div className="grid grid-cols-3 gap-1">
+                        <button
+                            onClick={() => { triggerHaptic?.(); setViewTab('activo'); }}
+                            className={`py-2 px-1 text-center font-black rounded-xl transition-all text-[11px] sm:text-xs truncate ${
+                                viewTab === 'activo' 
+                                    ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
+                                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                            }`}
+                        >
+                            <span className="sm:hidden">Turno Activo</span>
+                            <span className="hidden sm:inline">Turno Activo (En Vivo)</span>
+                        </button>
+                        <button
+                            onClick={() => { triggerHaptic?.(); setViewTab('cierres'); }}
+                            className={`py-2 px-1 text-center font-black rounded-xl transition-all text-[11px] sm:text-xs truncate ${
+                                viewTab === 'cierres' 
+                                    ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
+                                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                            }`}
+                        >
+                            <span className="sm:hidden">Cierres</span>
+                            <span className="hidden sm:inline">Cierres de Caja</span>
+                        </button>
+                        <button
+                            onClick={() => { triggerHaptic?.(); setViewTab('inventario'); }}
+                            className={`py-2 px-1 text-center font-black rounded-xl transition-all text-[11px] sm:text-xs truncate ${
+                                viewTab === 'inventario' 
+                                    ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
+                                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                            }`}
+                        >
+                            Inventario
+                        </button>
+                    </div>
                 </div>
 
                 {/* ── SECCIÓN 1: TURNO ACTIVO ── */}
@@ -1376,7 +1382,8 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                         const minStock = p.minStock || 5;
                                         const isAgotado = stock <= 0;
                                         const isBajo = !isAgotado && stock <= minStock;
-                                        const profitUsd = Math.max(0, p.priceUsd - (p.costUsd || p.costPrice || 0));
+                                        const itemCost = p._effectiveCost ?? (p.costUsd || p.costPrice || 0);
+                                        const profitUsd = Math.max(0, p.priceUsd - itemCost);
                                         const profitPct = p.priceUsd > 0 ? Math.round((profitUsd / p.priceUsd) * 100) : 0;
 
                                         return (
@@ -1437,7 +1444,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                         {/* Costo */}
                                                         <div>
                                                             <span className="text-[8px] text-slate-400 uppercase font-black block">Costo</span>
-                                                            <span className="font-outfit text-xs font-black text-slate-500 tabular-nums">${(p.costUsd || p.costPrice || 0).toFixed(2)}</span>
+                                                            <span className="font-outfit text-xs font-black text-slate-500 tabular-nums">${itemCost.toFixed(2)}</span>
                                                         </div>
                                                         {/* Venta */}
                                                         <div>

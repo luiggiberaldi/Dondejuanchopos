@@ -76,6 +76,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
     const [selectedCustomerId, setSelectedCustomerId] = useState('');
     const [modularComboPickerOpen, setModularComboPickerOpen] = useState(false);
     const [pendingModularCombo, setPendingModularCombo] = useState(null);
+    const [editingCartItem, setEditingCartItem] = useState(null);
 
     // Rate config
     const [showRateConfig, setShowRateConfig] = useState(false);
@@ -367,8 +368,16 @@ export default function SalesView({ triggerHaptic, isActive }) {
     const handleModularComboConfirm = useCallback((modularSelections) => {
         setModularComboPickerOpen(false);
         const combo = pendingModularCombo;
+        const editingItem = editingCartItem;
         setPendingModularCombo(null);
+        setEditingCartItem(null);
         if (!combo) return;
+
+        if (editingItem) {
+            setCart(prev => prev.map(item => item.id === editingItem.id ? { ...item, modularSelections } : item));
+            playAdd();
+            return;
+        }
 
         const cartId = `${combo.id}_modular_${Date.now()}`;
         const itemCostBs = combo.costBs || (combo.costUsd ? combo.costUsd * effectiveRate : 0);
@@ -390,7 +399,14 @@ export default function SalesView({ triggerHaptic, isActive }) {
         }, ...prev]);
 
         playAdd();
-    }, [pendingModularCombo, playAdd, effectiveRate, setCart]);
+    }, [pendingModularCombo, editingCartItem, playAdd, effectiveRate, setCart]);
+
+    const handleEditModularComboInCart = useCallback((cartItem) => {
+        const originalCombo = products?.find(p => p.id === cartItem._originalId || p.id === cartItem.id) || cartItem;
+        setPendingModularCombo(originalCombo);
+        setEditingCartItem(cartItem);
+        setModularComboPickerOpen(true);
+    }, [products]);
 
     const addToCart = useCallback((product, qtyOverride = null, forceMode = null, isBarcodeSource = false) => {
         triggerHaptic && triggerHaptic();
@@ -811,6 +827,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
                         copEnabled={copEnabled}
                         copPrimary={copPrimary}
                         tasaCop={tasaCop}
+                        onEditModularCombo={handleEditModularComboInCart}
                     />
                 </div>
 
@@ -875,6 +892,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
                                     copEnabled={copEnabled}
                                     copPrimary={copPrimary}
                                     tasaCop={tasaCop}
+                                    onEditModularCombo={handleEditModularComboInCart}
                                 />
                             </div>
                         </div>
@@ -974,10 +992,11 @@ export default function SalesView({ triggerHaptic, isActive }) {
             {modularComboPickerOpen && pendingModularCombo && (
                 <ModularComboPickerModal
                     isOpen={modularComboPickerOpen}
-                    onClose={() => { setModularComboPickerOpen(false); setPendingModularCombo(null); }}
+                    onClose={() => { setModularComboPickerOpen(false); setPendingModularCombo(null); setEditingCartItem(null); }}
                     combo={pendingModularCombo}
                     products={products}
                     effectiveRate={effectiveRate}
+                    initialSelections={editingCartItem ? editingCartItem.modularSelections : null}
                     onConfirm={handleModularComboConfirm}
                 />
             )}

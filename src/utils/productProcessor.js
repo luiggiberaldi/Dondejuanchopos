@@ -1,161 +1,247 @@
-// FIN-017: Reemplaza Math.round(raw/safeRate*100)/100 por divR + round2 de dinero.js.
-// FIN-030: Mantiene `priceUsdt` (typo histórico) pero añade alias `priceUsd` (mismo valor)
-//          para migración gradual hacia el nombre canónico.
-import { round2, divR, mulR } from './dinero.js';
-import { CurrencyService } from '../services/CurrencyService'; // FIN-017-pattern: safeParse en vez de parseFloat.
+import { mulR, divR, round2 } from './dinero';
 
+/**
+ * Construye el objeto payload para guardar o actualizar productos en el sistema local
+ * con normalización canónica por modo (D1, D2, D4).
+ */
 export function buildProductPayload(formData, effectiveRate) {
     const {
         name,
         barcode,
         priceUsd,
-        priceBsManual,
-        priceBsUsdRef,
+        priceBs,
         costUsd,
         costBs,
         stock,
+        stockInLotes,
+        packagingType,
+        unitsPerPackage,
+        granelUnit,
+        sellByUnit,
+        unitPriceUsd,
         category,
         lowStockAlert,
-        
+        forceBcv,
+        pricingMode: rawPricingMode,
+        boxPricingMode: rawBoxPricingMode,
+        halfBoxPricingMode: rawHalfBoxPricingMode,
+        priceBsManual: rawBsManual,
+        priceBsUsdRef: rawBsUsdRef,
         sellByBox,
         boxUnits,
         boxBarcode,
         boxPriceUsd,
-        boxPriceBs,
-        boxPriceBsUsdRef,
-        
+        boxPriceBs: rawBoxPriceBs,
+        boxPriceBsUsdRef: rawBoxPriceBsUsdRef,
         sellByHalfBox,
         halfBoxUnits,
         halfBoxBarcode,
         halfBoxPriceUsd,
-        halfBoxPriceBs,
-        halfBoxPriceBsUsdRef,
-
-        purchaseByBoxCost,
-        purchaseBoxUnits,
-        purchaseBoxBcv,
-        forceBcv,
-        pricingMode,
-        boxPricingMode,
-        halfBoxPricingMode
+        halfBoxPriceBs: rawHalfBoxPriceBs,
+        halfBoxPriceBsUsdRef: rawHalfBoxPriceBsUsdRef,
     } = formData;
 
-    const formattedName = name.replace(/(^\w{1})|(\s+\w{1})/g, letter => letter.toUpperCase());
-    const safeRate = effectiveRate > 0 ? effectiveRate : 1;
+    const formattedName = name ? name.replace(/(^\w{1})|(\s+\w{1})/g, letter => letter.toUpperCase()) : '';
+    const finalPriceUsd = priceUsd !== '' && priceUsd != null ? parseFloat(priceUsd) : (priceBs ? parseFloat(priceBs) / effectiveRate : 0);
+    const finalCostUsd = costUsd !== '' && costUsd != null ? parseFloat(costUsd) : (costBs ? parseFloat(costBs) / effectiveRate : 0);
+    const finalCostBs = costBs !== '' && costBs != null ? parseFloat(costBs) : (costUsd ? parseFloat(costUsd) * effectiveRate : 0);
 
-    // ── Modo de precio canónico (D1-D4 del plan precios_simplificados) ──────
-    // 'tasa_dia' | 'bcv' | 'dual_usd' | 'bs_fijo'. Si el form no lo trae
-    // (llamadas legacy), se deriva de los campos como antes (D2).
-    const VALID_MODES = ['tasa_dia', 'bcv', 'dual_usd', 'bs_fijo'];
-    const unitMode = VALID_MODES.includes(pricingMode)
-        ? pricingMode
-        : (forceBcv ? 'bcv'
-            : (priceBsUsdRef && CurrencyService.safeParse(priceBsUsdRef) > 0) ? 'dual_usd'
-            : (priceBsManual && CurrencyService.safeParse(priceBsManual) > 0) ? 'bs_fijo'
-            : 'tasa_dia');
-    // 'inherit' (o ausente/ inválido) resuelve al modo de la unidad — se persiste el valor resuelto.
-    const resolvedBoxMode = VALID_MODES.includes(boxPricingMode) ? boxPricingMode : unitMode;
-    const resolvedHalfBoxMode = VALID_MODES.includes(halfBoxPricingMode) ? halfBoxPricingMode : unitMode;
+    // D2: derive pricingMode si no viene explícito
+    let pricingMode = rawPricingMode;
+    if (!['tasa_dia', 'bcv', 'dual_usd', 'bs_fijo'].includes(pricingMode)) {
+        if (Boolean(forceBcv)) {
+            pricingMode = 'bcv';
+        } else if (Number(rawBsUsdRef) > 0) {
+            pricingMode = 'dual_usd';
+        } else if (Number(rawBsManual) > 0) {
+            pricingMode = 'bs_fijo';
+        } else {
+            pricingMode = 'tasa_dia';
+        }
+    }
 
-    // D4: campos Bs coherentes con el modo. En 'tasa_dia'/'bcv' NO se persiste
-    // ningún Bs propio (fix del hallazgo: forceBcv congelaba un priceBsManual
-    // basura que el motor ignora pero confundía a la UI y al monitor remoto).
-    const keepsManual = (mode) => mode === 'bs_fijo';
-    const keepsUsdRef = (mode) => mode === 'dual_usd';
+    const priceBsManual = pricingMode === 'bs_fijo' && rawBsManual !== '' && rawBsManual != null ? Number(rawBsManual) : null;
+    const priceBsUsdRef = pricingMode === 'dual_usd' && rawBsUsdRef !== '' && rawBsUsdRef != null ? Number(rawBsUsdRef) : null;
 
-    // Normalizar costos y precios de unidad
-    const finalPriceUsd = priceUsd ? CurrencyService.safeParse(priceUsd) : 0;
-    const finalPriceBsManual = keepsManual(unitMode) && priceBsManual ? round2(CurrencyService.safeParse(priceBsManual)) : null;
-    const finalPriceBsUsdRef = keepsUsdRef(unitMode) && priceBsUsdRef ? round2(CurrencyService.safeParse(priceBsUsdRef)) : null;
+    // Box pricing mode
+    let boxPricingMode = rawBoxPricingMode || 'inherit';
+    const effectiveBoxMode = boxPricingMode === 'inherit' ? pricingMode : boxPricingMode;
+    const resolvedBoxPriceBs = effectiveBoxMode === 'bs_fijo' && rawBoxPriceBs !== '' && rawBoxPriceBs != null ? Number(rawBoxPriceBs) : null;
+    const resolvedBoxPriceBsUsdRef = effectiveBoxMode === 'dual_usd' && rawBoxPriceBsUsdRef !== '' && rawBoxPriceBsUsdRef != null ? Number(rawBoxPriceBsUsdRef) : null;
 
-    // Normalizar datos de Caja (para usarse en la conversión del costo)
-    const parsedBoxUnits = sellByBox && boxUnits ? parseInt(boxUnits, 10) : 1;
-    const boxUnitsCount = parsedBoxUnits > 0 ? parsedBoxUnits : 1;
+    // HalfBox pricing mode
+    let halfBoxPricingMode = rawHalfBoxPricingMode || 'inherit';
+    const effectiveHalfBoxMode = halfBoxPricingMode === 'inherit' ? pricingMode : halfBoxPricingMode;
+    const resolvedHalfBoxPriceBs = effectiveHalfBoxMode === 'bs_fijo' && rawHalfBoxPriceBs !== '' && rawHalfBoxPriceBs != null ? Number(rawHalfBoxPriceBs) : null;
+    const resolvedHalfBoxPriceBsUsdRef = effectiveHalfBoxMode === 'dual_usd' && rawHalfBoxPriceBsUsdRef !== '' && rawHalfBoxPriceBsUsdRef != null ? Number(rawHalfBoxPriceBsUsdRef) : null;
 
-    const baseCostUsd = costUsd ? round2(CurrencyService.safeParse(costUsd)) : 0;
-    const baseCostBs = costBs
-        ? round2(CurrencyService.safeParse(costBs))
-        : (costUsd ? mulR(CurrencyService.safeParse(costUsd), safeRate) : 0);
+    let legacyUnit = 'unidad';
+    if (packagingType === 'lote') legacyUnit = 'paquete';
+    else if (packagingType === 'granel') legacyUnit = granelUnit;
 
-    // Si se usó la calculadora de compra por caja, los costos en el formulario ya son unitarios.
-    const isAlreadyUnitCost = purchaseByBoxCost && purchaseBoxUnits;
-    const finalCostUsd = (sellByBox && !isAlreadyUnitCost) ? round2(divR(baseCostUsd, boxUnitsCount)) : baseCostUsd;
-    const finalCostBs = (sellByBox && !isAlreadyUnitCost) ? round2(divR(baseCostBs, boxUnitsCount)) : baseCostBs;
+    const isLote = packagingType === 'lote';
+    const parsedUnitsPerPkg = isLote && unitsPerPackage ? parseInt(unitsPerPackage) : 1;
+    const autoUnitPrice = parsedUnitsPerPkg > 1 ? finalPriceUsd / parsedUnitsPerPkg : finalPriceUsd;
+    const finalUnitPrice = sellByUnit && unitPriceUsd ? parseFloat(unitPriceUsd) : autoUnitPrice;
 
-    // Normalizar datos de Caja (Bs coherentes con el modo del formato — D4)
-    const finalBoxPriceUsd = sellByBox && boxPriceUsd ? CurrencyService.safeParse(boxPriceUsd) : null;
-    const finalBoxPriceBs = sellByBox && keepsManual(resolvedBoxMode) && boxPriceBs ? round2(CurrencyService.safeParse(boxPriceBs)) : null;
-    const finalBoxPriceBsUsdRef = sellByBox && keepsUsdRef(resolvedBoxMode) && boxPriceBsUsdRef ? round2(CurrencyService.safeParse(boxPriceBsUsdRef)) : null;
-    const finalBoxBarcode = sellByBox && boxBarcode ? boxBarcode.trim() : null;
-
-    // Normalizar datos de Media Caja
-    const parsedHalfBoxUnits = sellByHalfBox && halfBoxUnits ? parseInt(halfBoxUnits, 10) : 1;
-    const finalHalfBoxPriceUsd = sellByHalfBox && halfBoxPriceUsd ? CurrencyService.safeParse(halfBoxPriceUsd) : null;
-    const finalHalfBoxPriceBs = sellByHalfBox && keepsManual(resolvedHalfBoxMode) && halfBoxPriceBs ? round2(CurrencyService.safeParse(halfBoxPriceBs)) : null;
-    const finalHalfBoxPriceBsUsdRef = sellByHalfBox && keepsUsdRef(resolvedHalfBoxMode) && halfBoxPriceBsUsdRef ? round2(CurrencyService.safeParse(halfBoxPriceBsUsdRef)) : null;
-    const finalHalfBoxBarcode = sellByHalfBox && halfBoxBarcode ? halfBoxBarcode.trim() : null;
+    let finalStock = stock ? parseInt(stock) : 0;
+    if (isLote && stockInLotes && parsedUnitsPerPkg > 0) {
+        finalStock = parseInt(stockInLotes) * parsedUnitsPerPkg;
+    }
 
     return {
         name: formattedName,
         barcode: barcode ? barcode.trim() : null,
-        
-        // Unidad
         priceUsd: finalPriceUsd,
-        priceUsdt: finalPriceUsd, // Alias legacy
-        priceBsManual: finalPriceBsManual,
-        priceBsUsdRef: finalPriceBsUsdRef,
-        
-        // Caja
-        sellByBox: !!sellByBox,
-        boxUnits: parsedBoxUnits,
-        boxBarcode: finalBoxBarcode,
-        boxPriceUsd: finalBoxPriceUsd,
-        boxPriceBs: finalBoxPriceBs,
-        boxPriceBsUsdRef: finalBoxPriceBsUsdRef,
-
-        // Media Caja
-        sellByHalfBox: !!sellByHalfBox,
-        halfBoxUnits: parsedHalfBoxUnits,
-        halfBoxBarcode: finalHalfBoxBarcode,
-        halfBoxPriceUsd: finalHalfBoxPriceUsd,
-        halfBoxPriceBs: finalHalfBoxPriceBs,
-        halfBoxPriceBsUsdRef: finalHalfBoxPriceBsUsdRef,
-
-        // Costo y Stock
+        priceUsdt: finalPriceUsd,
+        pricingMode,
+        forceBcv: pricingMode === 'bcv',
+        priceBsManual,
+        priceBsUsdRef,
         costUsd: finalCostUsd,
         costBs: finalCostBs,
-        stock: stock ? parseInt(stock, 10) : 0,
-
-        // Costo de compra por caja
-        purchaseByBoxCost: purchaseByBoxCost ? round2(CurrencyService.safeParse(purchaseByBoxCost)) : null,
-        purchaseBoxUnits: purchaseBoxUnits ? parseInt(purchaseBoxUnits, 10) : null,
-        purchaseBoxBcv: purchaseBoxBcv ? true : false,
-        // D3: forceBcv es un DERIVADO del modo — FinancialEngine/CartContext lo siguen leyendo.
-        forceBcv: unitMode === 'bcv',
-
-        // Modo de precio canónico por formato (resuelto, nunca 'inherit')
-        pricingMode: unitMode,
-        boxPricingMode: resolvedBoxMode,
-        halfBoxPricingMode: resolvedHalfBoxMode,
-
-        // Campos Legacy para evitar errores en otros componentes
-        packagingType: 'suelto',
-        unit: 'unidad',
-        sellByUnit: false,
-        unitPriceUsd: null,
-        unitPriceCop: null,
-        priceCop: null,
+        stock: finalStock,
+        unit: legacyUnit,
+        packagingType: packagingType || 'suelto',
+        unitsPerPackage: parsedUnitsPerPkg,
+        sellByUnit: isLote ? Boolean(sellByUnit) : false,
+        unitPriceUsd: isLote && sellByUnit ? finalUnitPrice : null,
+        stockInLotes: isLote && stockInLotes ? parseInt(stockInLotes) : null,
         category: category,
         lowStockAlert: lowStockAlert ? parseInt(lowStockAlert) : 5,
+
+        // Box
+        sellByBox: Boolean(sellByBox),
+        boxUnits: sellByBox && boxUnits ? parseInt(boxUnits, 10) : null,
+        boxBarcode: sellByBox && boxBarcode ? boxBarcode.trim() : null,
+        boxPriceUsd: sellByBox && boxPriceUsd !== '' && boxPriceUsd != null ? Number(boxPriceUsd) : null,
+        boxPricingMode: sellByBox ? effectiveBoxMode : 'inherit',
+        boxPriceBs: sellByBox ? resolvedBoxPriceBs : null,
+        boxPriceBsUsdRef: sellByBox ? resolvedBoxPriceBsUsdRef : null,
+
+        // HalfBox
+        sellByHalfBox: Boolean(sellByBox) && Boolean(sellByHalfBox),
+        halfBoxUnits: sellByBox && sellByHalfBox && halfBoxUnits ? parseInt(halfBoxUnits, 10) : null,
+        halfBoxBarcode: sellByBox && sellByHalfBox && halfBoxBarcode ? halfBoxBarcode.trim() : null,
+        halfBoxPriceUsd: sellByBox && sellByHalfBox && halfBoxPriceUsd !== '' && halfBoxPriceUsd != null ? Number(halfBoxPriceUsd) : null,
+        halfBoxPricingMode: sellByBox && sellByHalfBox ? effectiveHalfBoxMode : 'inherit',
+        halfBoxPriceBs: sellByBox && sellByHalfBox ? resolvedHalfBoxPriceBs : null,
+        halfBoxPriceBsUsdRef: sellByBox && sellByHalfBox ? resolvedHalfBoxPriceBsUsdRef : null,
+    };
+}
+
+/**
+ * Normaliza cualquier objeto producto proveniente de IndexedDB, Firestore o legacy
+ * a la estructura canónica esperada por la app (D1, D2, D4).
+ */
+export function normalizeProduct(raw = {}) {
+    if (!raw) return {};
+
+    const priceUsd = Number(raw.priceUsd ?? raw.priceUsdt ?? raw.price ?? 0);
+    const forceBcv = Boolean(raw.forceBcv);
+
+    let pricingMode = raw.pricingMode;
+    if (!['tasa_dia', 'bcv', 'dual_usd', 'bs_fijo'].includes(pricingMode)) {
+        if (forceBcv) {
+            pricingMode = 'bcv';
+        } else if (Number(raw.priceBsUsdRef) > 0) {
+            pricingMode = 'dual_usd';
+        } else if (Number(raw.priceBsManual) > 0) {
+            pricingMode = 'bs_fijo';
+        } else {
+            pricingMode = 'tasa_dia';
+        }
+    }
+
+    return {
+        ...raw,
+        pricingMode,
+        forceBcv: pricingMode === 'bcv',
+        priceUsd,
+        priceBsManual: pricingMode === 'bs_fijo' && raw.priceBsManual ? Number(raw.priceBsManual) : null,
+        priceBsUsdRef: pricingMode === 'dual_usd' && raw.priceBsUsdRef ? Number(raw.priceBsUsdRef) : null,
+
+        sellByBox: Boolean(raw.sellByBox),
+        boxUnits: raw.sellByBox ? (parseInt(raw.boxUnits, 10) || null) : null,
+        boxPriceUsd: raw.sellByBox && raw.boxPriceUsd != null ? Number(raw.boxPriceUsd) : null,
+        boxPriceBs: raw.sellByBox && raw.boxPriceBs != null ? Number(raw.boxPriceBs) : null,
+        boxPriceBsUsdRef: raw.sellByBox && raw.boxPriceBsUsdRef != null ? Number(raw.boxPriceBsUsdRef) : null,
+
+        sellByHalfBox: Boolean(raw.sellByHalfBox),
+        halfBoxUnits: raw.sellByHalfBox ? (parseInt(raw.halfBoxUnits, 10) || null) : null,
+        halfBoxPriceUsd: raw.sellByHalfBox && raw.halfBoxPriceUsd != null ? Number(raw.halfBoxPriceUsd) : null,
+        halfBoxPriceBs: raw.sellByHalfBox && raw.halfBoxPriceBs != null ? Number(raw.halfBoxPriceBs) : null,
+        halfBoxPriceBsUsdRef: raw.sellByHalfBox && raw.halfBoxPriceBsUsdRef != null ? Number(raw.halfBoxPriceBsUsdRef) : null,
+    };
+}
+
+/**
+ * Calcula la estructura completa de cobro para un producto en el carrito (D1, D3, D5).
+ */
+export function calculatePricing(product, effectiveRate, bcvRate, format = 'unit') {
+    const p = normalizeProduct(product);
+    let baseUsd = p.priceUsd;
+    let mode = p.pricingMode;
+
+    if (format === 'box' && p.sellByBox && p.boxPriceUsd > 0) {
+        baseUsd = p.boxPriceUsd;
+        if (p.boxPricingMode && p.boxPricingMode !== 'inherit') mode = p.boxPricingMode;
+    } else if (format === 'halfBox' && p.sellByHalfBox && p.halfBoxPriceUsd > 0) {
+        baseUsd = p.halfBoxPriceUsd;
+        if (p.halfBoxPricingMode && p.halfBoxPricingMode !== 'inherit') mode = p.halfBoxPricingMode;
+    }
+
+    let unitPriceUsd = baseUsd;
+    let unitPriceBs = 0;
+
+    switch (mode) {
+        case 'bcv': {
+            const rate = bcvRate > 0 ? bcvRate : effectiveRate;
+            unitPriceUsd = baseUsd;
+            unitPriceBs = mulR(baseUsd, rate);
+            break;
+        }
+
+        case 'dual_usd': {
+            const refUsd = format === 'box' && p.boxPriceBsUsdRef > 0 
+                ? p.boxPriceBsUsdRef 
+                : format === 'halfBox' && p.halfBoxPriceBsUsdRef > 0 
+                    ? p.halfBoxPriceBsUsdRef 
+                    : (p.priceBsUsdRef || baseUsd);
+            unitPriceUsd = baseUsd;
+            unitPriceBs = mulR(refUsd, effectiveRate);
+            break;
+        }
+
+        case 'bs_fijo': {
+            const bsManual = format === 'box' && p.boxPriceBs > 0 
+                ? p.boxPriceBs 
+                : format === 'halfBox' && p.halfBoxPriceBs > 0 
+                    ? p.halfBoxPriceBs 
+                    : (p.priceBsManual || 0);
+            unitPriceBs = bsManual;
+            unitPriceUsd = effectiveRate > 0 ? divR(bsManual, effectiveRate) : baseUsd;
+            break;
+        }
+
+        case 'tasa_dia':
+        default: {
+            unitPriceUsd = baseUsd;
+            unitPriceBs = mulR(baseUsd, effectiveRate);
+            break;
+        }
+    }
+
+    return {
+        unitPriceUsd: round2(unitPriceUsd),
+        unitPriceBs: round2(unitPriceBs),
+        mode,
+        isBcv: mode === 'bcv',
     };
 }
 
 /**
  * Propuesta A: Calcula el stock disponible de un combo (normal o modular).
- * 
- * @param {Object} comboProduct - El objeto producto combo
- * @param {Array} allProducts - Lista completa de productos para resolver componentes
- * @returns {number} Número entero de combos armables
  */
 export function calculateComboStock(comboProduct, allProducts = []) {
     if (!comboProduct || !comboProduct.isCombo) {
@@ -171,7 +257,6 @@ export function calculateComboStock(comboProduct, allProducts = []) {
 
     const avails = [];
 
-    // 1. Límite por ítems fijos
     if (comboItems.length > 0) {
         comboItems.forEach(ci => {
             const p = ci._product || allProducts.find(x => String(x.id) === String(ci.productId));
@@ -183,7 +268,6 @@ export function calculateComboStock(comboProduct, allProducts = []) {
         });
     }
 
-    // 2. Límite por grupos modulares (Propuesta A: Capacidad combinada del grupo)
     if (effectiveModular && modularGroups.length > 0) {
         modularGroups.forEach(g => {
             const allowedIds = g.allowedProductIds || [];
@@ -199,4 +283,50 @@ export function calculateComboStock(comboProduct, allProducts = []) {
     }
 
     return avails.length > 0 ? Math.max(0, Math.min(...avails)) : 0;
+}
+
+/**
+ * Calcula el costo en USD de un producto (normal o combo).
+ * Para combos sin costo manual, suma los costos de sus insumos componentes.
+ */
+export function getEffectiveCostUsd(product, allProducts = []) {
+    if (!product) return 0;
+
+    const directCost = Number(product.costUsd || product.costPrice || 0);
+    if (directCost > 0) return directCost;
+
+    if (product.isCombo || product.type === 'combo' || product.category === 'combo') {
+        const { comboItems = [], isModular, modularGroups = [] } = product;
+        let sum = 0;
+
+        if (comboItems.length > 0) {
+            comboItems.forEach(ci => {
+                const comp = ci._product || allProducts.find(x => String(x.id) === String(ci.productId));
+                if (comp) {
+                    const compCost = Number(comp.costUsd || comp.costPrice || 0);
+                    const qty = Number(ci.qty || 1);
+                    sum += compCost * qty;
+                }
+            });
+        }
+
+        if ((isModular || (modularGroups && modularGroups.length > 0)) && modularGroups.length > 0) {
+            modularGroups.forEach(g => {
+                const allowedIds = g.allowedProductIds || [];
+                const reqQty = Math.max(1, parseInt(g.requiredQty, 10) || 1);
+                if (allowedIds.length > 0) {
+                    const costs = allowedIds.map(pid => {
+                        const comp = allProducts.find(x => String(x.id) === String(pid));
+                        return Number(comp?.costUsd || comp?.costPrice || 0);
+                    });
+                    const avgCost = costs.reduce((a, b) => a + b, 0) / (costs.length || 1);
+                    sum += avgCost * reqQty;
+                }
+            });
+        }
+
+        return sum;
+    }
+
+    return 0;
 }
