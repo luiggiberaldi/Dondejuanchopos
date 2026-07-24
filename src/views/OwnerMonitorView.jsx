@@ -54,6 +54,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const [showRemoteForm, setShowRemoteForm] = useState(false);
     const [remoteEditingProduct, setRemoteEditingProduct] = useState(null);
     const [remoteDeleteTarget, setRemoteDeleteTarget] = useState(null);
+    const [stockAdjustProduct, setStockAdjustProduct] = useState(null);
     const [pendingChanges, setPendingChanges] = useState(() => {
         try {
             const raw = localStorage.getItem(PENDING_KEY);
@@ -106,7 +107,8 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             try { localStorage.setItem(PENDING_KEY, JSON.stringify(next)); } catch { /* storage lleno */ }
             return next;
         });
-        showToast('Cambio en cola — pulsa «Subir al sistema» para enviarlo', 'info');
+        // No mostramos toast flotante ruidoso en cada clic individual;
+        // la UI responde instantáneamente y la barra flotante inferior muestra los cambios pendientes.
         return true;
     }, []);
 
@@ -168,9 +170,58 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         showToast('Cambios pendientes descartados', 'info');
     };
 
-    const filteredProducts = useMemo(() => {
+    // Proyección instantánea en memoria de los productos + cambios en cola
+    const projectedProducts = useMemo(() => {
         if (!products) return [];
-        return products.filter(p => {
+
+        let list = products.map(p => {
+            const stockDelta = pendingChanges
+                .filter(c => c.productId === p.id && c.action === 'adjust_stock')
+                .reduce((sum, c) => sum + (Number(c.data?.delta) || 0), 0);
+
+            const editChange = pendingChanges.find(c => c.productId === p.id && c.action === 'edit');
+            const isDeleted = pendingChanges.some(c => c.productId === p.id && c.action === 'delete');
+
+            let merged = { ...p };
+            if (editChange?.data) {
+                merged = { ...merged, ...editChange.data };
+            }
+
+            const baseStock = Number(merged.stock) || 0;
+            merged.stock = Math.max(0, baseStock + stockDelta);
+            merged._rawStock = baseStock;
+            merged._stockDelta = stockDelta;
+            merged._isQueuedDelete = isDeleted;
+            merged._isQueuedEdit = !!editChange;
+
+            return merged;
+        });
+
+        // Excluir de la vista los eliminados en cola
+        list = list.filter(p => !p._isQueuedDelete);
+
+        // Agregar a la vista los creados en cola (nuevos)
+        const addChanges = pendingChanges.filter(c => c.action === 'add');
+        for (const addChange of addChanges) {
+            if (addChange.data) {
+                list.unshift({
+                    ...addChange.data,
+                    id: addChange.productId || addChange.data.id || `temp_${Date.now()}`,
+                    name: addChange.data.name || 'Nuevo Producto',
+                    category: addChange.data.category || 'Varios',
+                    stock: Number(addChange.data.stock || 0),
+                    priceUsd: Number(addChange.data.priceUsd || addChange.data.price || 0),
+                    costUsd: Number(addChange.data.costUsd || addChange.data.costPrice || 0),
+                    _isQueuedNew: true
+                });
+            }
+        }
+
+        return list;
+    }, [products, pendingChanges]);
+
+    const filteredProducts = useMemo(() => {
+        return projectedProducts.filter(p => {
             const matchesSearch = (p.name || '').toLowerCase().includes(searchTermInventario.toLowerCase()) || 
                                  (p.barcode && p.barcode.includes(searchTermInventario));
             
@@ -184,7 +235,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             }
             return true;
         });
-    }, [products, searchTermInventario, filterStockInventario]);
+    }, [projectedProducts, searchTermInventario, filterStockInventario]);
 
     const [currentPageInventario, setCurrentPageInventario] = useState(1);
     const ITEMS_PER_PAGE_INVENTARIO = 15;
@@ -201,7 +252,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     }, [filteredProducts, currentPageInventario]);
 
     const inventoryMetrics = useMemo(() => {
-        if (!products) {
+        if (!projectedProducts) {
             return { totalCost: 0, totalRetail: 0, totalQty: 0, lowStockCount: 0, outOfStockCount: 0, expectedProfit: 0, count: 0 };
         }
         let totalCost = 0;
@@ -210,7 +261,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         let lowStockCount = 0;
         let outOfStockCount = 0;
 
-        products.forEach(p => {
+        projectedProducts.forEach(p => {
             const stock = p.stock || 0;
             const cost = p.costUsd || p.costPrice || 0;
             const retail = p.priceUsd || 0;
@@ -236,9 +287,9 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             lowStockCount,
             outOfStockCount,
             expectedProfit,
-            count: products.length
+            count: projectedProducts.length
         };
-    }, [products]);
+    }, [projectedProducts]);
 
     const today = getLocalISODate();
 
@@ -1229,41 +1280,43 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                         </div>
 
                         {/* Barra de Filtro y Búsqueda */}
-                        <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col md:flex-row gap-4 items-stretch md:items-center justify-between">
-                            {/* Botón Nuevo Producto (encola) */}
-                            <button
-                                onClick={() => { triggerHaptic?.(); setRemoteEditingProduct(null); setShowRemoteForm(true); }}
-                                className="shrink-0 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-2xl bg-brand hover:bg-brand-dark text-white text-[10px] sm:text-xs font-black uppercase tracking-wider shadow-lg shadow-brand/25 transition-all active:scale-95"
-                            >
-                                <Plus size={14} strokeWidth={3} /> Nuevo
-                            </button>
-                            {/* Input de Búsqueda */}
-                            <div className="relative flex-1">
-                                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-450">
-                                    <Search size={14} />
-                                </span>
-                                <input
-                                    type="text"
-                                    placeholder="Buscar producto por nombre o código..."
-                                    value={searchTermInventario}
-                                    onChange={(e) => setSearchTermInventario(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-2.5 text-xs rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500/70 transition-colors"
-                                />
-                                {searchTermInventario && (
-                                    <button 
-                                        onClick={() => setSearchTermInventario('')}
-                                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-650"
-                                    >
-                                        <X size={14} />
-                                    </button>
-                                )}
+                        <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col md:flex-row gap-3 sm:gap-4 items-stretch md:items-center justify-between">
+                            {/* Top row on mobile: Nuevo button + Search input */}
+                            <div className="flex items-center gap-2.5 flex-1">
+                                <button
+                                    onClick={() => { triggerHaptic?.(); setRemoteEditingProduct(null); setShowRemoteForm(true); }}
+                                    className="shrink-0 flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2.5 rounded-2xl bg-brand hover:bg-brand-dark text-white text-[10px] sm:text-xs font-black uppercase tracking-wider shadow-lg shadow-brand/25 transition-all active:scale-95"
+                                >
+                                    <Plus size={14} strokeWidth={3} /> Nuevo
+                                </button>
+                                {/* Input de Búsqueda */}
+                                <div className="relative flex-1">
+                                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-450">
+                                        <Search size={14} />
+                                    </span>
+                                    <input
+                                        type="text"
+                                        placeholder="Buscar producto por nombre o código..."
+                                        value={searchTermInventario}
+                                        onChange={(e) => setSearchTermInventario(e.target.value)}
+                                        className="w-full pl-10 pr-8 py-2.5 text-xs rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500/70 transition-colors"
+                                    />
+                                    {searchTermInventario && (
+                                        <button 
+                                            onClick={() => setSearchTermInventario('')}
+                                            className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-650"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    )}
+                                </div>
                             </div>
 
-                            {/* Filtro de Segmentación de Stock */}
-                            <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200/60 dark:border-slate-850 self-start md:self-auto shrink-0 shadow-inner">
+                            {/* Filtro de Segmentación de Stock - Scrollable horizontalmente en móvil */}
+                            <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200/60 dark:border-slate-850 overflow-x-auto w-full md:w-auto shrink-0 shadow-inner custom-scrollbar">
                                 <button
                                     onClick={() => { triggerHaptic?.(); setFilterStockInventario('todos'); }}
-                                    className={`px-3 py-1.5 text-[10px] sm:text-xs font-black rounded-xl transition-all ${
+                                    className={`px-3 py-1.5 text-[10px] sm:text-xs font-black rounded-xl transition-all whitespace-nowrap ${
                                         filterStockInventario === 'todos'
                                             ? 'bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm'
                                             : 'text-slate-450 hover:text-slate-650 dark:hover:text-slate-350'
@@ -1273,7 +1326,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                 </button>
                                 <button
                                     onClick={() => { triggerHaptic?.(); setFilterStockInventario('bajo'); }}
-                                    className={`px-3 py-1.5 text-[10px] sm:text-xs font-black rounded-xl transition-all flex items-center gap-1 ${
+                                    className={`px-3 py-1.5 text-[10px] sm:text-xs font-black rounded-xl transition-all flex items-center gap-1 whitespace-nowrap ${
                                         filterStockInventario === 'bajo'
                                             ? 'bg-amber-500 text-white shadow-sm'
                                             : 'text-amber-600 dark:text-amber-400 hover:text-amber-700'
@@ -1283,7 +1336,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                 </button>
                                 <button
                                     onClick={() => { triggerHaptic?.(); setFilterStockInventario('agotado'); }}
-                                    className={`px-3 py-1.5 text-[10px] sm:text-xs font-black rounded-xl transition-all flex items-center gap-1 ${
+                                    className={`px-3 py-1.5 text-[10px] sm:text-xs font-black rounded-xl transition-all flex items-center gap-1 whitespace-nowrap ${
                                         filterStockInventario === 'agotado'
                                             ? 'bg-rose-500 text-white shadow-sm'
                                             : 'text-rose-600 dark:text-rose-400 hover:text-rose-700'
@@ -1317,11 +1370,11 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                         const profitPct = p.priceUsd > 0 ? Math.round((profitUsd / p.priceUsd) * 100) : 0;
 
                                         return (
-                                            <div key={p.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition-colors">
+                                            <div key={p.id} className="p-3.5 sm:p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4 hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition-colors">
                                                 {/* Izquierda: Info de Producto */}
-                                                <div className="flex-1 min-w-0 pr-2">
-                                                    <div className="flex items-center gap-2 flex-wrap">
-                                                        <h4 className="text-xs font-black text-slate-800 dark:text-white uppercase leading-tight truncate">{p.name}</h4>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                        <h4 className="text-xs sm:text-sm font-black text-slate-800 dark:text-white uppercase leading-tight">{p.name}</h4>
                                                         <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${
                                                             isAgotado
                                                                 ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400'
@@ -1341,13 +1394,23 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                                 ½ Caja{p.halfBoxUnits ? ` ×${p.halfBoxUnits}` : ''}
                                                             </span>
                                                         )}
-                                                        {hasPendingFor(p.id) && pendingStockDelta(p.id) === 0 && (
+                                                        {p._isQueuedNew && (
+                                                            <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300">
+                                                                Nuevo en cola
+                                                            </span>
+                                                        )}
+                                                        {p._isQueuedEdit && !p._isQueuedNew && (
+                                                            <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                                                                Editado en cola
+                                                            </span>
+                                                        )}
+                                                        {hasPendingFor(p.id) && pendingStockDelta(p.id) === 0 && !p._isQueuedEdit && !p._isQueuedNew && (
                                                             <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400 animate-pulse">
                                                                 Cambio pendiente
                                                             </span>
                                                         )}
                                                     </div>
-                                                    <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-1 font-medium">
+                                                    <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-1 font-medium flex-wrap">
                                                         {p.barcode && (
                                                             <span className="flex items-center gap-1">
                                                                 <Hash size={10} /> {p.barcode}
@@ -1357,10 +1420,10 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                     </div>
                                                 </div>
 
-                                                {/* Derecha: Valores y Stock */}
-                                                <div className="flex items-center justify-between sm:justify-end gap-6 shrink-0">
+                                                {/* Derecha: Valores y Stock (Responsivo: apilado en móvil, horizontal en desktop) */}
+                                                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between lg:justify-end gap-3 sm:gap-5 pt-2 lg:pt-0 border-t border-slate-100 dark:border-slate-800/60 lg:border-t-0 shrink-0">
                                                     {/* Costo, Venta, Margen */}
-                                                    <div className="grid grid-cols-3 gap-4 text-right">
+                                                    <div className="grid grid-cols-3 gap-2 sm:gap-4 text-left sm:text-right bg-slate-50/60 dark:bg-slate-950/40 lg:bg-transparent p-2.5 lg:p-0 rounded-2xl">
                                                         {/* Costo */}
                                                         <div>
                                                             <span className="text-[8px] text-slate-400 uppercase font-black block">Costo</span>
@@ -1384,59 +1447,70 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                         </div>
                                                     </div>
 
-                                                    {/* Stock + Acciones remotas (encolan; se envían con «Subir al sistema») */}
-                                                    <div className="flex items-center gap-2">
-                                                        <button
-                                                            onClick={() => { triggerHaptic?.(); queueInventoryChange('adjust_stock', p.id, { delta: -1 }); }}
-                                                            title="Restar 1 unidad (en cola)"
-                                                            className="w-8 h-8 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-rose-500 hover:border-rose-200 transition-colors active:scale-90"
-                                                        >
-                                                            <MinusCircle size={14} />
-                                                        </button>
-                                                        <div className={`relative w-20 text-center py-2 px-2.5 rounded-2xl border ${
-                                                            isAgotado
-                                                                ? 'bg-rose-50/50 border-rose-150/70 text-rose-700 dark:bg-rose-950/20 dark:border-rose-900/30 dark:text-rose-455'
-                                                                : isBajo
-                                                                    ? 'bg-amber-50/50 border-amber-150/70 text-amber-700 dark:bg-amber-950/20 dark:border-amber-900/30 dark:text-amber-455'
-                                                                    : 'bg-slate-50 border-slate-150/70 text-slate-700 dark:bg-slate-850/60 dark:border-slate-800 dark:text-slate-300'
-                                                        }`}>
-                                                            <span className="text-[8px] uppercase font-black block leading-none mb-0.5">Stock</span>
-                                                            <span className="font-outfit text-xs sm:text-sm font-black tabular-nums leading-none">
-                                                                {p.isWeight ? `${stock.toFixed(3)} Kg` : `${stock} u`}
-                                                            </span>
-                                                            {p.sellByBox && p.boxUnits > 0 && !p.isWeight && (
-                                                                <span className="text-[7px] font-bold block leading-none mt-0.5 opacity-70">
-                                                                    ≈ {(stock / p.boxUnits).toFixed(1)} cajas
+                                                    {/* Controles de Stock y Acciones */}
+                                                    <div className="flex items-center justify-between sm:justify-end gap-2.5">
+                                                        {/* Botones +/- y Badge de Stock */}
+                                                        <div className="flex items-center gap-1.5">
+                                                            <button
+                                                                onClick={() => { triggerHaptic?.(); queueInventoryChange('adjust_stock', p.id, { delta: -1 }); }}
+                                                                title="Restar 1 unidad (en cola)"
+                                                                className="w-8 h-8 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-rose-500 hover:border-rose-200 transition-colors active:scale-90"
+                                                            >
+                                                                <MinusCircle size={14} />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => { triggerHaptic?.(); setStockAdjustProduct(p); }}
+                                                                title="Toca para ingresar stock (+40, -10) o fijar cantidad exacta"
+                                                                className={`relative w-20 text-center py-1.5 px-2 rounded-2xl border transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-sm ${
+                                                                    isAgotado
+                                                                        ? 'bg-rose-50/50 border-rose-150/70 text-rose-700 dark:bg-rose-950/20 dark:border-rose-900/30 dark:text-rose-455 hover:border-rose-400'
+                                                                        : isBajo
+                                                                            ? 'bg-amber-50/50 border-amber-150/70 text-amber-700 dark:bg-amber-950/20 dark:border-amber-900/30 dark:text-amber-455 hover:border-amber-400'
+                                                                            : 'bg-slate-50 border-slate-150/70 text-slate-700 dark:bg-slate-850/60 dark:border-slate-800 dark:text-slate-300 hover:border-emerald-400 hover:bg-emerald-50/20'
+                                                                }`}
+                                                            >
+                                                                <span className="text-[8px] uppercase font-black block leading-none mb-0.5 text-slate-400 flex items-center justify-center gap-0.5">
+                                                                    Stock <Pencil size={7} />
                                                                 </span>
-                                                            )}
-                                                            {pendingStockDelta(p.id) !== 0 && (
-                                                                <span className={`absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded-full text-[8px] font-black text-white shadow ${pendingStockDelta(p.id) > 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}>
-                                                                    {pendingStockDelta(p.id) > 0 ? '+' : ''}{pendingStockDelta(p.id)}
+                                                                <span className="font-outfit text-xs font-black tabular-nums leading-none">
+                                                                    {p.isWeight ? `${stock.toFixed(3)} Kg` : `${stock} u`}
                                                                 </span>
-                                                            )}
+                                                                {p.sellByBox && p.boxUnits > 0 && !p.isWeight && (
+                                                                    <span className="text-[7px] font-bold block leading-none mt-0.5 opacity-70 truncate">
+                                                                        ≈ {(stock / p.boxUnits).toFixed(1)} cj
+                                                                    </span>
+                                                                )}
+                                                                {pendingStockDelta(p.id) !== 0 && (
+                                                                    <span className={`absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded-full text-[8px] font-black text-white shadow ${pendingStockDelta(p.id) > 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}>
+                                                                        {pendingStockDelta(p.id) > 0 ? '+' : ''}{pendingStockDelta(p.id)}
+                                                                    </span>
+                                                                )}
+                                                            </button>
+                                                            <button
+                                                                onClick={() => { triggerHaptic?.(); queueInventoryChange('adjust_stock', p.id, { delta: 1 }); }}
+                                                                title="Sumar 1 unidad (en cola)"
+                                                                className="w-8 h-8 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-emerald-500 hover:border-emerald-200 transition-colors active:scale-90"
+                                                            >
+                                                                <PlusCircle size={14} />
+                                                            </button>
                                                         </div>
-                                                        <button
-                                                            onClick={() => { triggerHaptic?.(); queueInventoryChange('adjust_stock', p.id, { delta: 1 }); }}
-                                                            title="Sumar 1 unidad (en cola)"
-                                                            className="w-8 h-8 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-emerald-500 hover:border-emerald-200 transition-colors active:scale-90"
-                                                        >
-                                                            <PlusCircle size={14} />
-                                                        </button>
-                                                        <div className="flex flex-col gap-1">
+
+                                                        {/* Botones Editar / Eliminar horizontales */}
+                                                        <div className="flex items-center gap-1.5 ml-1">
                                                             <button
                                                                 onClick={() => { triggerHaptic?.(); setRemoteEditingProduct(p); setShowRemoteForm(true); }}
                                                                 disabled={p.isCombo}
                                                                 title={p.isCombo ? 'Los combos se editan desde la caja' : 'Editar (en cola)'}
-                                                                className="w-8 h-7 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-brand transition-colors disabled:opacity-30 active:scale-90"
+                                                                className="w-8 h-8 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-brand hover:border-brand/40 transition-colors disabled:opacity-30 active:scale-90"
                                                             >
-                                                                <Pencil size={12} />
+                                                                <Pencil size={13} />
                                                             </button>
                                                             <button
                                                                 onClick={() => { triggerHaptic?.(); setRemoteDeleteTarget(p); }}
                                                                 title="Eliminar (en cola)"
-                                                                className="w-8 h-7 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-rose-500 transition-colors active:scale-90"
+                                                                className="w-8 h-8 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-rose-500 hover:border-rose-200 transition-colors active:scale-90"
                                                             >
-                                                                <Trash2 size={12} />
+                                                                <Trash2 size={13} />
                                                             </button>
                                                         </div>
                                                     </div>
@@ -1575,36 +1649,251 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 </div>
             )}
 
-            {/* Barra flotante «Subir al sistema» — visible solo con cambios en cola y en la pestaña Inventario */}
+            {/* Barra flotante «Subir al sistema» — responsiva sin recortes */}
             {pendingChanges.length > 0 && viewTab === 'inventario' && (
-                <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[250] w-full max-w-md px-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
-                    <div className="bg-[#193275] dark:bg-slate-900 border border-white/10 text-white rounded-3xl p-3 pl-4 shadow-2xl flex items-center gap-3 backdrop-blur-md">
-                        <div className="flex-1 min-w-0">
-                            <p className="text-xs font-black leading-tight">
-                                {pendingChanges.length} cambio{pendingChanges.length !== 1 ? 's' : ''} pendiente{pendingChanges.length !== 1 ? 's' : ''}
-                            </p>
-                            <p className="text-[10px] text-slate-300 font-medium truncate">
-                                Aún no se han enviado a la caja
-                            </p>
+                <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[250] w-[95%] sm:w-full max-w-lg px-2 sm:px-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <div className="bg-[#193275] dark:bg-slate-900 border border-white/15 text-white rounded-3xl p-3 sm:p-3.5 shadow-2xl backdrop-blur-md flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3">
+                        {/* Texto descriptivo */}
+                        <div className="flex items-center justify-between sm:justify-start gap-2 min-w-0 px-1 sm:px-0">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping shrink-0" />
+                                <div className="min-w-0">
+                                    <p className="text-xs font-black leading-tight truncate">
+                                        {pendingChanges.length} cambio{pendingChanges.length !== 1 ? 's' : ''} en cola
+                                    </p>
+                                    <p className="text-[10px] text-slate-300 font-medium leading-none mt-0.5 truncate">
+                                        Aún no se han enviado a la caja
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Botón descartar para móvil en la parte superior derecha */}
+                            <button
+                                onClick={() => { triggerHaptic?.(); discardPendingChanges(); }}
+                                disabled={uploading}
+                                title="Descartar cambios"
+                                className="sm:hidden px-2.5 py-1 rounded-xl text-[10px] font-black uppercase text-slate-300 hover:text-white bg-white/10 transition-colors disabled:opacity-40 shrink-0"
+                            >
+                                Descartar
+                            </button>
                         </div>
-                        <button
-                            onClick={() => { triggerHaptic?.(); discardPendingChanges(); }}
-                            disabled={uploading}
-                            className="px-3 py-2 rounded-2xl text-[10px] font-black uppercase text-slate-300 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-40"
-                        >
-                            Descartar
-                        </button>
-                        <button
-                            onClick={() => { triggerHaptic?.(); uploadPendingChanges(); }}
-                            disabled={uploading || !isConnected}
-                            className="flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-white text-[10px] font-black uppercase tracking-wider shadow-lg shadow-emerald-500/30 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                            {uploading ? <RefreshCw size={12} className="animate-spin" /> : <UploadCloud size={12} />}
-                            {uploading ? 'Subiendo...' : 'Subir al sistema'}
-                        </button>
+
+                        {/* Botones de Acción */}
+                        <div className="flex items-center gap-2 shrink-0">
+                            {/* Descartar en Desktop */}
+                            <button
+                                onClick={() => { triggerHaptic?.(); discardPendingChanges(); }}
+                                disabled={uploading}
+                                className="hidden sm:block px-3 py-2 rounded-2xl text-[10px] font-black uppercase text-slate-300 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-40"
+                            >
+                                Descartar
+                            </button>
+                            {/* Botón Principal: Subir al sistema */}
+                            <button
+                                onClick={() => { triggerHaptic?.(); uploadPendingChanges(); }}
+                                disabled={uploading || !isConnected}
+                                className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 sm:py-2 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-emerald-500/30 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                                {uploading ? <RefreshCw size={14} className="animate-spin" /> : <UploadCloud size={14} />}
+                                <span>{uploading ? 'Subiendo...' : 'Subir al sistema'}</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
+            {/* Modal de Ajuste Rápido de Stock (+40, -10, Entrada/Salida) */}
+            {stockAdjustProduct && (
+                <StockAdjustModal
+                    product={stockAdjustProduct}
+                    onClose={() => setStockAdjustProduct(null)}
+                    onConfirm={(productId, delta) => queueInventoryChange('adjust_stock', productId, { delta })}
+                    triggerHaptic={triggerHaptic}
+                />
+            )}
+        </div>
+    );
+}
+
+// ── SUBCOMPONENTE: Modal de Ajuste Rápido de Stock (Entradas de mercancía / Salidas) ──
+function StockAdjustModal({ product, onClose, onConfirm, triggerHaptic }) {
+    const [mode, setMode] = useState('add'); // 'add', 'subtract', 'set'
+    const [quantity, setQuantity] = useState('');
+
+    if (!product) return null;
+
+    const currentStock = Number(product.stock) || 0;
+    const qtyNum = parseFloat(quantity) || 0;
+
+    let targetStock = currentStock;
+    let delta = 0;
+
+    if (mode === 'add') {
+        targetStock = currentStock + qtyNum;
+        delta = qtyNum;
+    } else if (mode === 'subtract') {
+        targetStock = Math.max(0, currentStock - qtyNum);
+        delta = -Math.min(currentStock, qtyNum);
+    } else if (mode === 'set') {
+        targetStock = Math.max(0, qtyNum);
+        delta = targetStock - currentStock;
+    }
+
+    const handleQuickAdd = (val) => {
+        triggerHaptic?.();
+        setMode('add');
+        setQuantity(val.toString());
+    };
+
+    const handleSave = (e) => {
+        e.preventDefault();
+        if (delta === 0) {
+            onClose();
+            return;
+        }
+        triggerHaptic?.();
+        onConfirm(product.id, delta);
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 z-[300] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200 space-y-4">
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                        <div className="w-10 h-10 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 rounded-2xl flex items-center justify-center shrink-0">
+                            <PlusCircle size={20} />
+                        </div>
+                        <div className="min-w-0">
+                            <h3 className="font-black text-slate-800 dark:text-white text-sm truncate uppercase">
+                                {product.name}
+                            </h3>
+                            <p className="text-[10px] text-slate-400 font-bold">
+                                Stock Actual: <span className="text-slate-700 dark:text-slate-200 font-black">{currentStock} u</span>
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={onClose}
+                        className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    >
+                        <X size={16} />
+                    </button>
+                </div>
+
+                {/* Selección de Tipo de Ajuste */}
+                <div className="grid grid-cols-3 gap-1.5 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl">
+                    <button
+                        type="button"
+                        onClick={() => { triggerHaptic?.(); setMode('add'); }}
+                        className={`py-2 text-[10px] font-black uppercase rounded-xl transition-all ${
+                            mode === 'add'
+                                ? 'bg-emerald-500 text-white shadow-sm'
+                                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                        }`}
+                    >
+                        ➕ Entrada (+40)
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => { triggerHaptic?.(); setMode('subtract'); }}
+                        className={`py-2 text-[10px] font-black uppercase rounded-xl transition-all ${
+                            mode === 'subtract'
+                                ? 'bg-rose-500 text-white shadow-sm'
+                                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                        }`}
+                    >
+                        ➖ Salida (-10)
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => { triggerHaptic?.(); setMode('set'); }}
+                        className={`py-2 text-[10px] font-black uppercase rounded-xl transition-all ${
+                            mode === 'set'
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                        }`}
+                    >
+                        ✏️ Fijar Exacto
+                    </button>
+                </div>
+
+                {/* Input de Cantidad */}
+                <form onSubmit={handleSave} className="space-y-3">
+                    <div>
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">
+                            {mode === 'add' ? '¿Cuántas unidades llegaron?' : mode === 'subtract' ? '¿Cuántas unidades salen?' : 'Nuevo Stock total exacto:'}
+                        </label>
+                        <input
+                            type="number"
+                            inputMode="decimal"
+                            step="any"
+                            autoFocus
+                            value={quantity}
+                            onChange={(e) => setQuantity(e.target.value)}
+                            placeholder={mode === 'add' ? 'Ej: 40' : mode === 'subtract' ? 'Ej: 5' : `${currentStock}`}
+                            className="w-full px-4 py-3 text-lg font-outfit font-black rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500 text-center"
+                        />
+                    </div>
+
+                    {/* Botones de Acceso Rápido */}
+                    <div className="space-y-1">
+                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">Sugeridos rápidos:</span>
+                        <div className="flex flex-wrap gap-1.5">
+                            {[5, 10, 20, 40, 50, 100].map((num) => (
+                                <button
+                                    key={num}
+                                    type="button"
+                                    onClick={() => handleQuickAdd(num)}
+                                    className="px-2.5 py-1 text-xs font-outfit font-black rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-slate-700 transition-colors"
+                                >
+                                    +{num}
+                                </button>
+                            ))}
+                            {product.sellByBox && product.boxUnits > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={() => handleQuickAdd(product.boxUnits)}
+                                    className="px-2.5 py-1 text-xs font-outfit font-black rounded-xl bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 hover:bg-blue-100 transition-colors"
+                                >
+                                    +1 Caja ({product.boxUnits}u)
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Proyección / Vista Previa */}
+                    <div className="bg-slate-50 dark:bg-slate-950/60 p-3 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">Stock resultante:</span>
+                        <span className="font-outfit font-black text-sm tabular-nums text-slate-800 dark:text-white">
+                            {targetStock} u
+                            {delta !== 0 && (
+                                <span className={`ml-1.5 text-xs ${delta > 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                    ({delta > 0 ? '+' : ''}{delta})
+                                </span>
+                            )}
+                        </span>
+                    </div>
+
+                    {/* Botones de acción del Modal */}
+                    <div className="flex gap-2 pt-1">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="flex-1 py-2.5 rounded-2xl font-black text-xs uppercase text-slate-500 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={!quantity || qtyNum <= 0}
+                            className="flex-1 py-2.5 rounded-2xl font-black text-xs uppercase text-white bg-emerald-500 hover:bg-emerald-400 shadow-lg shadow-emerald-500/25 transition-all active:scale-95 disabled:opacity-40"
+                        >
+                            Encolar Ajuste
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
     );
 }
