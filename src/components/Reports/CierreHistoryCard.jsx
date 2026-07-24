@@ -51,7 +51,7 @@ export default function CierreHistoryCard({ cierre, correlativo, bcvRate, produc
                 });
             }
         });
-        const todayTopProducts = Object.values(todayProductMap).sort((a, b) => b.qty - a.qty).slice(0, 10);
+        const todayTopProducts = Object.values(todayProductMap).sort((a, b) => b.qty - a.qty);
 
         generateDailyClosePDF({
             sales: cierre.salesForCashFlow.filter(s => s.tipo !== 'APERTURA_CAJA'),

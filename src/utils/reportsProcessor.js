@@ -42,7 +42,7 @@ export function calculateReportsData(allSales, from, to, bcvRate, products) {
             productMap[key].revenue = round2(productMap[key].revenue + mulR(item.priceUsd, item.qty));
         });
     });
-    const topProducts = Object.values(productMap).sort((a, b) => b.revenue - a.revenue).slice(0, 8);
+    const topProducts = Object.values(productMap).sort((a, b) => b.revenue - a.revenue);
 
     // Ventas por día para mini gráfica
     const map = {};

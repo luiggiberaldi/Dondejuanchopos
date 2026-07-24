@@ -299,41 +299,42 @@ export async function generateDailyClosePDF({
         // Sincronizar Y
         y = Math.max(leftY, rightY) + 6;
 
-        // 3. Productos Más Vendidos
+        // 3. Productos Vendidos del Día (Todos los productos vendidos en la jornada)
         if (topProducts.length > 0) {
-            checkPageBreak(25 + topProducts.length * 6);
+            checkPageBreak(18);
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(9.5);
             doc.setTextColor(...BLUE);
-            doc.text('PRODUCTOS MÁS VENDIDOS DEL DÍA', M, y);
-            y += 4.5;
+            doc.text('PRODUCTOS VENDIDOS DEL DÍA', M, y);
+            y += 5;
 
-            doc.setFillColor(248, 249, 250);
-            doc.rect(M, y, RIGHT - M, 10 + topProducts.length * 5.5, 'F');
-            doc.setDrawColor(...BORDER_CARD);
-            doc.setLineWidth(0.25);
-            doc.rect(M, y, RIGHT - M, 10 + topProducts.length * 5.5, 'S');
-
-            let topY = y + 6;
             topProducts.forEach((p, idx) => {
+                checkPageBreak(6);
+
+                // Fila suave alternada para fácil lectura
+                if (idx % 2 === 0) {
+                    doc.setFillColor(248, 249, 250);
+                    doc.rect(M, y - 4, RIGHT - M, 5.5, 'F');
+                }
+
                 doc.setFont('helvetica', 'bold');
                 doc.setFontSize(7.5);
                 doc.setTextColor(...INK);
-                doc.text(`${idx + 1}.`, M + 6, topY);
+                doc.text(`${idx + 1}.`, M + 4, y);
                 
                 doc.setFont('helvetica', 'normal');
                 doc.setTextColor(...BODY);
-                doc.text(p.name, M + 14, topY);
+                doc.text(p.name, M + 12, y);
                 
                 doc.setFont('helvetica', 'bold');
                 doc.setTextColor(...INK);
                 const revenueStr = `${p.qty} u/kg  ·  Total: ${fmtUsd(p.revenue)} · (Bs ${formatBs(mulR(p.revenue, bcvRate))})`;
-                doc.text(revenueStr, RIGHT - 6, topY, { align: 'right' });
+                doc.text(revenueStr, RIGHT - 4, y, { align: 'right' });
                 
-                topY += 5.5;
+                y += 5.5;
             });
 
-            y += 10 + topProducts.length * 5.5 + 6;
+            y += 4;
         }
 
         // 4. Detalle de Ventas (Tabla Impecable)
@@ -663,9 +664,9 @@ export async function generateDailyClosePDF({
         dash(y); y += 6;
     }
 
-    // Top Productos
+    // Productos Vendidos
     if (topProdRows > 0) {
-        y = sectionTitle('PRODUCTOS MÁS VENDIDOS', y);
+        y = sectionTitle('PRODUCTOS VENDIDOS DEL DÍA', y);
 
         topProducts.forEach((p, i) => {
             const rank = `${i + 1}.`;
