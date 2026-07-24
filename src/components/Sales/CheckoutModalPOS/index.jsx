@@ -345,16 +345,9 @@ export default function CheckoutModalPOS({
                 });
             }
 
-            // Total a REGISTRAR: par USD/Bs consistente con la tasa (requisito del guard
-            // FIN-022). El display se mantiene fijo ($15 / Bs 13.000); aquí se ancla según
-            // la moneda del pago: 100% Bs → se cobró el Bs manual; si no → base USD.
-            const registroTotalUsd = isPureBsPayment && effectiveRate > 0
-                ? round2(divR(originalTotalBs, effectiveRate))
-                : originalTotalUsd;
-            const registroTotalBs = isPureBsPayment
-                ? originalTotalBs
-                : round2(mulR(originalTotalUsd, effectiveRate));
-
+            // Total a REGISTRAR: los totales del carrito provienen directamente de
+            // FinancialEngine.buildCartTotals (que respeta precios duales y manuales en Bs).
+            // Pasar originalTotalUsd y originalTotalBs tal cual garantiza consistencia matemática 100%.
             onConfirmSale(payments, {
                 changeUsdGiven: distVueltoUSD ? parseFloat(distVueltoUSD) : cambioUSD,
                 changeBsGiven: distVueltoBS ? parseFloat(distVueltoBS) : 0,
@@ -363,9 +356,9 @@ export default function CheckoutModalPOS({
                 esCashea: casheaActive,
                 vueltoCredito: isChangeCredited,
             }, {
-                cartTotalUsd: registroTotalUsd,
-                cartTotalBs: registroTotalBs,
-                cartSubtotalUsd: registroTotalUsd,
+                cartTotalUsd: originalTotalUsd,
+                cartTotalBs: originalTotalBs,
+                cartSubtotalUsd: originalTotalUsd,
             });
 
             triggerHaptic && triggerHaptic();
