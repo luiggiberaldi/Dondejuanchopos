@@ -307,17 +307,19 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     // 1. Cargar datos locales (que son actualizados por useMonitorSync)
     const loadLocalData = async () => {
         try {
-            const [savedSales, savedAuth] = await Promise.all([
+            const [savedSales, savedAuth, savedSession] = await Promise.all([
                 storageService.getItem('bodega_sales_v1', []),
-                storageService.getItem('abasto-auth-storage', null)
+                storageService.getItem('abasto-auth-storage', null),
+                storageService.getItem('abasto-device-session', null)
             ]);
 
             setSales(savedSales);
             
-            if (savedAuth && savedAuth.state && savedAuth.state.usuarioActivo) {
+            const activeUser = savedSession?.nombre || savedAuth?.state?.usuarioActivo?.nombre;
+            if (activeUser) {
                 setActiveCashier({
-                    nombre: savedAuth.state.usuarioActivo.nombre || 'Cajero',
-                    rol: savedAuth.state.usuarioActivo.rol || 'CAJERO'
+                    nombre: activeUser,
+                    rol: savedSession?.rol || savedAuth?.state?.usuarioActivo?.rol || 'CAJERO'
                 });
             } else {
                 setActiveCashier({ nombre: 'Ninguno', rol: '' });

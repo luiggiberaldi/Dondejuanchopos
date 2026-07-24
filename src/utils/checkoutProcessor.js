@@ -88,10 +88,15 @@ export async function processSaleTransaction({
         methodLabel: p.methodLabel || p.methodId,
     }));
 
+    const activeUser = useAuthStore.getState().usuarioActivo;
+    const cajeroNombre = activeUser ? (activeUser.nombre || activeUser.usuario || 'Cajero') : null;
+
     const sale = {
         id: crypto.randomUUID(),
         tipo: tipoVenta,
         status: 'COMPLETADA',
+        cajero: cajeroNombre,
+        cajeroId: activeUser?.id || null,
         items: cart.map(i => ({
             id: i.id,
             name: i.name,

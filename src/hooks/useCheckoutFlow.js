@@ -5,6 +5,7 @@ import { withLock } from '../utils/withLock';  // FIN-026: lock para apertura de
 import { round2 } from '../utils/dinero';
 import { CurrencyService } from '../services/CurrencyService'; // FIN-026: safeParse en vez de parseFloat.
 import { SALES_KEY } from './useSalesData';
+import { useAuthStore } from './store/useAuthStore';
 
 export function useCheckoutFlow({
     cart, cartTotalUsd, cartTotalBs, cartSubtotalUsd,
@@ -106,6 +107,9 @@ export function useCheckoutFlow({
 
         try {
             const today = new Date().toISOString();
+            const activeUser = useAuthStore.getState().usuarioActivo;
+            const cajeroNombre = activeUser ? (activeUser.nombre || activeUser.usuario || 'Cajero') : null;
+
             const aperturaRecord = {
                 id: `apertura_${Date.now()}`,
                 tipo: 'APERTURA_CAJA',
@@ -113,6 +117,8 @@ export function useCheckoutFlow({
                 openingBs,
                 // FIN-026: incluir openingCop siempre (aunque sea 0) para trazabilidad.
                 openingCop,
+                cajero: cajeroNombre,
+                cajeroId: activeUser?.id || null,
                 timestamp: today,
                 cajaCerrada: false
             };
