@@ -70,6 +70,17 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
         }));
     };
 
+    const handleBsChangeForUsd = (usdField, bsValue, mode) => {
+        const rate = mode === 'bcv' ? (bcvRate > 0 ? bcvRate : effectiveRate) : (effectiveRate > 0 ? effectiveRate : bcvRate);
+        const bsNum = parseFloat(bsValue);
+        if (!isNaN(bsNum) && bsNum > 0 && rate > 0) {
+            const usdCalc = (bsNum / rate).toFixed(2);
+            setForm(prev => ({ ...prev, [usdField]: usdCalc }));
+        } else if (bsValue === '') {
+            setForm(prev => ({ ...prev, [usdField]: '' }));
+        }
+    };
+
     const priceNum = Number(form.priceUsd) || 0;
     const canSave = form.name.trim().length >= 3 && priceNum > 0
         && (!form.sellByBox || parseInt(form.boxUnits, 10) > 0)
@@ -89,7 +100,6 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                 category: form.category || editingProduct?.category || 'varios',
                 barcode: form.barcode.trim() || null,
                 priceUsd: Number(form.priceUsd) || 0,
-                // D4: solo persistir el campo Bs que corresponde al modo
                 priceBsManual: mode === 'bs_fijo' && form.priceBsManual !== '' ? Number(form.priceBsManual) : null,
                 priceBsUsdRef: mode === 'dual_usd' && form.priceBsUsdRef !== '' ? Number(form.priceBsUsdRef) : null,
                 forceBcv: mode === 'bcv',
@@ -125,6 +135,7 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
 
     const formatBlock = (title, color, modeField, unitsField, barcodeField, usdField, bsField, bsUsdRefField, unitsPlaceholder) => {
         const effMode = form[modeField] === 'inherit' ? form.pricingMode : form[modeField];
+        const activeRate = effMode === 'bcv' ? (bcvRate > 0 ? bcvRate : effectiveRate) : (effectiveRate > 0 ? effectiveRate : bcvRate);
 
         return (
             <div className={`p-3 rounded-2xl border space-y-2.5 ${color}`}>
@@ -179,6 +190,21 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                         <label className={labelCls}>{effMode === 'dual_usd' ? '$ en divisa' : 'Precio USD ($)'}</label>
                         <input type="number" inputMode="decimal" value={form[usdField]} onChange={set(usdField)} placeholder="0.00" className={inputCls} />
                     </div>
+                    {(effMode === 'bcv' || effMode === 'tasa_dia') && (
+                        <div>
+                            <label className={labelCls}>
+                                Precio Bs ({effMode === 'bcv' ? 'tasa BCV' : 'tasa Día'}: {activeRate ? activeRate.toFixed(2) : 'N/D'})
+                            </label>
+                            <input
+                                type="number"
+                                inputMode="decimal"
+                                value={Number(form[usdField]) > 0 && activeRate > 0 ? (Number(form[usdField]) * activeRate).toFixed(2) : ''}
+                                onChange={(e) => handleBsChangeForUsd(usdField, e.target.value, effMode)}
+                                placeholder="0.00 Bs"
+                                className={inputCls}
+                            />
+                        </div>
+                    )}
                     {effMode === 'bs_fijo' && (
                         <div>
                             <label className={labelCls}>Precio Bs (Fijo)</label>
@@ -204,6 +230,8 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
             </div>
         );
     };
+
+    const unitActiveRate = form.pricingMode === 'bcv' ? (bcvRate > 0 ? bcvRate : effectiveRate) : (effectiveRate > 0 ? effectiveRate : bcvRate);
 
     return (
         <div className="fixed inset-0 z-[300] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -267,6 +295,21 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                             <label className={labelCls}>{form.pricingMode === 'dual_usd' ? '$ en divisa' : 'Precio USD ($)'}</label>
                             <input type="number" inputMode="decimal" value={form.priceUsd} onChange={set('priceUsd')} placeholder="0.00" className={inputCls} />
                         </div>
+                        {(form.pricingMode === 'bcv' || form.pricingMode === 'tasa_dia') && (
+                            <div>
+                                <label className={labelCls}>
+                                    Precio Bs ({form.pricingMode === 'bcv' ? 'tasa BCV' : 'tasa Día'}: {unitActiveRate ? unitActiveRate.toFixed(2) : 'N/D'})
+                                </label>
+                                <input
+                                    type="number"
+                                    inputMode="decimal"
+                                    value={Number(form.priceUsd) > 0 && unitActiveRate > 0 ? (Number(form.priceUsd) * unitActiveRate).toFixed(2) : ''}
+                                    onChange={(e) => handleBsChangeForUsd('priceUsd', e.target.value, form.pricingMode)}
+                                    placeholder="0.00 Bs"
+                                    className={inputCls}
+                                />
+                            </div>
+                        )}
                         {form.pricingMode === 'bs_fijo' && (
                             <div>
                                 <label className={labelCls}>Precio Bs (Fijo)</label>
