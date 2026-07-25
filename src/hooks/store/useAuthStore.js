@@ -198,6 +198,7 @@ export const useAuthStore = create(
             // SEC-005: usuarios vacíos al iniciar; se rellenan en `_ensureDefaultUsers`.
             usuarios: [],
             requireLogin: _defaultRequireLogin(),
+            blindModeEnabled: (() => { try { return localStorage.getItem('blind_mode_enabled') === 'true'; } catch { return false; } })(),
             // SEC-006: persistidos en partialize.
             failedAttempts: 0,
             lockUntil: null,
@@ -209,6 +210,12 @@ export const useAuthStore = create(
             isCloudConfigured: (() => {
                 try { return Boolean(sessionStorage.getItem(ADMIN_CRED_KEY)); } catch { return false; }
             })(),
+
+            setBlindModeEnabled: (val) => {
+                const isTrue = Boolean(val);
+                try { localStorage.setItem('blind_mode_enabled', isTrue ? 'true' : 'false'); } catch {}
+                set({ blindModeEnabled: isTrue });
+            },
 
             // ── ACCIONES ──
 
@@ -558,6 +565,7 @@ export const useAuthStore = create(
             partialize: (state) => ({
                 usuarios: state.usuarios,
                 requireLogin: state.requireLogin,
+                blindModeEnabled: state.blindModeEnabled,
                 // SEC-006: rate-limiting persistido (sobrevive recarga).
                 failedAttempts: state.failedAttempts,
                 lockUntil: state.lockUntil,

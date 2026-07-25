@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { processVoidSale } from '../utils/voidSaleProcessor';
 import { storageService } from '../utils/storageService';
 import { showToast } from '../components/Toast';
-import { BarChart3, TrendingUp, Package, AlertTriangle, ShoppingCart, Store, Users, Settings, LogOut, Bell, BellOff } from 'lucide-react';
+import { BarChart3, TrendingUp, Package, AlertTriangle, ShoppingCart, Store, Users, Settings, LogOut, Bell, BellOff, Lock } from 'lucide-react';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
 import DashboardStats from '../components/Dashboard/DashboardStats';
 import DashboardPaymentBreakdown from '../components/Dashboard/DashboardPaymentBreakdown';
@@ -38,8 +38,10 @@ const SALES_KEY = 'bodega_sales_v1';
 export default function DashboardView({ rates, onRefreshRates, loadingRates, triggerHaptic, onNavigate, theme, toggleTheme, isActive }) {
     const { notifyCierrePendiente, requestPermission } = useNotifications();
     const { deviceId } = useSecurity();
-    const isAdmin = true;
-    const isCajero = useAuthStore(s => s.requireLogin && s.usuarioActivo?.rol === 'CAJERO');
+    const usuarioActivo = useAuthStore(s => s.usuarioActivo);
+    const isCajero = usuarioActivo?.rol === 'CAJERO';
+    const blindModeEnabled = useAuthStore(s => s.blindModeEnabled);
+    const isBlindMode = isCajero || blindModeEnabled;
     const { log: auditLog } = useAudit();
     const { products, setProducts, isLoadingProducts, effectiveRate: bcvRate, copEnabled, copPrimary, tasaCop, rateMode } = useProductContext();
     const { loadCart } = useCart();
@@ -47,7 +49,6 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
     // Auth actions
     const logout = useAuthStore(s => s.logout);
     const requireLogin = useAuthStore(s => s.requireLogin);
-    const usuarioActivo = useAuthStore(s => s.usuarioActivo);
 
     // Data loading
     const { sales, setSales, customers, setCustomers, isLoadingLocal, refreshData } = useDashboardData(isActive, requestPermission);
@@ -549,6 +550,13 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                         <Receipt size={18} />
                         <span>Gastos</span>
                     </button>
+                    <button 
+                        onClick={handleDailyClose} 
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 font-bold text-sm transition-all hover:scale-[1.02] active:scale-95 cursor-pointer border border-amber-200/60 dark:border-amber-800/60"
+                    >
+                        <Lock size={18} />
+                        <span>Cerrar Caja</span>
+                    </button>
                 </div>
 
                 {/* Lado Derecho en PC: Reloj, fecha y Sincronización */}
@@ -591,7 +599,7 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
             </div>
 
             {/* Acciones Rápidas en Móvil (Ocultas en PC) */}
-            <div className="grid grid-cols-5 gap-1.5 mb-5 md:hidden">
+            <div className="grid grid-cols-6 gap-1 mb-5 md:hidden">
                 <button 
                     onClick={() => { if (onNavigate) { triggerHaptic(); onNavigate('ventas'); } }} 
                     className="bg-brand hover:bg-brand-dark text-white dark:text-slate-950 rounded-xl p-2 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
@@ -627,27 +635,45 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                     <Receipt size={16} />
                     <span className="text-[9px] font-bold">Gastos</span>
                 </button>
+                <button 
+                    onClick={handleDailyClose} 
+                    className="bg-amber-500 hover:bg-amber-600 text-white rounded-xl p-2 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
+                >
+                    <Lock size={16} />
+                    <span className="text-[9px] font-bold">Cierre</span>
+                </button>
             </div>
 
-            {/* ── CAJERO: vista simplificada — v1.2.0: reveal + shadow-tone-sm + font-display en totales ── */}
+            {/* ── CAJERO: vista simplificada + Botón Prominente de Cierre de Caja ── */}
             {isCajero ? (
-                <div className="grid grid-cols-2 gap-3 mb-5">
-                    <div className="reveal card !p-4 !rounded-2xl relative overflow-hidden">
-                        <div className="absolute -right-4 -top-4 w-16 h-16 bg-brand-light dark:bg-surface-800/10 rounded-full blur-2xl" />
-                        <div className="w-9 h-9 bg-brand-light dark:bg-surface-800/30 rounded-xl flex items-center justify-center mb-2">
-                            <ShoppingCart size={18} className="text-brand" />
+                <div className="space-y-4 mb-5">
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="reveal card !p-4 !rounded-2xl relative overflow-hidden">
+                            <div className="absolute -right-4 -top-4 w-16 h-16 bg-brand-light dark:bg-surface-800/10 rounded-full blur-2xl" />
+                            <div className="w-9 h-9 bg-brand-light dark:bg-surface-800/30 rounded-xl flex items-center justify-center mb-2">
+                                <ShoppingCart size={18} className="text-brand" />
+                            </div>
+                            <p className="font-outfit text-4xl font-semibold text-surface-700 dark:text-surface-100 leading-none">{todaySales.length}</p>
+                            <p className="text-[11px] text-surface-400 mt-1">{todaySales.length === 1 ? 'venta hoy' : 'ventas hoy'}</p>
                         </div>
-                        <p className="font-outfit text-4xl font-semibold text-surface-700 dark:text-surface-100 leading-none">{todaySales.length}</p>
-                        <p className="text-[11px] text-surface-400 mt-1">{todaySales.length === 1 ? 'venta hoy' : 'ventas hoy'}</p>
-                    </div>
-                    <div className="reveal card !p-4 !rounded-2xl relative overflow-hidden">
-                        <div className="absolute -right-4 -top-4 w-16 h-16 bg-emerald-50 dark:bg-emerald-900/10 rounded-full blur-2xl" />
-                        <div className="w-9 h-9 bg-emerald-100 dark:bg-emerald-900/30 rounded-xl flex items-center justify-center mb-2">
-                            <Package size={18} className="text-emerald-500" />
+                        <div className="reveal card !p-4 !rounded-2xl relative overflow-hidden">
+                            <div className="absolute -right-4 -top-4 w-16 h-16 bg-emerald-50 dark:bg-emerald-900/10 rounded-full blur-2xl" />
+                            <div className="w-9 h-9 bg-emerald-100 dark:bg-emerald-900/30 rounded-xl flex items-center justify-center mb-2">
+                                <Package size={18} className="text-emerald-500" />
+                            </div>
+                            <p className="font-outfit text-4xl font-semibold text-surface-700 dark:text-surface-100 leading-none">{todayItemsSold}</p>
+                            <p className="text-[11px] text-surface-400 mt-1">{todayItemsSold === 1 ? 'artículo vendido' : 'artículos vendidos'}</p>
                         </div>
-                        <p className="font-outfit text-4xl font-semibold text-surface-700 dark:text-surface-100 leading-none">{todayItemsSold}</p>
-                        <p className="text-[11px] text-surface-400 mt-1">{todayItemsSold === 1 ? 'artículo vendido' : 'artículos vendidos'}</p>
                     </div>
+
+                    {/* Botón de Cierre de Caja para Cajero */}
+                    <button
+                        onClick={handleDailyClose}
+                        className="w-full py-4 px-6 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-black text-sm uppercase tracking-wider shadow-lg shadow-amber-500/25 flex items-center justify-center gap-3 transition-all active:scale-[0.98] cursor-pointer"
+                    >
+                        <Lock size={20} />
+                        <span>Cerrar Caja de Hoy</span>
+                    </button>
                 </div>
             ) : (
             /* ── ADMIN: layout completo ── */
@@ -879,11 +905,13 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                 copEnabled={copEnabled}
                 copPrimary={copPrimary}
                 tasaCop={tasaCop}
+                isBlindMode={isBlindMode}
             />
             <CierreCajaSummaryModal
                 isOpen={showCierreSummary}
                 onClose={() => setShowCierreSummary(false)}
                 summaryData={cierreSummaryData}
+                isBlindMode={isBlindMode}
                 onPrint={() => {
                     generateDailyClosePDF({ ...cierreSummaryData, action: 'print' });
                 }}

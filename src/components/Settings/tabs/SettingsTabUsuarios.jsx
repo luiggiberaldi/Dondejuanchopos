@@ -7,6 +7,7 @@ import { Toggle } from '../../SettingsShared';
 export default function SettingsTabUsuarios({
     requireLogin, setRequireLogin,
     autoLockMinutes, setAutoLockMinutes,
+    blindModeEnabled, setBlindModeEnabled,
     showToast, triggerHaptic,
 }) {
     return (
@@ -18,7 +19,7 @@ export default function SettingsTabUsuarios({
             </div>
 
             <div className="md:col-span-2 xl:col-span-3">
-                <SectionCard icon={Lock} title="Seguridad" subtitle="Control de acceso por PIN" iconColor="text-rose-500">
+                <SectionCard icon={Lock} title="Seguridad y Control de Caja" subtitle="Control de acceso y arqueo ciego" iconColor="text-rose-500">
                     {/* Toggle login requerido */}
                     <div className="flex items-center justify-between mb-4 border-b border-slate-100 dark:border-slate-800 pb-4">
                         <div>
@@ -36,6 +37,28 @@ export default function SettingsTabUsuarios({
                             }}
                         />
                     </div>
+
+                    {/* Toggle Cuadre Ciego para Cajeros */}
+                    {requireLogin && (
+                        <div className="flex items-center justify-between mb-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+                            <div>
+                                <p className="text-sm font-bold text-slate-700 dark:text-slate-200">🔒 Cuadre Ciego para Cajeros</p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 max-w-md">
+                                    Oculta los montos esperados del sistema al cajero durante el cierre de caja. El reporte con discrepancias estará visible en el Panel de Supervisión.
+                                </p>
+                            </div>
+                            <Toggle
+                                enabled={blindModeEnabled}
+                                color="rose"
+                                onChange={() => {
+                                    const newVal = !blindModeEnabled;
+                                    if (setBlindModeEnabled) setBlindModeEnabled(newVal);
+                                    triggerHaptic?.();
+                                    showToast(newVal ? 'Cuadre ciego activado para Cajeros' : 'Cuadre ciego desactivado', 'info');
+                                }}
+                            />
+                        </div>
+                    )}
 
                     {/* Bloqueo automático — solo si PIN está activo */}
                     {requireLogin && (

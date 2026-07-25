@@ -9,6 +9,7 @@ export default function CierreCajaSummaryModal({
     onPrint,
     onDownload,
     onShare,
+    isBlindMode = false
 }) {
     if (!isOpen || !summaryData) return null;
 
@@ -81,66 +82,79 @@ export default function CierreCajaSummaryModal({
 
                 {/* Cuadre de Arqueo Físico */}
                 <div className="space-y-2">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">Cuadre de Efectivo</span>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+                        {isBlindMode ? 'Declaración de Efectivo (Cuadre Ciego)' : 'Cuadre de Efectivo'}
+                    </span>
                     
                     <div className="border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden text-xs">
-                        <div className="grid grid-cols-3 gap-0 px-3 py-2 bg-slate-50 dark:bg-slate-800/50 text-[10px] font-black text-slate-400 uppercase border-b border-slate-100 dark:border-slate-850">
+                        <div className={`grid ${isBlindMode ? 'grid-cols-2' : 'grid-cols-3'} gap-0 px-3 py-2 bg-slate-50 dark:bg-slate-800/50 text-[10px] font-black text-slate-400 uppercase border-b border-slate-100 dark:border-slate-850`}>
                             <span>Moneda</span>
-                            <span className="text-center">Esperado</span>
+                            {!isBlindMode && <span className="text-center">Esperado</span>}
                             <span className="text-center">Declarado</span>
                         </div>
 
                         {/* USD Row */}
-                        <div className="grid grid-cols-3 gap-0 px-3 py-2.5 border-b border-slate-100 dark:border-slate-800/50">
+                        <div className={`grid ${isBlindMode ? 'grid-cols-2' : 'grid-cols-3'} gap-0 px-3 py-2.5 border-b border-slate-100 dark:border-slate-800/50`}>
                             <span className="font-bold text-slate-700 dark:text-slate-200">USD ($)</span>
-                            <span className="font-mono text-slate-500 text-center">${expectedUsd.toFixed(2)}</span>
+                            {!isBlindMode && <span className="font-mono text-slate-500 text-center">${expectedUsd.toFixed(2)}</span>}
                             <span className="font-mono font-black text-center text-slate-800 dark:text-white">${declaredUsd.toFixed(2)}</span>
                         </div>
 
                         {/* Bs Row */}
-                        <div className="grid grid-cols-3 gap-0 px-3 py-2.5 border-b border-slate-100 dark:border-slate-800/50">
+                        <div className={`grid ${isBlindMode ? 'grid-cols-2' : 'grid-cols-3'} gap-0 px-3 py-2.5 border-b border-slate-100 dark:border-slate-800/50`}>
                             <span className="font-bold text-slate-700 dark:text-slate-200">Bs (Bs)</span>
-                            <span className="font-mono text-slate-500 text-center">{formatBs(expectedBs)}</span>
+                            {!isBlindMode && <span className="font-mono text-slate-500 text-center">{formatBs(expectedBs)}</span>}
                             <span className="font-mono font-black text-center text-slate-800 dark:text-white">{formatBs(declaredBs)}</span>
                         </div>
 
                         {/* COP Row */}
                         {hasCop && (
-                            <div className="grid grid-cols-3 gap-0 px-3 py-2.5 border-b border-slate-100 dark:border-slate-800/50">
+                            <div className={`grid ${isBlindMode ? 'grid-cols-2' : 'grid-cols-3'} gap-0 px-3 py-2.5 border-b border-slate-100 dark:border-slate-800/50`}>
                                 <span className="font-bold text-amber-600 dark:text-amber-400">COP (Col)</span>
-                                <span className="font-mono text-slate-500 text-center">{fmtCop(expectedCop)}</span>
+                                {!isBlindMode && <span className="font-mono text-slate-500 text-center">{fmtCop(expectedCop)}</span>}
                                 <span className="font-mono font-black text-center text-slate-800 dark:text-white">{fmtCop(declaredCop)}</span>
                             </div>
                         )}
 
                         {/* Diferencia Summary */}
-                        <div className="grid grid-cols-3 gap-0 px-3 py-2 bg-slate-100/50 dark:bg-slate-800/30 text-[10px] font-black uppercase text-slate-400 border-t border-slate-100 dark:border-slate-800">
-                            <span>Diferencia</span>
-                            <span className={`text-center font-mono font-black ${diffUsd >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
-                                {diffUsd >= 0 ? '+' : ''}${diffUsd.toFixed(2)}
-                            </span>
-                            <span className={`text-center font-mono font-black ${diffBs >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
-                                {diffBs >= 0 ? '+' : ''}{formatBs(diffBs)}
-                            </span>
-                        </div>
+                        {!isBlindMode && (
+                            <div className="grid grid-cols-3 gap-0 px-3 py-2 bg-slate-100/50 dark:bg-slate-800/30 text-[10px] font-black uppercase text-slate-400 border-t border-slate-100 dark:border-slate-800">
+                                <span>Diferencia</span>
+                                <span className={`text-center font-mono font-black ${diffUsd >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
+                                    {diffUsd >= 0 ? '+' : ''}${diffUsd.toFixed(2)}
+                                </span>
+                                <span className={`text-center font-mono font-black ${diffBs >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
+                                    {diffBs >= 0 ? '+' : ''}{formatBs(diffBs)}
+                                </span>
+                            </div>
+                        )}
                     </div>
 
-                    {/* Semáforo Alert */}
-                    <div className={`p-3 rounded-2xl flex items-start gap-2.5 border text-[11px] leading-snug font-medium ${
-                        isCuadrado 
-                            ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200/50 dark:border-emerald-900/30 text-emerald-700 dark:text-emerald-400' 
-                            : 'bg-red-50 dark:bg-red-950/20 border-red-200/50 dark:border-red-900/30 text-red-700 dark:text-red-400'
-                    }`}>
-                        <div className="shrink-0 mt-0.5">
-                            {isCuadrado ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+                    {/* Semáforo / Blind Alert */}
+                    {isBlindMode ? (
+                        <div className="p-3 rounded-2xl flex items-start gap-2.5 border text-[11px] leading-snug font-medium bg-slate-900 text-white border-slate-800">
+                            <div className="shrink-0 mt-0.5 text-amber-400 font-bold">🔒</div>
+                            <div>
+                                Conteo registrado a ciegas. El reporte de discrepancias se guardó para revisión del Supervisor.
+                            </div>
                         </div>
-                        <div>
-                            {isCuadrado 
-                                ? 'Arqueo de caja cerrado en orden. Las discrepancias de efectivo se encuentran dentro del rango de tolerancia.' 
-                                : '¡Alerta de cuadre! Las declaraciones físicas ingresadas no coinciden con los saldos esperados por el sistema.'
-                            }
+                    ) : (
+                        <div className={`p-3 rounded-2xl flex items-start gap-2.5 border text-[11px] leading-snug font-medium ${
+                            isCuadrado 
+                                ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200/50 dark:border-emerald-900/30 text-emerald-700 dark:text-emerald-400' 
+                                : 'bg-red-50 dark:bg-red-950/20 border-red-200/50 dark:border-red-900/30 text-red-700 dark:text-red-400'
+                        }`}>
+                            <div className="shrink-0 mt-0.5">
+                                {isCuadrado ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+                            </div>
+                            <div>
+                                {isCuadrado 
+                                    ? 'Arqueo de caja cerrado en orden. Las discrepancias de efectivo se encuentran dentro del rango de tolerancia.' 
+                                    : '¡Alerta de cuadre! Las declaraciones físicas ingresadas no coinciden con los saldos esperados por el sistema.'
+                                }
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </div>
 
                 {/* Acciones principales */}

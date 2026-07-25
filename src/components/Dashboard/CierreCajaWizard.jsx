@@ -23,7 +23,8 @@ export default function CierreCajaWizard({
     bcvRate = 1,
     copEnabled = false,
     copPrimary = false,
-    tasaCop = 0
+    tasaCop = 0,
+    isBlindMode = false
 }) {
     const [step, setStep] = useState(1);
     const [actualUsd, setActualUsd] = useState('');
@@ -61,12 +62,6 @@ export default function CierreCajaWizard({
     // Total COP del dia (use stored totalCop from sales, fallback to derived)
     const todayTotalCop = todayTotalCopProp > 0 ? todayTotalCopProp : (copEnabled && tasaCop > 0 ? mulR(todayTotalUsd, tasaCop) : 0);
 
-    // Semaforo
-    // FIN-028: Antes solo consideraba USD. Ahora combina las tres monedas con
-    //   tolerancias explícitas (FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_*).
-    //   Regla: si alguna moneda tiene discrepancia significativa → rojo.
-    //         si alguna tiene diferencia menor pero todas las demás cuadradas → ámbar.
-    //         si todas cuadran dentro de tolerancia → verde.
     const absDiffUsd = Math.abs(diffUsd);
     const absDiffBs = Math.abs(diffBs);
     const absDiffCop = Math.abs(diffCop);
@@ -78,7 +73,6 @@ export default function CierreCajaWizard({
 
     const getSemaforo = () => {
         if (usdOk && bsOk && copOk) return { color: 'emerald', label: 'Caja cuadrada', icon: CheckCircle2, bg: 'bg-emerald-500' };
-        // Diferencia menor: al menos una moneda excede tolerancia pero todas < 5x tolerancia.
         const usdMinor = absDiffUsd <= FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_USD * 5;
         const bsMinor = absDiffBs <= FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_BS * 5;
         const copMinor = !hasCopActivity || absDiffCop <= FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_COP * 5;
@@ -99,7 +93,8 @@ export default function CierreCajaWizard({
             declaredCop,
             diffUsd,
             diffBs,
-            diffCop
+            diffCop,
+            isBlindClose: isBlindMode
         });
         setStep(1);
         setActualUsd('');
@@ -172,98 +167,123 @@ export default function CierreCajaWizard({
                     {/* ═══ STEP 1: Resumen del Dia ═══ */}
                     {step === 1 && (
                         <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
-                            {/* Totales principales */}
-                            <div className="bg-gradient-to-br from-brand to-brand-dark rounded-2xl p-5 text-white relative overflow-hidden">
-                                <div className="absolute -right-6 -top-6 w-24 h-24 bg-white/10 rounded-full blur-2xl" />
-                                <p className="text-xs font-bold text-brand-light uppercase tracking-widest mb-1">Ingresos brutos del dia</p>
-                                <p className="text-3xl font-black">
-                                    {copEnabled && copPrimary && tasaCop > 0
-                                        ? `${formatCop(todayTotalCop)} COP`
-                                        : fmtUsdAmt(todayTotalUsd)}
-                                </p>
-                                {copActive && (
-                                    copPrimary
-                                        ? <p className="text-sm font-bold text-brand-light mt-0.5">{fmtUsdAmt(todayTotalUsd)}</p>
-                                        : <p className="text-sm font-bold text-amber-300 mt-0.5">{formatCop(todayTotalCop)} COP</p>
-                                )}
-                                <p className="text-sm font-bold text-brand-light mt-0.5">{formatBs(todayTotalBs)} Bs</p>
-                                <div className="flex items-center gap-4 mt-3 pt-3 border-t border-white/20">
-                                    <div className="flex items-center gap-1.5">
-                                        <ShoppingBag size={14} className="text-brand-light" />
-                                        <span className="text-sm font-bold">{todaySales.length} {todaySales.length === 1 ? 'venta' : 'ventas'}</span>
+                            {/* Totales principales / Blind Banner */}
+                            {isBlindMode ? (
+                                <div className="bg-slate-900 text-white rounded-2xl p-5 border border-slate-800 space-y-3">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-black text-lg border border-amber-500/30 shrink-0">
+                                            🔒
+                                        </div>
+                                        <div>
+                                            <h4 className="font-extrabold text-base text-amber-400">Cuadre Ciego Activo</h4>
+                                            <p className="text-xs text-slate-300">Cierre de turno para Cajero</p>
+                                        </div>
                                     </div>
-                                    <div className="flex items-center gap-1.5">
-                                        <Package size={14} className="text-brand-light" />
-                                        <span className="text-sm font-bold">{todayItemsSold} items</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Ganancia + Egresos */}
-                            <div className="grid grid-cols-2 gap-3">
-                                <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/30 rounded-xl p-3">
-                                    <div className="flex items-center gap-1.5 mb-1">
-                                        <TrendingUp size={14} className="text-emerald-500" />
-                                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">Ganancia</span>
-                                    </div>
-                                    <p className={`text-lg font-black ${todayProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
-                                        {copEnabled && copPrimary && tasaCop > 0
-                                            ? `${todayProfit >= 0 ? '+' : ''}${formatCop((bcvRate > 0 ? todayProfit / bcvRate : 0) * tasaCop)} COP`
-                                            : `${todayProfit >= 0 ? '+' : ''}${fmtUsdAmt(bcvRate > 0 ? todayProfit / bcvRate : 0)}`}
+                                    <p className="text-xs text-slate-300 leading-relaxed border-t border-slate-800 pt-3">
+                                        A continuación realizarás la declaración del dinero en efectivo que posees en tu gaveta. Los saldos calculados por el sistema no son visibles durante este proceso.
                                     </p>
-                                    {copActive && (
-                                        copPrimary
-                                            ? <p className="text-[11px] font-bold text-emerald-500/70">
-                                                {todayProfit >= 0 ? '+' : ''}{fmtUsdAmt(bcvRate > 0 ? todayProfit / bcvRate : 0)}
-                                              </p>
-                                            : <p className="text-[11px] font-bold text-emerald-500/70">
-                                                {todayProfit >= 0 ? '+' : ''}{formatCop((bcvRate > 0 ? todayProfit / bcvRate : 0) * tasaCop)} COP
-                                              </p>
-                                    )}
-                                    <p className="text-[11px] font-bold text-emerald-500/70">{formatBs(todayProfit)} Bs</p>
-                                </div>
-                                <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800/30 rounded-xl p-3">
-                                    <div className="flex items-center gap-1.5 mb-1">
-                                        <Package size={14} className="text-orange-500" />
-                                        <span className="text-[10px] font-bold text-orange-600 dark:text-orange-400 uppercase">Egresos</span>
+                                    <div className="flex items-center gap-4 pt-1">
+                                        <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                                            <ShoppingBag size={14} className="text-amber-400" />
+                                            <span className="font-bold">{todaySales.length} ventas realizadas hoy</span>
+                                        </div>
                                     </div>
-                                    <p className="text-lg font-black text-orange-600 dark:text-orange-400">
-                                        {copEnabled && copPrimary && tasaCop > 0
-                                            ? `-${formatCop(todayExpensesUsd * tasaCop)} COP`
-                                            : `-${fmtUsdAmt(todayExpensesUsd)}`}
-                                    </p>
-                                    {copActive && (
-                                        copPrimary
-                                            ? <p className="text-[11px] font-bold text-orange-500/70">-{fmtUsdAmt(todayExpensesUsd)}</p>
-                                            : <p className="text-[11px] font-bold text-orange-500/70">-{formatCop(todayExpensesUsd * tasaCop)} COP</p>
-                                    )}
-                                    <p className="text-[11px] font-bold text-orange-500/70">-{formatBs(todayExpensesUsd * bcvRate)} Bs</p>
                                 </div>
-                            </div>
+                            ) : (
+                                <>
+                                    <div className="bg-gradient-to-br from-brand to-brand-dark rounded-2xl p-5 text-white relative overflow-hidden">
+                                        <div className="absolute -right-6 -top-6 w-24 h-24 bg-white/10 rounded-full blur-2xl" />
+                                        <p className="text-xs font-bold text-brand-light uppercase tracking-widest mb-1">Ingresos brutos del dia</p>
+                                        <p className="text-3xl font-black">
+                                            {copEnabled && copPrimary && tasaCop > 0
+                                                ? `${formatCop(todayTotalCop)} COP`
+                                                : fmtUsdAmt(todayTotalUsd)}
+                                        </p>
+                                        {copActive && (
+                                            copPrimary
+                                                ? <p className="text-sm font-bold text-brand-light mt-0.5">{fmtUsdAmt(todayTotalUsd)}</p>
+                                                : <p className="text-sm font-bold text-amber-300 mt-0.5">{formatCop(todayTotalCop)} COP</p>
+                                        )}
+                                        <p className="text-sm font-bold text-brand-light mt-0.5">{formatBs(todayTotalBs)} Bs</p>
+                                        <div className="flex items-center gap-4 mt-3 pt-3 border-t border-white/20">
+                                            <div className="flex items-center gap-1.5">
+                                                <ShoppingBag size={14} className="text-brand-light" />
+                                                <span className="text-sm font-bold">{todaySales.length} {todaySales.length === 1 ? 'venta' : 'ventas'}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                                <Package size={14} className="text-brand-light" />
+                                                <span className="text-sm font-bold">{todayItemsSold} items</span>
+                                            </div>
+                                        </div>
+                                    </div>
 
-                            {/* Desglose por metodo de pago */}
-                            {paymentEntries.length > 0 && (
-                                <div>
-                                    <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 pl-1">Desglose por metodo</h4>
-                                    <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700/50 divide-y divide-slate-100 dark:divide-slate-700/50">
-                                        {paymentEntries.map(([methodId, data]) => {
-                                            const IconComp = getPaymentIcon(methodId);
-                                            return (
-                                                <div key={methodId} className="flex items-center justify-between px-4 py-3">
-                                                    <div className="flex items-center gap-2.5">
-                                                        <div className="w-8 h-8 bg-white dark:bg-slate-700 rounded-lg flex items-center justify-center shadow-sm">
-                                                            {IconComp ? <IconComp size={16} className="text-slate-600 dark:text-slate-300" /> : <DollarSign size={16} className="text-slate-600 dark:text-slate-300" />}
+                                    {/* Ganancia + Egresos */}
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/30 rounded-xl p-3">
+                                            <div className="flex items-center gap-1.5 mb-1">
+                                                <TrendingUp size={14} className="text-emerald-500" />
+                                                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">Ganancia</span>
+                                            </div>
+                                            <p className={`text-lg font-black ${todayProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
+                                                {copEnabled && copPrimary && tasaCop > 0
+                                                    ? `${todayProfit >= 0 ? '+' : ''}${formatCop((bcvRate > 0 ? todayProfit / bcvRate : 0) * tasaCop)} COP`
+                                                    : `${todayProfit >= 0 ? '+' : ''}${fmtUsdAmt(bcvRate > 0 ? todayProfit / bcvRate : 0)}`}
+                                            </p>
+                                            {copActive && (
+                                                copPrimary
+                                                    ? <p className="text-[11px] font-bold text-emerald-500/70">
+                                                        {todayProfit >= 0 ? '+' : ''}{fmtUsdAmt(bcvRate > 0 ? todayProfit / bcvRate : 0)}
+                                                      </p>
+                                                    : <p className="text-[11px] font-bold text-emerald-500/70">
+                                                        {todayProfit >= 0 ? '+' : ''}${formatCop((bcvRate > 0 ? todayProfit / bcvRate : 0) * tasaCop)} COP
+                                                      </p>
+                                            )}
+                                            <p className="text-[11px] font-bold text-emerald-500/70">{formatBs(todayProfit)} Bs</p>
+                                        </div>
+                                        <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800/30 rounded-xl p-3">
+                                            <div className="flex items-center gap-1.5 mb-1">
+                                                <Package size={14} className="text-orange-500" />
+                                                <span className="text-[10px] font-bold text-orange-600 dark:text-orange-400 uppercase">Egresos</span>
+                                            </div>
+                                            <p className="text-lg font-black text-orange-600 dark:text-orange-400">
+                                                {copEnabled && copPrimary && tasaCop > 0
+                                                    ? `-${formatCop(todayExpensesUsd * tasaCop)} COP`
+                                                    : `-${fmtUsdAmt(todayExpensesUsd)}`}
+                                            </p>
+                                            {copActive && (
+                                                copPrimary
+                                                    ? <p className="text-[11px] font-bold text-orange-500/70">-{fmtUsdAmt(todayExpensesUsd)}</p>
+                                                    : <p className="text-[11px] font-bold text-orange-500/70">-{formatCop(todayExpensesUsd * tasaCop)} COP</p>
+                                            )}
+                                            <p className="text-[11px] font-bold text-orange-500/70">-{formatBs(todayExpensesUsd * bcvRate)} Bs</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Desglose por metodo de pago */}
+                                    {paymentEntries.length > 0 && (
+                                        <div>
+                                            <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 pl-1">Desglose por metodo</h4>
+                                            <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700/50 divide-y divide-slate-100 dark:divide-slate-700/50">
+                                                {paymentEntries.map(([methodId, data]) => {
+                                                    const IconComp = getPaymentIcon(methodId);
+                                                    return (
+                                                        <div key={methodId} className="flex items-center justify-between px-4 py-3">
+                                                            <div className="flex items-center gap-2.5">
+                                                                <div className="w-8 h-8 bg-white dark:bg-slate-700 rounded-lg flex items-center justify-center shadow-sm">
+                                                                    {IconComp ? <IconComp size={16} className="text-slate-600 dark:text-slate-300" /> : <DollarSign size={16} className="text-slate-600 dark:text-slate-300" />}
+                                                                </div>
+                                                                <span className="text-sm font-bold text-slate-700 dark:text-slate-200">{toTitleCase(getPaymentLabel(methodId, data.label))}</span>
+                                                            </div>
+                                                            <span className="text-sm font-black text-slate-800 dark:text-white font-mono">
+                                                                {getCurrencyDisplay(methodId, data)}
+                                                            </span>
                                                         </div>
-                                                        <span className="text-sm font-bold text-slate-700 dark:text-slate-200">{toTitleCase(getPaymentLabel(methodId, data.label))}</span>
-                                                    </div>
-                                                    <span className="text-sm font-black text-slate-800 dark:text-white font-mono">
-                                                        {getCurrencyDisplay(methodId, data)}
-                                                    </span>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
                             )}
 
                             {/* Top productos */}
@@ -297,6 +317,18 @@ export default function CierreCajaWizard({
                     {/* ═══ STEP 2: Conteo Fisico ═══ */}
                     {step === 2 && (
                         <div className="space-y-5 animate-in fade-in slide-in-from-right-4 duration-300">
+                            {isBlindMode && (
+                                <div className="bg-slate-900 text-white rounded-2xl p-3.5 flex items-center gap-3 text-xs font-bold shadow-sm border border-slate-800 animate-fade-in">
+                                    <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-black text-sm shrink-0 border border-amber-500/30">
+                                        🔒
+                                    </div>
+                                    <div>
+                                        <p className="font-extrabold text-amber-400">Cuadre Ciego Activo</p>
+                                        <p className="text-[11px] text-slate-300 font-medium leading-snug">Ingresa el efectivo contado físicamente en tu gaveta. Los montos del sistema no se muestran al cajero.</p>
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="text-center py-2">
                                 <div className="w-16 h-16 bg-brand-light dark:bg-surface-800/20 rounded-2xl flex items-center justify-center mx-auto mb-3">
                                     <Wallet size={32} className="text-brand" />
@@ -323,9 +355,11 @@ export default function CierreCajaWizard({
                                         className="w-full bg-slate-50 dark:bg-slate-950 border-2 border-slate-200 dark:border-slate-700 rounded-2xl py-4 pl-12 pr-4 text-xl text-slate-800 dark:text-white font-black outline-none focus:border-brand focus:ring-4 focus:ring-brand/10 transition-all font-mono"
                                     />
                                 </div>
-                                <p className="text-[11px] text-slate-400 mt-1.5 pl-1">
-                                    Sistema espera: <span className="font-bold text-brand">${expectedUsd.toFixed(2)}</span>
-                                </p>
+                                {!isBlindMode && (
+                                    <p className="text-[11px] text-slate-400 mt-1.5 pl-1">
+                                        Sistema espera: <span className="font-bold text-brand">${expectedUsd.toFixed(2)}</span>
+                                    </p>
+                                )}
                             </div>
 
                             {/* Bs Input */}
@@ -343,13 +377,15 @@ export default function CierreCajaWizard({
                                         className="w-full bg-slate-50 dark:bg-slate-950 border-2 border-slate-200 dark:border-slate-700 rounded-2xl py-4 pl-12 pr-4 text-xl text-slate-800 dark:text-white font-black outline-none focus:border-brand focus:ring-4 focus:ring-brand/10 transition-all font-mono"
                                     />
                                 </div>
-                                <p className="text-[11px] mt-1.5 pl-1">
-                                    {
-                                        expectedBs < 0
-                                            ? <span className="font-bold text-amber-500">⚠ La gaveta usó Bs {formatBs(Math.abs(expectedBs))} extra para dar cambio</span>
-                                            : <span className="text-slate-400">Sistema espera: <span className="font-bold text-brand">{formatBs(expectedBs)} Bs</span></span>
-                                    }
-                                </p>
+                                {!isBlindMode && (
+                                    <p className="text-[11px] mt-1.5 pl-1">
+                                        {
+                                            expectedBs < 0
+                                                ? <span className="font-bold text-amber-500">⚠ La gaveta usó Bs {formatBs(Math.abs(expectedBs))} extra para dar cambio</span>
+                                                : <span className="text-slate-400">Sistema espera: <span className="font-bold text-brand">{formatBs(expectedBs)} Bs</span></span>
+                                        }
+                                    </p>
+                                )}
                             </div>
 
                             {/* COP Input — only visible if COP transactions exist */}
@@ -368,9 +404,11 @@ export default function CierreCajaWizard({
                                             className="w-full bg-slate-50 dark:bg-slate-950 border-2 border-amber-200 dark:border-amber-800/50 rounded-2xl py-4 pl-12 pr-4 text-xl text-slate-800 dark:text-white font-black outline-none focus:border-amber-500 focus:ring-4 focus:ring-amber-500/10 transition-all font-mono"
                                         />
                                     </div>
-                                    <p className="text-[11px] text-slate-400 mt-1.5 pl-1">
-                                        Sistema espera: <span className="font-bold text-amber-500">{fmtCop(expectedCop)} COP</span>
-                                    </p>
+                                    {!isBlindMode && (
+                                        <p className="text-[11px] text-slate-400 mt-1.5 pl-1">
+                                            Sistema espera: <span className="font-bold text-amber-500">{fmtCop(expectedCop)} COP</span>
+                                        </p>
+                                    )}
                                 </div>
                             )}
 
@@ -383,7 +421,7 @@ export default function CierreCajaWizard({
                                     onClick={() => setStep(3)}
                                     className="flex-1 py-3.5 text-sm font-bold text-white bg-brand hover:bg-brand-dark rounded-xl shadow-lg shadow-primary/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
                                 >
-                                    Calcular <ArrowRight size={16} />
+                                    Continuar <ArrowRight size={16} />
                                 </button>
                             </div>
                         </div>
@@ -395,70 +433,87 @@ export default function CierreCajaWizard({
                         const SemIcon = sem.icon;
                         return (
                             <div className="space-y-5 animate-in fade-in slide-in-from-right-4 duration-300">
-                                {/* Semaforo */}
-                                <div className={`${sem.bg} rounded-2xl p-5 text-white text-center relative overflow-hidden`}>
-                                    <div className="absolute -right-6 -top-6 w-24 h-24 bg-white/10 rounded-full blur-2xl" />
-                                    <SemIcon size={40} className="mx-auto mb-2" />
-                                    <h3 className="text-xl font-black">{sem.label}</h3>
-                                    <p className="text-sm font-medium text-white/80 mt-1">
-                                        Diferencia: {diffUsd >= 0 ? '+' : ''}{diffUsd.toFixed(2)} USD
-                                    </p>
-                                </div>
+                                {/* Semaforo / Confirmación Ciega */}
+                                {isBlindMode ? (
+                                    <div className="bg-slate-900 rounded-2xl p-5 text-white text-center relative overflow-hidden border border-slate-800">
+                                        <div className="absolute -right-6 -top-6 w-24 h-24 bg-brand/10 rounded-full blur-2xl" />
+                                        <CheckCircle2 size={40} className="mx-auto mb-2 text-emerald-400" />
+                                        <h3 className="text-xl font-black">Conteo Registrado</h3>
+                                        <p className="text-xs font-medium text-slate-300 mt-1.5 leading-relaxed">
+                                            Tu conteo ha sido guardado. El reporte completo de discrepancias se envió al Supervisor.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className={`${sem.bg} rounded-2xl p-5 text-white text-center relative overflow-hidden`}>
+                                        <div className="absolute -right-6 -top-6 w-24 h-24 bg-white/10 rounded-full blur-2xl" />
+                                        <SemIcon size={40} className="mx-auto mb-2" />
+                                        <h3 className="text-xl font-black">{sem.label}</h3>
+                                        <p className="text-sm font-medium text-white/80 mt-1">
+                                            Diferencia: {diffUsd >= 0 ? '+' : ''}{diffUsd.toFixed(2)} USD
+                                        </p>
+                                    </div>
+                                )}
 
-                                {/* Tabla comparativa */}
+                                {/* Tabla comparativa / Declarados */}
                                 <div>
-                                    <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 pl-1">Comparativa</h4>
+                                    <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 pl-1">
+                                        {isBlindMode ? 'Valores Declarados' : 'Comparativa'}
+                                    </h4>
                                     <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700/50 overflow-hidden">
                                         {/* Header */}
-                                        <div className="grid grid-cols-3 gap-0 px-4 py-2.5 bg-slate-100 dark:bg-slate-700/50">
-                                            <span className="text-[10px] font-bold text-slate-500 uppercase"></span>
-                                            <span className="text-[10px] font-bold text-slate-500 uppercase text-center">Esperado</span>
+                                        <div className={`grid ${isBlindMode ? 'grid-cols-2' : 'grid-cols-3'} gap-0 px-4 py-2.5 bg-slate-100 dark:bg-slate-700/50`}>
+                                            <span className="text-[10px] font-bold text-slate-500 uppercase">Moneda</span>
+                                            {!isBlindMode && <span className="text-[10px] font-bold text-slate-500 uppercase text-center">Esperado</span>}
                                             <span className="text-[10px] font-bold text-slate-500 uppercase text-center">Declarado</span>
                                         </div>
                                         {/* USD Row */}
-                                        <div className="grid grid-cols-3 gap-0 px-4 py-3 border-b border-slate-100 dark:border-slate-700/50">
+                                        <div className={`grid ${isBlindMode ? 'grid-cols-2' : 'grid-cols-3'} gap-0 px-4 py-3 border-b border-slate-100 dark:border-slate-700/50`}>
                                             <span className="text-sm font-bold text-slate-700 dark:text-slate-200">USD</span>
-                                            <span className="text-sm font-mono font-bold text-slate-500 text-center">${expectedUsd.toFixed(2)}</span>
-                                            <span className={`text-sm font-mono font-black text-center ${absDiffUsd <= FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_USD ? 'text-emerald-600' : absDiffUsd > FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_USD * 5 ? 'text-red-500' : 'text-amber-600'}`}>
+                                            {!isBlindMode && <span className="text-sm font-mono font-bold text-slate-500 text-center">${expectedUsd.toFixed(2)}</span>}
+                                            <span className={`text-sm font-mono font-black text-center ${isBlindMode ? 'text-slate-800 dark:text-white' : absDiffUsd <= FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_USD ? 'text-emerald-600' : absDiffUsd > FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_USD * 5 ? 'text-red-500' : 'text-amber-600'}`}>
                                                 ${declaredUsd.toFixed(2)}
                                             </span>
                                         </div>
                                         {/* Bs Row */}
-                                        <div className={`grid grid-cols-3 gap-0 px-4 py-3 ${hasCopTransactions ? 'border-b border-slate-100 dark:border-slate-700/50' : 'border-b border-slate-100 dark:border-slate-700/50'}`}>
+                                        <div className={`grid ${isBlindMode ? 'grid-cols-2' : 'grid-cols-3'} gap-0 px-4 py-3 ${hasCopTransactions ? 'border-b border-slate-100 dark:border-slate-700/50' : 'border-b border-slate-100 dark:border-slate-700/50'}`}>
                                             <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Bs</span>
-                                            <span className="text-sm font-mono font-bold text-slate-500 text-center">{formatBs(expectedBs)}</span>
-                                            <span className={`text-sm font-mono font-black text-center ${absDiffBs <= FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_BS ? 'text-emerald-600' : absDiffBs > FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_BS * 5 ? 'text-red-500' : 'text-amber-600'}`}>
+                                            {!isBlindMode && <span className="text-sm font-mono font-bold text-slate-500 text-center">{formatBs(expectedBs)}</span>}
+                                            <span className={`text-sm font-mono font-black text-center ${isBlindMode ? 'text-slate-800 dark:text-white' : absDiffBs <= FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_BS ? 'text-emerald-600' : absDiffBs > FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_BS * 5 ? 'text-red-500' : 'text-amber-600'}`}>
                                                 {formatBs(declaredBs)}
                                             </span>
                                         </div>
                                         {/* COP Row */}
                                         {hasCopTransactions && (
-                                            <div className="grid grid-cols-3 gap-0 px-4 py-3 border-b border-slate-100 dark:border-slate-700/50">
+                                            <div className={`grid ${isBlindMode ? 'grid-cols-2' : 'grid-cols-3'} gap-0 px-4 py-3 border-b border-slate-100 dark:border-slate-700/50`}>
                                                 <span className="text-sm font-bold text-amber-600 dark:text-amber-400">COP</span>
-                                                <span className="text-sm font-mono font-bold text-slate-500 text-center">{fmtCop(expectedCop)}</span>
-                                                <span className={`text-sm font-mono font-black text-center ${absDiffCop <= FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_COP ? 'text-emerald-600' : absDiffCop > FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_COP * 5 ? 'text-red-500' : 'text-amber-600'}`}>
+                                                {!isBlindMode && <span className="text-sm font-mono font-bold text-slate-500 text-center">{fmtCop(expectedCop)}</span>}
+                                                <span className={`text-sm font-mono font-black text-center ${isBlindMode ? 'text-slate-800 dark:text-white' : absDiffCop <= FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_COP ? 'text-emerald-600' : absDiffCop > FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_COP * 5 ? 'text-red-500' : 'text-amber-600'}`}>
                                                     {fmtCop(declaredCop)}
                                                 </span>
                                             </div>
                                         )}
                                         {/* Diff Row */}
-                                        <div className="grid grid-cols-3 gap-0 px-4 py-3 bg-slate-100/50 dark:bg-slate-700/30">
-                                            <span className="text-xs font-bold text-slate-500 uppercase">Diferencia</span>
-                                            <span className={`text-sm font-mono font-black text-center ${diffUsd >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                                                {diffUsd >= 0 ? '+' : ''}${diffUsd.toFixed(2)}
-                                            </span>
-                                            <span className={`text-sm font-mono font-black text-center ${diffBs >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                                                {diffBs >= 0 ? '+' : ''}{formatBs(diffBs)}
-                                            </span>
-                                        </div>
-                                        {hasCopTransactions && (
-                                            <div className="grid grid-cols-3 gap-0 px-4 py-2 bg-amber-50/50 dark:bg-amber-900/10">
-                                                <span className="text-xs font-bold text-amber-500 uppercase">Dif. COP</span>
-                                                <span></span>
-                                                <span className={`text-sm font-mono font-black text-center ${diffCop >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                                                    {diffCop >= 0 ? '+' : ''}{fmtCop(diffCop)}
-                                                </span>
-                                            </div>
+                                        {!isBlindMode && (
+                                            <>
+                                                <div className="grid grid-cols-3 gap-0 px-4 py-3 bg-slate-100/50 dark:bg-slate-700/30">
+                                                    <span className="text-xs font-bold text-slate-500 uppercase">Diferencia</span>
+                                                    <span className={`text-sm font-mono font-black text-center ${diffUsd >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                                        {diffUsd >= 0 ? '+' : ''}${diffUsd.toFixed(2)}
+                                                    </span>
+                                                    <span className={`text-sm font-mono font-black text-center ${diffBs >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                                        {diffBs >= 0 ? '+' : ''}{formatBs(diffBs)}
+                                                    </span>
+                                                </div>
+                                                {hasCopTransactions && (
+                                                    <div className="grid grid-cols-3 gap-0 px-4 py-2 bg-amber-50/50 dark:bg-amber-900/10">
+                                                        <span className="text-xs font-bold text-amber-500 uppercase">Dif. COP</span>
+                                                        <span></span>
+                                                        <span className={`text-sm font-mono font-black text-center ${diffCop >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                                            {diffCop >= 0 ? '+' : ''}{fmtCop(diffCop)}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </>
                                         )}
                                     </div>
                                 </div>
@@ -470,7 +525,7 @@ export default function CierreCajaWizard({
                                     </button>
                                     <button
                                         onClick={handleConfirm}
-                                        className={`flex-1 py-3.5 text-sm font-bold text-white ${sem.bg} hover:brightness-110 rounded-xl shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2`}
+                                        className={`flex-1 py-3.5 text-sm font-bold text-white ${isBlindMode ? 'bg-brand hover:bg-brand-dark' : sem.bg} hover:brightness-110 rounded-xl shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2`}
                                     >
                                         <CheckCircle2 size={18} /> Confirmar Cierre
                                     </button>

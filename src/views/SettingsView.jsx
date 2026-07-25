@@ -45,7 +45,7 @@ export default function SettingsView({ onClose, theme, toggleTheme, triggerHapti
         effectiveRate
     } = useProductContext();
 
-    const { requireLogin, setRequireLogin, usuarioActivo } = useAuthStore();
+    const { requireLogin, setRequireLogin, usuarioActivo, blindModeEnabled, setBlindModeEnabled } = useAuthStore();
     const [autoLockMinutes, setAutoLockMinutes] = useState(() => localStorage.getItem('admin_auto_lock_minutes') || '3');
 
     const isAdmin = !requireLogin || !usuarioActivo || usuarioActivo.rol === 'ADMIN';
@@ -347,6 +347,8 @@ export default function SettingsView({ onClose, theme, toggleTheme, triggerHapti
                                 setRequireLogin={setRequireLogin}
                                 autoLockMinutes={autoLockMinutes}
                                 setAutoLockMinutes={setAutoLockMinutes}
+                                blindModeEnabled={blindModeEnabled}
+                                setBlindModeEnabled={setBlindModeEnabled}
                                 showToast={showToast}
                                 triggerHaptic={triggerHaptic}
                             />
