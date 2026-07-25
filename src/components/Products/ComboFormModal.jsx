@@ -597,7 +597,8 @@ export default function ComboFormModal({
                                 const allowedIds = g.allowedProductIds || [];
                                 const allowedProds = allowedIds.map(pid => products?.find(p => p.id === pid)).filter(Boolean);
                                 const totalGroupStock = allowedProds.reduce((sum, p) => sum + (p.stock || 0), 0);
-                                const isCoverageOk = totalGroupStock >= g.requiredQty;
+                                const reqQty = parseInt(g.requiredQty, 10) || 1;
+                                const isCoverageOk = totalGroupStock >= reqQty;
                                 const isCollapsed = Boolean(collapsedGroups[g.id]);
                                 const groupSearch = (groupSearchTerms[g.id] || '').toLowerCase().trim();
 
@@ -630,7 +631,20 @@ export default function ComboFormModal({
                                                 <input
                                                     type="number" min="1"
                                                     value={g.requiredQty}
-                                                    onChange={e => updateModularGroup(g.id, 'requiredQty', Math.max(1, parseInt(e.target.value, 10) || 1))}
+                                                    onChange={e => {
+                                                        const val = e.target.value;
+                                                        if (val === '') {
+                                                            updateModularGroup(g.id, 'requiredQty', '');
+                                                        } else {
+                                                            const parsed = parseInt(val, 10);
+                                                            updateModularGroup(g.id, 'requiredQty', isNaN(parsed) ? '' : Math.max(1, parsed));
+                                                        }
+                                                    }}
+                                                    onBlur={() => {
+                                                        if (!g.requiredQty || parseInt(g.requiredQty, 10) < 1 || isNaN(parseInt(g.requiredQty, 10))) {
+                                                            updateModularGroup(g.id, 'requiredQty', 1);
+                                                        }
+                                                    }}
                                                     onFocus={e => e.target.select()}
                                                     onClick={e => e.target.select()}
                                                     className="w-7 text-center text-xs font-black text-purple-600 dark:text-purple-400 outline-none"
