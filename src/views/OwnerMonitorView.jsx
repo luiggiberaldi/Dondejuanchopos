@@ -4,7 +4,7 @@ import { useMonitorSync } from '../hooks/useMonitorSync';
 import { storageService } from '../utils/storageService';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { showToast } from '../components/Toast';
-import { calculateComboStock, getEffectiveCostUsd } from '../utils/productProcessor';
+import { calculateComboStock, getEffectiveCostUsd, calculatePricing } from '../utils/productProcessor';
 import SupervisorRateModal from '../components/SupervisorRateModal';
 import RemoteProductFormModal from '../components/Monitor/RemoteProductFormModal';
 import ComboFormModal from '../components/Products/ComboFormModal';
@@ -202,7 +202,8 @@ const PENDING_KEY = 'dj_pending_inventory_changes_v1';
 
 export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) {
     const pairedDeviceId = localStorage.getItem('dj_paired_device_id');
-    const { products, setProducts, effectiveRate: bcvRate, copEnabled, tasaCop, rates, categories } = useProductContext();
+    const { products, setProducts, effectiveRate, copEnabled, tasaCop, rates, categories } = useProductContext();
+    const bcvRate = rates?.bcv?.price || effectiveRate;
     const { isConnected, lastSync, loading: syncLoading, triggerRefresh, posLastSeen, isPosOnline } = useMonitorSync(pairedDeviceId);
 
     const [sales, setSales] = useState([]);
@@ -2025,9 +2026,10 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                             <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-black tracking-wider block mb-0.5">Venta (USD/Bs)</span>
                                                             <span className="font-outfit text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 tabular-nums block">${p.priceUsd.toFixed(2)}</span>
                                                             <span className="font-outfit text-xs font-bold text-slate-600 dark:text-slate-300 block tabular-nums leading-tight mt-0.5">
-                                                                {p.priceBsManual > 0
-                                                                    ? `${formatBs(p.priceBsManual)} Bs`
-                                                                    : bcvRate ? `${formatBs(p.priceUsd * bcvRate)} Bs` : 'N/D'}
+                                                                {(() => {
+                                                                    const { unitPriceBs } = calculatePricing(p, effectiveRate, bcvRate);
+                                                                    return unitPriceBs > 0 ? `${formatBs(unitPriceBs)} Bs` : 'N/D';
+                                                                })()}
                                                             </span>
                                                         </div>
                                                         {/* Ganancia */}
@@ -2523,8 +2525,8 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 onClose={() => { setShowRemoteForm(false); setRemoteEditingProduct(null); }}
                 editingProduct={remoteEditingProduct}
                 onSubmit={(action, productId, data) => queueInventoryChange(action, productId, data)}
-                effectiveRate={bcvRate}
-                bcvRate={rates?.bcv?.price || bcvRate}
+                effectiveRate={effectiveRate}
+                bcvRate={bcvRate}
             />
 
             {/* Formulario/Wizard remoto de combos */}
@@ -2533,8 +2535,8 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 onClose={() => { setShowComboModal(false); setEditingCombo(null); }}
                 products={projectedProducts}
                 categories={categories}
-                effectiveRate={bcvRate}
-                bcvRate={rates?.bcv?.price || bcvRate}
+                effectiveRate={effectiveRate}
+                bcvRate={bcvRate}
                 copEnabled={copEnabled}
                 tasaCop={tasaCop}
                 onSave={(comboData) => {
