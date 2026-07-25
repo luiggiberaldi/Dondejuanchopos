@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { runWithoutEco } from '../utils/syncFlags';
 import localforage from 'localforage';
@@ -7,6 +7,7 @@ import localforage from 'localforage';
 localforage.config({ name: 'BodegaApp', storeName: 'bodega_app_data' });
 
 let monitorSubscription = null;
+let reconnectTimer = null;
 
 export function useMonitorSync(pairedDeviceId) {
     const [isConnected, setIsConnected] = useState(false);
@@ -15,7 +16,7 @@ export function useMonitorSync(pairedDeviceId) {
         return stored ? new Date(stored) : null;
     });
     const [loading, setLoading] = useState(true);
-    const isInitialized = useRef(false);
+    const isSyncingRef = useRef(false);
 
     const applyDocToLocal = async (docId, collection, payload) => {
         if (payload == null) return;
@@ -40,11 +41,19 @@ export function useMonitorSync(pairedDeviceId) {
         });
     };
 
-    const initMonitor = async () => {
-        try {
-            setLoading(true);
+    const initMonitor = useCallback(async (isSilent = false) => {
+        if (!supabaseCloud || !pairedDeviceId) {
+            setLoading(false);
+            return;
+        }
 
-            // 1. Pull inicial de todos los datos desde sync_documents del equipo vinculado
+        if (isSyncingRef.current) return;
+        isSyncingRef.current = true;
+
+        if (!isSilent) setLoading(true);
+
+        try {
+            // 1. Pull inicial o de recuperación (catch-up) desde sync_documents del equipo vinculado
             const { data: docs, error } = await supabaseCloud
                 .from('sync_documents')
                 .select('collection, doc_id, data')
@@ -70,8 +79,9 @@ export function useMonitorSync(pairedDeviceId) {
 
             // 2. Suscripción en Tiempo Real vía WebSocket
             if (!monitorSubscription) {
+                const channelName = `monitor:${pairedDeviceId}:${Date.now()}`;
                 monitorSubscription = supabaseCloud
-                    .channel(`monitor:${pairedDeviceId}`)
+                    .channel(channelName)
                     .on('postgres_changes', {
                         event: '*',
                         schema: 'public',
@@ -88,20 +98,31 @@ export function useMonitorSync(pairedDeviceId) {
                     .subscribe((status) => {
                         if (status === 'SUBSCRIBED') {
                             setIsConnected(true);
-                        } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+                        } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
                             setIsConnected(false);
+                            // Si el canal se cierra o falla por corte de red, desasociar canal para forzar reconexión limpia
+                            if (monitorSubscription) {
+                                supabaseCloud.removeChannel(monitorSubscription).catch(() => {});
+                                monitorSubscription = null;
+                            }
                         }
                     });
             }
         } catch (err) {
+            console.warn('[useMonitorSync] Error en sincronización o reconexión:', err);
             setIsConnected(false);
         } finally {
+            isSyncingRef.current = false;
             setLoading(false);
         }
-    };
+    }, [pairedDeviceId]);
 
     const triggerRefresh = async () => {
-        await initMonitor();
+        if (monitorSubscription) {
+            await supabaseCloud.removeChannel(monitorSubscription).catch(() => {});
+            monitorSubscription = null;
+        }
+        await initMonitor(false);
     };
 
     useEffect(() => {
@@ -110,27 +131,51 @@ export function useMonitorSync(pairedDeviceId) {
             return;
         }
 
-        if (isInitialized.current) return;
-        isInitialized.current = true;
+        // Inicializar sincronización
+        initMonitor(false);
 
-        initMonitor();
+        // 1. Escuchar reconexión de red del navegador (online / offline)
+        const handleOnline = () => {
+            console.log('[useMonitorSync] Conexión de red restablecida. Sincronizando al instante...');
+            setIsConnected(true);
+            triggerRefresh();
+        };
 
-        // Escuchar estado de conexión de red del navegador
-        const handleOnline = () => setIsConnected(true);
-        const handleOffline = () => setIsConnected(false);
+        const handleOffline = () => {
+            console.warn('[useMonitorSync] Red desconectada. Operando en modo offline...');
+            setIsConnected(false);
+        };
+
+        // 2. Escuchar cuando el usuario regresa a la app (desbloqueo de pantalla o cambio de pestaña)
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible' && navigator.onLine) {
+                initMonitor(true);
+            }
+        };
+
         window.addEventListener('online', handleOnline);
         window.addEventListener('offline', handleOffline);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        // 3. Health-check en segundo plano (Re-intento automático cada 10 segundos)
+        reconnectTimer = setInterval(() => {
+            if (navigator.onLine && (!isConnected || !monitorSubscription)) {
+                initMonitor(true);
+            }
+        }, 10000);
 
         return () => {
             window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            if (reconnectTimer) clearInterval(reconnectTimer);
+
             if (monitorSubscription) {
                 supabaseCloud.removeChannel(monitorSubscription).catch(() => {});
                 monitorSubscription = null;
             }
-            isInitialized.current = false;
         };
-    }, [pairedDeviceId]);
+    }, [pairedDeviceId, initMonitor]);
 
     return { isConnected, lastSync, loading, triggerRefresh };
 }
