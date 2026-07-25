@@ -624,14 +624,65 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         };
     }, []);
 
-    // ── TURNO ACTIVO ──
-    
+    // ── TURNO ACTIVO & ESTADO DE CAJA ──
+    const [nowTick, setNowTick] = useState(() => Date.now());
+
+    useEffect(() => {
+        const timer = setInterval(() => setNowTick(Date.now()), 30000);
+        return () => clearInterval(timer);
+    }, []);
+
     // Apertura de caja del turno activo
     const activeShiftApertura = useMemo(() => {
         const aperturas = sales.filter(s => s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada);
         if (aperturas.length === 0) return null;
         return aperturas.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
     }, [sales]);
+
+    // Estado global del turno (Abierta/Cerrada + Tiempo transcurrido)
+    const shiftStatusInfo = useMemo(() => {
+        let openTs = activeShiftApertura?.timestamp;
+
+        if (!openTs) {
+            const unclosed = sales.filter(s => !s.cajaCerrada && s.status !== 'ANULADA' && s.tipo !== 'REGISTRO_CIERRE');
+            if (unclosed.length > 0) {
+                const sorted = [...unclosed].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                openTs = sorted[0].timestamp;
+            }
+        }
+
+        if (!openTs) {
+            return { isOpen: false, openTime: null, formattedTime: '', elapsedLabel: 'Caja Cerrada' };
+        }
+
+        const openDate = new Date(openTs);
+        const diffMs = Math.max(0, nowTick - openDate.getTime());
+        const diffMins = Math.floor(diffMs / 60000);
+
+        let elapsedLabel = '';
+        if (diffMins < 1) {
+            elapsedLabel = 'hace menos de 1m';
+        } else if (diffMins < 60) {
+            elapsedLabel = `hace ${diffMins}m`;
+        } else if (diffMins < 1440) {
+            const h = Math.floor(diffMins / 60);
+            const m = diffMins % 60;
+            elapsedLabel = m > 0 ? `hace ${h}h ${m}m` : `hace ${h}h`;
+        } else {
+            const d = Math.floor(diffMins / 1440);
+            const h = Math.floor((diffMins % 1440) / 60);
+            elapsedLabel = h > 0 ? `hace ${d}d ${h}h` : `hace ${d}d`;
+        }
+
+        const formattedTime = openDate.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+        return {
+            isOpen: true,
+            openTime: openDate,
+            formattedTime,
+            elapsedLabel
+        };
+    }, [sales, activeShiftApertura, nowTick]);
 
     // Filtrar ventas del turno activo (cajaCerrada !== true)
     const activeShiftSales = useMemo(() => {
@@ -894,89 +945,154 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
     return (
         <div className={`min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-sans transition-colors duration-300 overflow-x-hidden ${pendingChanges.length > 0 && viewTab === 'inventario' ? 'pb-48 sm:pb-36' : 'pb-16'}`}>
-            {/* Header del Monitor */}
-            <header className="sticky top-0 z-50 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3 sm:px-4 py-2.5 sm:py-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 shadow-sm">
-                <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-2xl bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/20 text-white font-bold shrink-0">
-                        <ShieldCheck size={18} className="sm:hidden" />
-                        <ShieldCheck size={20} className="hidden sm:block" />
+            {/* Header del Monitor (100% Responsivo) */}
+            <header className="sticky top-0 z-50 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3 sm:px-5 py-2.5 shadow-xs">
+                <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+                    {/* Fila Superior en Móvil / Izquierda en PC */}
+                    <div className="flex items-center justify-between gap-3 min-w-0">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-2xl bg-emerald-500 flex items-center justify-center shadow-md shadow-emerald-500/20 text-white font-bold shrink-0">
+                                <ShieldCheck size={18} className="sm:hidden" />
+                                <ShieldCheck size={20} className="hidden sm:block" />
+                            </div>
+                            <div className="min-w-0">
+                                <h1 className="text-xs sm:text-base font-black leading-tight text-slate-800 dark:text-white truncate">Panel de Supervisión</h1>
+                                <p className="text-[9px] sm:text-[10.5px] text-slate-400 font-medium truncate">Monitoreo en vivo • {localStorage.getItem('business_name') || 'Mi Negocio'}</p>
+                            </div>
+                        </div>
+
+                        {/* Botones de Acción en Móvil (Derecha en pantallas pequeñas) */}
+                        <div className="flex md:hidden items-center gap-1 shrink-0">
+                            <button 
+                                onClick={async () => { 
+                                    triggerHaptic?.(); 
+                                    await triggerRefresh(); 
+                                    showToast?.('Datos actualizados', 'success');
+                                }}
+                                disabled={syncLoading}
+                                className="p-2 rounded-xl text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 transition-colors disabled:opacity-50"
+                                title="Actualizar Datos"
+                            >
+                                <RefreshCw size={14} className={syncLoading ? "animate-spin text-emerald-500" : ""} />
+                            </button>
+                            <button 
+                                onClick={() => { triggerHaptic?.(); setShowRateModal(true); }}
+                                className="p-2 rounded-xl text-slate-400 hover:text-brand hover:bg-brand-light border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 transition-colors"
+                                title="Cambiar Tasa Remota"
+                            >
+                                <TrendingUp size={14} />
+                            </button>
+                            <button 
+                                onClick={() => { triggerHaptic?.(); setShowUsersModal(true); }}
+                                className="p-2 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 transition-colors"
+                                title="Usuarios y PINs"
+                            >
+                                <Users size={14} />
+                            </button>
+                            <button 
+                                onClick={() => { triggerHaptic?.(); setShowDisconnectConfirm(true); }}
+                                className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 transition-colors"
+                                title="Desvincular Dispositivo"
+                            >
+                                <LogOut size={14} />
+                            </button>
+                        </div>
                     </div>
-                    <div className="min-w-0">
-                        <h1 className="text-xs sm:text-base font-black leading-tight text-slate-800 dark:text-white truncate">Panel de Supervisión</h1>
-                        <p className="text-[9px] sm:text-[10px] text-slate-400 font-medium truncate">Monitoreo en vivo • {localStorage.getItem('business_name') || 'Mi Negocio'}</p>
+
+                    {/* Status Badges y Acciones en PC */}
+                    <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar pb-0.5 md:pb-0">
+                        {/* Status Badge del Supervisor */}
+                        <div className={`flex items-center gap-1 sm:gap-1.5 px-2.5 py-1 rounded-full text-[9px] sm:text-[10px] font-black tracking-wider uppercase shadow-xs shrink-0 transition-colors duration-300 ${
+                            isConnected 
+                                ? 'bg-emerald-50 border border-emerald-200/50 text-emerald-600 dark:bg-emerald-950/20 dark:border-emerald-800/30 dark:text-emerald-400' 
+                                : 'bg-rose-50 border border-rose-200/50 text-rose-600 dark:bg-rose-950/20 dark:border-rose-800/30 dark:text-rose-400 animate-pulse'
+                        }`}>
+                            {isConnected ? (
+                                <>
+                                    <Wifi size={11} className="shrink-0" />
+                                    <span>En Vivo</span>
+                                </>
+                            ) : (
+                                <>
+                                    <WifiOff size={11} className="shrink-0" />
+                                    <span>Offline</span>
+                                </>
+                            )}
+                        </div>
+
+                        {/* Status Badge de la Caja Principal (Online/Offline) */}
+                        <div 
+                            title={posLastSeen ? `Última sincronización de la caja principal: ${posLastSeen.toLocaleTimeString()}` : 'Buscando estado de la caja...'}
+                            className={`flex items-center gap-1 sm:gap-1.5 px-2.5 py-1 rounded-full text-[9px] sm:text-[10px] font-black tracking-wider uppercase shadow-xs shrink-0 transition-colors duration-300 ${
+                                isPosOnline 
+                                    ? 'bg-emerald-50 border border-emerald-200/60 text-emerald-700 dark:bg-emerald-950/30 dark:border-emerald-800/50 dark:text-emerald-400' 
+                                    : 'bg-amber-50 border border-amber-200/60 text-amber-700 dark:bg-amber-950/30 dark:border-amber-800/50 dark:text-amber-400'
+                            }`}
+                        >
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${isPosOnline ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                            <span>Caja: {isPosOnline ? 'En Línea' : 'Offline'}</span>
+                        </div>
+
+                        {/* Status Badge del Estado del Turno (Abierta/Cerrada + Tiempo) */}
+                        <div 
+                            title={shiftStatusInfo.isOpen 
+                                ? `Apertura de caja: ${shiftStatusInfo.formattedTime} (${shiftStatusInfo.elapsedLabel})` 
+                                : 'La caja se encuentra cerrada en este momento'}
+                            className={`flex items-center gap-1 sm:gap-1.5 px-2.5 py-1 rounded-full text-[9px] sm:text-[10px] font-black tracking-wider uppercase shadow-xs shrink-0 transition-colors duration-300 ${
+                                shiftStatusInfo.isOpen 
+                                    ? 'bg-emerald-50 border border-emerald-300/80 text-emerald-800 dark:bg-emerald-950/40 dark:border-emerald-800/60 dark:text-emerald-300' 
+                                    : 'bg-slate-100 border border-slate-300/80 text-slate-600 dark:bg-slate-800/60 dark:border-slate-700/60 dark:text-slate-400'
+                            }`}
+                        >
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${shiftStatusInfo.isOpen ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+                            <span>
+                                {shiftStatusInfo.isOpen 
+                                    ? `Abierta (${shiftStatusInfo.elapsedLabel})` 
+                                    : 'Caja Cerrada'}
+                            </span>
+                        </div>
+
+                        {/* Botones de Acción en PC */}
+                        <div className="hidden md:flex items-center gap-1.5 ml-2 border-l border-slate-200 dark:border-slate-800 pl-2 shrink-0">
+                            <button 
+                                onClick={async () => { 
+                                    triggerHaptic?.(); 
+                                    await triggerRefresh(); 
+                                    showToast?.('Datos actualizados', 'success');
+                                }}
+                                disabled={syncLoading}
+                                className="p-2 rounded-xl text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-emerald-400 transition-colors disabled:opacity-50 cursor-pointer"
+                                title="Actualizar Datos"
+                            >
+                                <RefreshCw size={15} className={syncLoading ? "animate-spin text-emerald-500" : ""} />
+                            </button>
+
+                            <button 
+                                onClick={() => { triggerHaptic?.(); setShowRateModal(true); }}
+                                className="p-2 rounded-xl text-slate-400 hover:text-brand hover:bg-brand-light border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-brand transition-colors cursor-pointer"
+                                title="Cambiar Tasa Remota"
+                            >
+                                <TrendingUp size={15} />
+                            </button>
+
+                            <button 
+                                onClick={() => { triggerHaptic?.(); setShowUsersModal(true); }}
+                                className="p-2 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-blue-400 transition-colors flex items-center gap-1.5 cursor-pointer"
+                                title="Gestión de Usuarios, Roles y PINs"
+                            >
+                                <Users size={15} />
+                                <span className="hidden lg:inline text-xs font-black text-slate-600 dark:text-slate-300">Usuarios</span>
+                            </button>
+
+                            <button 
+                                onClick={() => { triggerHaptic?.(); setShowDisconnectConfirm(true); }}
+                                className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-rose-400 transition-colors cursor-pointer"
+                                title="Desvincular Dispositivo"
+                            >
+                                <LogOut size={15} />
+                            </button>
+                        </div>
                     </div>
-                </div>
-
-                <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 ml-auto sm:ml-0">
-                    {/* Status Badge del Supervisor */}
-                    <div className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full text-[9px] sm:text-[10px] font-black tracking-wider uppercase shadow-sm transition-colors duration-300 ${
-                        isConnected 
-                            ? 'bg-emerald-50 border border-emerald-200/50 text-emerald-600 dark:bg-emerald-950/20 dark:border-emerald-800/30 dark:text-emerald-400' 
-                            : 'bg-rose-50 border border-rose-200/50 text-rose-600 dark:bg-rose-950/20 dark:border-rose-800/30 dark:text-rose-400 animate-pulse'
-                    }`}>
-                        {isConnected ? (
-                            <>
-                                <Wifi size={11} className="shrink-0" />
-                                <span className="hidden sm:inline">En Vivo</span>
-                            </>
-                        ) : (
-                            <>
-                                <WifiOff size={11} className="shrink-0" />
-                                <span className="hidden sm:inline">Desconectado</span>
-                            </>
-                        )}
-                    </div>
-
-                    {/* Status Badge de la Caja Principal */}
-                    <div 
-                        title={posLastSeen ? `Última sincronización de la caja principal: ${posLastSeen.toLocaleTimeString()}` : 'Buscando estado de la caja...'}
-                        className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-[9px] sm:text-[10px] font-black tracking-wider uppercase shadow-xs transition-colors duration-300 ${
-                            isPosOnline 
-                                ? 'bg-emerald-50 border border-emerald-200/60 text-emerald-700 dark:bg-emerald-950/30 dark:border-emerald-800/50 dark:text-emerald-400' 
-                                : 'bg-amber-50 border border-amber-200/60 text-amber-700 dark:bg-amber-950/30 dark:border-amber-800/50 dark:text-amber-400'
-                        }`}
-                    >
-                        <span className={`w-2 h-2 rounded-full ${isPosOnline ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-                        <span>Caja: {isPosOnline ? 'En Línea' : 'Desconectada'}</span>
-                    </div>
-
-                    <button 
-                        onClick={async () => { 
-                            triggerHaptic?.(); 
-                            await triggerRefresh(); 
-                            showToast?.('Datos actualizados', 'success');
-                        }}
-                        disabled={syncLoading}
-                        className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-emerald-400 transition-colors disabled:opacity-50"
-                        title="Actualizar Datos"
-                    >
-                        <RefreshCw size={15} className={syncLoading ? "animate-spin text-emerald-500" : ""} />
-                    </button>
-
-                    <button 
-                        onClick={() => { triggerHaptic?.(); setShowRateModal(true); }}
-                        className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl text-slate-400 hover:text-brand hover:bg-brand-light border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-brand transition-colors"
-                        title="Cambiar Tasa Remota"
-                    >
-                        <TrendingUp size={15} />
-                    </button>
-
-                    <button 
-                        onClick={() => { triggerHaptic?.(); setShowUsersModal(true); }}
-                        className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-blue-400 transition-colors flex items-center gap-1.5 cursor-pointer"
-                        title="Gestión de Usuarios, Roles y PINs"
-                    >
-                        <Users size={15} />
-                        <span className="hidden md:inline text-xs font-black text-slate-600 dark:text-slate-300">Usuarios</span>
-                    </button>
-
-                    <button 
-                        onClick={() => { triggerHaptic?.(); setShowDisconnectConfirm(true); }}
-                        className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-rose-400 transition-colors"
-                        title="Desvincular Dispositivo"
-                    >
-                        <LogOut size={15} />
-                    </button>
                 </div>
             </header>
 
@@ -1048,6 +1164,48 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 {/* ── SECCIÓN 1: TURNO ACTIVO ── */}
                 {viewTab === 'activo' && (
                     <div className="space-y-6">
+                        {/* Banner de Estado de Apertura del Turno */}
+                        <div className={`p-4 rounded-3xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm ${
+                            shiftStatusInfo.isOpen
+                                ? 'bg-emerald-50/90 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/40 text-emerald-900 dark:text-emerald-300'
+                                : 'bg-slate-100/90 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800/60 text-slate-700 dark:text-slate-300'
+                        }`}>
+                            <div className="flex items-center gap-3">
+                                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black shrink-0 ${
+                                    shiftStatusInfo.isOpen
+                                        ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
+                                        : 'bg-slate-400 text-white'
+                                }`}>
+                                    <Clock size={20} />
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <h4 className="font-black text-sm sm:text-base">
+                                            {shiftStatusInfo.isOpen ? 'Turno Activo en Curso' : 'Caja Actualmente Cerrada'}
+                                        </h4>
+                                        <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
+                                            shiftStatusInfo.isOpen
+                                                ? 'bg-emerald-200/70 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300'
+                                                : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                                        }`}>
+                                            {shiftStatusInfo.isOpen ? 'Abierta' : 'Cerrada'}
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+                                        {shiftStatusInfo.isOpen
+                                            ? `Apertura realizada a las ${shiftStatusInfo.formattedTime} (${shiftStatusInfo.elapsedLabel})`
+                                            : 'No hay un turno de ventas activo en este momento.'}
+                                    </p>
+                                </div>
+                            </div>
+                            {activeCashier?.nombre && activeCashier.nombre !== 'Ninguno' && (
+                                <div className="text-left sm:text-right border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-200/60 dark:border-slate-800">
+                                    <span className="text-[9.5px] font-black uppercase text-slate-400 block">Cajero en Turno</span>
+                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{activeCashier.nombre}</span>
+                                </div>
+                            )}
+                        </div>
+
                         {/* Fila 1: Tarjetas de Métricas de Turno Activo */}
                         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                             {/* Ventas Turno USD */}
