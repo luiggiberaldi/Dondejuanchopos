@@ -668,7 +668,8 @@ export default function SalesView({ triggerHaptic, isActive }) {
         const customProduct = {
             id: `custom_${Date.now()}`,
             name: 'Venta Libre',
-            priceUsdt: amountUsd, // Usamos priceUsdt para que la validación temprana lo acepte
+            priceUsd: amountUsd,
+            priceBsManual: exactBsToStore,
             exactBs: exactBsToStore, // Monto exacto original en Bs, o null si debe flotar
             costBs: 0,
             costUsd: 0,
