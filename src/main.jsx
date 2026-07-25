@@ -19,15 +19,24 @@ if (window.location.protocol === 'file:') {
   };
 }
 
-// ── Forzar actualización del Service Worker al cargar ──
+// ── Forzar actualización automática del Service Worker al desplegar en Vercel ──
 if ('serviceWorker' in navigator) {
-  // Forzar chequeo de nueva versión en cada carga
-  navigator.serviceWorker.getRegistrations().then(regs => {
-    regs.forEach(reg => reg.update().catch(() => {/* Ignorar fallos en desarrollo o sin conexión */}));
-  });
+  const checkUpdates = () => {
+    navigator.serviceWorker.getRegistrations().then(regs => {
+      regs.forEach(reg => reg.update().catch(() => {/* Ignorar fallos en desarrollo o sin conexión */}));
+    });
+  };
 
-  // Cuando el nuevo SW toma control, recargar la página para servir el nuevo código.
-  // Sin esto, el usuario puede tener el SW actualizado pero seguir viendo el JS viejo.
+  // Chequeo inmediato al cargar
+  checkUpdates();
+
+  // Chequeo periódico cada 3 minutos en segundo plano
+  setInterval(checkUpdates, 180000);
+
+  // Chequeo cuando el usuario vuelve a enfocar la pestaña/pantalla
+  window.addEventListener('focus', checkUpdates);
+
+  // Cuando el nuevo ServiceWorker se activa (despliegue en Vercel), recargar automáticamente
   let refreshing = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (refreshing) return;

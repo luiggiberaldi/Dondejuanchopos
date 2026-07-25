@@ -227,7 +227,7 @@ export default function UsersManager({ triggerHaptic }) {
     // Helper para encolar cambios de usuario en la cola de 'Subir al Sistema'
     const pushRemoteUserCmd = async (userAction, payload) => {
         try {
-            const PENDING_KEY = 'bodega_pending_monitor_changes_v1';
+            const PENDING_KEY = 'dj_pending_inventory_changes_v1';
             const raw = localStorage.getItem(PENDING_KEY);
             const list = raw ? JSON.parse(raw) : [];
             const changeItem = {
