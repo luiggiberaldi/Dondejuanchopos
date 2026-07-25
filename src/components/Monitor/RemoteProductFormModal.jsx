@@ -4,6 +4,7 @@ import { useProductContext } from '../../context/ProductContext';
 import { derivePricingMode } from '../../hooks/useProductForm';
 import PricingModeSelector from '../Products/PricingModeSelector';
 import PricePreviewLine from '../Products/PricePreviewLine';
+import { calcUsdFromBs } from '../../utils/calculatorUtils';
 
 const MODE_LABELS = {
     tasa_dia: 'Tasa del día',
@@ -145,14 +146,12 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
 
     const handleBsChange = (usdField, key, value, mode) => {
         const rate = mode === 'bcv' ? (bcvRate > 0 ? bcvRate : effectiveRate) : (effectiveRate > 0 ? effectiveRate : bcvRate);
-        const bsNum = parseFloat(value);
-
         setBsInputs(prev => ({ ...prev, [key]: value }));
 
-        if (!isNaN(bsNum) && bsNum > 0 && rate > 0) {
-            const usdCalc = (bsNum / rate).toFixed(2);
+        if (value !== '' && rate > 0) {
+            const usdCalc = calcUsdFromBs(value, rate);
             setForm(prev => ({ ...prev, [usdField]: usdCalc }));
-        } else if (value === '') {
+        } else {
             setForm(prev => ({ ...prev, [usdField]: '' }));
         }
     };

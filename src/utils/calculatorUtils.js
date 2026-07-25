@@ -133,3 +133,23 @@ export const getProductEffectiveRate = (product, globalRate, bcvRate) => {
     }
     return globalRate || 1;
 };
+
+/**
+ * Convierte un monto ingresado en Bolívares a Dólares calculando la precisión óptima
+ * para que al reconvertir (USD * tasa) dé el monto EXACTO en Bolívares sin perder por redondeo.
+ */
+export const calcUsdFromBs = (bsAmount, rate) => {
+    const bs = parseFloat(bsAmount);
+    const r = parseFloat(rate);
+    if (isNaN(bs) || bs <= 0 || isNaN(r) || r <= 0) return '';
+
+    const rawUsd = bs / r;
+    const rounded2 = Math.round(rawUsd * 100) / 100;
+
+    if (Math.round(rounded2 * r) === Math.round(bs)) {
+        return rounded2.toFixed(2);
+    } else {
+        const rounded4 = Math.round(rawUsd * 10000) / 10000;
+        return rounded4.toString();
+    }
+};

@@ -6,6 +6,7 @@ import ProductFormWizard from './ProductFormWizard';
 import { CurrencyService } from '../../services/CurrencyService';
 import { mulR, divR, round2 } from '../../utils/dinero';
 import { useProductContext } from '../../context/ProductContext';
+import { calcUsdFromBs } from '../../utils/calculatorUtils';
 
 export default function ProductFormModal({
     isOpen,
@@ -191,12 +192,10 @@ export default function ProductFormModal({
         if (forceBcv) return;
         setPriceBsManual(val);
         if (autoCalcUnit && effectiveRate > 0) {
-            const p = CurrencyService.safeParse(val);
-            if (!val || p <= 0) {
+            if (!val || parseFloat(val) <= 0) {
                 handlePriceUsdChange('');
             } else {
-                const usd = divR(p, effectiveRate);
-                handlePriceUsdChange(usd >= 0.01 ? usd.toFixed(2) : usd.toFixed(4));
+                handlePriceUsdChange(calcUsdFromBs(val, effectiveRate));
             }
         }
     };

@@ -10,21 +10,22 @@ export default function PricePreviewLine({ mode, usd, bsManual, bsUsdRef, effect
     if (!(u > 0)) return null;
 
     const fmt = (n) => Math.round(n).toLocaleString('es-VE');
+    const fmtUsd = (val) => (Number.isInteger(val * 100) ? val.toFixed(2) : val.toFixed(4).replace(/0+$/, ''));
     let text = null;
 
     if (mode === 'tasa_dia' && effectiveRate > 0) {
-        text = `Cobrarás: $${u.toFixed(2)} · ${fmt(mulR(u, effectiveRate))} Bs (tasa ${effectiveRate})`;
+        text = `Cobrarás: $${fmtUsd(u)} · ${fmt(mulR(u, effectiveRate))} Bs (tasa ${effectiveRate})`;
     } else if (mode === 'bcv') {
         const rb = bcvRate > 0 ? bcvRate : effectiveRate;
-        if (rb > 0) text = `Cobrarás: $${u.toFixed(2)} · ${fmt(mulR(u, rb))} Bs (BCV ${rb})`;
+        if (rb > 0) text = `Cobrarás: $${fmtUsd(u)} · ${fmt(mulR(u, rb))} Bs (BCV ${rb})`;
     } else if (mode === 'dual_usd') {
         const ref = CurrencyService.safeParse(bsUsdRef);
         if (ref > 0 && effectiveRate > 0) {
-            text = `Cobrarás: $${u.toFixed(2)} en divisas · ${fmt(mulR(ref, effectiveRate))} Bs en bolívares (= $${ref.toFixed(2)} × tasa ${effectiveRate})`;
+            text = `Cobrarás: $${fmtUsd(u)} en divisas · ${fmt(mulR(ref, effectiveRate))} Bs en bolívares (= $${fmtUsd(ref)} × tasa ${effectiveRate})`;
         }
     } else if (mode === 'bs_fijo') {
         const bs = CurrencyService.safeParse(bsManual);
-        if (bs > 0) text = `Cobrarás: $${u.toFixed(2)} · ${fmt(bs)} Bs (fijo, no cambia con la tasa)`;
+        if (bs > 0) text = `Cobrarás: $${fmtUsd(u)} · ${fmt(bs)} Bs (fijo, no cambia con la tasa)`;
     }
 
     if (!text) return null;
