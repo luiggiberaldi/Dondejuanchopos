@@ -361,18 +361,23 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         let sent = 0;
         for (const change of pendingChanges) {
             try {
+                const commandType = change.action === 'user_update' ? 'user_update' : 'inventory_update';
+                const payload = change.action === 'user_update'
+                    ? (change.data || {})
+                    : {
+                        action: change.action,
+                        productId: change.productId,
+                        data: change.data,
+                        issuedAt: change.queuedAt,
+                    };
+
                 const { error } = await supabaseCloud
                     .from('supervisor_commands')
                     .insert({
                         primary_device_id: pairedDeviceId,
                         monitor_device_id: monitorDeviceId,
-                        command_type: 'inventory_update',
-                        payload: {
-                            action: change.action,
-                            productId: change.productId,
-                            data: change.data,
-                            issuedAt: change.queuedAt,
-                        },
+                        command_type: commandType,
+                        payload: payload,
                         status: 'pending'
                     });
                 if (error) throw error;
@@ -2600,6 +2605,28 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             )}
                             <UsersManager triggerHaptic={triggerHaptic} />
                         </div>
+
+                        {/* Footer con botón "Subir al Sistema" si hay cambios pendientes */}
+                        {pendingChanges.length > 0 && (
+                            <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-900 text-white flex items-center justify-between gap-3 animate-in slide-in-from-bottom-2 duration-200">
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                    <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-black text-xs shrink-0 border border-amber-500/30">
+                                        {pendingChanges.length}
+                                    </div>
+                                    <p className="text-xs font-black truncate">
+                                        {pendingChanges.length} cambio{pendingChanges.length !== 1 ? 's' : ''} pendiente{pendingChanges.length !== 1 ? 's' : ''} por subir
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => { triggerHaptic?.(); uploadPendingChanges(); }}
+                                    disabled={uploading || !isConnected}
+                                    className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-[11px] font-black uppercase tracking-wider shadow-md shadow-emerald-500/30 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shrink-0"
+                                >
+                                    {uploading ? <RefreshCw size={13} className="animate-spin" /> : <UploadCloud size={13} />}
+                                    <span>{uploading ? 'Subiendo...' : 'Subir al sistema'}</span>
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

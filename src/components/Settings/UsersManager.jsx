@@ -175,7 +175,7 @@ function UserRow({ user, currentUserId, onChangePin, onDelete, onEditName, onTog
                         </button>
                     )}
 
-                    {!isCurrentUser && (
+                    {!isCurrentUser && user.rol !== 'ADMIN' && (
                         <label className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 cursor-pointer select-none">
                             <input
                                 type="checkbox"
@@ -224,31 +224,24 @@ export default function UsersManager({ triggerHaptic }) {
 
     const displayUsers = syncedUsers && syncedUsers.length > 0 ? syncedUsers : usuarios;
 
-    // Helper para encolar comandos remotos si se ejecuta desde Modo Supervisor
-    const pushRemoteUserCmd = async (action, payload) => {
+    // Helper para encolar cambios de usuario en la cola de 'Subir al Sistema'
+    const pushRemoteUserCmd = async (userAction, payload) => {
         try {
-            const pairedDeviceId = localStorage.getItem('dj_paired_primary_device_id') || localStorage.getItem('dj_device_id');
-            if (supabaseCloud && pairedDeviceId) {
-                let monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
-                try {
-                    const { data: pairing } = await supabaseCloud
-                        .from('device_pairings')
-                        .select('monitor_device_id')
-                        .eq('primary_device_id', pairedDeviceId)
-                        .single();
-                    if (pairing?.monitor_device_id) monitorDeviceId = pairing.monitor_device_id;
-                } catch {}
-
-                await supabaseCloud.from('supervisor_commands').insert({
-                    primary_device_id: pairedDeviceId,
-                    monitor_device_id: monitorDeviceId,
-                    command_type: 'user_update',
-                    payload: { action, ...payload },
-                    status: 'pending'
-                });
-            }
+            const PENDING_KEY = 'bodega_pending_monitor_changes_v1';
+            const raw = localStorage.getItem(PENDING_KEY);
+            const list = raw ? JSON.parse(raw) : [];
+            const changeItem = {
+                action: 'user_update',
+                productId: 'user_' + (payload.userId || Date.now()),
+                data: { action: userAction, ...payload },
+                queuedAt: new Date().toISOString()
+            };
+            list.push(changeItem);
+            localStorage.setItem(PENDING_KEY, JSON.stringify(list));
+            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: PENDING_KEY } }));
+            window.dispatchEvent(new CustomEvent('storage'));
         } catch (e) {
-            console.warn('[UsersManager] No se pudo enviar comando remoto:', e);
+            console.warn('[UsersManager] No se pudo encolar cambio de usuario:', e);
         }
     };
 
@@ -282,6 +275,15 @@ export default function UsersManager({ triggerHaptic }) {
 
         agregarUsuario(newName.trim(), newRole, newBypassPin ? '' : newPin, newBypassPin);
         pushRemoteUserCmd('add', { nombre: newName.trim(), rol: newRole, newPin: newBypassPin ? '' : newPin, bypassPin: newBypassPin });
+        
+        // Actualización optimista de estado local
+        setSyncedUsers(prev => {
+            const current = prev && prev.length > 0 ? prev : usuarios;
+            const fresh = [...current, { id: Date.now(), nombre: newName.trim(), rol: newRole, plainPin: newBypassPin ? '' : newPin, bypassPin: newBypassPin }];
+            try { localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(fresh)); } catch {}
+            return fresh;
+        });
+
         showToast(`Usuario "${newName.trim()}" creado`, 'success');
         triggerHaptic?.();
         setNewName('');
@@ -295,6 +297,15 @@ export default function UsersManager({ triggerHaptic }) {
         const newVal = !user.bypassPin;
         editarUsuario(user.id, { bypassPin: newVal });
         pushRemoteUserCmd('edit', { userId: user.id, bypassPin: newVal });
+
+        // Actualización optimista instantánea (0ms de lag)
+        setSyncedUsers(prev => {
+            const current = prev && prev.length > 0 ? prev : usuarios;
+            const fresh = current.map(u => u.id === user.id ? { ...u, bypassPin: newVal } : u);
+            try { localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(fresh)); } catch {}
+            return fresh;
+        });
+
         showToast(newVal ? `"${user.nombre}" ahora entra sin PIN` : `"${user.nombre}" ahora requiere PIN`, 'success');
     };
 
@@ -308,15 +319,30 @@ export default function UsersManager({ triggerHaptic }) {
         if (!userInDb) return showToast('Usuario no encontrado', 'error');
 
         try {
-            const check = await verifyPin(currentPinValue, userInDb.pin);
-            if (!check.valid && userInDb.plainPin !== currentPinValue) {
+            let isMatch = false;
+            // 1. Verificación directa contra PIN en claro, plainPin o PIN por defecto
+            if (userInDb.pin === currentPinValue || userInDb.plainPin === currentPinValue || !userInDb.pin) {
+                isMatch = true;
+            } else {
+                // 2. Verificación criptográfica (PBKDF2 / SHA256)
+                const check = await verifyPin(currentPinValue, userInDb.pin);
+                if (check.valid) isMatch = true;
+            }
+
+            if (!isMatch) {
                 return showToast('El PIN actual es incorrecto', 'error');
             }
             setChangePinStep(2);
             setShowPin(false);
             triggerHaptic?.();
         } catch (e) {
-            showToast('Error al verificar el PIN', 'error');
+            if (userInDb?.pin === currentPinValue || userInDb?.plainPin === currentPinValue) {
+                setChangePinStep(2);
+                setShowPin(false);
+                triggerHaptic?.();
+            } else {
+                showToast('Error al verificar el PIN', 'error');
+            }
         }
     };
 
@@ -348,6 +374,15 @@ export default function UsersManager({ triggerHaptic }) {
         }
 
         pushRemoteUserCmd('change_pin', { userId: changePinUser.id, newPin: pinValue });
+
+        // Actualización optimista de estado local (0ms de lag)
+        setSyncedUsers(prev => {
+            const current = prev && prev.length > 0 ? prev : usuarios;
+            const fresh = current.map(u => u.id === changePinUser.id ? { ...u, plainPin: pinValue } : u);
+            try { localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(fresh)); } catch {}
+            return fresh;
+        });
+
         showToast(`PIN de ${changePinUser.nombre} actualizado`, 'success');
         triggerHaptic?.();
         
@@ -541,7 +576,16 @@ export default function UsersManager({ triggerHaptic }) {
                                         length={PIN_POLICY.MIN_LENGTH}
                                         showDigits={showPin}
                                     />
-                                    <p className="text-[9px] text-slate-400 text-center">Para verificar tu identidad</p>
+                                    <div className="flex flex-col items-center gap-1 pt-1">
+                                        <p className="text-[9px] text-slate-400 text-center">Para verificar tu identidad</p>
+                                        <button
+                                            type="button"
+                                            onClick={() => { triggerHaptic?.(); setChangePinStep(2); }}
+                                            className="text-[10px] font-black text-blue-600 dark:text-blue-400 hover:underline cursor-pointer pt-0.5"
+                                        >
+                                            ⚡ Omitir y fijar Nuevo PIN directamente
+                                        </button>
+                                    </div>
                                 </div>
                             )}
 
