@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Gift, Search, X, Plus, Minus, Camera, Tag, Percent, Package, CheckCircle, Sparkles, Zap, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Check, Sliders, AlertCircle } from 'lucide-react';
+import { Gift, Search, X, Plus, Minus, Camera, Tag, Percent, Package, CheckCircle, Sparkles, Zap, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Check, Sliders, AlertCircle, Barcode } from 'lucide-react';
 import { Modal } from '../Modal';
 import ConfirmModal from '../ConfirmModal';
 import { calculateComboStock } from '../../utils/productProcessor';
@@ -555,27 +555,41 @@ export default function ComboFormModal({
                             </button>
                         </div>
 
-                        {/* Foto y Nombre del Combo */}
+                        {/* Foto, Nombre y Código de Barras del Combo */}
                         <div className="space-y-3 bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-2xl border border-slate-200/60 dark:border-slate-800">
-                            <div className="flex gap-3">
+                            <div className="flex gap-3 items-start">
                                 <button type="button" onClick={() => fileInputRef.current?.click()}
-                                    className="w-14 h-14 shrink-0 bg-white dark:bg-slate-800 border-2 border-dashed border-brand/30 rounded-xl flex items-center justify-center overflow-hidden hover:border-brand transition-colors shadow-sm">
+                                    className="w-16 h-16 shrink-0 bg-white dark:bg-slate-800 border-2 border-dashed border-brand/30 rounded-xl flex items-center justify-center overflow-hidden hover:border-brand transition-colors shadow-sm mt-1">
                                     {image ? (
                                         <img src={image} className="w-full h-full object-cover" alt="" />
                                     ) : (
-                                        <Camera size={18} className="text-brand/60" />
+                                        <Camera size={20} className="text-brand/60" />
                                     )}
                                 </button>
                                 <input type="file" ref={fileInputRef} accept="image/*" className="hidden" onChange={handleImageUpload} />
-                                <div className="flex-1">
-                                    <label className="text-[10px] font-black text-slate-400 ml-1 mb-1 block uppercase tracking-wider">Nombre del Combo</label>
-                                    <input
-                                        type="text"
-                                        value={name}
-                                        onChange={e => setName(e.target.value)}
-                                        placeholder="Ej: Combo Familiar 3x2"
-                                        className="w-full bg-white dark:bg-slate-800 p-2.5 rounded-xl font-bold text-slate-800 dark:text-white outline-none border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-brand/40 transition-all text-sm"
-                                    />
+                                <div className="flex-1 space-y-2">
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 ml-1 mb-1 block uppercase tracking-wider">Nombre del Combo</label>
+                                        <input
+                                            type="text"
+                                            value={name}
+                                            onChange={e => setName(e.target.value)}
+                                            placeholder="Ej: Combo Familiar 3x2"
+                                            className="w-full bg-white dark:bg-slate-800 p-2.5 rounded-xl font-bold text-slate-800 dark:text-white outline-none border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-brand/40 transition-all text-sm"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 ml-1 mb-1 block uppercase tracking-wider flex items-center gap-1">
+                                            <Barcode size={12} className="text-brand" /> Código de Barras (Opcional)
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={barcode}
+                                            onChange={e => setBarcode(e.target.value)}
+                                            placeholder="Escanear o ingresar código de barras..."
+                                            className="w-full bg-white dark:bg-slate-800 p-2 rounded-xl font-mono font-bold text-slate-800 dark:text-white outline-none border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-brand/40 transition-all text-xs"
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1072,6 +1086,12 @@ export default function ComboFormModal({
                                     <p className="text-[10px] font-bold text-slate-400">
                                         Modo: {pricingMode === 'tasa_dia' ? '⚡ Tasa del Día' : pricingMode === 'bcv' ? '🏛️ Siempre BCV' : pricingMode === 'dual_usd' ? '💵 Dos Precios en $' : '🔒 Bs Congelado'}
                                     </p>
+                                    {barcode && (
+                                        <p className="text-[10px] font-mono font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
+                                            <Barcode size={12} className="text-brand shrink-0" />
+                                            <span>{barcode}</span>
+                                        </p>
+                                    )}
                                 </div>
                             </div>
 
