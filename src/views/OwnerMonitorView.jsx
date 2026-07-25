@@ -68,7 +68,15 @@ function getPaymentBadgeStyle(sale) {
     return 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300';
 }
 
-function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId }) {
+function getFormattedSaleCode(sale) {
+    if (!sale) return '';
+    if (sale.saleNumber != null && Number(sale.saleNumber) > 0) {
+        return `#${String(sale.saleNumber).padStart(7, '0')}`;
+    }
+    return `#${sale.id ? sale.id.slice(-6).toUpperCase() : ''}`;
+}
+
+function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId, onVoidSaleSuccess }) {
     if (!sale) return null;
 
     const [showConfirmVoid, setShowConfirmVoid] = useState(false);
@@ -99,11 +107,13 @@ function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId }) {
 
                 if (error) throw error;
                 showToast('Comando de anulación enviado a la caja', 'success');
+                if (onVoidSaleSuccess) {
+                    onVoidSaleSuccess(sale.id);
+                }
             } else {
                 showToast('Sin conexión con la caja principal', 'error');
             }
             setShowConfirmVoid(false);
-            onClose();
         } catch (err) {
             console.error('[OwnerMonitor] Error al solicitar anulación:', err);
             showToast('No se pudo enviar el comando de anulación', 'error');
@@ -128,7 +138,7 @@ function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId }) {
                         <div className="min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                                 <h3 className="text-sm font-black text-slate-800 dark:text-white">
-                                    Venta #{sale.id ? sale.id.slice(-6).toUpperCase() : ''}
+                                    Venta {getFormattedSaleCode(sale)}
                                 </h3>
                                 {isVoided ? (
                                     <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/60 flex items-center gap-1">
@@ -276,7 +286,7 @@ function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId }) {
                                 <AlertTriangle size={28} />
                             </div>
                             <div>
-                                <h4 className="text-base font-black text-slate-800 dark:text-white">¿Anular Venta #{sale.id ? sale.id.slice(-6).toUpperCase() : ''}?</h4>
+                                <h4 className="text-base font-black text-slate-800 dark:text-white">¿Anular Venta {getFormattedSaleCode(sale)}?</h4>
                                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed font-medium">
                                     Se enviará un comando remoto a la caja para restaurar el stock de los productos y revertir los movimientos contables.
                                 </p>
@@ -795,7 +805,6 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     // Filtrar ventas del turno activo (cajaCerrada !== true)
     const activeShiftSales = useMemo(() => {
         const filtered = sales.filter(s => {
-            if (s.status === 'ANULADA') return false;
             if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'VENTA_CASHEA') return false;
             if (s.cajaCerrada) return false;
             
@@ -812,14 +821,15 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const activeShiftMetrics = useMemo(() => {
         let usd = 0;
         let bs = 0;
-        activeShiftSales.forEach(s => {
+        const validSales = activeShiftSales.filter(s => s.status !== 'ANULADA');
+        validSales.forEach(s => {
             usd += s.totalUsd || 0;
             bs += s.totalBs || 0;
         });
 
         // Calcular ganancia estimada si los productos tienen costo
         let costSum = 0;
-        activeShiftSales.forEach(s => {
+        validSales.forEach(s => {
             if (!s.items) return;
             s.items.forEach(item => {
                 const prod = products.find(p => p.id === item.productId || p.id === item.id);
@@ -835,7 +845,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             totalUsd: usd,
             totalBs: bs,
             profitUsd,
-            count: activeShiftSales.length
+            count: validSales.length
         };
     }, [activeShiftSales, products]);
 
@@ -1550,9 +1560,15 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                         >
                                                             <div className="space-y-1.5 min-w-0 flex-1 w-full">
                                                                 <div className="flex items-center justify-between sm:justify-start gap-2">
-                                                                    <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400">
-                                                                        #{sale.id.slice(-4).toUpperCase()}
-                                                                    </span>
+                                                                    {sale.status === 'ANULADA' ? (
+                                                                        <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/60 flex items-center gap-1">
+                                                                            <AlertTriangle size={10} /> {getFormattedSaleCode(sale)} • ANULADA
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400">
+                                                                            {getFormattedSaleCode(sale)}
+                                                                        </span>
+                                                                    )}
                                                                     <span className="text-[10px] text-slate-400 font-bold">{formatTime(sale.timestamp)}</span>
                                                                     <div className="sm:hidden text-right">
                                                                         <span className="font-outfit text-sm font-black text-slate-800 dark:text-white">${(sale.totalUsd || 0).toFixed(2)}</span>
@@ -1827,7 +1843,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                                 <div className="min-w-0 flex-1 w-full space-y-1">
                                                                     <div className="flex items-center justify-between sm:justify-start gap-2">
                                                                         <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800/40">
-                                                                            #{sale.id.slice(-4).toUpperCase()}
+                                                                            {getFormattedSaleCode(sale)}
                                                                         </span>
                                                                         <span className="text-[9px] text-slate-400 font-bold">{formatTime(sale.timestamp)}</span>
                                                                         <div className="sm:hidden text-right">
@@ -2841,6 +2857,14 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                     onClose={() => setSelectedSaleDetail(null)}
                     bcvRate={bcvRate}
                     pairedDeviceId={pairedDeviceId}
+                    onVoidSaleSuccess={(saleId) => {
+                        setSelectedSaleDetail(prev => prev ? { ...prev, status: 'ANULADA' } : null);
+                        setSales(prevSales => {
+                            const updated = prevSales.map(s => s.id === saleId ? { ...s, status: 'ANULADA' } : s);
+                            storageService.setItem('bodega_sales_v1', updated).catch(() => {});
+                            return updated;
+                        });
+                    }}
                 />
             )}
 
