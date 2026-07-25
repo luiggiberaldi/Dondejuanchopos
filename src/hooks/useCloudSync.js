@@ -5,11 +5,21 @@ import { useAuthStore } from './store/useAuthStore';
 import { useSupervisorCommands } from './useSupervisorCommands';
 import { IDB_KEYS, LS_KEYS } from '../config/backupKeys';
 
-// Unión de catálogos canónicos más bodega_rate_mode, bodega_pos_heartbeat y bodega_users_catalog_v1
-const SYNC_KEYS = [...new Set([...IDB_KEYS, ...LS_KEYS, 'bodega_rate_mode', 'bodega_pos_heartbeat', 'bodega_users_catalog_v1'])];
+// EGRESS: claves que se respaldan pero NO se sincronizan a la nube.
+// Cada upsert a sync_documents se retransmite por Realtime a CADA monitor
+// conectado, así que sincronizar algo que el monitor no lee es egress puro.
+//   • bodega_sales_mirror_v1 → duplicado casi exacto de bodega_sales_v1
+//     (blindaje anti-pérdida LOCAL, ver checkoutProcessor.js). El monitor
+//     nunca lo lee; sigue incluido en los backups vía IDB_KEYS.
+//   • abasto_audit_log_v1 → hasta 15.000 entradas (auditService MAX_ENTRIES),
+//     reescrito en cada evento auditado. El monitor no lo renderiza.
+const CLOUD_SYNC_EXCLUDE = ['bodega_sales_mirror_v1', 'abasto_audit_log_v1', 'bodega_pos_heartbeat'];
+
+// Unión de catálogos canónicos más bodega_rate_mode y bodega_users_catalog_v1 (excluyendo claves no sincronizables)
+const SYNC_KEYS = [...new Set([...IDB_KEYS, ...LS_KEYS, 'bodega_rate_mode', 'bodega_users_catalog_v1'])].filter(k => !CLOUD_SYNC_EXCLUDE.includes(k));
 
 // LOCAL_KEYS determina qué se guarda como collection='local' en sync_documents
-const LOCAL_KEYS = [...new Set([...LS_KEYS, 'bodega_rate_mode', 'bodega_pos_heartbeat', 'bodega_users_catalog_v1'])];
+const LOCAL_KEYS = [...new Set([...LS_KEYS, 'bodega_rate_mode', 'bodega_users_catalog_v1'])].filter(k => !CLOUD_SYNC_EXCLUDE.includes(k));
 
 /** Hash ligero para detectar cambios sin comparar objetos enteros (mismo patrón que useAutoBackup.js) */
 function quickHash(value) {
