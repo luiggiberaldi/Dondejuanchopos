@@ -66,6 +66,136 @@ function getPaymentBadgeStyle(sale) {
     return 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300';
 }
 
+function SaleDetailModal({ sale, onClose, bcvRate }) {
+    if (!sale) return null;
+
+    const formattedDate = sale.timestamp ? new Date(sale.timestamp).toLocaleString('es-VE', {
+        dateStyle: 'medium',
+        timeStyle: 'short'
+    }) : '';
+
+    return (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in" onClick={onClose}>
+            <div className="bg-white dark:bg-slate-900 w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                {/* Modal Header */}
+                <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/70 dark:bg-slate-800/40">
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400 font-black shrink-0">
+                            <FileText size={20} />
+                        </div>
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <h3 className="text-sm font-black text-slate-800 dark:text-white">
+                                    Venta #{sale.id ? sale.id.slice(-6).toUpperCase() : ''}
+                                </h3>
+                                <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${getPaymentBadgeStyle(sale)}`}>
+                                    {getFormattedPaymentMethod(sale)}
+                                </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 font-medium mt-0.5">{formattedDate}</p>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={onClose}
+                        className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-colors shrink-0"
+                    >
+                        <X size={20} />
+                    </button>
+                </div>
+
+                {/* Modal Content */}
+                <div className="p-4 sm:p-6 overflow-y-auto space-y-5 flex-1">
+                    {/* Metadata Header */}
+                    <div className="grid grid-cols-2 gap-3 p-3.5 bg-slate-50 dark:bg-slate-800/30 border border-slate-150 dark:border-slate-800 rounded-2xl text-xs">
+                        <div>
+                            <span className="text-[9.5px] font-black uppercase tracking-wider text-slate-400 block">Cajero</span>
+                            <span className="font-bold text-slate-700 dark:text-slate-200 truncate block mt-0.5">
+                                {sale.cajero || sale.usuarioNombre || sale.usuario || 'Cajero General'}
+                            </span>
+                        </div>
+                        {sale.clientName && (
+                            <div>
+                                <span className="text-[9.5px] font-black uppercase tracking-wider text-slate-400 block">Cliente</span>
+                                <span className="font-bold text-slate-700 dark:text-slate-200 truncate block mt-0.5">
+                                    {sale.clientName}
+                                </span>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Desglose de Artículos */}
+                    <div className="space-y-2.5">
+                        <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-400 px-1">
+                            <span>Artículos ({sale.items ? sale.items.reduce((s, i) => s + (i.qty || 1), 0) : 0})</span>
+                            <span>Subtotal</span>
+                        </div>
+                        
+                        <div className="space-y-2.5 max-h-[280px] overflow-y-auto pr-1">
+                            {sale.items && sale.items.length > 0 ? (
+                                sale.items.map((item, idx) => {
+                                    const qty = item.qty || 1;
+                                    const price = item.priceUsd ?? item.price ?? 0;
+                                    const subtotalUsd = qty * price;
+                                    const subtotalBs = item.subtotalBs || (subtotalUsd * (sale.bcvRate || bcvRate || 1));
+                                    
+                                    return (
+                                        <div key={idx} className="p-3 bg-slate-50/80 dark:bg-slate-800/20 border border-slate-100 dark:border-slate-800 rounded-2xl flex justify-between items-start gap-3">
+                                            <div className="min-w-0 flex-1 space-y-1">
+                                                <span className="text-xs font-black text-slate-800 dark:text-slate-100 block leading-snug break-words">
+                                                    {item.name}
+                                                </span>
+                                                <div className="flex items-center gap-2 text-[10.5px] text-slate-400 font-semibold">
+                                                    <span>Cant: <strong className="text-slate-700 dark:text-slate-300 font-bold">{qty}</strong></span>
+                                                    <span>•</span>
+                                                    <span>P.Unit: <strong className="font-outfit text-slate-700 dark:text-slate-300">${price.toFixed(2)}</strong></span>
+                                                </div>
+                                            </div>
+                                            <div className="text-right shrink-0">
+                                                <span className="font-outfit text-xs font-black text-slate-800 dark:text-white block">${subtotalUsd.toFixed(2)}</span>
+                                                <span className="font-outfit text-[9.5px] font-bold text-slate-400 block">{formatBs(subtotalBs)} Bs</span>
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                <div className="p-4 text-center text-xs text-slate-400 font-bold">Sin detalle de artículos</div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Resumen Total */}
+                    <div className="p-4 bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/40 rounded-2xl space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                            <span className="font-bold text-slate-600 dark:text-slate-300">Total Venta ($)</span>
+                            <span className="font-outfit text-base font-black text-slate-800 dark:text-white">${(sale.totalUsd || 0).toFixed(2)}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs pt-1 border-t border-emerald-200/40 dark:border-emerald-900/30">
+                            <span className="font-bold text-slate-600 dark:text-slate-300">Total Venta (Bs)</span>
+                            <span className="font-outfit text-sm font-black text-emerald-700 dark:text-emerald-400">{formatBs(sale.totalBs || 0)} Bs</span>
+                        </div>
+                        {(sale.bcvRate || bcvRate) && (
+                            <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1">
+                                <span>Tasa Aplicada</span>
+                                <span>1 USD = {formatBs(sale.bcvRate || bcvRate)} Bs</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Modal Footer */}
+                <div className="p-4 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-800/30">
+                    <button
+                        onClick={onClose}
+                        className="w-full py-3 px-4 bg-slate-800 hover:bg-slate-900 text-white dark:bg-slate-700 dark:hover:bg-slate-600 rounded-2xl font-black text-xs transition-colors shadow-sm"
+                    >
+                        Cerrar Detalle
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 const PENDING_KEY = 'dj_pending_inventory_changes_v1';
 
 export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) {
@@ -78,6 +208,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const [loadingData, setLoadingData] = useState(true);
     const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
     const [showRateModal, setShowRateModal] = useState(false);
+    const [selectedSaleDetail, setSelectedSaleDetail] = useState(null);
     const [viewTab, setViewTab] = useState('activo'); // 'activo' o 'cierres'
     const [selectedCierreId, setSelectedCierreId] = useState(null);
     const [searchTermInventario, setSearchTermInventario] = useState('');
@@ -1005,28 +1136,37 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                     {activeShiftSales.slice().reverse().map(sale => (
                                                         <div 
                                                             key={sale.id}
-                                                            className="p-4 border border-slate-100 dark:border-slate-800/80 hover:border-slate-200 rounded-2xl bg-slate-50/50 dark:bg-slate-800/20 flex justify-between items-start transition-colors"
+                                                            onClick={() => { triggerHaptic?.(); setSelectedSaleDetail(sale); }}
+                                                            className="p-3.5 sm:p-4 border border-slate-100 dark:border-slate-800/80 hover:border-emerald-400/80 dark:hover:border-emerald-600/60 rounded-2xl bg-slate-50/50 dark:bg-slate-800/20 hover:bg-white dark:hover:bg-slate-800/50 flex flex-col sm:flex-row justify-between items-start gap-2.5 transition-all duration-200 cursor-pointer active:scale-[0.99] shadow-sm hover:shadow-md group"
                                                         >
-                                                            <div className="space-y-1 min-w-0 flex-1 pr-3">
-                                                                <div className="flex items-center gap-2">
+                                                            <div className="space-y-1.5 min-w-0 flex-1 w-full">
+                                                                <div className="flex items-center justify-between sm:justify-start gap-2">
                                                                     <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400">
                                                                         #{sale.id.slice(-4).toUpperCase()}
                                                                     </span>
                                                                     <span className="text-[10px] text-slate-400 font-bold">{formatTime(sale.timestamp)}</span>
+                                                                    <div className="sm:hidden text-right">
+                                                                        <span className="font-outfit text-sm font-black text-slate-800 dark:text-white">${(sale.totalUsd || 0).toFixed(2)}</span>
+                                                                    </div>
                                                                 </div>
-                                                                <p className="text-xs font-black text-slate-700 dark:text-slate-200 mt-1.5 truncate">
+                                                                <p className="text-xs font-black text-slate-800 dark:text-slate-100 leading-snug break-words pr-1">
                                                                     {sale.items?.map(i => `${i.name} (x${i.qty})`).join(', ') || 'Venta de productos'}
                                                                 </p>
-                                                                <div className="flex gap-2 items-center flex-wrap mt-1">
-                                                                    <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${getPaymentBadgeStyle(sale)}`}>
-                                                                        {getFormattedPaymentMethod(sale)}
+                                                                <div className="flex items-center justify-between pt-1">
+                                                                    <div className="flex gap-2 items-center flex-wrap">
+                                                                        <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${getPaymentBadgeStyle(sale)}`}>
+                                                                            {getFormattedPaymentMethod(sale)}
+                                                                        </span>
+                                                                        {sale.clientName && (
+                                                                            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">• {sale.clientName}</span>
+                                                                        )}
+                                                                    </div>
+                                                                    <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5 group-hover:translate-x-0.5 transition-transform">
+                                                                        Ver detalle <ChevronRight size={12} />
                                                                     </span>
-                                                                    {sale.clientName && (
-                                                                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">• {sale.clientName}</span>
-                                                                    )}
                                                                 </div>
                                                             </div>
-                                                            <div className="text-right space-y-0.5 shrink-0">
+                                                            <div className="hidden sm:block text-right space-y-0.5 shrink-0">
                                                                 <span className="font-outfit text-sm font-black text-slate-800 dark:text-white block">${(sale.totalUsd || 0).toFixed(2)}</span>
                                                                 <span className="font-outfit text-[10px] font-bold text-slate-400 block">{formatBs(sale.totalBs || 0)} Bs</span>
                                                             </div>
@@ -1270,18 +1410,26 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                     <h3 className="text-xs font-black text-slate-800 dark:text-white mb-4 uppercase tracking-wider">Ventas Cerradas en este Turno</h3>
                                                     <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
                                                         {activeC.sales.slice().reverse().map(sale => (
-                                                            <div key={sale.id} className="p-3.5 border border-slate-100 dark:border-slate-800 rounded-2xl bg-slate-50/50 dark:bg-slate-800/20 flex justify-between items-center text-xs">
-                                                                    <div className="min-w-0 flex-1 pr-2">
-                                                                        <div className="flex items-center gap-2">
-                                                                            <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800/40">
-                                                                                #{sale.id.slice(-4).toUpperCase()}
-                                                                            </span>
-                                                                            <span className="text-[9px] text-slate-400 font-bold">{formatTime(sale.timestamp)}</span>
+                                                            <div 
+                                                                key={sale.id}
+                                                                onClick={() => { triggerHaptic?.(); setSelectedSaleDetail(sale); }}
+                                                                className="p-3.5 border border-slate-100 dark:border-slate-800 rounded-2xl bg-slate-50/50 dark:bg-slate-800/20 hover:bg-white dark:hover:bg-slate-800/50 flex flex-col sm:flex-row justify-between items-start gap-2.5 transition-all duration-200 cursor-pointer active:scale-[0.99] shadow-sm hover:shadow-md group"
+                                                            >
+                                                                <div className="min-w-0 flex-1 w-full space-y-1">
+                                                                    <div className="flex items-center justify-between sm:justify-start gap-2">
+                                                                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800/40">
+                                                                            #{sale.id.slice(-4).toUpperCase()}
+                                                                        </span>
+                                                                        <span className="text-[9px] text-slate-400 font-bold">{formatTime(sale.timestamp)}</span>
+                                                                        <div className="sm:hidden text-right">
+                                                                            <span className="font-outfit font-black text-slate-850 dark:text-white">${(sale.totalUsd || 0).toFixed(2)}</span>
                                                                         </div>
-                                                                        <p className="font-black text-slate-700 dark:text-slate-250 truncate mt-1">
-                                                                            {sale.items?.map(i => `${i.name} (x${i.qty})`).join(', ') || 'Venta de productos'}
-                                                                        </p>
-                                                                        <div className="flex gap-2 items-center flex-wrap mt-1">
+                                                                    </div>
+                                                                    <p className="font-black text-slate-800 dark:text-slate-100 leading-snug break-words pr-1 text-xs">
+                                                                        {sale.items?.map(i => `${i.name} (x${i.qty})`).join(', ') || 'Venta de productos'}
+                                                                    </p>
+                                                                    <div className="flex items-center justify-between pt-1">
+                                                                        <div className="flex gap-2 items-center flex-wrap">
                                                                             <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md ${getPaymentBadgeStyle(sale)}`}>
                                                                                 {getFormattedPaymentMethod(sale)}
                                                                             </span>
@@ -1289,11 +1437,15 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                                                 <span className="text-[9px] text-slate-500 dark:text-slate-400 font-bold">• {sale.clientName}</span>
                                                                             )}
                                                                         </div>
+                                                                        <span className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5 group-hover:translate-x-0.5 transition-transform">
+                                                                            Ver detalle <ChevronRight size={11} />
+                                                                        </span>
                                                                     </div>
-                                                                    <div className="text-right shrink-0">
-                                                                        <span className="font-outfit font-black text-slate-850 dark:text-white block">${(sale.totalUsd || 0).toFixed(2)}</span>
-                                                                        <span className="font-outfit text-[9px] text-slate-400 block">{formatBs(sale.totalBs || 0)} Bs</span>
-                                                                    </div>
+                                                                </div>
+                                                                <div className="hidden sm:block text-right shrink-0 space-y-0.5">
+                                                                    <span className="font-outfit font-black text-slate-850 dark:text-white block">${(sale.totalUsd || 0).toFixed(2)}</span>
+                                                                    <span className="font-outfit text-[9px] text-slate-400 block">{formatBs(sale.totalBs || 0)} Bs</span>
+                                                                </div>
                                                             </div>
                                                         ))}
                                                     </div>
@@ -1817,6 +1969,15 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                     onClose={() => setStockAdjustProduct(null)}
                     onConfirm={(productId, delta) => queueInventoryChange('adjust_stock', productId, { delta })}
                     triggerHaptic={triggerHaptic}
+                />
+            )}
+
+            {/* Modal de Detalle Completo de Venta */}
+            {selectedSaleDetail && (
+                <SaleDetailModal
+                    sale={selectedSaleDetail}
+                    onClose={() => setSelectedSaleDetail(null)}
+                    bcvRate={bcvRate}
                 />
             )}
         </div>
