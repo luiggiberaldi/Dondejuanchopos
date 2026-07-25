@@ -1,6 +1,8 @@
 import React from 'react';
 import { CheckCircle, Wallet, Send, X, Printer } from 'lucide-react';
 import { formatBs, formatCop } from '../../utils/calculatorUtils';
+import { mulR } from '../../utils/dinero';
+import { calculatePricing } from '../../utils/productProcessor';
 import { printThermalTicket } from '../../utils/ticketGenerator';
 import CasheaIcon from '../CasheaIcon';
 
@@ -89,9 +91,9 @@ export default function ReceiptModal({ receipt, onClose, onShareWhatsApp, curren
                         <div className="space-y-3">
                             {receipt.items.map((item, i) => {
                                 const isCop = receipt.copEnabled && receipt.tasaCop > 0;
-                                const hasManual = item.priceBsManual != null && Number(item.priceBsManual) > 0;
-                                const priceBs = hasManual ? Number(item.priceBsManual) : (item.priceUsd * (receipt.rate || 0));
-                                const totalBs = hasManual ? (Number(item.priceBsManual) * item.qty) : (item.priceUsd * item.qty * (receipt.rate || 0));
+                                const { unitPriceBs } = calculatePricing(item, receipt.rate || 0, receipt.bcvRate || receipt.rate || 0);
+                                const priceBs = unitPriceBs;
+                                const totalBs = mulR(unitPriceBs, item.qty);
 
                                 const comboBreakdown = item.modularSelections || item.selectedModularItems || item.comboItems;
 

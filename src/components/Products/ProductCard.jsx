@@ -2,7 +2,7 @@ import React from 'react';
 import { Tag, Banknote, AlertTriangle, Box, Minus, Plus, Pencil, Trash2, Package, Layers, Clock, Printer, FileText, Gift, ChevronDown, Landmark, Zap, Sparkles } from 'lucide-react';
 import { CATEGORY_COLORS, getCategoryIcon, UNITS } from '../../config/categories';
 import { formatUsd, formatBs, formatCop, smartCashRounding, getCop, getUsd, getProductEffectiveRate } from '../../utils/calculatorUtils';
-import { calculateComboStock } from '../../utils/productProcessor';
+import { calculateComboStock, calculatePricing } from '../../utils/productProcessor';
 import { showToast } from '../Toast';
 
 export default function ProductCard({
@@ -341,11 +341,10 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
 
                     <p className="text-[11px] font-extrabold text-slate-500 dark:text-slate-450 leading-none flex items-center gap-1 flex-wrap">
                         <span>
-                            {p.priceBsUsdRef && !p.forceBcv
-                                ? formatBs(p.priceBsUsdRef * activeRate)
-                                : p.priceBsManual && !p.forceBcv
-                                    ? `${Number(p.priceBsManual).toFixed(2)}`
-                                    : formatBs(p.priceUsd * activeRate)} Bs
+                            {(() => {
+                                const { unitPriceBs } = calculatePricing(p, effectiveRate, bcvRate);
+                                return formatBs(unitPriceBs);
+                            })()} Bs
                         </span>
                         {p.priceBsManual && !p.forceBcv && (
                             <span className="text-[7px] bg-[#193275]/10 dark:bg-brand/10 text-[#193275] dark:text-brand px-1.5 py-0.5 rounded font-black">MANUAL</span>
@@ -378,11 +377,10 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                                     <span className="flex items-center gap-1"><Package size={10} /> Caja ({displayBoxUnits} Uds)</span>
                                     <span className="font-black">
                                         ${(p.boxPriceUsd ? Number(p.boxPriceUsd) : 0).toFixed(2)} | {
-                                            p.boxPriceBsUsdRef && !p.forceBcv
-                                                ? `${((p.boxPriceBsUsdRef || 0) * activeRate).toFixed(0)} Bs`
-                                                : p.boxPriceBs && !p.forceBcv
-                                                    ? `${Number(p.boxPriceBs).toFixed(0)} Bs`
-                                                    : `${((p.boxPriceUsd || 0) * activeRate).toFixed(0)} Bs`
+                                            (() => {
+                                                const { unitPriceBs: boxBs } = calculatePricing(p, effectiveRate, bcvRate, 'box');
+                                                return `${boxBs > 0 ? boxBs.toFixed(0) : ((p.boxPriceUsd || 0) * effectiveRate).toFixed(0)} Bs`;
+                                            })()
                                         }
                                     </span>
                                 </div>
@@ -392,11 +390,10 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                                     <span className="flex items-center gap-1"><Package size={10} /> ½ Caja ({displayHalfBoxUnits} Uds)</span>
                                     <span className="font-black">
                                         ${(p.halfBoxPriceUsd ? Number(p.halfBoxPriceUsd) : 0).toFixed(2)} | {
-                                            p.halfBoxPriceBsUsdRef && !p.forceBcv
-                                                ? `${((p.halfBoxPriceBsUsdRef || 0) * activeRate).toFixed(0)} Bs`
-                                                : p.halfBoxPriceBs && !p.forceBcv
-                                                    ? `${Number(p.halfBoxPriceBs).toFixed(0)} Bs`
-                                                    : `${((p.halfBoxPriceUsd || 0) * activeRate).toFixed(0)} Bs`
+                                            (() => {
+                                                const { unitPriceBs: halfBs } = calculatePricing(p, effectiveRate, bcvRate, 'halfBox');
+                                                return `${halfBs > 0 ? halfBs.toFixed(0) : ((p.halfBoxPriceUsd || 0) * effectiveRate).toFixed(0)} Bs`;
+                                            })()
                                         }
                                     </span>
                                 </div>

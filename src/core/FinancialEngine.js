@@ -17,6 +17,7 @@
 
 import { round2, mulR, divR, subR, sumR } from '../utils/dinero';
 import { FINANCIAL_EPSILON } from '../utils/securityConstants';
+import { calculatePricing } from '../utils/productProcessor';
 
 // ── Labels de métodos de pago de fábrica (lookup puro, sin async) ──
 // Resuelve el nombre legible de un methodId sin necesitar el módulo async.
@@ -101,8 +102,10 @@ export class FinancialEngine {
                 }
             }
 
-            // Revenue = price * qty * rate (rounded at each step)
-            const itemRevenueBs = mulR(mulR(item.priceUsd, item.qty), saleRate);
+            // Revenue = exact subtotalBs saved if available, else price * qty * rate
+            const itemRevenueBs = item.subtotalBs != null && item.subtotalBs > 0
+                ? round2(item.subtotalBs)
+                : mulR(mulR(item.priceUsd, item.qty), saleRate);
             const itemCostBs = mulR(costBs, item.qty);
             return subR(itemRevenueBs, itemCostBs);
         });
@@ -373,22 +376,10 @@ export class FinancialEngine {
         const lineItemsUsd = cartItems.map(item => mulR(item.priceUsd, item.qty));
         const subtotalUsd = sumR(lineItemsUsd);
 
-        // Bs: precio Bs manual e INDEPENDIENTE del USD si existe (precios duales asignados en
-        // inventario). Si no hay manual, se usa exactBs (Venta Libre) y, en último caso, la
-        // conversión por tasa BCV/global. USD y Bs NO se derivan uno del otro.
+        // Bs: usa calculatePricing para respetar bs_fijo, bcv, dual_usd, tasa_dia y alineación canónica
         const lineItemsBs = cartItems.map(item => {
-            if (item.priceBsManual != null && item.priceBsManual > 0 && !item.forceBcv) {
-                return mulR(item.priceBsManual, item.qty);
-            }
-            if (item.priceBsUsdRef != null && item.priceBsUsdRef > 0 && !item.forceBcv) {
-                const itemRate = item.forceBcv ? (realBcvRate || bcvRate) : bcvRate;
-                return mulR(mulR(item.priceBsUsdRef, item.qty), itemRate);
-            }
-            if (item.exactBs != null && !item.forceBcv) {
-                return mulR(item.exactBs, item.qty);
-            }
-            const itemRate = item.forceBcv ? (realBcvRate || bcvRate) : bcvRate;
-            return mulR(mulR(item.priceUsd, item.qty), itemRate);
+            const { unitPriceBs } = calculatePricing(item, bcvRate, realBcvRate);
+            return mulR(unitPriceBs, item.qty);
         });
         const subtotalBs = sumR(lineItemsBs);
 

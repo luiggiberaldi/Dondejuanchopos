@@ -7,6 +7,7 @@ import { withLock } from './withLock';          // FIN-007: feature detection + 
 import { deepFreeze } from './deepFreeze';      // FIN-008: deep freeze (no solo shallow).
 import { FINANCIAL_EPSILON } from './securityConstants';
 import { FinancialEngine } from '../core/FinancialEngine';
+import { calculatePricing } from './productProcessor';
 
 const SALES_KEY = 'bodega_sales_v1';
 const PRODUCTS_KEY = 'bodega_products_v1';
@@ -97,24 +98,30 @@ export async function processSaleTransaction({
         status: 'COMPLETADA',
         cajero: cajeroNombre,
         cajeroId: activeUser?.id || null,
-        items: cart.map(i => ({
-            id: i.id,
-            name: i.name,
-            qty: i.qty,
-            priceUsd: i.priceUsd,
-            priceCop: i.priceCop || null,
-            costBs: i.costBs || 0,
-            costUsd: i.costUsd || 0,
-            isWeight: i.isWeight,
-            _mode: i._mode || i.mode || 'unit',
-            boxUnits: i.boxUnits || null,
-            halfBoxUnits: i.halfBoxUnits || null,
-            priceBsManual: i.priceBsManual || null,
-            priceBsUsdRef: i.priceBsUsdRef || null,
-            forceBcv: i.forceBcv || null,
-            isModular: i.isModular || false,
-            modularSelections: i.modularSelections || []
-        })),
+        items: cart.map(i => {
+            const { unitPriceBs: _unitBs } = calculatePricing(i, effectiveRate, bcvRate);
+            return {
+                id: i.id,
+                name: i.name,
+                qty: i.qty,
+                priceUsd: i.priceUsd,
+                priceCop: i.priceCop || null,
+                costBs: i.costBs || 0,
+                costUsd: i.costUsd || 0,
+                isWeight: i.isWeight,
+                _mode: i._mode || i.mode || 'unit',
+                boxUnits: i.boxUnits || null,
+                halfBoxUnits: i.halfBoxUnits || null,
+                priceBsManual: i.priceBsManual || null,
+                priceBsUsdRef: i.priceBsUsdRef || null,
+                pricingMode: i.pricingMode || null,
+                forceBcv: i.forceBcv || null,
+                isModular: i.isModular || false,
+                modularSelections: i.modularSelections || [],
+                // Bs exacto al momento de la venta (para recibos e historial)
+                subtotalBs: mulR(_unitBs, i.qty)
+            };
+        }),
         cartSubtotalUsd: cartSubtotalUsd,
         discountType:       discountData?.type      || null,
         discountValue:      discountData?.value     || 0,
@@ -124,6 +131,7 @@ export async function processSaleTransaction({
         totalCop:  totals.totalCop,
         payments:  normalizedPayments,          // ← Con currency + methodLabel
         rate:      effectiveRate,
+        bcvRate:   bcvRate,
         tasaCop:   copEnabled ? tasaCop : 0,
         copEnabled: copEnabled,
         rateSource: useAutoRate ? 'BCV Auto' : 'Manual',

@@ -1,4 +1,6 @@
 import { formatBs } from '../../utils/calculatorUtils';
+import { mulR } from '../../utils/dinero';
+import { calculatePricing } from '../../utils/productProcessor';
 
 /**
  * Builds a WhatsApp-ready receipt URL for sharing a sale.
@@ -26,8 +28,9 @@ export function buildReceiptWhatsAppUrl(receipt, currentRate) {
             : `${item.qty} und`;
         const subUsd = (item.priceUsd * item.qty).toFixed(2);
         const unitPriceUsd = parseFloat(item.priceUsd).toFixed(2);
-        const priceBs = item.priceUsd * (r.rate || 1);
-        const subBs = item.priceUsd * item.qty * (r.rate || 1);
+        const { unitPriceBs } = calculatePricing(item, r.rate || 1, r.bcvRate || r.rate || 1);
+        const priceBs = unitPriceBs;
+        const subBs = mulR(unitPriceBs, item.qty);
 
         const comboBreakdown = item.modularSelections || item.selectedModularItems || item.comboItems;
         let comboSubText = '';
