@@ -68,21 +68,61 @@ function getPaymentBadgeStyle(sale) {
     return 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300';
 }
 
-function SaleDetailModal({ sale, onClose, bcvRate }) {
+function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId }) {
     if (!sale) return null;
+
+    const [showConfirmVoid, setShowConfirmVoid] = useState(false);
+    const [voiding, setVoiding] = useState(false);
+
+    const isVoided = sale.status === 'ANULADA';
 
     const formattedDate = sale.timestamp ? new Date(sale.timestamp).toLocaleString('es-VE', {
         dateStyle: 'medium',
         timeStyle: 'short'
     }) : '';
 
+    const handleVoidSale = async () => {
+        if (!sale || isVoided || voiding) return;
+        setVoiding(true);
+        try {
+            let monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
+            if (supabaseCloud && pairedDeviceId) {
+                const { error } = await supabaseCloud
+                    .from('supervisor_commands')
+                    .insert({
+                        primary_device_id: pairedDeviceId,
+                        monitor_device_id: monitorDeviceId,
+                        command_type: 'void_sale',
+                        payload: { saleId: sale.id, reason: 'Anulada por Supervisor desde Monitor' },
+                        status: 'pending'
+                    });
+
+                if (error) throw error;
+                showToast('Comando de anulación enviado a la caja', 'success');
+            } else {
+                showToast('Sin conexión con la caja principal', 'error');
+            }
+            setShowConfirmVoid(false);
+            onClose();
+        } catch (err) {
+            console.error('[OwnerMonitor] Error al solicitar anulación:', err);
+            showToast('No se pudo enviar el comando de anulación', 'error');
+        } finally {
+            setVoiding(false);
+        }
+    };
+
     return (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in" onClick={onClose}>
-            <div className="bg-white dark:bg-slate-900 w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="bg-white dark:bg-slate-900 w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col relative" onClick={e => e.stopPropagation()}>
                 {/* Modal Header */}
                 <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/70 dark:bg-slate-800/40">
                     <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400 font-black shrink-0">
+                        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black shrink-0 ${
+                            isVoided 
+                                ? 'bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400'
+                                : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                        }`}>
                             <FileText size={20} />
                         </div>
                         <div className="min-w-0">
@@ -90,9 +130,15 @@ function SaleDetailModal({ sale, onClose, bcvRate }) {
                                 <h3 className="text-sm font-black text-slate-800 dark:text-white">
                                     Venta #{sale.id ? sale.id.slice(-6).toUpperCase() : ''}
                                 </h3>
-                                <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${getPaymentBadgeStyle(sale)}`}>
-                                    {getFormattedPaymentMethod(sale)}
-                                </span>
+                                {isVoided ? (
+                                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/60 flex items-center gap-1">
+                                        <AlertTriangle size={10} /> ANULADA
+                                    </span>
+                                ) : (
+                                    <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${getPaymentBadgeStyle(sale)}`}>
+                                        {getFormattedPaymentMethod(sale)}
+                                    </span>
+                                )}
                             </div>
                             <p className="text-[11px] text-slate-400 font-medium mt-0.5">{formattedDate}</p>
                         </div>
@@ -107,6 +153,17 @@ function SaleDetailModal({ sale, onClose, bcvRate }) {
 
                 {/* Modal Content */}
                 <div className="p-4 sm:p-6 overflow-y-auto space-y-5 flex-1">
+                    {/* Banner de Estado Anulada */}
+                    {isVoided && (
+                        <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200/80 dark:border-rose-900/50 rounded-2xl flex items-center gap-3 text-rose-800 dark:text-rose-300 text-xs font-semibold">
+                            <AlertTriangle size={18} className="shrink-0 text-rose-600 dark:text-rose-400" />
+                            <div>
+                                <p className="font-extrabold">Esta venta fue anulada</p>
+                                <p className="text-[10.5px] opacity-80 mt-0.5">El stock de artículos fue restaurado y los saldos revertidos en la caja.</p>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Metadata Header */}
                     <div className="grid grid-cols-2 gap-3 p-3.5 bg-slate-50 dark:bg-slate-800/30 border border-slate-150 dark:border-slate-800 rounded-2xl text-xs">
                         <div>
@@ -169,11 +226,11 @@ function SaleDetailModal({ sale, onClose, bcvRate }) {
                     <div className="p-4 bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/40 rounded-2xl space-y-2">
                         <div className="flex items-center justify-between text-xs">
                             <span className="font-bold text-slate-600 dark:text-slate-300">Total Venta ($)</span>
-                            <span className="font-outfit text-base font-black text-slate-800 dark:text-white">${(sale.totalUsd || 0).toFixed(2)}</span>
+                            <span className={`font-outfit text-base font-black ${isVoided ? 'line-through text-slate-400' : 'text-slate-800 dark:text-white'}`}>${(sale.totalUsd || 0).toFixed(2)}</span>
                         </div>
                         <div className="flex items-center justify-between text-xs pt-1 border-t border-emerald-200/40 dark:border-emerald-900/30">
                             <span className="font-bold text-slate-600 dark:text-slate-300">Total Venta (Bs)</span>
-                            <span className="font-outfit text-sm font-black text-emerald-700 dark:text-emerald-400">{formatBs(sale.totalBs || 0)} Bs</span>
+                            <span className={`font-outfit text-sm font-black ${isVoided ? 'line-through text-slate-400' : 'text-emerald-700 dark:text-emerald-400'}`}>{formatBs(sale.totalBs || 0)} Bs</span>
                         </div>
                         {(sale.bcvRate || bcvRate) && (
                             <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1">
@@ -186,13 +243,63 @@ function SaleDetailModal({ sale, onClose, bcvRate }) {
 
                 {/* Modal Footer */}
                 <div className="p-4 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-800/30">
-                    <button
-                        onClick={onClose}
-                        className="w-full py-3 px-4 bg-slate-800 hover:bg-slate-900 text-white dark:bg-slate-700 dark:hover:bg-slate-600 rounded-2xl font-black text-xs transition-colors shadow-sm"
-                    >
-                        Cerrar Detalle
-                    </button>
+                    {isVoided ? (
+                        <button
+                            onClick={onClose}
+                            className="w-full py-3 px-4 bg-slate-800 hover:bg-slate-900 text-white dark:bg-slate-700 dark:hover:bg-slate-600 rounded-2xl font-black text-xs transition-colors shadow-sm cursor-pointer"
+                        >
+                            Cerrar Detalle
+                        </button>
+                    ) : (
+                        <div className="grid grid-cols-2 gap-3">
+                            <button
+                                onClick={() => setShowConfirmVoid(true)}
+                                className="py-3 px-4 bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 rounded-2xl font-black text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                            >
+                                <Trash2 size={14} /> Anular Venta
+                            </button>
+                            <button
+                                onClick={onClose}
+                                className="py-3 px-4 bg-slate-800 hover:bg-slate-900 text-white dark:bg-slate-700 dark:hover:bg-slate-600 rounded-2xl font-black text-xs transition-colors shadow-sm cursor-pointer active:scale-95"
+                            >
+                                Cerrar
+                            </button>
+                        </div>
+                    )}
                 </div>
+
+                {/* Modal de Confirmación de Anulación Remota (Regla #15: Cero window.confirm) */}
+                {showConfirmVoid && (
+                    <div className="absolute inset-0 z-50 bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in zoom-in-95 duration-200">
+                        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl max-w-sm w-full text-center space-y-4">
+                            <div className="w-14 h-14 rounded-2xl bg-rose-100 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900/60 text-rose-600 dark:text-rose-400 flex items-center justify-center mx-auto">
+                                <AlertTriangle size={28} />
+                            </div>
+                            <div>
+                                <h4 className="text-base font-black text-slate-800 dark:text-white">¿Anular Venta #{sale.id ? sale.id.slice(-6).toUpperCase() : ''}?</h4>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed font-medium">
+                                    Se enviará un comando remoto a la caja para restaurar el stock de los productos y revertir los movimientos contables.
+                                </p>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 pt-2">
+                                <button
+                                    onClick={() => setShowConfirmVoid(false)}
+                                    disabled={voiding}
+                                    className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs transition-colors cursor-pointer"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={handleVoidSale}
+                                    disabled={voiding}
+                                    className="py-2.5 px-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-black text-xs transition-all shadow-md hover:shadow-rose-600/30 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                >
+                                    {voiding ? 'Enviando...' : 'Sí, Anular'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -687,7 +794,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
     // Filtrar ventas del turno activo (cajaCerrada !== true)
     const activeShiftSales = useMemo(() => {
-        return sales.filter(s => {
+        const filtered = sales.filter(s => {
             if (s.status === 'ANULADA') return false;
             if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'VENTA_CASHEA') return false;
             if (s.cajaCerrada) return false;
@@ -698,6 +805,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             }
             return true;
         });
+        return filtered.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
     }, [sales, activeShiftApertura]);
 
     // Métricas del turno activo
@@ -1434,7 +1542,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                 </div>
                                             ) : (
                                                 <div className="space-y-3 max-h-[550px] overflow-y-auto pr-1">
-                                                    {activeShiftSales.slice().reverse().map(sale => (
+                                                    {activeShiftSales.map(sale => (
                                                         <div 
                                                             key={sale.id}
                                                             onClick={() => { triggerHaptic?.(); setSelectedSaleDetail(sale); }}
@@ -1710,7 +1818,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                 <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/60 dark:border-slate-800 p-6 shadow-sm">
                                                     <h3 className="text-xs font-black text-slate-800 dark:text-white mb-4 uppercase tracking-wider">Ventas Cerradas en este Turno</h3>
                                                     <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
-                                                        {activeC.sales.slice().reverse().map(sale => (
+                                                        {activeC.sales.slice().sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).map(sale => (
                                                             <div 
                                                                 key={sale.id}
                                                                 onClick={() => { triggerHaptic?.(); setSelectedSaleDetail(sale); }}
@@ -2732,6 +2840,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                     sale={selectedSaleDetail}
                     onClose={() => setSelectedSaleDetail(null)}
                     bcvRate={bcvRate}
+                    pairedDeviceId={pairedDeviceId}
                 />
             )}
 

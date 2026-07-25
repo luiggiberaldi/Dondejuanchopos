@@ -160,6 +160,43 @@ export function useSupervisorCommands(deviceId) {
                     console.error('[SupervisorCommands] Error al aplicar user_update:', err);
                     await updateCommandStatus(command.id, 'failed', err?.message);
                 }
+            } else if (command.command_type === 'void_sale') {
+                try {
+                    appliedIds.add(command.id);
+                    markApplied(command.id);
+                    const { saleId } = command.payload || {};
+                    const { storageService } = await import('../utils/storageService');
+                    const { processVoidSale } = await import('../utils/voidSaleProcessor');
+                    const { pushCloudSync } = await import('./useCloudSync');
+
+                    const freshSales = await storageService.getItem('bodega_sales_v1', []) || [];
+                    const freshProducts = await storageService.getItem('bodega_products_v1', []) || [];
+
+                    const targetSale = freshSales.find(s => s.id === saleId);
+                    if (!targetSale) {
+                        await updateCommandStatus(command.id, 'failed', 'Venta no encontrada en la caja');
+                    } else if (targetSale.status === 'ANULADA') {
+                        await updateCommandStatus(command.id, 'applied');
+                    } else {
+                        const result = await processVoidSale(targetSale, freshSales, freshProducts);
+                        await updateCommandStatus(command.id, 'applied');
+
+                        window.dispatchEvent(new CustomEvent('supervisor_sale_voided', {
+                            detail: { saleId, updatedSales: result.updatedSales, updatedProducts: result.updatedProducts }
+                        }));
+
+                        try {
+                            if (result.updatedSales) await pushCloudSync('bodega_sales_v1', result.updatedSales);
+                            if (result.updatedProducts) await pushCloudSync('bodega_products_v1', result.updatedProducts);
+                            if (result.updatedCustomers) await pushCloudSync('bodega_customers_v1', result.updatedCustomers);
+                        } catch (syncErr) {
+                            console.error('[SupervisorCommands] Error en push de sincronizacion post-anulacion:', syncErr);
+                        }
+                    }
+                } catch (err) {
+                    console.error('[SupervisorCommands] Error al anular venta remota:', err);
+                    await updateCommandStatus(command.id, 'failed', err?.message);
+                }
             }
             // Tipos desconocidos: se ignoran (comportamiento histórico)
         };
