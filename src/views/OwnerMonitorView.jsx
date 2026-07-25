@@ -34,6 +34,38 @@ function getMethodIcon(methodId) {
     return PAYMENT_METHOD_ICONS[methodId] || Wallet;
 }
 
+function getFormattedPaymentMethod(sale) {
+    if (!sale) return 'Efectivo (Bs)';
+
+    if (Array.isArray(sale.payments) && sale.payments.length > 0) {
+        return sale.payments.map(p => {
+            const mId = (p.methodId || p.metodoPago || p.id || '').toLowerCase();
+            let label = p.methodLabel || getPaymentLabel(mId);
+            if (mId === 'efectivo_usd' || mId === 'efectivo usd') label = 'Efectivo ($)';
+            else if (mId === 'efectivo_bs' || mId === 'efectivo bs' || mId === 'efectivo') label = 'Efectivo (Bs)';
+            else if (mId === 'efectivo_cop' || mId === 'efectivo cop') label = 'Efectivo (COP)';
+            return label;
+        }).join(' + ');
+    }
+
+    const raw = (sale.metodoPago || sale.paymentMethod || 'efectivo_bs').toLowerCase();
+
+    if (raw === 'efectivo_usd' || raw === 'efectivo usd' || raw === 'usd') return 'Efectivo ($)';
+    if (raw === 'efectivo_bs' || raw === 'efectivo bs' || raw === 'efectivo' || raw === 'bs') return 'Efectivo (Bs)';
+    if (raw === 'efectivo_cop' || raw === 'efectivo cop' || raw === 'cop') return 'Efectivo (COP)';
+
+    return getPaymentLabel(raw) || toTitleCase(raw);
+}
+
+function getPaymentBadgeStyle(sale) {
+    const formatted = getFormattedPaymentMethod(sale).toLowerCase();
+    if (formatted.includes('+')) return 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300';
+    if (formatted.includes('dólares') || formatted.includes('($)')) return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300';
+    if (formatted.includes('pago móvil')) return 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-300';
+    if (formatted.includes('punto')) return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-300';
+    return 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300';
+}
+
 const PENDING_KEY = 'dj_pending_inventory_changes_v1';
 
 export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) {
@@ -418,6 +450,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         const activeFlow = sales.filter(s => {
             if (s.status === 'ANULADA') return false;
             if (s.cajaCerrada) return false;
+            if (s.tipo === 'APERTURA_CAJA' || s.tipo === 'REGISTRO_CIERRE') return false;
             
             // Restringir a transacciones posteriores a la última apertura activa si existe
             if (activeShiftApertura) {
@@ -464,6 +497,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         });
 
         return Object.entries(breakdown)
+            .filter(([, data]) => data.totalUsd > 0 || data.totalBs > 0 || (data.count > 0 && data.totalUsd > 0))
             .sort(([, a], [, b]) => b.totalUsd - a.totalUsd);
     }, [sales, activeShiftApertura]);
 
@@ -983,10 +1017,12 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                                 <p className="text-xs font-black text-slate-700 dark:text-slate-200 mt-1.5 truncate">
                                                                     {sale.items?.map(i => `${i.name} (x${i.qty})`).join(', ') || 'Venta de productos'}
                                                                 </p>
-                                                                <div className="flex gap-2 items-center mt-1">
-                                                                    <span className="text-[10px] font-black text-slate-400 uppercase">{sale.metodoPago || sale.paymentMethod || 'Efectivo'}</span>
+                                                                <div className="flex gap-2 items-center flex-wrap mt-1">
+                                                                    <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${getPaymentBadgeStyle(sale)}`}>
+                                                                        {getFormattedPaymentMethod(sale)}
+                                                                    </span>
                                                                     {sale.clientName && (
-                                                                        <span className="text-[10px] text-slate-400 font-bold">• {sale.clientName}</span>
+                                                                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">• {sale.clientName}</span>
                                                                     )}
                                                                 </div>
                                                             </div>
@@ -1245,6 +1281,14 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                                         <p className="font-black text-slate-700 dark:text-slate-250 truncate mt-1">
                                                                             {sale.items?.map(i => `${i.name} (x${i.qty})`).join(', ') || 'Venta de productos'}
                                                                         </p>
+                                                                        <div className="flex gap-2 items-center flex-wrap mt-1">
+                                                                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md ${getPaymentBadgeStyle(sale)}`}>
+                                                                                {getFormattedPaymentMethod(sale)}
+                                                                            </span>
+                                                                            {sale.clientName && (
+                                                                                <span className="text-[9px] text-slate-500 dark:text-slate-400 font-bold">• {sale.clientName}</span>
+                                                                            )}
+                                                                        </div>
                                                                     </div>
                                                                     <div className="text-right shrink-0">
                                                                         <span className="font-outfit font-black text-slate-850 dark:text-white block">${(sale.totalUsd || 0).toFixed(2)}</span>
