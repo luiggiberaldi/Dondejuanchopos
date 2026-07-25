@@ -631,6 +631,8 @@ export default function ComboFormModal({
                                                     type="number" min="1"
                                                     value={g.requiredQty}
                                                     onChange={e => updateModularGroup(g.id, 'requiredQty', Math.max(1, parseInt(e.target.value, 10) || 1))}
+                                                    onFocus={e => e.target.select()}
+                                                    onClick={e => e.target.select()}
                                                     className="w-7 text-center text-xs font-black text-purple-600 dark:text-purple-400 outline-none"
                                                 />
                                                 <span className="text-[9px] font-bold text-slate-400">uds</span>
