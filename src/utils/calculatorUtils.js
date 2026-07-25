@@ -146,10 +146,9 @@ export const calcUsdFromBs = (bsAmount, rate) => {
     const rawUsd = bs / r;
     const rounded2 = Math.round(rawUsd * 100) / 100;
 
-    if (Math.round(rounded2 * r) === Math.round(bs)) {
+    if (Math.abs(mulR(rounded2, r) - round2(bs)) < 0.005) {
         return rounded2.toFixed(2);
     } else {
-        const rounded4 = Math.round(rawUsd * 10000) / 10000;
-        return rounded4.toString();
+        return rawUsd.toFixed(6).replace(/\.?0+$/, '');
     }
 };

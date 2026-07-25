@@ -199,6 +199,12 @@ export function calculatePricing(product, effectiveRate, bcvRate, format = 'unit
             const rate = bcvRate > 0 ? bcvRate : effectiveRate;
             unitPriceUsd = baseUsd;
             unitPriceBs = mulR(baseUsd, rate);
+            if (rate > 0 && unitPriceBs > 0) {
+                const nearestInt = Math.round(unitPriceBs);
+                if (Math.abs(unitPriceBs - nearestInt) <= 0.05 && Math.abs(divR(nearestInt, rate) - round2(baseUsd)) < 0.01) {
+                    unitPriceBs = nearestInt;
+                }
+            }
             break;
         }
 
@@ -210,6 +216,12 @@ export function calculatePricing(product, effectiveRate, bcvRate, format = 'unit
                     : (p.priceBsUsdRef || baseUsd);
             unitPriceUsd = baseUsd;
             unitPriceBs = mulR(refUsd, effectiveRate);
+            if (effectiveRate > 0 && unitPriceBs > 0) {
+                const nearestInt = Math.round(unitPriceBs);
+                if (Math.abs(unitPriceBs - nearestInt) <= 0.05 && Math.abs(divR(nearestInt, effectiveRate) - round2(refUsd)) < 0.01) {
+                    unitPriceBs = nearestInt;
+                }
+            }
             break;
         }
 
@@ -228,6 +240,12 @@ export function calculatePricing(product, effectiveRate, bcvRate, format = 'unit
         default: {
             unitPriceUsd = baseUsd;
             unitPriceBs = mulR(baseUsd, effectiveRate);
+            if (effectiveRate > 0 && unitPriceBs > 0) {
+                const nearestInt = Math.round(unitPriceBs);
+                if (Math.abs(unitPriceBs - nearestInt) <= 0.05 && Math.abs(divR(nearestInt, effectiveRate) - round2(baseUsd)) < 0.01) {
+                    unitPriceBs = nearestInt;
+                }
+            }
             break;
         }
     }

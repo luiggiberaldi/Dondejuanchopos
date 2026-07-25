@@ -3,6 +3,7 @@ import { Camera, X, AlertTriangle, Package, Tag, Barcode, Eye, ShoppingBag, Zap,
 import CustomSelect from '../CustomSelect';
 import PricingModeSelector from './PricingModeSelector';
 import PricePreviewLine from './PricePreviewLine';
+import { calcUsdFromBs } from '../../utils/calculatorUtils';
 
 export default function ProductFormWizard({
     wizardStep,
@@ -595,9 +596,9 @@ export default function ProductFormWizard({
                                             const val = e.target.value;
                                             setTempBsInput(val);
                                             const num = Number(val);
-                                            if (!isNaN(num) && num > 0 && effectiveRate > 0) {
-                                                handleUnitPriceUsdChange((num / effectiveRate).toString());
-                                            } else if (val === '') {
+                                             if (!isNaN(num) && num > 0 && effectiveRate > 0) {
+                                                 handleUnitPriceUsdChange(calcUsdFromBs(val, effectiveRate));
+                                             } else if (val === '') {
                                                 handleUnitPriceUsdChange('');
                                             }
                                         }}

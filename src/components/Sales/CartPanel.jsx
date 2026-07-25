@@ -3,22 +3,16 @@ import { ShoppingCart, Plus, Minus, X, CheckCircle, Package, Trash2, DollarSign,
 import { formatBs, formatCop, getCop, formatUsd } from '../../utils/calculatorUtils';
 import { mulR } from '../../utils/dinero';
 import { useAuthStore } from '../../hooks/store/useAuthStore';
+import { calculatePricing } from '../../utils/productProcessor';
 
-// Bs de un ítem: precio Bs manual (independiente) si existe; si no, exactBs (Venta Libre);
-// en último caso, conversión por tasa. Coherente con FinancialEngine.buildCartTotals.
+// Bs de un ítem: usa calculatePricing para sincronía 100% con FinancialEngine y Supervisor Zone
 const itemBsUnit = (item, rate, bcvRate) => {
-    const itemRate = item.forceBcv ? (bcvRate || rate) : rate;
-    return item.priceBsManual != null && item.priceBsManual > 0 && !item.forceBcv ? item.priceBsManual
-    : item.priceBsUsdRef != null && item.priceBsUsdRef > 0 && !item.forceBcv ? mulR(item.priceBsUsdRef, itemRate)
-    : item.exactBs != null && !item.forceBcv ? item.exactBs
-    : mulR(item.priceUsd, itemRate);
+    const { unitPriceBs } = calculatePricing(item, rate, bcvRate);
+    return unitPriceBs;
 };
 const itemBsLine = (item, rate, bcvRate) => {
-    const itemRate = item.forceBcv ? (bcvRate || rate) : rate;
-    return item.priceBsManual != null && item.priceBsManual > 0 && !item.forceBcv ? mulR(item.priceBsManual, item.qty)
-    : item.priceBsUsdRef != null && item.priceBsUsdRef > 0 && !item.forceBcv ? mulR(mulR(item.priceBsUsdRef, item.qty), itemRate)
-    : item.exactBs != null && !item.forceBcv ? mulR(item.exactBs, item.qty)
-    : mulR(mulR(item.priceUsd, item.qty), itemRate);
+    const { unitPriceBs } = calculatePricing(item, rate, bcvRate);
+    return mulR(unitPriceBs, item.qty);
 };
 
 export default function CartPanel({

@@ -5,6 +5,7 @@ import ConfirmModal from '../ConfirmModal';
 import { calculateComboStock } from '../../utils/productProcessor';
 import PricingModeSelector from './PricingModeSelector';
 import { derivePricingMode } from '../../hooks/useProductForm';
+import { calcUsdFromBs } from '../../utils/calculatorUtils';
 
 export default function ComboFormModal({
     isOpen,
@@ -240,7 +241,7 @@ export default function ComboFormModal({
                 setPriceBsManual(String(Math.round(usd * effectiveRate)));
             } else {
                 const bs = parseFloat(priceBsManual) || 0;
-                if (bs > 0) setPriceUsd((bs / effectiveRate).toFixed(2));
+                if (bs > 0) setPriceUsd(calcUsdFromBs(priceBsManual, effectiveRate));
             }
         }
     };
@@ -257,7 +258,7 @@ export default function ComboFormModal({
         setPriceBsManual(val);
         if (autoCalc && effectiveRate > 0 && pricingMode === 'tasa_dia') {
             const p = parseFloat(val) || 0;
-            setPriceUsd(p > 0 ? (p / effectiveRate).toFixed(2) : '');
+            setPriceUsd(p > 0 ? calcUsdFromBs(val, effectiveRate) : '');
         }
     };
 
