@@ -160,50 +160,51 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
 
     // Saneamiento de ventas para corregir de forma retroactiva precios erróneos (COP asignados como USD por bug heredado)
     useEffect(() => {
-        try {
-            const rawSales = localStorage.getItem('bodega_sales_v1');
-            const rawProducts = localStorage.getItem('bodega_products_v1');
-            if (!rawSales || !rawProducts) return;
-            const sales = JSON.parse(rawSales);
-            const products = JSON.parse(rawProducts);
-            let changed = false;
+        const sanear = async () => {
+            try {
+                const sales = await storageService.getItem('bodega_sales_v1', []);
+                const products = await storageService.getItem('bodega_products_v1', []);
+                if (!sales || sales.length === 0 || !products || products.length === 0) return;
+                let changed = false;
 
-            const fixedSales = sales.map(sale => {
-                if (!sale.items) return sale;
-                let saleChanged = false;
-                const fixedItems = sale.items.map(item => {
-                    const prod = products.find(p => p.id === item.id || p.name === item.name);
-                    if (prod && item.priceUsd > 50 && prod.priceUsdt && parseFloat(prod.priceUsdt) < 20) {
-                        saleChanged = true;
-                        changed = true;
+                const fixedSales = sales.map(sale => {
+                    if (!sale.items) return sale;
+                    let saleChanged = false;
+                    const fixedItems = sale.items.map(item => {
+                        const prod = products.find(p => p.id === item.id || p.name === item.name);
+                        if (prod && item.priceUsd > 50 && prod.priceUsdt && parseFloat(prod.priceUsdt) < 20) {
+                            saleChanged = true;
+                            changed = true;
+                            return {
+                                ...item,
+                                priceUsd: parseFloat(prod.priceUsdt)
+                            };
+                        }
+                        return item;
+                    });
+
+                    if (saleChanged) {
+                        const totalUsd = fixedItems.reduce((sum, i) => sum + (i.priceUsd * i.qty), 0);
+                        const totalBs = sale.rate ? totalUsd * sale.rate : sale.totalBs;
                         return {
-                            ...item,
-                            priceUsd: parseFloat(prod.priceUsdt)
+                            ...sale,
+                            items: fixedItems,
+                            totalUsd: parseFloat(totalUsd.toFixed(2)),
+                            totalBs: parseFloat(totalBs.toFixed(2))
                         };
                     }
-                    return item;
+                    return sale;
                 });
 
-                if (saleChanged) {
-                    const totalUsd = fixedItems.reduce((sum, i) => sum + (i.priceUsd * i.qty), 0);
-                    const totalBs = sale.rate ? totalUsd * sale.rate : sale.totalBs;
-                    return {
-                        ...sale,
-                        items: fixedItems,
-                        totalUsd: parseFloat(totalUsd.toFixed(2)),
-                        totalBs: parseFloat(totalBs.toFixed(2))
-                    };
+                if (changed) {
+                    await storageService.setItem('bodega_sales_v1', fixedSales);
+                    window.location.reload();
                 }
-                return sale;
-            });
-
-            if (changed) {
-                localStorage.setItem('bodega_sales_v1', JSON.stringify(fixedSales));
-                window.location.reload();
+            } catch (e) {
+                console.error('Error al sanear ventas:', e);
             }
-        } catch (e) {
-            console.error('Error al sanear ventas:', e);
-        }
+        };
+        sanear();
     }, []);
 
     // Reloj digital y fecha en tiempo real

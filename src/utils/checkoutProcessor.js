@@ -152,7 +152,19 @@ export async function processSaleTransaction({
         // FIN-008: deep-freeze el sale persistido final.
         const finalPersistedSale = deepFreeze({ ...sale, saleNumber });
 
-        await storageService.setItem(SALES_KEY, [finalPersistedSale, ...existingSales]);
+        const updatedSales = [finalPersistedSale, ...existingSales];
+        await storageService.setItem(SALES_KEY, updatedSales);
+
+        // ── BLINDAJE ANTI-PÉRDIDA DE DATOS: Espejo Inmutable de Ventas ──
+        try {
+            const MIRROR_KEY = 'bodega_sales_mirror_v1';
+            const mirrorSales = await storageService.getItem(MIRROR_KEY, []);
+            if (!mirrorSales.some(s => s.id === finalPersistedSale.id)) {
+                await storageService.setItem(MIRROR_KEY, [finalPersistedSale, ...mirrorSales]);
+            }
+        } catch (mirrorErr) {
+            console.warn('[checkoutProcessor] Error al actualizar espejo de ventas:', mirrorErr);
+        }
 
         // Audit log
         const user = useAuthStore.getState().usuarioActivo;

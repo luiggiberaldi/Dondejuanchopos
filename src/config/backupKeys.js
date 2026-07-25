@@ -26,6 +26,7 @@ export const IDB_KEYS = Object.freeze([
   'bodega_payment_methods_v1',
   'bodega_pending_cart_v1',
   'bodega_products_v1',
+  'bodega_sales_mirror_v1',
   'bodega_sales_v1',
   'bodega_supplier_invoices_v1',
   'bodega_suppliers_v1',
