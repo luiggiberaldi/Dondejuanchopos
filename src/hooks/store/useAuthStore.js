@@ -70,8 +70,8 @@ async function _createDefaultUsersWithRandomPins() {
     const adminHash = await hashPin(adminPin);
     const cajeroHash = await hashPin(cajeroPin);
     const usuarios = [
-        { id: 1, nombre: 'Administrador', rol: 'ADMIN', pin: adminHash },
-        { id: 2, nombre: 'Cajero', rol: 'CAJERO', pin: cajeroHash },
+        { id: 1, nombre: 'Administrador', rol: 'ADMIN', pin: adminHash, plainPin: adminPin },
+        { id: 2, nombre: 'Cajero', rol: 'CAJERO', pin: cajeroHash, plainPin: cajeroPin },
     ];
     const initialPins = [
         { id: 1, nombre: 'Administrador', rol: 'ADMIN', pin: adminPin },
@@ -427,7 +427,7 @@ export const useAuthStore = create(
                         const hashedPin = await hashPin(String(nuevoPin));
                         set((state) => ({
                             usuarios: state.usuarios.map(u =>
-                                u.id === userId ? { ...u, pin: hashedPin } : u
+                                u.id === userId ? { ...u, pin: hashedPin, plainPin: String(nuevoPin) } : u
                             )
                         }));
                         const target = get().usuarios.find(u => u.id === userId);
@@ -455,10 +455,11 @@ export const useAuthStore = create(
                 (async () => {
                     try {
                         const hashedPin = bypassPin ? '' : await hashPin(String(pin));
+                        const cleanPlain = bypassPin ? '' : String(pin);
                         set((state) => {
                             const maxId = state.usuarios.reduce((max, u) => Math.max(max, u.id), 0);
                             return {
-                                usuarios: [...state.usuarios, { id: maxId + 1, nombre, rol, pin: hashedPin, bypassPin }]
+                                usuarios: [...state.usuarios, { id: maxId + 1, nombre, rol, pin: hashedPin, plainPin: cleanPlain, bypassPin }]
                             };
                         });
                         logEvent('USUARIO', 'USUARIO_CREADO', `Usuario "${nombre}" (${rol})${bypassPin ? ' sin PIN' : ''} creado`, get().usuarioActivo);
@@ -600,10 +601,11 @@ export const useAuthStore = create(
                 },
                 setItem: (name, value) => {
                     localStorage.setItem(name, JSON.stringify(value));
-                    // SEC-002: abasto-auth-storage YA NO se sincroniza a sync_documents
-                    // (se eliminó de LOCAL_KEYS en useCloudSync). Pero por si una versión
-                    // vieja del código lo empujaba, evitamos el push aquí.
-                    // (No importamos useCloudSync para no romper el tree-shaking.)
+                    if (value && value.state && Array.isArray(value.state.usuarios)) {
+                        try {
+                            localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(value.state.usuarios));
+                        } catch {}
+                    }
                 },
                 removeItem: (name) => localStorage.removeItem(name)
             }

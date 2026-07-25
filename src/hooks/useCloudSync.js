@@ -5,11 +5,11 @@ import { useAuthStore } from './store/useAuthStore';
 import { useSupervisorCommands } from './useSupervisorCommands';
 import { IDB_KEYS, LS_KEYS } from '../config/backupKeys';
 
-// Unión de catálogos canónicos más bodega_rate_mode
-const SYNC_KEYS = [...new Set([...IDB_KEYS, ...LS_KEYS, 'bodega_rate_mode'])];
+// Unión de catálogos canónicos más bodega_rate_mode, bodega_pos_heartbeat y bodega_users_catalog_v1
+const SYNC_KEYS = [...new Set([...IDB_KEYS, ...LS_KEYS, 'bodega_rate_mode', 'bodega_pos_heartbeat', 'bodega_users_catalog_v1'])];
 
 // LOCAL_KEYS determina qué se guarda como collection='local' en sync_documents
-const LOCAL_KEYS = [...new Set([...LS_KEYS, 'bodega_rate_mode'])];
+const LOCAL_KEYS = [...new Set([...LS_KEYS, 'bodega_rate_mode', 'bodega_pos_heartbeat', 'bodega_users_catalog_v1'])];
 
 /** Hash ligero para detectar cambios sin comparar objetos enteros (mismo patrón que useAutoBackup.js) */
 function quickHash(value) {

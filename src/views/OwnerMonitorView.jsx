@@ -7,12 +7,14 @@ import { showToast } from '../components/Toast';
 import { calculateComboStock, getEffectiveCostUsd } from '../utils/productProcessor';
 import SupervisorRateModal from '../components/SupervisorRateModal';
 import RemoteProductFormModal from '../components/Monitor/RemoteProductFormModal';
+import ComboFormModal from '../components/Products/ComboFormModal';
+import UsersManager from '../components/Settings/UsersManager';
 import {
     TrendingUp, Package, Coins, Users, LogOut,
     RefreshCw, Wifi, WifiOff, Clock, FileText, DollarSign,
     Wallet, CreditCard, Smartphone, Banknote, ArrowDownRight,
     ShieldCheck, Hash, AlertTriangle, Search, X, ChevronLeft, ChevronRight,
-    MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud
+    MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud, Sparkles, Gift
 } from 'lucide-react';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
 import { getLocalISODate } from '../utils/dateHelpers';
@@ -201,7 +203,7 @@ const PENDING_KEY = 'dj_pending_inventory_changes_v1';
 export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) {
     const pairedDeviceId = localStorage.getItem('dj_paired_device_id');
     const { products, setProducts, effectiveRate: bcvRate, copEnabled, tasaCop, rates, categories } = useProductContext();
-    const { isConnected, lastSync, loading: syncLoading, triggerRefresh } = useMonitorSync(pairedDeviceId);
+    const { isConnected, lastSync, loading: syncLoading, triggerRefresh, posLastSeen, isPosOnline } = useMonitorSync(pairedDeviceId);
 
     const [sales, setSales] = useState([]);
     const [activeCashier, setActiveCashier] = useState({ nombre: 'Ninguno', rol: '' });
@@ -217,8 +219,18 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     // ── Edición remota de inventario (comandos supervisor → caja) ──
     const [showRemoteForm, setShowRemoteForm] = useState(false);
     const [remoteEditingProduct, setRemoteEditingProduct] = useState(null);
+    const [showComboModal, setShowComboModal] = useState(false);
+    const [editingCombo, setEditingCombo] = useState(null);
     const [remoteDeleteTarget, setRemoteDeleteTarget] = useState(null);
     const [stockAdjustProduct, setStockAdjustProduct] = useState(null);
+    const [cloudPendingCmds, setCloudPendingCmds] = useState([]);
+    const [allCloudCmds, setAllCloudCmds] = useState([]);
+    const [cmdTabFilter, setCmdTabFilter] = useState('todos'); // 'todos', 'pending', 'applied', 'cancelled'
+    const [currentPageCambios, setCurrentPageCambios] = useState(1);
+    const ITEMS_PER_PAGE_CAMBIOS = 10;
+    const [showCloudPendingModal, setShowCloudPendingModal] = useState(false);
+    const [showUsersModal, setShowUsersModal] = useState(false);
+    const [cancellingCmdId, setCancellingCmdId] = useState(null);
     const [pendingChanges, setPendingChanges] = useState(() => {
         try {
             const raw = localStorage.getItem(PENDING_KEY);
@@ -227,6 +239,46 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         } catch { return []; }
     });
     const [uploading, setUploading] = useState(false);
+
+    // Consulta en tiempo real del historial completo de comandos (pendientes, aplicados y anulados)
+    const fetchAllCloudCmds = useCallback(async () => {
+        if (!supabaseCloud || !pairedDeviceId) return;
+        try {
+            const { data } = await supabaseCloud
+                .from('supervisor_commands')
+                .select('*')
+                .eq('primary_device_id', pairedDeviceId)
+                .order('created_at', { ascending: false })
+                .limit(150);
+
+            const all = data || [];
+            setAllCloudCmds(all);
+            setCloudPendingCmds(all.filter(c => c.status === 'pending'));
+        } catch (err) {
+            console.warn('[OwnerMonitor] Error al consultar historial de comandos:', err);
+        }
+    }, [pairedDeviceId]);
+
+    useEffect(() => {
+        fetchAllCloudCmds();
+        if (!supabaseCloud || !pairedDeviceId) return;
+
+        const channel = supabaseCloud
+            .channel(`supervisor_cmds:${pairedDeviceId}`)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'supervisor_commands',
+                filter: `primary_device_id=eq.${pairedDeviceId}`
+            }, () => {
+                fetchAllCloudCmds();
+            })
+            .subscribe();
+
+        return () => {
+            supabaseCloud.removeChannel(channel).catch(() => {});
+        };
+    }, [pairedDeviceId, fetchAllCloudCmds]);
 
     const persistPending = useCallback((next) => {
         setPendingChanges(next);
@@ -293,8 +345,18 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             return;
         }
         if (pendingChanges.length === 0 || uploading) return;
-        setUploading(true);
-        const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
+        let monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
+        try {
+            const { data: pairing } = await supabaseCloud
+                .from('device_pairings')
+                .select('monitor_device_id')
+                .eq('primary_device_id', pairedDeviceId)
+                .single();
+            if (pairing?.monitor_device_id) {
+                monitorDeviceId = pairing.monitor_device_id;
+            }
+        } catch { /* fallback local */ }
+
         const remaining = [];
         let sent = 0;
         for (const change of pendingChanges) {
@@ -341,6 +403,44 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const discardPendingChanges = () => {
         persistPending([]);
         showToast('Cambios pendientes descartados', 'info');
+    };
+
+    const cancelSingleCloudCmd = async (cmdId) => {
+        setCancellingCmdId(cmdId);
+        try {
+            const { error } = await supabaseCloud
+                .from('supervisor_commands')
+                .update({ status: 'cancelled' })
+                .eq('id', cmdId);
+
+            if (error) throw error;
+            setCloudPendingCmds(prev => prev.filter(c => c.id !== cmdId));
+            showToast('Comando anulado en la nube', 'success');
+        } catch (err) {
+            console.error('[OwnerMonitor] Error al anular comando:', err);
+            showToast('No se pudo anular el comando', 'error');
+        } finally {
+            setCancellingCmdId(null);
+        }
+    };
+
+    const cancelAllCloudCmds = async () => {
+        if (cloudPendingCmds.length === 0) return;
+        try {
+            const ids = cloudPendingCmds.map(c => c.id);
+            const { error } = await supabaseCloud
+                .from('supervisor_commands')
+                .update({ status: 'cancelled' })
+                .in('id', ids);
+
+            if (error) throw error;
+            setCloudPendingCmds([]);
+            setShowCloudPendingModal(false);
+            showToast('Todos los comandos pendientes fueron anulados', 'success');
+        } catch (err) {
+            console.error('[OwnerMonitor] Error al anular comandos:', err);
+            showToast('Error al anular los comandos', 'error');
+        }
     };
 
     // Proyección instantánea en memoria de los productos + cambios en cola
@@ -788,7 +888,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const isShiftActive = activeShiftApertura !== null || activeShiftSales.length > 0;
 
     return (
-        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-sans pb-12 transition-colors duration-300 overflow-x-hidden">
+        <div className={`min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-sans transition-colors duration-300 overflow-x-hidden ${pendingChanges.length > 0 && viewTab === 'inventario' ? 'pb-48 sm:pb-36' : 'pb-16'}`}>
             {/* Header del Monitor */}
             <header className="sticky top-0 z-50 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3 sm:px-4 py-2.5 sm:py-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 shadow-sm">
                 <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
@@ -803,7 +903,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 </div>
 
                 <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 ml-auto sm:ml-0">
-                    {/* Status Badge */}
+                    {/* Status Badge del Supervisor */}
                     <div className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full text-[9px] sm:text-[10px] font-black tracking-wider uppercase shadow-sm transition-colors duration-300 ${
                         isConnected 
                             ? 'bg-emerald-50 border border-emerald-200/50 text-emerald-600 dark:bg-emerald-950/20 dark:border-emerald-800/30 dark:text-emerald-400' 
@@ -820,6 +920,19 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                 <span className="hidden sm:inline">Desconectado</span>
                             </>
                         )}
+                    </div>
+
+                    {/* Status Badge de la Caja Principal */}
+                    <div 
+                        title={posLastSeen ? `Última sincronización de la caja principal: ${posLastSeen.toLocaleTimeString()}` : 'Buscando estado de la caja...'}
+                        className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-[9px] sm:text-[10px] font-black tracking-wider uppercase shadow-xs transition-colors duration-300 ${
+                            isPosOnline 
+                                ? 'bg-emerald-50 border border-emerald-200/60 text-emerald-700 dark:bg-emerald-950/30 dark:border-emerald-800/50 dark:text-emerald-400' 
+                                : 'bg-amber-50 border border-amber-200/60 text-amber-700 dark:bg-amber-950/30 dark:border-amber-800/50 dark:text-amber-400'
+                        }`}
+                    >
+                        <span className={`w-2 h-2 rounded-full ${isPosOnline ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                        <span>Caja: {isPosOnline ? 'En Línea' : 'Desconectada'}</span>
                     </div>
 
                     <button 
@@ -841,6 +954,15 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                         title="Cambiar Tasa Remota"
                     >
                         <TrendingUp size={15} />
+                    </button>
+
+                    <button 
+                        onClick={() => { triggerHaptic?.(); setShowUsersModal(true); }}
+                        className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-blue-400 transition-colors flex items-center gap-1.5 cursor-pointer"
+                        title="Gestión de Usuarios, Roles y PINs"
+                    >
+                        <Users size={15} />
+                        <span className="hidden md:inline text-xs font-black text-slate-600 dark:text-slate-300">Usuarios</span>
                     </button>
 
                     <button 
@@ -866,8 +988,8 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             {/* Contenido Principal */}
             <main className="max-w-7xl mx-auto px-4 mt-6 space-y-6">
                 {/* Selector de Pestañas (100% Responsivo) */}
-                <div className="bg-slate-200/60 dark:bg-slate-900/60 p-1 rounded-2xl w-full sm:max-w-md shadow-sm">
-                    <div className="grid grid-cols-3 gap-1">
+                <div className="bg-slate-200/60 dark:bg-slate-900/60 p-1 rounded-2xl w-full sm:max-w-xl shadow-sm">
+                    <div className="grid grid-cols-4 gap-1">
                         <button
                             onClick={() => { triggerHaptic?.(); setViewTab('activo'); }}
                             className={`py-2 px-1 text-center font-black rounded-xl transition-all text-[11px] sm:text-xs truncate ${
@@ -876,8 +998,8 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
                             }`}
                         >
-                            <span className="sm:hidden">Turno Activo</span>
-                            <span className="hidden sm:inline">Turno Activo (En Vivo)</span>
+                            <span className="sm:hidden">Turno</span>
+                            <span className="hidden sm:inline">Turno Activo</span>
                         </button>
                         <button
                             onClick={() => { triggerHaptic?.(); setViewTab('cierres'); }}
@@ -888,7 +1010,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             }`}
                         >
                             <span className="sm:hidden">Cierres</span>
-                            <span className="hidden sm:inline">Cierres de Caja</span>
+                            <span className="hidden sm:inline">Cierres</span>
                         </button>
                         <button
                             onClick={() => { triggerHaptic?.(); setViewTab('inventario'); }}
@@ -899,6 +1021,21 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             }`}
                         >
                             Inventario
+                        </button>
+                        <button
+                            onClick={() => { triggerHaptic?.(); setViewTab('cambios'); }}
+                            className={`relative py-2 px-1 text-center font-black rounded-xl transition-all text-[11px] sm:text-xs truncate ${
+                                viewTab === 'cambios' 
+                                    ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
+                                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                            }`}
+                        >
+                            Cambios
+                            {(pendingChanges.length > 0 || cloudPendingCmds.length > 0) && (
+                                <span className="ml-1 px-1.5 py-0.2 rounded-full bg-amber-500 text-white text-[9px] font-black tabular-nums animate-pulse">
+                                    {pendingChanges.length + cloudPendingCmds.length}
+                                </span>
+                            )}
                         </button>
                     </div>
                 </div>
@@ -1506,16 +1643,64 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             </div>
                         </div>
 
+                        {/* Banner de Comandos Subidos Pendientes de Aplicar por la Caja */}
+                        {cloudPendingCmds.length > 0 && (
+                            <div className="bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-purple-500/10 border border-amber-300/70 dark:border-amber-700/60 p-3.5 sm:p-4 rounded-3xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-xs animate-fade-in">
+                                <div className="flex items-center gap-3 min-w-0">
+                                    <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center font-black shrink-0">
+                                        <Clock size={20} className="animate-pulse" />
+                                    </div>
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <h4 className="text-xs sm:text-sm font-black text-slate-800 dark:text-white">
+                                                {cloudPendingCmds.length} cambio{cloudPendingCmds.length !== 1 ? 's' : ''} subido{cloudPendingCmds.length !== 1 ? 's' : ''} a la nube
+                                            </h4>
+                                            <span className="text-[9.5px] font-black uppercase px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-200">
+                                                En espera de la caja
+                                            </span>
+                                        </div>
+                                        <p className="text-[10.5px] text-slate-500 dark:text-slate-400 font-medium mt-0.5 truncate">
+                                            Se aplicarán automáticamente apenas la caja principal se conecte. Puedes anularlos si lo deseas.
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <button
+                                        onClick={() => { triggerHaptic?.(); setShowCloudPendingModal(true); }}
+                                        className="flex-1 sm:flex-none px-3.5 py-2.5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-black text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer"
+                                    >
+                                        Ver lista ({cloudPendingCmds.length})
+                                    </button>
+                                    <button
+                                        onClick={() => { triggerHaptic?.(); cancelAllCloudCmds(); }}
+                                        className="flex-1 sm:flex-none px-3.5 py-2.5 rounded-2xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-black uppercase tracking-wider shadow-md shadow-rose-500/25 transition-all active:scale-95 cursor-pointer"
+                                    >
+                                        Anular Todos 🚫
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Barra de Filtro y Búsqueda */}
                         <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col md:flex-row gap-3 sm:gap-4 items-stretch md:items-center justify-between">
-                            {/* Top row on mobile: Nuevo button + Search input */}
-                            <div className="flex items-center gap-2.5 flex-1">
-                                <button
-                                    onClick={() => { triggerHaptic?.(); setRemoteEditingProduct(null); setShowRemoteForm(true); }}
-                                    className="shrink-0 flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2.5 rounded-2xl bg-brand hover:bg-brand-dark text-white text-[10px] sm:text-xs font-black uppercase tracking-wider shadow-lg shadow-brand/25 transition-all active:scale-95"
-                                >
-                                    <Plus size={14} strokeWidth={3} /> Nuevo
-                                </button>
+                            {/* Top row on mobile: Botones de Acción (Producto / Combo) + Input de Búsqueda */}
+                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 flex-1">
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <button
+                                        onClick={() => { triggerHaptic?.(); setRemoteEditingProduct(null); setShowRemoteForm(true); }}
+                                        className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-2xl bg-brand hover:bg-brand-dark text-white text-[10px] sm:text-xs font-black uppercase tracking-wider shadow-md shadow-brand/20 transition-all active:scale-95 cursor-pointer"
+                                        title="Crear un nuevo producto individual"
+                                    >
+                                        <Plus size={14} strokeWidth={3} /> Producto
+                                    </button>
+                                    <button
+                                        onClick={() => { triggerHaptic?.(); setEditingCombo(null); setShowComboModal(true); }}
+                                        className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-[10px] sm:text-xs font-black uppercase tracking-wider shadow-md shadow-purple-500/25 transition-all active:scale-95 cursor-pointer"
+                                        title="Crear un nuevo combo promocional o modular"
+                                    >
+                                        <Sparkles size={14} /> Combo
+                                    </button>
+                                </div>
                                 {/* Input de Búsqueda */}
                                 <div className="relative flex-1">
                                     <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-450">
@@ -1757,7 +1942,15 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
                                                         {/* Botones Editar / Eliminar horizontales */}
                                                         <div className="flex items-center gap-2 ml-1">
-                                                            {!isComboProd && (
+                                                            {isComboProd ? (
+                                                                <button
+                                                                    onClick={() => { triggerHaptic?.(); setEditingCombo(p); setShowComboModal(true); }}
+                                                                    title="Editar combo (en cola)"
+                                                                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 flex items-center justify-center text-purple-600 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/60 shadow-2xs transition-all active:scale-90 cursor-pointer"
+                                                                >
+                                                                    <Pencil size={15} />
+                                                                </button>
+                                                            ) : (
                                                                 <button
                                                                     onClick={() => { triggerHaptic?.(); setRemoteEditingProduct(p); setShowRemoteForm(true); }}
                                                                     title="Editar producto (en cola)"
@@ -1822,6 +2015,301 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                         )}
                     </div>
                 )}
+
+                {/* ── SECCIÓN 4: HISTORIAL Y GESTIÓN DEDICADA DE CAMBIOS ── */}
+                {viewTab === 'cambios' && (
+                    <div className="space-y-6 animate-fade-in">
+                        {/* Tarjetas resumen de estado de cambios */}
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                            {/* Cola Local (Sin Subir) */}
+                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col justify-between min-h-[90px] sm:min-h-[110px]">
+                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">Cola Local (Sin Subir)</span>
+                                <div className="flex items-end justify-between mt-2">
+                                    <span className="font-outfit text-xl sm:text-2xl font-black text-blue-600 dark:text-blue-400 tabular-nums leading-none">
+                                        {pendingChanges.length}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 font-bold">En navegador</span>
+                                </div>
+                            </div>
+
+                            {/* Pendientes en Nube */}
+                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col justify-between min-h-[90px] sm:min-h-[110px]">
+                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">En Espera en Nube</span>
+                                <div className="flex items-end justify-between mt-2">
+                                    <span className="font-outfit text-xl sm:text-2xl font-black text-amber-500 tabular-nums leading-none">
+                                        {cloudPendingCmds.length}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 font-bold">Espera a la caja</span>
+                                </div>
+                            </div>
+
+                            {/* Aplicados en Caja */}
+                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col justify-between min-h-[90px] sm:min-h-[110px]">
+                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">Aplicados por la Caja</span>
+                                <div className="flex items-end justify-between mt-2">
+                                    <span className="font-outfit text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums leading-none">
+                                        {allCloudCmds.filter(c => c.status === 'applied').length}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 font-bold">Completados</span>
+                                </div>
+                            </div>
+
+                            {/* Anulados */}
+                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col justify-between min-h-[90px] sm:min-h-[110px]">
+                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">Anulados / Cancelados</span>
+                                <div className="flex items-end justify-between mt-2">
+                                    <span className="font-outfit text-xl sm:text-2xl font-black text-rose-500 tabular-nums leading-none">
+                                        {allCloudCmds.filter(c => c.status === 'cancelled').length}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 font-bold">Cancelados</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Barra de Filtros de Cambios y Acciones Masivas */}
+                        <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                            <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200/60 dark:border-slate-800 overflow-x-auto custom-scrollbar">
+                                <button
+                                    onClick={() => { setCmdTabFilter('todos'); setCurrentPageCambios(1); }}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                                        cmdTabFilter === 'todos' ? 'bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-xs' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                                    }`}
+                                >
+                                    Todos ({pendingChanges.length + allCloudCmds.length})
+                                </button>
+                                <button
+                                    onClick={() => { setCmdTabFilter('pending'); setCurrentPageCambios(1); }}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                                        cmdTabFilter === 'pending' ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                                    }`}
+                                >
+                                    Pendientes ({pendingChanges.length + cloudPendingCmds.length})
+                                </button>
+                                <button
+                                    onClick={() => { setCmdTabFilter('applied'); setCurrentPageCambios(1); }}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                                        cmdTabFilter === 'applied' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                                    }`}
+                                >
+                                    Aplicados ({allCloudCmds.filter(c => c.status === 'applied').length})
+                                </button>
+                                <button
+                                    onClick={() => { setCmdTabFilter('cancelled'); setCurrentPageCambios(1); }}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                                        cmdTabFilter === 'cancelled' ? 'bg-rose-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                                    }`}
+                                >
+                                    Anulados ({allCloudCmds.filter(c => c.status === 'cancelled').length})
+                                </button>
+                            </div>
+
+                            {/* Acciones globales */}
+                            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                                {pendingChanges.length > 0 && (
+                                    <button
+                                        onClick={uploadPendingChanges}
+                                        disabled={uploading || !isConnected}
+                                        className="flex-1 sm:flex-none px-4 py-2 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-black uppercase tracking-wider shadow-md shadow-emerald-500/25 transition-all cursor-pointer disabled:opacity-40"
+                                    >
+                                        Subir Cola Local ({pendingChanges.length})
+                                    </button>
+                                )}
+                                {cloudPendingCmds.length > 0 && (
+                                    <button
+                                        onClick={cancelAllCloudCmds}
+                                        className="flex-1 sm:flex-none px-4 py-2 rounded-2xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-black uppercase tracking-wider shadow-md shadow-rose-500/25 transition-all cursor-pointer"
+                                    >
+                                        Anular Nube 🚫
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Construcción de Lista Paginada */}
+                        {(() => {
+                            const rawCmdList = [
+                                ...(cmdTabFilter === 'todos' || cmdTabFilter === 'pending' 
+                                    ? pendingChanges.map((c, i) => ({ isLocal: true, data: c, key: `local-${i}` })) 
+                                    : []),
+                                ...allCloudCmds
+                                    .filter(cmd => {
+                                        if (cmdTabFilter === 'pending') return cmd.status === 'pending';
+                                        if (cmdTabFilter === 'applied') return cmd.status === 'applied';
+                                        if (cmdTabFilter === 'cancelled') return cmd.status === 'cancelled';
+                                        return true;
+                                    })
+                                    .map(cmd => ({ isLocal: false, data: cmd, key: `cloud-${cmd.id}` }))
+                            ];
+
+                            const totalPagesCambios = Math.max(1, Math.ceil(rawCmdList.length / ITEMS_PER_PAGE_CAMBIOS));
+                            const safePage = Math.min(currentPageCambios, totalPagesCambios);
+                            const paginatedItems = rawCmdList.slice(
+                                (safePage - 1) * ITEMS_PER_PAGE_CAMBIOS,
+                                safePage * ITEMS_PER_PAGE_CAMBIOS
+                            );
+
+                            return (
+                                <div className="space-y-4">
+                                    <div className="space-y-3">
+                                        {paginatedItems.map(item => {
+                                            if (item.isLocal) {
+                                                const change = item.data;
+                                                const targetProd = (products || []).find(p => p.id === change.productId);
+                                                const prodName = targetProd ? targetProd.name : (change.data?.name || 'Artículo / Configuración');
+                                                let actionLabel = 'Modificación de Inventario';
+                                                if (change.action === 'adjust_stock') actionLabel = `Ajuste de Stock (${change.data?.delta > 0 ? '+' : ''}${change.data?.delta})`;
+                                                else if (change.action === 'edit') actionLabel = 'Edición de Producto / Combo';
+                                                else if (change.action === 'add') actionLabel = 'Nuevo Producto / Combo';
+                                                else if (change.action === 'delete') actionLabel = 'Eliminación de Producto';
+
+                                                return (
+                                                    <div key={item.key} className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-blue-200 dark:border-blue-900/60 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                                                        <div className="min-w-0 space-y-1">
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <span className="text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                                                    EN COLA LOCAL (Sin Subir)
+                                                                </span>
+                                                                <span className="text-[10px] text-slate-400 font-bold">
+                                                                    Encolado a las {new Date(change.queuedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                                </span>
+                                                            </div>
+                                                            <h4 className="text-sm sm:text-base font-black text-slate-800 dark:text-white truncate">{prodName}</h4>
+                                                            <p className="text-xs font-bold text-slate-500 dark:text-slate-400">{actionLabel}</p>
+                                                        </div>
+                                                        <div className="flex items-center gap-2 shrink-0">
+                                                            <button
+                                                                onClick={uploadPendingChanges}
+                                                                disabled={uploading || !isConnected}
+                                                                className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-black uppercase tracking-wider shadow-xs transition-colors cursor-pointer disabled:opacity-40"
+                                                            >
+                                                                Subir ahora ☁️
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+
+                                            const cmd = item.data;
+                                            const payload = cmd.payload || {};
+                                            const action = payload.action || cmd.command_type;
+                                            const prodId = payload.productId;
+                                            const targetProd = (products || []).find(p => p.id === prodId);
+                                            const prodName = targetProd ? targetProd.name : (payload.data?.name || 'Artículo / Configuración');
+                                            const createdTime = new Date(cmd.created_at || payload.issuedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                            const appliedTime = cmd.applied_at ? new Date(cmd.applied_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
+
+                                            let actionLabel = 'Modificación de Inventario';
+                                            if (action === 'adjust_stock') {
+                                                const delta = payload.data?.delta || 0;
+                                                actionLabel = `Ajuste de Stock (${delta > 0 ? '+' : ''}${delta})`;
+                                            } else if (action === 'edit') actionLabel = 'Edición de Producto / Combo';
+                                            else if (action === 'add') actionLabel = 'Nuevo Producto / Combo';
+                                            else if (action === 'delete') actionLabel = 'Eliminación de Producto';
+                                            else if (cmd.command_type === 'rate_change') actionLabel = 'Cambio de Tasa de Cambio';
+
+                                            let statusBadge = null;
+                                            if (cmd.status === 'pending') {
+                                                statusBadge = (
+                                                    <span className="text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-200 dark:border-amber-800 animate-pulse">
+                                                        EN ESPERA EN NUBE
+                                                    </span>
+                                                );
+                                            } else if (cmd.status === 'applied') {
+                                                statusBadge = (
+                                                    <span className="text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                                        APLICADO EN CAJA EL {new Date(cmd.applied_at).toLocaleDateString()}
+                                                    </span>
+                                                );
+                                            } else if (cmd.status === 'cancelled') {
+                                                statusBadge = (
+                                                    <span className="text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                                                        ANULADO
+                                                    </span>
+                                                );
+                                            }
+
+                                            return (
+                                                <div key={item.key} className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                                                    <div className="min-w-0 space-y-1">
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                            {statusBadge}
+                                                            <span className="text-[10px] text-slate-400 font-bold">Enviado: {createdTime}</span>
+                                                            {appliedTime && (
+                                                                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">· Aplicado a las {appliedTime}</span>
+                                                            )}
+                                                        </div>
+                                                        <h4 className="text-sm sm:text-base font-black text-slate-800 dark:text-white truncate">{prodName}</h4>
+                                                        <p className="text-xs font-bold text-slate-500 dark:text-slate-400">{actionLabel}</p>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 shrink-0">
+                                                        {cmd.status === 'pending' && (
+                                                            <button
+                                                                onClick={() => cancelSingleCloudCmd(cmd.id)}
+                                                                disabled={cancellingCmdId === cmd.id}
+                                                                className="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-xs font-black uppercase transition-colors shrink-0 disabled:opacity-40 cursor-pointer"
+                                                            >
+                                                                {cancellingCmdId === cmd.id ? 'Anulando...' : 'Anular 🚫'}
+                                                            </button>
+                                                        )}
+                                                        {cmd.status === 'applied' && (
+                                                            <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                                                                <ShieldCheck size={16} /> Aplicado por la caja
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+
+                                        {rawCmdList.length === 0 && (
+                                            <div className="py-12 text-center text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-3xl">
+                                                <Clock size={32} className="mx-auto text-slate-300 mb-2" />
+                                                <p className="text-xs font-black">Sin historial de cambios registrados</p>
+                                                <p className="text-[10px] text-slate-450 mt-1">Las modificaciones de inventario y precios aparecerán aquí.</p>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Controles de Paginación para Cambios */}
+                                    {totalPagesCambios > 1 && (
+                                        <div className="flex items-center justify-between bg-white dark:bg-slate-900 px-4 py-3 sm:px-6 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm mt-4">
+                                            <button
+                                                onClick={() => {
+                                                    if (safePage > 1) {
+                                                        triggerHaptic?.();
+                                                        setCurrentPageCambios(prev => Math.max(1, prev - 1));
+                                                    }
+                                                }}
+                                                disabled={safePage === 1}
+                                                className="p-2 rounded-xl text-slate-500 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-slate-800 dark:hover:text-emerald-450 border border-slate-200 dark:border-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors duration-150 cursor-pointer"
+                                            >
+                                                <ChevronLeft size={16} />
+                                            </button>
+
+                                            <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                                                Página <span className="font-black text-slate-800 dark:text-white">{safePage}</span> de <span className="font-black text-slate-800 dark:text-white">{totalPagesCambios}</span>
+                                                <span className="text-slate-400 text-[10px] ml-2 font-medium">({rawCmdList.length} registros)</span>
+                                            </span>
+
+                                            <button
+                                                onClick={() => {
+                                                    if (safePage < totalPagesCambios) {
+                                                        triggerHaptic?.();
+                                                        setCurrentPageCambios(prev => Math.min(totalPagesCambios, prev + 1));
+                                                    }
+                                                }}
+                                                disabled={safePage === totalPagesCambios}
+                                                className="p-2 rounded-xl text-slate-500 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-slate-800 dark:hover:text-emerald-450 border border-slate-200 dark:border-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors duration-150 cursor-pointer"
+                                            >
+                                                <ChevronRight size={16} />
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })()}
+                    </div>
+                )}
             </main>
 
             {/* Modal de Confirmación de Desvinculación */}
@@ -1876,6 +2364,25 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 bcvRate={rates?.bcv?.price || bcvRate}
             />
 
+            {/* Formulario/Wizard remoto de combos */}
+            <ComboFormModal
+                isOpen={showComboModal}
+                onClose={() => { setShowComboModal(false); setEditingCombo(null); }}
+                products={projectedProducts}
+                categories={categories}
+                effectiveRate={bcvRate}
+                bcvRate={rates?.bcv?.price || bcvRate}
+                copEnabled={copEnabled}
+                tasaCop={tasaCop}
+                onSave={(comboData) => {
+                    queueInventoryChange(editingCombo ? 'edit' : 'add', comboData.id, comboData);
+                    setShowComboModal(false);
+                    setEditingCombo(null);
+                    showToast(editingCombo ? 'Cambio de combo encolado' : 'Combo encolado para enviar a la caja', 'success');
+                }}
+                editingCombo={editingCombo}
+            />
+
             {/* Confirmación de eliminación remota */}
             {remoteDeleteTarget && (
                 <div className="fixed inset-0 z-[300] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1910,52 +2417,134 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 </div>
             )}
 
-            {/* Barra flotante «Subir al sistema» — responsiva sin recortes */}
-            {pendingChanges.length > 0 && viewTab === 'inventario' && (
-                <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[250] w-[95%] sm:w-full max-w-lg px-2 sm:px-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
-                    <div className="bg-[#193275] dark:bg-slate-900 border border-white/15 text-white rounded-3xl p-3 sm:p-3.5 shadow-2xl backdrop-blur-md flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3">
-                        {/* Texto descriptivo */}
-                        <div className="flex items-center justify-between sm:justify-start gap-2 min-w-0 px-1 sm:px-0">
-                            <div className="flex items-center gap-2 min-w-0">
-                                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping shrink-0" />
-                                <div className="min-w-0">
-                                    <p className="text-xs font-black leading-tight truncate">
-                                        {pendingChanges.length} cambio{pendingChanges.length !== 1 ? 's' : ''} en cola
-                                    </p>
-                                    <p className="text-[10px] text-slate-300 font-medium leading-none mt-0.5 truncate">
-                                        Aún no se han enviado a la caja
-                                    </p>
+            {/* Modal de Gestión / Anulación de Comandos Pendientes en la Nube */}
+            {showCloudPendingModal && (
+                <div className="fixed inset-0 z-[300] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowCloudPendingModal(false)}>
+                    <div className="bg-white dark:bg-slate-900 w-full sm:max-w-lg rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden max-h-[85vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                        <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/70 dark:bg-slate-800/40">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-600 dark:text-amber-400 font-black shrink-0">
+                                    <Clock size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-black text-slate-800 dark:text-white">Comandos en Espera ({cloudPendingCmds.length})</h3>
+                                    <p className="text-[10px] text-slate-400 font-medium mt-0.5">Subidos a la nube · Pendientes por aplicar en la caja</p>
                                 </div>
                             </div>
+                            <button onClick={() => setShowCloudPendingModal(false)} className="p-2 rounded-2xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                                <X size={18} />
+                            </button>
+                        </div>
 
-                            {/* Botón descartar para móvil en la parte superior derecha */}
+                        <div className="p-4 space-y-3 overflow-y-auto flex-1 custom-scrollbar">
+                            {cloudPendingCmds.length === 0 ? (
+                                <div className="py-8 text-center text-slate-400">
+                                    <CheckCircle size={32} className="mx-auto mb-2 text-emerald-500 opacity-60" />
+                                    <p className="text-xs font-bold">No hay cambios pendientes en la nube</p>
+                                </div>
+                            ) : (
+                                cloudPendingCmds.map(cmd => {
+                                    const payload = cmd.payload || {};
+                                    const action = payload.action || cmd.command_type;
+                                    const prodId = payload.productId;
+                                    const targetProd = (products || []).find(p => p.id === prodId);
+                                    const prodName = targetProd ? targetProd.name : (payload.data?.name || 'Artículo / Configuración');
+                                    const formattedTime = new Date(cmd.created_at || payload.issuedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                                    let actionLabel = 'Modificación de Inventario';
+                                    let actionColor = 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300';
+                                    if (action === 'adjust_stock') {
+                                        const delta = payload.data?.delta || 0;
+                                        actionLabel = `Ajuste de Stock (${delta > 0 ? '+' : ''}${delta})`;
+                                        actionColor = delta > 0 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300';
+                                    } else if (action === 'edit') {
+                                        actionLabel = 'Edición de Producto / Combo';
+                                        actionColor = 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300';
+                                    } else if (action === 'add') {
+                                        actionLabel = 'Nuevo Producto / Combo';
+                                        actionColor = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300';
+                                    } else if (action === 'delete') {
+                                        actionLabel = 'Eliminación de Producto';
+                                        actionColor = 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300';
+                                    } else if (cmd.command_type === 'rate_change') {
+                                        actionLabel = 'Cambio de Tasa de Cambio';
+                                        actionColor = 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300';
+                                    }
+
+                                    return (
+                                        <div key={cmd.id} className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className={`text-[9.5px] font-black uppercase px-2 py-0.5 rounded-md ${actionColor}`}>
+                                                        {actionLabel}
+                                                    </span>
+                                                    <span className="text-[10px] text-slate-400 font-bold">{formattedTime}</span>
+                                                </div>
+                                                <p className="text-xs font-black text-slate-800 dark:text-white truncate mt-1">
+                                                    {prodName}
+                                                </p>
+                                            </div>
+
+                                            <button
+                                                onClick={() => cancelSingleCloudCmd(cmd.id)}
+                                                disabled={cancellingCmdId === cmd.id}
+                                                className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 text-[10.5px] font-black uppercase transition-colors shrink-0 disabled:opacity-40"
+                                            >
+                                                {cancellingCmdId === cmd.id ? 'Anulando...' : 'Anular 🚫'}
+                                            </button>
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </div>
+
+                        {cloudPendingCmds.length > 0 && (
+                            <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20 flex gap-2">
+                                <button onClick={() => setShowCloudPendingModal(false)} className="flex-1 py-2.5 rounded-2xl font-black text-xs uppercase text-slate-500 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+                                    Cerrar
+                                </button>
+                                <button onClick={cancelAllCloudCmds} className="flex-1 py-2.5 rounded-2xl font-black text-xs uppercase text-white bg-rose-500 hover:bg-rose-600 shadow-md shadow-rose-500/20 transition-colors">
+                                    Anular Todos ({cloudPendingCmds.length})
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Barra flotante «Subir al sistema» — ultra compacta y de 1 sola fila */}
+            {pendingChanges.length > 0 && viewTab === 'inventario' && (
+                <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-[250] w-[94%] sm:w-full max-w-lg px-2 sm:px-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <div className="bg-[#193275] dark:bg-slate-900 border border-white/20 text-white rounded-2xl p-2.5 sm:p-3 shadow-2xl backdrop-blur-md flex items-center justify-between gap-2">
+                        {/* Texto descriptivo */}
+                        <div className="flex items-center gap-2 min-w-0 pl-1">
+                            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping shrink-0" />
+                            <div className="min-w-0">
+                                <p className="text-xs font-black leading-tight truncate">
+                                    {pendingChanges.length} cambio{pendingChanges.length !== 1 ? 's' : ''} en cola
+                                </p>
+                                <p className="text-[9.5px] text-slate-300 font-medium leading-none mt-0.5 hidden sm:block truncate">
+                                    Aún no se han enviado a la caja
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Botones de Acción */}
+                        <div className="flex items-center gap-1.5 shrink-0">
                             <button
                                 onClick={() => { triggerHaptic?.(); discardPendingChanges(); }}
                                 disabled={uploading}
                                 title="Descartar cambios"
-                                className="sm:hidden px-2.5 py-1 rounded-xl text-[10px] font-black uppercase text-slate-300 hover:text-white bg-white/10 transition-colors disabled:opacity-40 shrink-0"
+                                className="px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase text-slate-300 hover:text-white bg-white/10 hover:bg-white/20 transition-colors disabled:opacity-40"
                             >
                                 Descartar
                             </button>
-                        </div>
-
-                        {/* Botones de Acción */}
-                        <div className="flex items-center gap-2 shrink-0">
-                            {/* Descartar en Desktop */}
-                            <button
-                                onClick={() => { triggerHaptic?.(); discardPendingChanges(); }}
-                                disabled={uploading}
-                                className="hidden sm:block px-3 py-2 rounded-2xl text-[10px] font-black uppercase text-slate-300 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-40"
-                            >
-                                Descartar
-                            </button>
-                            {/* Botón Principal: Subir al sistema */}
                             <button
                                 onClick={() => { triggerHaptic?.(); uploadPendingChanges(); }}
                                 disabled={uploading || !isConnected}
-                                className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 sm:py-2 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-emerald-500/30 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                                className="flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-[11px] font-black uppercase tracking-wider shadow-md shadow-emerald-500/30 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
                             >
-                                {uploading ? <RefreshCw size={14} className="animate-spin" /> : <UploadCloud size={14} />}
+                                {uploading ? <RefreshCw size={13} className="animate-spin" /> : <UploadCloud size={13} />}
                                 <span>{uploading ? 'Subiendo...' : 'Subir al sistema'}</span>
                             </button>
                         </div>
@@ -1979,6 +2568,40 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                     onClose={() => setSelectedSaleDetail(null)}
                     bcvRate={bcvRate}
                 />
+            )}
+
+            {/* Modal de Gestión de Usuarios y PINs */}
+            {showUsersModal && (
+                <div className="fixed inset-0 z-[300] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in" onClick={() => setShowUsersModal(false)}>
+                    <div className="bg-white dark:bg-slate-900 w-full sm:max-w-2xl rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                        <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/70 dark:bg-slate-800/40">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200/60 dark:border-blue-800/60 flex items-center justify-center text-blue-600 dark:text-blue-400 font-black shrink-0">
+                                    <Users size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-black text-slate-800 dark:text-white">Usuarios, Roles y PINs</h3>
+                                    <p className="text-xs text-slate-400 font-medium mt-0.5">Consulta y gestiona los PINs de acceso de tu equipo</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setShowUsersModal(false)} className="p-2 rounded-2xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="p-4 sm:p-6 overflow-y-auto flex-1 custom-scrollbar space-y-4">
+                            {!isPosOnline && (
+                                <div className="p-3.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-900/40 rounded-2xl flex items-center gap-3 text-amber-800 dark:text-amber-300 text-xs font-semibold shadow-xs">
+                                    <AlertTriangle size={20} className="shrink-0 text-amber-600 dark:text-amber-400" />
+                                    <div>
+                                        <p className="font-black text-amber-900 dark:text-amber-200 leading-tight">Caja Principal Desconectada</p>
+                                        <p className="text-[11px] text-amber-700 dark:text-amber-400 font-medium mt-0.5">Mostrando catálogo de usuarios de la última sincronización. Los cambios se enviarán y aplicarán en la caja automáticamente apenas vuelva a estar en línea.</p>
+                                    </div>
+                                </div>
+                            )}
+                            <UsersManager triggerHaptic={triggerHaptic} />
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

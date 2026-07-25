@@ -128,6 +128,37 @@ export function useSupervisorCommands(deviceId) {
                     console.error('[SupervisorCommands] Error al aplicar inventory_update:', err);
                     await updateCommandStatus(command.id, 'failed', err?.message);
                 }
+            } else if (command.command_type === 'user_update') {
+                try {
+                    appliedIds.add(command.id);
+                    markApplied(command.id);
+                    const { action, userId, newPin, nombre, rol, bypassPin } = command.payload || {};
+                    const { useAuthStore } = await import('./store/useAuthStore');
+                    const store = useAuthStore.getState();
+
+                    if (action === 'change_pin' && userId && newPin) {
+                        store.cambiarPin(userId, newPin);
+                    } else if (action === 'add' && nombre) {
+                        store.agregarUsuario(nombre, rol || 'CAJERO', newPin || '000000', bypassPin);
+                    } else if (action === 'edit' && userId) {
+                        store.editarUsuario(userId, { nombre, rol, bypassPin });
+                    } else if (action === 'delete' && userId) {
+                        store.eliminarUsuario(userId);
+                    }
+
+                    // Notificar y actualizar catálogo de usuarios en la nube
+                    const freshUsers = useAuthStore.getState().usuarios;
+                    localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(freshUsers));
+                    try {
+                        const { pushCloudSync } = await import('./useCloudSync');
+                        await pushCloudSync('bodega_users_catalog_v1', freshUsers);
+                    } catch {}
+
+                    await updateCommandStatus(command.id, 'applied');
+                } catch (err) {
+                    console.error('[SupervisorCommands] Error al aplicar user_update:', err);
+                    await updateCommandStatus(command.id, 'failed', err?.message);
+                }
             }
             // Tipos desconocidos: se ignoran (comportamiento histórico)
         };

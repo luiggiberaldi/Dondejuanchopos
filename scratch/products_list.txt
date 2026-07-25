@@ -1,0 +1,98 @@
+1. ID: efd24c9a-4500-47dc-bf38-37367d1d9547 | Name: 'Combo 10 X 7' | USD: 7 | BsMan: 5880 | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+2. ID: ba983074-8bd0-4f7b-8d3c-75412a0499f4 | Name: 'CHEEKESITOS PEQUEÑO' | USD: 1.18 | BsMan: 944 | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+3. ID: 38ad6e54-6574-48a7-b5dd-10d6f6188b3b | Name: 'CHEETOS PEQUEÑO' | USD: 1 | BsMan: 800 | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+4. ID: fe5e7e76-f0d9-4ce8-bf8a-470472ca3c75 | Name: 'JUSTY ' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+5. ID: 2be1afc7-ff9a-4789-a581-d178cd1a45b3 | Name: 'Glup 2lt' | USD: 1.31 | BsMan: 1048 | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+6. ID: prod_juancho_1783994743_0 | Name: 'Cerveza Zulia' | USD: 1 | BsMan: 700 | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+7. ID: prod_juancho_1783994743_1 | Name: 'Zulia Lata' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+8. ID: prod_juancho_1783994743_2 | Name: 'Tercio Polar' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+9. ID: prod_juancho_1783994743_3 | Name: 'Cerveza Polar Negrita' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+10. ID: prod_juancho_1783994743_4 | Name: 'Polar Light Lata Pequeña' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+11. ID: prod_juancho_1783994743_5 | Name: 'Polar Light Lata Grande' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+12. ID: prod_juancho_1783994743_6 | Name: 'Polar Light ' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+13. ID: prod_juancho_1783994743_7 | Name: 'Polar Pilsen Lata Grande' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+14. ID: prod_juancho_1783994743_8 | Name: 'Polar Pilsen Lata Pequeña' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+15. ID: prod_juancho_1783994743_9 | Name: 'Malta Retornable' | USD: 0.87 | BsMan: 696 | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+16. ID: prod_juancho_1783994743_10 | Name: 'Malta Grande' | USD: 2.4 | BsMan: 1920 | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+17. ID: prod_juancho_1783994743_11 | Name: 'Malta Lata' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+18. ID: prod_juancho_1783994743_12 | Name: 'Glup 1 Litro' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+19. ID: prod_juancho_1783994743_13 | Name: 'Golden 2 Litros' | USD: 1.8 | BsMan: 1440 | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+20. ID: prod_juancho_1783994743_14 | Name: 'Soda Milnava Lata' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+21. ID: prod_juancho_1783994743_15 | Name: 'Caroreña Lata Pequeña' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+22. ID: prod_juancho_1783994743_16 | Name: 'Coca-Cola Lata' | USD: 1.3 | BsMan: 1040 | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+23. ID: prod_juancho_1783994743_17 | Name: 'Solera Lata' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+24. ID: prod_juancho_1783994743_19 | Name: 'Sangría La Diosa' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+25. ID: prod_juancho_1783994743_20 | Name: 'Tucacas (licor)' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+26. ID: prod_juancho_1783994743_21 | Name: 'Country Club (licor)' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+27. ID: prod_juancho_1783994743_22 | Name: 'Jhon Master (licor)' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+28. ID: prod_juancho_1783994743_23 | Name: 'Aguardiente De Cocuy 0.35 L Leal' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+29. ID: prod_juancho_1783994743_24 | Name: 'Aguardiente De Cocuy 0.70 L Leal' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+30. ID: prod_juancho_1783994743_25 | Name: 'Aguardiente De Cocuy 1 L Leal' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+31. ID: prod_juancho_1783994743_26 | Name: 'Brandy Chemineaud 0.35 L' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+32. ID: prod_juancho_1783994743_27 | Name: 'Brandy Chemineaud 0.70 L' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+33. ID: prod_juancho_1783994743_28 | Name: 'Brandy Chemineaud 1.75 L' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+34. ID: prod_juancho_1783994743_29 | Name: 'Brandy Chemineaud VSOP' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+35. ID: prod_juancho_1783994743_30 | Name: 'Salsa De Tomate Pampero Pequeña' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+36. ID: prod_juancho_1783994743_31 | Name: 'Harina Pan' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+37. ID: prod_juancho_1783994743_32 | Name: 'Arroz Primor' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+38. ID: prod_juancho_1783994743_33 | Name: 'Cafe Flor De Arauca' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+39. ID: prod_juancho_1783994743_34 | Name: 'Pasta Primor Larga' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+40. ID: prod_juancho_1783994743_35 | Name: 'Sardina Mar Bonita' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+41. ID: prod_juancho_1783994743_36 | Name: 'Granola' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+42. ID: prod_juancho_1783994743_37 | Name: 'Sal Mía' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+43. ID: prod_juancho_1783994743_38 | Name: 'Cocosette' | USD: 1.12 | BsMan: 896 | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+44. ID: prod_juancho_1783994743_39 | Name: 'Ávila Tripac' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+45. ID: prod_juancho_1783994743_40 | Name: 'Ávila Soya' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+46. ID: prod_juancho_1783994743_41 | Name: 'Ávila Ajo' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+47. ID: prod_juancho_1783994743_42 | Name: 'Club Social' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+48. ID: prod_juancho_1783994743_43 | Name: 'Samba' | USD: 1.12 | BsMan: 896 | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+49. ID: prod_juancho_1783994743_44 | Name: 'Bonbonbum' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+50. ID: prod_juancho_1783994743_45 | Name: 'Chocolate Savoy Pequeño' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+51. ID: prod_juancho_1783994743_46 | Name: 'Chocolate Varios Pequeño' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+52. ID: prod_juancho_1783994743_47 | Name: 'Cheese Trees Pequeño' | USD: 1.28 | BsMan: 1024 | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+53. ID: prod_juancho_1783994743_48 | Name: 'Cheese Trees Grande' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+54. ID: prod_juancho_1783994743_49 | Name: 'Tostón Tom' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+55. ID: prod_juancho_1783994743_50 | Name: 'Natu Chips' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+56. ID: prod_juancho_1783994743_51 | Name: 'Jack Chicharrón Pequeño' | USD: 1.5 | BsMan: 1200 | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+57. ID: prod_juancho_1783994743_52 | Name: 'Jack Chicharrón Grande' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+58. ID: prod_juancho_1783994743_53 | Name: 'Pepito Pequeño' | USD: 1 | BsMan: 800 | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+59. ID: prod_juancho_1783994743_54 | Name: 'Raqueti' | USD: 0.9 | BsMan: 720 | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+60. ID: prod_juancho_1783994743_55 | Name: 'Tom Mediano' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+61. ID: prod_juancho_1783994743_56 | Name: 'Doritos Grande' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+62. ID: prod_juancho_1783994743_57 | Name: 'Doritos Dinamita Grande' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+63. ID: prod_juancho_1783994743_58 | Name: 'Doritos Pequeño' | USD: 1.5 | BsMan: 1200 | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+64. ID: prod_juancho_1783994743_59 | Name: 'Chetos Grande' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+65. ID: prod_juancho_1783994743_60 | Name: 'Chiquesesito Pequeño' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+66. ID: prod_juancho_1783994743_61 | Name: 'Flips Mediano' | USD: 3 | BsMan: 2400 | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+67. ID: prod_juancho_1783994743_62 | Name: 'Consul' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+68. ID: prod_juancho_1783994743_63 | Name: 'Pall Mall' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+69. ID: prod_juancho_1783994743_64 | Name: 'Viceroy' | USD: 0.1 | BsMan: 80 | BoxUSD: 2 | BoxBs: 1600 | HalfUSD: None | HalfBs: None | ForceBCV: None
+70. ID: prod_juancho_1783994743_65 | Name: 'Belmont' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+71. ID: prod_juancho_1783994743_67 | Name: 'Lucky' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+72. ID: prod_juancho_1783994743_68 | Name: 'Chimo Apureñito' | USD: 1 | BsMan: 800 | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+73. ID: prod_juancho_1783994743_69 | Name: 'Halls' | USD: 1 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+74. ID: eb9e2309-a703-4b21-9c6a-763699a6b3ff | Name: 'Café gourmet San Salvador' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+75. ID: f51aefe8-a95d-4e8c-a861-2d42bae3e8e9 | Name: 'Café chocolate' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+76. ID: d99102b2-11f4-4e26-9dc9-4f7fa870844d | Name: 'Natilla chocolate tubo' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+77. ID: cfdfb6f6-241c-49d1-a505-2d0656fd8c79 | Name: 'Galleta María selecta Riva' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+78. ID: 6742d509-389c-43fd-a885-9c01c615ebea | Name: 'Galleta salada Riva' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+79. ID: 0072a5b8-8de1-42a3-87ae-7bf87287ffa6 | Name: 'Néctares San Andrés' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+80. ID: dc7647ed-5372-4103-a3be-207e0028c17b | Name: 'La Campesina leche y hierro' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+81. ID: 11d4ee07-3216-4448-a952-4860bbc57706 | Name: 'Flips dulce de leche' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+82. ID: ea0af586-3df5-4953-a6d3-0d9ae84465ca | Name: 'Rosca toallín multiusos' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+83. ID: 7935a25f-6365-467f-b0d7-88cf7a88bbae | Name: 'Oreo chocolate' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+84. ID: cc1807fb-d817-47b4-b411-32a00d42d08d | Name: 'Corn flakes / chocoflakes' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+85. ID: 4f9d4281-8def-47d6-9d14-a5bfa30984bb | Name: 'Saborina margarina en aceite vegetal' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+86. ID: 5d73aae1-0f1b-470f-9dc2-d17f1606721e | Name: 'Sabrositos vainilla' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+87. ID: f84b0b84-9bf5-448e-a56f-56ab49093b34 | Name: 'Pepitos mega puff' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+88. ID: e94f353b-41d4-41b3-ad23-d181b2924e68 | Name: 'Cheetos mega puff' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+89. ID: c4651b5f-5a18-4210-8243-123a1521d067 | Name: 'Cheitos flaming hot' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+90. ID: 62a0973f-095b-44fc-bd57-61b790b21296 | Name: 'Sardina Margarita' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+91. ID: 470f4394-32f3-400e-8209-d9a3462855d8 | Name: 'Sardina tomate Margarita' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+92. ID: 4f2f4d94-f1a8-4168-9f13-bfb4279bc516 | Name: 'Atún Pompeyo' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+93. ID: 2d82fe6c-54e6-41dc-a2c1-012b6e754a13 | Name: 'Savoy corré mini avellanas' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+94. ID: 36cb2d86-0d7b-45b1-b9c2-706bef0aead8 | Name: 'Savoy leche' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+95. ID: 0947df04-bfee-43ad-9994-27eb92c7df3b | Name: 'Oro Criollo' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+96. ID: fd02ba33-471f-405a-9d86-d2967897c488 | Name: 'Halls extra strong' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+97. ID: 227484b8-c3ab-44a8-8859-8db1f874b1cf | Name: 'Azúcar blanca refinada' | USD: 0 | BsMan: None | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None
+98. ID: c96fca34-a74f-4d94-873e-3c88e920947b | Name: 'prueba' | USD: 5 | BsMan: 5000 | BoxUSD: None | BoxBs: None | HalfUSD: None | HalfBs: None | ForceBCV: None

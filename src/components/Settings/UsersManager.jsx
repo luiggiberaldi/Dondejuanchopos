@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuthStore } from '../../hooks/store/useAuthStore';
 import { showToast } from '../Toast';
 import { verifyPin } from '../../utils/crypto';
 import { PIN_POLICY } from '../../utils/securityConstants';
+import { supabaseCloud } from '../../config/supabaseCloud';
 import {
     UserPlus, Trash2, KeyRound, Shield, ShoppingCart,
     Crown, X, Check, Eye, EyeOff, AlertTriangle, Edit2
@@ -74,77 +75,118 @@ function UserRow({ user, currentUserId, onChangePin, onDelete, onEditName, onTog
     const RoleIcon = roleConf.icon;
     const isCurrentUser = user.id === currentUserId;
     const isAdmin = user.rol === 'ADMIN';
+    const [showUserPin, setShowUserPin] = useState(false);
 
     return (
-        <div className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${isCurrentUser ? 'bg-brand-light/50 dark:bg-surface-800/10 border-surface-300/50 dark:border-surface-800/30' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800'}`}>
-            {/* Avatar */}
-            <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${roleConf.gradient} flex items-center justify-center shrink-0 shadow-sm relative`}>
-                <span className="text-white font-black text-lg">{(user.nombre || 'U')[0].toUpperCase()}</span>
-                {isAdmin && (
-                    <div className="absolute -top-2 left-1/2 -translate-x-1/2">
-                        <Crown size={12} className="text-yellow-400 fill-yellow-400 drop-shadow-sm" />
+        <div className={`p-3.5 sm:p-4 rounded-2xl border transition-all space-y-3 ${
+            isCurrentUser 
+                ? 'bg-brand-light/50 dark:bg-surface-800/10 border-surface-300/50 dark:border-surface-800/30' 
+                : 'bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800'
+        }`}>
+            {/* Fila Principal: Avatar, Nombre/Rol y Acciones de Edición */}
+            <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                    {/* Avatar */}
+                    <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br ${roleConf.gradient} flex items-center justify-center shrink-0 shadow-sm relative`}>
+                        <span className="text-white font-black text-base sm:text-lg">{(user.nombre || 'U')[0].toUpperCase()}</span>
+                        {isAdmin && (
+                            <div className="absolute -top-2 left-1/2 -translate-x-1/2">
+                                <Crown size={12} className="text-yellow-400 fill-yellow-400 drop-shadow-sm" />
+                            </div>
+                        )}
                     </div>
-                )}
-            </div>
 
-            {/* Info */}
-            <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                    <p className="text-sm font-bold text-slate-800 dark:text-white truncate">{user.nombre}</p>
-                    {isCurrentUser && (
-                        <span className="text-[8px] font-black uppercase tracking-wider bg-brand-light dark:bg-surface-800/30 text-brand px-1.5 py-0.5 rounded-full">Tu</span>
+                    {/* Info */}
+                    <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="text-sm font-black text-slate-800 dark:text-white truncate">{user.nombre}</p>
+                            {isCurrentUser && (
+                                <span className="text-[8px] font-black uppercase tracking-wider bg-brand-light dark:bg-surface-800/30 text-brand px-1.5 py-0.5 rounded-full">Tu</span>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                            <RoleIcon size={11} className={roleConf.text} />
+                            <span className={`text-[9.5px] font-black uppercase tracking-wider ${roleConf.text}`}>
+                                {roleConf.label}
+                            </span>
+                            {user.bypassPin && (
+                                <span className="text-[8.5px] font-black uppercase tracking-wider bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 px-1.5 py-0.5 rounded-md">
+                                    Sin PIN
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Acciones principales (Nombre y Borrar) */}
+                <div className="flex items-center gap-1 shrink-0">
+                    <button
+                        onClick={() => { triggerHaptic?.(); onEditName(user); }}
+                        className="p-2 rounded-xl text-slate-400 hover:text-brand hover:bg-brand-light dark:hover:bg-surface-800/20 transition-all active:scale-90 cursor-pointer"
+                        title="Editar Nombre"
+                    >
+                        <Edit2 size={16} />
+                    </button>
+                    {!isCurrentUser && (
+                        <button
+                            onClick={() => { triggerHaptic?.(); onDelete(user); }}
+                            className="p-2 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-all active:scale-90 cursor-pointer"
+                            title="Eliminar Usuario"
+                        >
+                            <Trash2 size={16} />
+                        </button>
                     )}
                 </div>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                    <RoleIcon size={10} className={roleConf.text} />
-                    <span className={`text-[9px] font-black uppercase tracking-wider ${roleConf.text}`}>
-                        {roleConf.label}
+            </div>
+
+            {/* Fila Inferior / Control de PIN (Totalmente Responsiva) */}
+            <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+                {/* Visualizador de PIN */}
+                {!user.bypassPin ? (
+                    <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700/80">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">PIN:</span>
+                        <span className="text-xs font-mono font-black text-slate-800 dark:text-slate-100 tracking-wider">
+                            {showUserPin ? (user.plainPin || '000000') : '••••••'}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => { triggerHaptic?.(); setShowUserPin(!showUserPin); }}
+                            className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors ml-0.5 cursor-pointer"
+                            title={showUserPin ? "Ocultar PIN" : "Ver PIN actual"}
+                        >
+                            {showUserPin ? <EyeOff size={14} /> : <Eye size={14} />}
+                        </button>
+                    </div>
+                ) : (
+                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-xl border border-emerald-200 dark:border-emerald-800">
+                        🔓 Sin PIN (Entra directo)
                     </span>
-                    {user.bypassPin && (
-                        <span className="text-[8px] font-black uppercase tracking-widest bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded ml-2">Sin PIN</span>
+                )}
+
+                {/* Controles de PIN (Cambiar PIN + Toggle Sin PIN) */}
+                <div className="flex items-center gap-2 ml-auto">
+                    {!user.bypassPin && (
+                        <button
+                            onClick={() => { triggerHaptic?.(); onChangePin(user); }}
+                            className="px-2.5 py-1 rounded-xl bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-[10px] font-black uppercase flex items-center gap-1 transition-all active:scale-95 cursor-pointer"
+                            title="Cambiar PIN directamente"
+                        >
+                            <KeyRound size={13} /> Cambiar PIN
+                        </button>
+                    )}
+
+                    {!isCurrentUser && (
+                        <label className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 cursor-pointer select-none">
+                            <input
+                                type="checkbox"
+                                checked={user.bypassPin === true}
+                                onChange={() => { triggerHaptic?.(); onToggleBypassPin(user); }}
+                                className="w-3.5 h-3.5 rounded text-brand focus:ring-brand accent-brand cursor-pointer"
+                            />
+                            <span className="text-[10.5px] text-slate-600 dark:text-slate-300 font-extrabold uppercase">Sin PIN</span>
+                        </label>
                     )}
                 </div>
-            </div>
-
-            {/* Actions */}
-            <div className="flex items-center gap-1 shrink-0">
-                {!isCurrentUser && (
-                    <label className="flex items-center gap-1 mr-2 cursor-pointer select-none">
-                        <input
-                            type="checkbox"
-                            checked={user.bypassPin === true}
-                            onChange={() => { triggerHaptic?.(); onToggleBypassPin(user); }}
-                            className="w-3.5 h-3.5 rounded text-brand focus:ring-brand"
-                        />
-                        <span className="text-[10px] text-slate-500 font-bold">Sin PIN</span>
-                    </label>
-                )}
-
-                {!user.bypassPin && (
-                    <button
-                        onClick={() => { triggerHaptic?.(); onChangePin(user); }}
-                        className="p-2 rounded-lg text-slate-400 hover:text-brand hover:bg-brand-light dark:hover:bg-surface-800/20 transition-all active:scale-90"
-                        title="Cambiar PIN"
-                    >
-                        <KeyRound size={16} />
-                    </button>
-                )}
-                <button
-                    onClick={() => { triggerHaptic?.(); onEditName(user); }}
-                    className="p-2 rounded-lg text-slate-400 hover:text-brand hover:bg-brand-light dark:hover:bg-surface-800/20 transition-all active:scale-90"
-                    title="Editar Nombre"
-                >
-                    <Edit2 size={16} />
-                </button>
-                {!isCurrentUser && (
-                    <button
-                        onClick={() => { triggerHaptic?.(); onDelete(user); }}
-                        className="p-2 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all active:scale-90"
-                        title="Eliminar"
-                    >
-                        <Trash2 size={16} />
-                    </button>
-                )}
             </div>
         </div>
     );
@@ -153,6 +195,62 @@ function UserRow({ user, currentUserId, onChangePin, onDelete, onEditName, onTog
 // ═══════════════════════════════════════════════════ MAIN
 export default function UsersManager({ triggerHaptic }) {
     const { usuarios, usuarioActivo, agregarUsuario, eliminarUsuario, cambiarPin, editarUsuario } = useAuthStore();
+
+    // Catálogo de usuarios sincronizado desde la caja principal si existe
+    const [syncedUsers, setSyncedUsers] = useState(() => {
+        try {
+            const raw = localStorage.getItem('bodega_users_catalog_v1');
+            const arr = raw ? JSON.parse(raw) : null;
+            if (Array.isArray(arr) && arr.length > 0) return arr;
+        } catch {}
+        return null;
+    });
+
+    useEffect(() => {
+        const handleSync = () => {
+            try {
+                const raw = localStorage.getItem('bodega_users_catalog_v1');
+                const arr = raw ? JSON.parse(raw) : null;
+                if (Array.isArray(arr) && arr.length > 0) setSyncedUsers(arr);
+            } catch {}
+        };
+        window.addEventListener('app_storage_update', handleSync);
+        window.addEventListener('storage', handleSync);
+        return () => {
+            window.removeEventListener('app_storage_update', handleSync);
+            window.removeEventListener('storage', handleSync);
+        };
+    }, []);
+
+    const displayUsers = syncedUsers && syncedUsers.length > 0 ? syncedUsers : usuarios;
+
+    // Helper para encolar comandos remotos si se ejecuta desde Modo Supervisor
+    const pushRemoteUserCmd = async (action, payload) => {
+        try {
+            const pairedDeviceId = localStorage.getItem('dj_paired_primary_device_id') || localStorage.getItem('dj_device_id');
+            if (supabaseCloud && pairedDeviceId) {
+                let monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
+                try {
+                    const { data: pairing } = await supabaseCloud
+                        .from('device_pairings')
+                        .select('monitor_device_id')
+                        .eq('primary_device_id', pairedDeviceId)
+                        .single();
+                    if (pairing?.monitor_device_id) monitorDeviceId = pairing.monitor_device_id;
+                } catch {}
+
+                await supabaseCloud.from('supervisor_commands').insert({
+                    primary_device_id: pairedDeviceId,
+                    monitor_device_id: monitorDeviceId,
+                    command_type: 'user_update',
+                    payload: { action, ...payload },
+                    status: 'pending'
+                });
+            }
+        } catch (e) {
+            console.warn('[UsersManager] No se pudo enviar comando remoto:', e);
+        }
+    };
 
     // States
     const [showAddForm, setShowAddForm] = useState(false);
@@ -179,10 +277,11 @@ export default function UsersManager({ triggerHaptic }) {
         if (!newName.trim()) return showToast('Ingresa un nombre', 'error');
         if (!newBypassPin) {
             if (newPin.length !== requiredLen) return showToast(`El PIN debe tener ${requiredLen} dígitos`, 'error');
-            if (usuarios.some(u => u.pin === newPin)) return showToast('Ese PIN ya esta en uso', 'error');
+            if (displayUsers.some(u => u.pin === newPin)) return showToast('Ese PIN ya esta en uso', 'error');
         }
 
         agregarUsuario(newName.trim(), newRole, newBypassPin ? '' : newPin, newBypassPin);
+        pushRemoteUserCmd('add', { nombre: newName.trim(), rol: newRole, newPin: newBypassPin ? '' : newPin, bypassPin: newBypassPin });
         showToast(`Usuario "${newName.trim()}" creado`, 'success');
         triggerHaptic?.();
         setNewName('');
@@ -195,6 +294,7 @@ export default function UsersManager({ triggerHaptic }) {
     const handleToggleBypassPin = (user) => {
         const newVal = !user.bypassPin;
         editarUsuario(user.id, { bypassPin: newVal });
+        pushRemoteUserCmd('edit', { userId: user.id, bypassPin: newVal });
         showToast(newVal ? `"${user.nombre}" ahora entra sin PIN` : `"${user.nombre}" ahora requiere PIN`, 'success');
     };
 
@@ -204,12 +304,12 @@ export default function UsersManager({ triggerHaptic }) {
             return showToast(`El PIN debe tener ${requiredLen} dígitos`, 'error');
         }
 
-        const userInDb = usuarios.find(u => u.id === changePinUser.id);
+        const userInDb = displayUsers.find(u => u.id === changePinUser.id);
         if (!userInDb) return showToast('Usuario no encontrado', 'error');
 
         try {
             const check = await verifyPin(currentPinValue, userInDb.pin);
-            if (!check.valid) {
+            if (!check.valid && userInDb.plainPin !== currentPinValue) {
                 return showToast('El PIN actual es incorrecto', 'error');
             }
             setChangePinStep(2);
@@ -242,15 +342,12 @@ export default function UsersManager({ triggerHaptic }) {
             return showToast('Los PINs no coinciden', 'error');
         }
 
-        if (usuarios.some(u => u.id !== changePinUser.id && u.pin === pinValue)) {
-            return showToast('Ese PIN ya está en uso', 'error');
-        }
-
         const res = cambiarPin(changePinUser.id, pinValue);
         if (res && res.error) {
             return showToast(res.error, 'error');
         }
 
+        pushRemoteUserCmd('change_pin', { userId: changePinUser.id, newPin: pinValue });
         showToast(`PIN de ${changePinUser.nombre} actualizado`, 'success');
         triggerHaptic?.();
         
@@ -268,6 +365,7 @@ export default function UsersManager({ triggerHaptic }) {
         if (result === false) {
             showToast('No se puede eliminar este usuario', 'error');
         } else {
+            pushRemoteUserCmd('delete', { userId: deleteUser.id });
             showToast(`"${deleteUser.nombre}" eliminado`, 'success');
             triggerHaptic?.();
         }
@@ -277,6 +375,7 @@ export default function UsersManager({ triggerHaptic }) {
     const handleEditName = () => {
         if (!editNameValue.trim()) return showToast('Ingresa un nombre válido', 'error');
         editarUsuario(editNameUser.id, { nombre: editNameValue.trim() });
+        pushRemoteUserCmd('edit', { userId: editNameUser.id, nombre: editNameValue.trim() });
         showToast(`Nombre actualizado a ${editNameValue.trim()}`, 'success');
         triggerHaptic?.();
         setEditNameUser(null);
@@ -287,7 +386,7 @@ export default function UsersManager({ triggerHaptic }) {
         <div className="space-y-4">
             {/* User List */}
             <div className="space-y-2">
-                {usuarios.map(user => (
+                {displayUsers.map(user => (
                     <UserRow
                         key={user.id}
                         user={user}

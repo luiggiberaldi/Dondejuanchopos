@@ -38,7 +38,17 @@ export default function SupervisorRateModal({ isOpen, onClose, rates, primaryDev
 
         setLoading(true);
         try {
-            const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
+            let monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
+            try {
+                const { data: pairing } = await supabaseCloud
+                    .from('device_pairings')
+                    .select('monitor_device_id')
+                    .eq('primary_device_id', primaryDeviceId)
+                    .single();
+                if (pairing?.monitor_device_id) {
+                    monitorDeviceId = pairing.monitor_device_id;
+                }
+            } catch { /* fallback local */ }
             
             // Insertar el comando en la base de datos de Supabase
             const { error } = await supabaseCloud

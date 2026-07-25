@@ -16,7 +16,33 @@ export function useMonitorSync(pairedDeviceId) {
         return stored ? new Date(stored) : null;
     });
     const [loading, setLoading] = useState(true);
+    const [posLastSeen, setPosLastSeen] = useState(null);
+    const [isPosOnline, setIsPosOnline] = useState(false);
     const isSyncingRef = useRef(false);
+
+    const checkPosPresence = useCallback(async () => {
+        if (!supabaseCloud || !pairedDeviceId) return;
+        try {
+            const { data: docs } = await supabaseCloud
+                .from('sync_documents')
+                .select('updated_at')
+                .eq('device_id', pairedDeviceId)
+                .order('updated_at', { ascending: false })
+                .limit(1);
+
+            if (docs && docs.length > 0 && docs[0].updated_at) {
+                const lastDate = new Date(docs[0].updated_at);
+                setPosLastSeen(lastDate);
+                const diffMs = Date.now() - lastDate.getTime();
+                // Considerar la caja En Línea si reportó actividad a la nube en los últimos 3 minutos (180,000 ms)
+                setIsPosOnline(diffMs <= 180000);
+            } else {
+                setIsPosOnline(false);
+            }
+        } catch {
+            setIsPosOnline(false);
+        }
+    }, [pairedDeviceId]);
 
     const applyDocToLocal = async (docId, collection, payload) => {
         if (payload == null) return;
@@ -53,6 +79,9 @@ export function useMonitorSync(pairedDeviceId) {
         if (!isSilent) setLoading(true);
 
         try {
+            // Verificar presencia de la caja principal
+            await checkPosPresence();
+
             // 1. Pull inicial o de recuperación (catch-up) desde sync_documents del equipo vinculado
             const { data: docs, error } = await supabaseCloud
                 .from('sync_documents')
@@ -93,6 +122,8 @@ export function useMonitorSync(pairedDeviceId) {
                         await applyDocToLocal(doc.doc_id, doc.collection, doc.data.payload);
                         const now = new Date();
                         setLastSync(now);
+                        setPosLastSeen(now);
+                        setIsPosOnline(true);
                         localStorage.setItem('monitor_last_sync', now.toISOString());
                     })
                     .subscribe((status) => {
@@ -100,7 +131,6 @@ export function useMonitorSync(pairedDeviceId) {
                             setIsConnected(true);
                         } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
                             setIsConnected(false);
-                            // Si el canal se cierra o falla por corte de red, desasociar canal para forzar reconexión limpia
                             if (monitorSubscription) {
                                 supabaseCloud.removeChannel(monitorSubscription).catch(() => {});
                                 monitorSubscription = null;
@@ -115,7 +145,7 @@ export function useMonitorSync(pairedDeviceId) {
             isSyncingRef.current = false;
             setLoading(false);
         }
-    }, [pairedDeviceId]);
+    }, [pairedDeviceId, checkPosPresence]);
 
     const triggerRefresh = async () => {
         if (monitorSubscription) {
@@ -159,8 +189,11 @@ export function useMonitorSync(pairedDeviceId) {
 
         // 3. Health-check en segundo plano (Re-intento automático cada 10 segundos)
         reconnectTimer = setInterval(() => {
-            if (navigator.onLine && (!isConnected || !monitorSubscription)) {
-                initMonitor(true);
+            if (navigator.onLine) {
+                checkPosPresence();
+                if (!isConnected || !monitorSubscription) {
+                    initMonitor(true);
+                }
             }
         }, 10000);
 
@@ -175,7 +208,7 @@ export function useMonitorSync(pairedDeviceId) {
                 monitorSubscription = null;
             }
         };
-    }, [pairedDeviceId, initMonitor]);
+    }, [pairedDeviceId, initMonitor, checkPosPresence]);
 
-    return { isConnected, lastSync, loading, triggerRefresh };
+    return { isConnected, lastSync, loading, triggerRefresh, posLastSeen, isPosOnline };
 }
