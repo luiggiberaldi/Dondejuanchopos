@@ -1,43 +1,116 @@
 import React, { useState, useMemo, useRef, useCallback } from 'react';
-import { Search, TrendingUp, TrendingDown, Check, Package, X, AlertTriangle, Minus, Plus, Boxes, Edit3 } from 'lucide-react';
+import { Search, TrendingUp, TrendingDown, Check, Package, X, AlertTriangle, Minus, Plus, Boxes, Edit3, Zap, Beer, Layers, Sparkles, CheckCircle2 } from 'lucide-react';
 import { showToast } from '../Toast';
 import { CATEGORY_COLORS } from '../../config/categories';
 import { storageService } from '../../utils/storageService';
 
-// ─── FILA DEL CATÁLOGO (VISTA SIMPLIFICADA) ───
+// Helper para obtener las unidades por empaque/caja registradas en el producto
+function getStoredPkgSize(p) {
+    if (!p) return 1;
+    
+    // 1. boxUnits (numérico o string)
+    if (p.boxUnits != null) {
+        const parsed = parseInt(p.boxUnits, 10);
+        if (!isNaN(parsed) && parsed > 1) return parsed;
+    }
+
+    // 2. unitsPerPackage (numérico o string)
+    if (p.unitsPerPackage != null) {
+        const parsed = parseInt(p.unitsPerPackage, 10);
+        if (!isNaN(parsed) && parsed > 1) return parsed;
+    }
+
+    // 3. purchaseBoxUnits
+    if (p.purchaseBoxUnits != null) {
+        const parsed = parseInt(p.purchaseBoxUnits, 10);
+        if (!isNaN(parsed) && parsed > 1) return parsed;
+    }
+
+    // 4. halfBoxUnits (* 2)
+    if (p.halfBoxUnits != null) {
+        const parsed = parseInt(p.halfBoxUnits, 10);
+        if (!isNaN(parsed) && parsed > 1) return parsed * 2;
+    }
+
+    // 5. Si la venta por caja está activa pero el valor guardado es <= 1
+    if (p.sellByBox || p.sellByHalfBox) {
+        const cat = (p.category || '').toLowerCase();
+        const name = (p.name || '').toLowerCase();
+        if (cat.includes('lata') || name.includes('lata') || cat.includes('tercio') || name.includes('tercio')) {
+            return 24;
+        }
+        return 36;
+    }
+
+    return 1;
+}
+
+// ─── FILA DEL CATÁLOGO (VISTA GRID CARD) ───
 function CatalogRow({ p, maxStock, onTapAdd }) {
     const stock = p.stock ?? 0;
     const lowAlert = p.lowStockAlert ?? 5;
     const isLow = stock <= lowAlert;
-    const unitsPerPkg = (p.unitsPerPackage ?? 1);
+    const unitsPerPkg = getStoredPkgSize(p);
     const hasBulk = unitsPerPkg > 1;
+    const isBoxProduct = Boolean(
+        p?.sellByBox ||
+        (p?.boxUnits != null && parseInt(p.boxUnits, 10) > 1) ||
+        (p?.purchaseBoxUnits != null && parseInt(p.purchaseBoxUnits, 10) > 1)
+    );
+    const pkgLabel = isBoxProduct ? 'caja' : 'bulto';
+
     return (
         <div
-            className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/30 cursor-pointer active:bg-slate-100 dark:active:bg-slate-800/50 transition-all border-b border-slate-100 dark:border-slate-800/40 group"
             onClick={() => onTapAdd(p.id)}
+            className="flex flex-col justify-between p-3 bg-slate-50/70 dark:bg-slate-900/60 hover:bg-white dark:hover:bg-slate-850 border border-slate-200/80 dark:border-slate-800 rounded-2xl cursor-pointer transition-all hover:shadow-md hover:border-brand/40 group active:scale-[0.98] relative overflow-hidden"
         >
-            <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate group-hover:text-brand transition-colors">
-                    {p.name}
-                </p>
-                <div className="flex items-center gap-2 mt-1">
-                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg border ${
-                        isLow
-                            ? 'bg-amber-50 dark:bg-amber-950/20 text-amber-500 border-amber-200/30 animate-pulse'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200/30'
-                    }`}>
-                        Stock: {stock}
-                    </span>
+            {/* Top row: Image/Category icon + Name */}
+            <div className="flex items-start gap-2.5">
+                {p.image ? (
+                    <img
+                        src={p.image}
+                        alt={p.name}
+                        className="w-9 h-9 rounded-xl object-cover shrink-0 border border-slate-200/60 dark:border-slate-700/60"
+                    />
+                ) : (
+                    <div className="w-9 h-9 rounded-xl bg-slate-200/60 dark:bg-slate-800 flex items-center justify-center shrink-0 text-slate-500 font-bold text-xs">
+                        {p.name?.charAt(0)?.toUpperCase() || '?'}
+                    </div>
+                )}
+
+                <div className="min-w-0 flex-1">
+                    <p className="text-xs font-black text-slate-800 dark:text-slate-100 truncate group-hover:text-brand transition-colors leading-tight">
+                        {p.name}
+                    </p>
                     {hasBulk && (
-                        <span className="text-[9px] font-bold text-brand bg-brand-light dark:bg-slate-800 dark:text-brand px-2 py-0.5 rounded-lg border border-brand/20">
-                            {unitsPerPkg} uds/bulto
-                        </span>
+                        <p className="text-[10px] font-extrabold text-brand dark:text-brand-light mt-0.5 flex items-center gap-1">
+                            <Package size={11} strokeWidth={2.5} />
+                            <span>{unitsPerPkg} uds/{pkgLabel}</span>
+                        </p>
                     )}
                 </div>
             </div>
 
-            <div className="shrink-0 w-8 h-8 rounded-xl bg-slate-50 dark:bg-slate-800 border border-dashed border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 dark:text-slate-500 group-hover:bg-brand-light group-hover:text-brand group-hover:border-brand/30 transition-all active:scale-90">
-                <Plus size={16} strokeWidth={2.5} />
+            {/* Bottom row: Stock badge + Add button */}
+            <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-slate-200/40 dark:border-slate-800/60">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg border ${
+                        isLow
+                            ? 'bg-amber-100/80 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-300/40 animate-pulse'
+                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                    }`}>
+                        Stock: {stock}
+                    </span>
+                    {isLow && (
+                        <span className="text-[9px] font-black text-rose-500 bg-rose-50 dark:bg-rose-950/30 px-1.5 py-0.5 rounded border border-rose-200/30">
+                            Bajo
+                        </span>
+                    )}
+                </div>
+
+                <div className="w-7 h-7 rounded-xl bg-brand/10 dark:bg-brand/20 text-brand flex items-center justify-center group-hover:bg-brand group-hover:text-white transition-all shadow-sm">
+                    <Plus size={14} strokeWidth={3} />
+                </div>
             </div>
         </div>
     );
@@ -46,145 +119,197 @@ function CatalogRow({ p, maxStock, onTapAdd }) {
 // ─── FILA EN AJUSTE (VISTA DE CONTROL DE CANTIDAD) ───
 function AdjustRow({ p, qty, direction, adjUnit, tempPkgSize, onSetQty, onSetAdjUnit, onSetTempPkgSize }) {
     const stock = p.stock ?? 0;
-    // Usar el tamaño temporal si existe (editado inline), sino el del producto
-    const storedUpp = (p.unitsPerPackage ?? 1) > 1 ? (p.unitsPerPackage ?? 1) : 1;
+    const storedUpp = getStoredPkgSize(p);
     const unitsPerPkg = tempPkgSize > 1 ? tempPkgSize : storedUpp;
     const hasBulk = unitsPerPkg > 1;
+    const isBoxProduct = Boolean(
+        p?.sellByBox ||
+        (p?.boxUnits != null && parseInt(p.boxUnits, 10) > 1) ||
+        (p?.purchaseBoxUnits != null && parseInt(p.purchaseBoxUnits, 10) > 1)
+    );
+    const unitTag = isBoxProduct ? 'caja' : 'bulto';
+    const unitTagCap = isBoxProduct ? 'Caja' : 'Bulto';
+    const unitTagPluralCap = isBoxProduct ? 'Cajas' : 'Bultos';
 
-    // Delta y stock nuevo calculados correctamente según la unidad elegida
     const delta = hasBulk && adjUnit === 'lotes' ? qty * unitsPerPkg : qty;
     const newStock = direction === 'ingreso' ? stock + delta : Math.max(0, stock - delta);
 
-    // Label del cambio
     const deltaLabel = hasBulk && adjUnit === 'lotes'
-        ? `${direction === 'ingreso' ? '+' : '-'}${qty} bulto${qty !== 1 ? 's' : ''} de ${unitsPerPkg} uds`
+        ? `${direction === 'ingreso' ? '+' : '-'}${qty} ${unitTag}${qty !== 1 ? 's' : ''} (${direction === 'ingreso' ? '+' : '-'}${delta} uds)`
         : `${direction === 'ingreso' ? '+' : '-'}${delta} ud${delta !== 1 ? 's' : ''}`;
 
-    // Cuantos bultos tiene en inventario ahora
     const currentBultos = hasBulk ? Math.floor(stock / unitsPerPkg) : null;
-
     const inputVal = tempPkgSize > 0 ? tempPkgSize : (storedUpp > 1 ? storedUpp : '');
 
+    // Calcular porcentaje relativo para la barra de progreso
+    const maxVal = Math.max(stock, newStock, 1);
+    const oldWidth = Math.round((stock / maxVal) * 100);
+    const newWidth = Math.round((newStock / maxVal) * 100);
+
     return (
-        <div className="px-4 py-3 bg-slate-50/30 dark:bg-slate-900/10 border-b border-slate-100 dark:border-slate-800/40">
-            {/* Fila superior: nombre + controles */}
+        <div className="p-3.5 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800/80 space-y-3">
+            {/* Header del producto */}
             <div className="flex items-start justify-between gap-3">
-                {/* Info del producto */}
-                <div className="flex-1 min-w-0">
-                    <p className="text-sm font-black text-slate-755 dark:text-slate-200 truncate">{p.name}</p>
-                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                        <span className="text-[10px] font-black text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/80 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700/60">
-                            Stock: {stock}
+                <div className="min-w-0 flex-1">
+                    <h4 className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">{p.name}</h4>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <span className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400">
+                            Actual: <strong className="text-slate-700 dark:text-slate-200">{stock} uds</strong>
+                            {currentBultos !== null && ` (${currentBultos} ${unitTag}s)`}
                         </span>
-                        <span className={`text-[11px] font-black flex items-center gap-0.5 ${direction === 'ingreso' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-450'}`}>
-                            → {newStock}
-                        </span>
-                        <span className={`text-[10px] font-black px-1.5 py-0.5 rounded border ${
+                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-md border ${
                             direction === 'ingreso'
-                                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-350 border-emerald-250/20'
-                                : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-350 border-rose-250/20'
+                                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200/40'
+                                : 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border-rose-200/40'
                         }`}>
-                            ({deltaLabel})
+                            {deltaLabel}
                         </span>
-                        {currentBultos !== null && (
-                            <span className="text-[9px] font-black text-brand bg-brand-light/75 dark:bg-slate-800 dark:text-brand px-2 py-0.5 rounded border border-brand/20">
-                                {currentBultos} bulto{currentBultos !== 1 ? 's' : ''} actuales
-                            </span>
-                        )}
                     </div>
                 </div>
 
-                {/* Controles de cantidad */}
-                <div className="flex items-center gap-2 shrink-0 mt-0.5">
-                    <div className="flex items-center bg-slate-100 dark:bg-slate-800/70 p-0.5 rounded-full border border-slate-200/50 dark:border-slate-700/50">
-                        <button
-                            type="button"
-                            onClick={() => onSetQty(p.id, qty - 1)}
-                            disabled={qty <= 1}
-                            className="w-7 h-7 rounded-full flex items-center justify-center text-slate-500 hover:text-red-500 disabled:opacity-30 transition-colors"
-                        >
-                            <Minus size={12} strokeWidth={3} />
-                        </button>
-                        <input
-                            type="number"
-                            value={qty || ''}
-                            placeholder="0"
-                            onChange={(e) => onSetQty(p.id, e.target.value)}
-                            className="w-10 h-7 text-center text-xs font-black bg-transparent border-none outline-none focus:ring-0 text-slate-800 dark:text-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                        <button
-                            type="button"
-                            onClick={() => onSetQty(p.id, qty + 1)}
-                            className="w-7 h-7 rounded-full flex items-center justify-center text-slate-500 hover:text-emerald-500 transition-colors"
-                        >
-                            <Plus size={12} strokeWidth={3} />
-                        </button>
-                    </div>
+                <button
+                    type="button"
+                    onClick={() => onSetQty(p.id, 0)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+                    title="Quitar"
+                >
+                    <X size={15} strokeWidth={2.5} />
+                </button>
+            </div>
 
-                    <button
-                        type="button"
-                        onClick={() => onSetQty(p.id, 0)}
-                        className="w-8 h-8 rounded-full bg-red-50 dark:bg-red-950/20 flex items-center justify-center text-red-500 hover:bg-red-100 transition-colors"
-                        title="Quitar de la lista"
-                    >
-                        <X size={14} strokeWidth={2.5} />
-                    </button>
+            {/* Barra de progreso de stock */}
+            <div className="space-y-1">
+                <div className="flex justify-between text-[9px] font-black text-slate-400 uppercase tracking-wider">
+                    <span>Stock previo ({stock})</span>
+                    <span className={direction === 'ingreso' ? 'text-emerald-500' : 'text-rose-500'}>
+                        Nuevo ({newStock})
+                    </span>
+                </div>
+                <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex">
+                    <div
+                        style={{ width: `${Math.min(oldWidth, newWidth)}%` }}
+                        className="h-full bg-slate-400 dark:bg-slate-600 transition-all duration-300"
+                    />
+                    {direction === 'ingreso' ? (
+                        <div
+                            style={{ width: `${Math.max(0, newWidth - oldWidth)}%` }}
+                            className="h-full bg-emerald-500 animate-pulse transition-all duration-300"
+                        />
+                    ) : (
+                        <div
+                            style={{ width: `${Math.max(0, oldWidth - newWidth)}%` }}
+                            className="h-full bg-rose-500 animate-pulse transition-all duration-300"
+                        />
+                    )}
                 </div>
             </div>
 
-            {/* Fila inferior: configurador inline de tamano + toggle Uds/Bultos */}
-            <div className="flex items-center gap-3 mt-2.5 flex-wrap">
-                {/* Input inline de tamano de caja/bulto — siempre visible */}
-                <div className="flex items-center gap-1.5">
-                    <Edit3 size={10} className="text-slate-650 dark:text-slate-350 shrink-0" />
-                    <span className="text-[10px] text-slate-700 dark:text-slate-200 font-extrabold">Uds/bulto:</span>
+            {/* Modos de Unidad: Cards prominentes con iconos vectoriales */}
+            {hasBulk && (
+                <div className="grid grid-cols-2 gap-2">
+                    <button
+                        type="button"
+                        onClick={() => onSetAdjUnit(p.id, 'lotes')}
+                        className={`p-2.5 rounded-xl border text-left transition-all flex items-center gap-2.5 ${
+                            adjUnit === 'lotes'
+                                ? 'bg-brand/10 dark:bg-brand/20 border-brand text-brand dark:text-brand-light shadow-sm font-black'
+                                : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-300'
+                        }`}
+                    >
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                            adjUnit === 'lotes' ? 'bg-brand text-white' : 'bg-slate-200/70 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+                        }`}>
+                            <Package size={16} strokeWidth={2.5} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <p className="text-[9px] font-black uppercase tracking-wider opacity-70">Por {unitTagCap}s</p>
+                            <p className="text-xs font-extrabold truncate">1 {unitTag} = {unitsPerPkg} uds</p>
+                        </div>
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={() => onSetAdjUnit(p.id, 'uds')}
+                        className={`p-2.5 rounded-xl border text-left transition-all flex items-center gap-2.5 ${
+                            adjUnit === 'uds'
+                                ? 'bg-slate-800 dark:bg-slate-200 border-slate-800 dark:border-slate-200 text-white dark:text-slate-900 shadow-sm font-black'
+                                : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-300'
+                        }`}
+                    >
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                            adjUnit === 'uds' ? 'bg-white text-slate-900 dark:bg-slate-900 dark:text-white' : 'bg-slate-200/70 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+                        }`}>
+                            <Beer size={16} strokeWidth={2.5} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <p className="text-[9px] font-black uppercase tracking-wider opacity-70">Unidades Sueltas</p>
+                            <p className="text-xs font-extrabold truncate">1 unidad individual</p>
+                        </div>
+                    </button>
+                </div>
+            )}
+
+            {/* Controles de cantidad + accesos rápidos */}
+            <div className="flex items-center justify-between gap-3 flex-wrap pt-1">
+                {/* Selector numérico principal */}
+                <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <button
+                        type="button"
+                        onClick={() => onSetQty(p.id, Math.max(1, qty - 1))}
+                        className="w-8 h-8 rounded-lg bg-white dark:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 shadow-sm active:scale-95 transition-all"
+                    >
+                        <Minus size={14} strokeWidth={3} />
+                    </button>
                     <input
                         type="number"
                         min="1"
-                        step="1"
+                        value={qty || ''}
+                        onChange={(e) => onSetQty(p.id, e.target.value)}
+                        className="w-12 text-center text-sm font-black bg-transparent border-none outline-none focus:ring-0 text-slate-800 dark:text-white"
+                    />
+                    <button
+                        type="button"
+                        onClick={() => onSetQty(p.id, qty + 1)}
+                        className="w-8 h-8 rounded-lg bg-white dark:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 shadow-sm active:scale-95 transition-all"
+                    >
+                        <Plus size={14} strokeWidth={3} />
+                    </button>
+                </div>
+
+                {/* Chips de incremento rápido (+1, +5, +10) */}
+                <div className="flex items-center gap-1">
+                    <span className="text-[9px] font-bold text-slate-400 uppercase mr-1 flex items-center gap-0.5">
+                        <Zap size={10} className="text-amber-500 fill-amber-500" />
+                        Rápido:
+                    </span>
+                    {[1, 5, 10].map(inc => (
+                        <button
+                            key={inc}
+                            type="button"
+                            onClick={() => onSetQty(p.id, qty + inc)}
+                            className="px-2 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-brand/10 hover:text-brand dark:hover:bg-brand/20 text-slate-600 dark:text-slate-300 rounded-lg text-xs font-black border border-slate-200 dark:border-slate-700 transition-all active:scale-95"
+                        >
+                            +{inc}
+                        </button>
+                    ))}
+                </div>
+
+                {/* Campo Uds/caja no intrusivo */}
+                <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold ml-auto">
+                    <Edit3 size={11} className="text-slate-400" />
+                    <span>Uds/{unitTag}:</span>
+                    <input
+                        type="number"
+                        min="1"
                         value={inputVal}
                         placeholder="—"
                         onChange={(e) => {
                             const val = parseInt(e.target.value) || 0;
                             onSetTempPkgSize(p.id, val);
-                            if (val > 1 && adjUnit !== 'lotes') {
-                                onSetAdjUnit(p.id, 'lotes');
-                            }
-                            if (val <= 1) {
-                                onSetAdjUnit(p.id, 'uds');
-                            }
                         }}
-                        className="w-12 h-6 text-center text-xs font-black bg-white dark:bg-slate-800 border border-slate-350 dark:border-slate-600 rounded-lg outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand/50 transition-all text-slate-850 dark:text-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        className="w-10 h-6 text-center text-xs font-black bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md outline-none focus:ring-1 focus:ring-brand text-slate-700 dark:text-slate-200"
                     />
                 </div>
-
-                {/* Toggle Uds / Bultos — solo si tiene tamano valido */}
-                {hasBulk && (
-                    <div className="flex items-center gap-1">
-                        <button
-                            type="button"
-                            onClick={() => onSetAdjUnit(p.id, 'uds')}
-                            className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all border ${
-                                adjUnit === 'uds'
-                                    ? 'bg-slate-750 dark:bg-slate-200 text-white dark:text-slate-900 border-slate-750 dark:border-slate-200 shadow-sm'
-                                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:border-slate-500 hover:text-slate-800 dark:hover:text-white'
-                            }`}
-                        >
-                            Uds
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => onSetAdjUnit(p.id, 'lotes')}
-                            className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all border ${
-                                adjUnit === 'lotes'
-                                    ? 'bg-brand text-white border-brand shadow-sm shadow-brand/20'
-                                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:border-brand hover:text-brand dark:hover:text-brand-light'
-                            }`}
-                        >
-                            Bultos ({unitsPerPkg} uds)
-                        </button>
-                    </div>
-                )}
             </div>
         </div>
     );
@@ -228,10 +353,10 @@ export default function StockBatchModal({
     [allProducts, adjustments]);
 
     const getEffectiveUpp = useCallback((p) => {
+        if (!p) return 1;
         const temp = tempPackageSizes[p.id] || 0;
         if (temp > 1) return temp;
-        const stored = p.unitsPerPackage ?? 1;
-        return stored > 1 ? stored : 1;
+        return getStoredPkgSize(p);
     }, [tempPackageSizes]);
 
     const activeAdjustments = useMemo(() =>
@@ -277,8 +402,8 @@ export default function StockBatchModal({
         triggerHaptic && triggerHaptic();
         const p = allProducts.find(x => x.id === productId);
         const temp = tempPackageSizes[productId] || 0;
-        const stored = p?.unitsPerPackage ?? 1;
-        const unitsPerPkg = temp > 1 ? temp : stored > 1 ? stored : 1;
+        const stored = getStoredPkgSize(p);
+        const unitsPerPkg = temp > 1 ? temp : stored;
         if (unitsPerPkg > 1) {
             setAdjustmentUnits(prev => ({ ...prev, [productId]: 'lotes' }));
         }
@@ -313,14 +438,21 @@ export default function StockBatchModal({
                 setProducts(prev =>
                     prev.map(p => {
                         const newSize = tempPackageSizes[p.id];
-                        if (newSize && newSize > 1) return { ...p, unitsPerPackage: newSize };
+                        if (newSize && newSize > 1) {
+                            return {
+                                ...p,
+                                unitsPerPackage: newSize,
+                                ...(p.sellByBox ? { boxUnits: newSize } : {})
+                            };
+                        }
                         return p;
                     })
                 );
             }
 
+            const actionLabel = direction === 'ingreso' ? 'Ingreso' : 'Egreso';
             showToast(
-                `${direction === 'ingreso' ? 'Ingreso' : 'Egreso'} masivo completado con exito`,
+                `✓ ${actionLabel} completado: ${direction === 'ingreso' ? '+' : '-'}${totalItems} uds en ${activeAdjustments.length} prod`,
                 'success'
             );
 
@@ -479,6 +611,22 @@ export default function StockBatchModal({
                                 </button>
                             </div>
 
+                            {/* Campo de motivo para Egreso - Prominente desde el inicio */}
+                            {direction === 'egreso' && (
+                                <div className="p-3 bg-red-50/70 dark:bg-red-950/20 border border-red-200 dark:border-red-800/40 rounded-2xl space-y-1.5 animate-in fade-in duration-200">
+                                    <label className="text-[11px] font-black text-red-600 dark:text-red-400 flex items-center gap-1.5 uppercase tracking-wider">
+                                        <AlertTriangle size={13} /> Motivo del Egreso (Obligatorio)
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={note}
+                                        onChange={(e) => setNote(e.target.value)}
+                                        placeholder="Ej: Merma, rotura, producto vencido, autoconsumo..."
+                                        className="w-full bg-white dark:bg-slate-900 border border-red-200 dark:border-red-800/60 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-red-500/40 transition-all"
+                                    />
+                                </div>
+                            )}
+
                             {/* Search Bar */}
                             <div className="relative shrink-0">
                                 <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-450" />
@@ -548,7 +696,7 @@ export default function StockBatchModal({
                                             : 'border-transparent text-slate-400 dark:text-slate-500 hover:text-slate-650'
                                     }`}
                                 >
-                                    Catalogo ({unselectedProducts.length})
+                                    Catálogo ({unselectedProducts.length})
                                 </button>
                                 <button
                                     type="button"
@@ -572,75 +720,99 @@ export default function StockBatchModal({
                                 </button>
                             </div>
 
-                            {/* Product List */}
-                            <div ref={listRef} className="max-h-[38vh] min-h-[22vh] overflow-y-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex flex-col scrollbar-hide">
-                                <div className="divide-y divide-slate-100 dark:divide-slate-850">
-                                    {activeTab === 'catalog' ? (
-                                        unselectedProducts.length === 0 ? (
-                                            <div className="py-12 text-center text-xs text-slate-400 font-medium">
-                                                <Package size={22} className="mx-auto mb-2 opacity-40" />
-                                                Sin productos disponibles
-                                            </div>
-                                        ) : unselectedProducts.map(p => (
-                                            <CatalogRow
-                                                key={p.id} p={p} maxStock={maxStock}
-                                                onTapAdd={tapAdd}
-                                            />
-                                        ))
+                            {/* Product List Container */}
+                            <div ref={listRef} className="max-h-[38vh] min-h-[22vh] overflow-y-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2 scrollbar-hide">
+                                {activeTab === 'catalog' ? (
+                                    unselectedProducts.length === 0 ? (
+                                        <div className="py-12 text-center text-xs text-slate-400 font-medium col-span-full">
+                                            <Package size={22} className="mx-auto mb-2 opacity-40" />
+                                            Sin productos disponibles
+                                        </div>
                                     ) : (
-                                        selectedProducts.length === 0 ? (
-                                            <div className="py-12 text-center text-xs text-slate-400 font-medium">
-                                                <Boxes size={22} className="mx-auto mb-2 opacity-40 text-slate-300 dark:text-slate-700" />
-                                                No has seleccionado productos
-                                            </div>
-                                        ) : selectedProducts.map(p => {
-                                            const effUpp = getEffectiveUpp(p);
-                                            const defaultUnit = effUpp > 1 ? 'lotes' : 'uds';
-                                            const adjUnit = adjustmentUnits[p.id] || defaultUnit;
-                                            const tempPkgSize = tempPackageSizes[p.id] || 0;
-                                            return (
-                                                <AdjustRow
-                                                    key={p.id}
-                                                    p={p}
-                                                    qty={adjustments[p.id] || 0}
-                                                    direction={direction}
-                                                    adjUnit={adjUnit}
-                                                    tempPkgSize={tempPkgSize}
-                                                    onSetQty={setQty}
-                                                    onSetAdjUnit={setAdjUnit}
-                                                    onSetTempPkgSize={setTempPkgSize}
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                            {unselectedProducts.map(p => (
+                                                <CatalogRow
+                                                    key={p.id} p={p} maxStock={maxStock}
+                                                    onTapAdd={tapAdd}
                                                 />
-                                            );
-                                        })
-                                    )}
-                                </div>
+                                            ))}
+                                        </div>
+                                    )
+                                ) : (
+                                    selectedProducts.length === 0 ? (
+                                        <div className="py-12 text-center text-xs text-slate-400 font-medium">
+                                            <Boxes size={22} className="mx-auto mb-2 opacity-40 text-slate-300 dark:text-slate-700" />
+                                            No has seleccionado productos
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            {selectedProducts.map(p => {
+                                                const effUpp = getEffectiveUpp(p);
+                                                const defaultUnit = effUpp > 1 ? 'lotes' : 'uds';
+                                                const adjUnit = adjustmentUnits[p.id] || defaultUnit;
+                                                const tempPkgSize = tempPackageSizes[p.id] || 0;
+                                                return (
+                                                    <AdjustRow
+                                                        key={p.id}
+                                                        p={p}
+                                                        qty={adjustments[p.id] || 0}
+                                                        direction={direction}
+                                                        adjUnit={adjUnit}
+                                                        tempPkgSize={tempPkgSize}
+                                                        onSetQty={setQty}
+                                                        onSetAdjUnit={setAdjUnit}
+                                                        onSetTempPkgSize={setTempPkgSize}
+                                                    />
+                                                );
+                                            })}
+                                        </div>
+                                    )
+                                )}
                             </div>
 
-                            {/* Nota — solo en pestana de ajuste con productos */}
-                            {activeTab === 'adjusting' && selectedProducts.length > 0 && (
+                            {/* Nota opcional para ingreso */}
+                            {direction === 'ingreso' && activeTab === 'adjusting' && selectedProducts.length > 0 && (
                                 <div className="relative shrink-0 animate-in fade-in slide-in-from-bottom-2 duration-150">
                                     <input
                                         type="text"
                                         value={note}
                                         onChange={(e) => setNote(e.target.value)}
-                                        placeholder={direction === 'egreso' ? 'Motivo del egreso (obligatorio)' : 'Nota / motivo (opcional)'}
-                                        className={`w-full bg-slate-50 dark:bg-slate-950 border rounded-2xl py-2.5 px-4 text-xs text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/50 transition-all ${
-                                            direction === 'egreso' && !note.trim() && activeAdjustments.length > 0
-                                                ? 'border-red-300 dark:border-red-800 focus:ring-red-500/30'
-                                                : 'border-slate-200 dark:border-slate-800'
-                                        }`}
+                                        placeholder="Nota / motivo del ingreso (opcional)"
+                                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl py-2.5 px-4 text-xs text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-brand/50 transition-all"
                                     />
-                                    {direction === 'egreso' && !note.trim() && activeAdjustments.length > 0 && (
-                                        <p className="text-[10px] text-red-400 font-bold mt-1.5 ml-1 flex items-center gap-1">
-                                            <AlertTriangle size={10} /> Escribe un motivo para aplicar el egreso
-                                        </p>
-                                    )}
                                 </div>
                             )}
                         </div>
 
                         {/* Footer */}
-                        <div className="p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 rounded-b-3xl shrink-0">
+                        <div className="p-4 sm:p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-850/80 rounded-b-3xl shrink-0 space-y-3">
+                            {/* Mini-resumen flotante si hay productos en ajuste */}
+                            {activeAdjustments.length > 0 && (
+                                <div className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/70 rounded-xl flex items-center justify-between gap-3 text-xs shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-150">
+                                    <div className="flex items-center gap-2.5 truncate">
+                                        <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${direction === 'ingreso' ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200/40' : 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200/40'}`}>
+                                            <Layers size={14} strokeWidth={2.5} />
+                                        </div>
+                                        <span className="font-black text-slate-800 dark:text-slate-200">
+                                            {selectedProducts.length} {selectedProducts.length === 1 ? 'producto' : 'productos'}
+                                        </span>
+                                        <span className="text-slate-400">·</span>
+                                        <span className={`font-black ${direction === 'ingreso' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                                            {direction === 'ingreso' ? '+' : '-'}{totalItems} uds totales
+                                        </span>
+                                    </div>
+                                    {activeTab === 'catalog' && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setActiveTab('adjusting')}
+                                            className="text-[10px] font-black text-brand hover:underline shrink-0"
+                                        >
+                                            Ver detalle →
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+
                             <button
                                 type="button"
                                 onClick={activeTab === 'catalog' && selectedProducts.length > 0 ? () => setActiveTab('adjusting') : handleApply}

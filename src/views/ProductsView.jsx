@@ -1143,6 +1143,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 products={products}
                 categories={categories}
                 effectiveRate={effectiveRate}
+                bcvRate={rates?.bcv || effectiveRate}
                 copEnabled={copEnabled}
                 tasaCop={tasaCop}
                 onSave={handleComboSave}

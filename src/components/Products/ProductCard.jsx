@@ -359,38 +359,51 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                 </div>
 
                 {/* Formatos Disponibles (Caja / ½ Caja) */}
-                {(p.sellByBox || p.sellByHalfBox) && (
-                    <div className="space-y-1.5 mb-3 border-t border-slate-100/50 dark:border-slate-800/40 pt-2">
-                        {p.sellByBox && (
-                            <div className="flex items-center justify-between text-[10px] font-bold text-[#193275] dark:text-brand bg-[#193275]/5 dark:bg-brand/5 px-2 py-1 rounded-lg">
-                                <span className="flex items-center gap-1"><Package size={10} /> Caja ({p.boxUnits} Uds)</span>
-                                <span className="font-black">
-                                    ${(p.boxPriceUsd ? Number(p.boxPriceUsd) : 0).toFixed(2)} | {
-                                        p.boxPriceBsUsdRef && !p.forceBcv
-                                            ? `${((p.boxPriceBsUsdRef || 0) * activeRate).toFixed(0)} Bs`
-                                            : p.boxPriceBs && !p.forceBcv
-                                                ? `${Number(p.boxPriceBs).toFixed(0)} Bs`
-                                                : `${((p.boxPriceUsd || 0) * activeRate).toFixed(0)} Bs`
-                                    }
-                                </span>
-                            </div>
-                        )}
-                        {p.sellByHalfBox && (
-                            <div className="flex items-center justify-between text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/20 px-2 py-1 rounded-lg">
-                                <span className="flex items-center gap-1"><Package size={10} /> ½ Caja ({p.halfBoxUnits} Uds)</span>
-                                <span className="font-black">
-                                    ${(p.halfBoxPriceUsd ? Number(p.halfBoxPriceUsd) : 0).toFixed(2)} | {
-                                        p.halfBoxPriceBsUsdRef && !p.forceBcv
-                                            ? `${((p.halfBoxPriceBsUsdRef || 0) * activeRate).toFixed(0)} Bs`
-                                            : p.halfBoxPriceBs && !p.forceBcv
-                                                ? `${Number(p.halfBoxPriceBs).toFixed(0)} Bs`
-                                                : `${((p.halfBoxPriceUsd || 0) * activeRate).toFixed(0)} Bs`
-                                    }
-                                </span>
-                            </div>
-                        )}
-                    </div>
-                )}
+                {(p.sellByBox || p.sellByHalfBox) && (() => {
+                    const rawBox = parseInt(p.boxUnits, 10);
+                    const rawHalf = parseInt(p.halfBoxUnits, 10);
+                    const displayBoxUnits = (!isNaN(rawBox) && rawBox > 1)
+                        ? rawBox
+                        : (!isNaN(rawHalf) && rawHalf > 1)
+                            ? rawHalf * 2
+                            : 36;
+                    const displayHalfBoxUnits = (!isNaN(rawHalf) && rawHalf > 1)
+                        ? rawHalf
+                        : Math.max(1, Math.floor(displayBoxUnits / 2));
+
+                    return (
+                        <div className="space-y-1.5 mb-3 border-t border-slate-100/50 dark:border-slate-800/40 pt-2">
+                            {p.sellByBox && (
+                                <div className="flex items-center justify-between text-[10px] font-bold text-[#193275] dark:text-brand bg-[#193275]/5 dark:bg-brand/5 px-2 py-1 rounded-lg">
+                                    <span className="flex items-center gap-1"><Package size={10} /> Caja ({displayBoxUnits} Uds)</span>
+                                    <span className="font-black">
+                                        ${(p.boxPriceUsd ? Number(p.boxPriceUsd) : 0).toFixed(2)} | {
+                                            p.boxPriceBsUsdRef && !p.forceBcv
+                                                ? `${((p.boxPriceBsUsdRef || 0) * activeRate).toFixed(0)} Bs`
+                                                : p.boxPriceBs && !p.forceBcv
+                                                    ? `${Number(p.boxPriceBs).toFixed(0)} Bs`
+                                                    : `${((p.boxPriceUsd || 0) * activeRate).toFixed(0)} Bs`
+                                        }
+                                    </span>
+                                </div>
+                            )}
+                            {p.sellByHalfBox && (
+                                <div className="flex items-center justify-between text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/20 px-2 py-1 rounded-lg">
+                                    <span className="flex items-center gap-1"><Package size={10} /> ½ Caja ({displayHalfBoxUnits} Uds)</span>
+                                    <span className="font-black">
+                                        ${(p.halfBoxPriceUsd ? Number(p.halfBoxPriceUsd) : 0).toFixed(2)} | {
+                                            p.halfBoxPriceBsUsdRef && !p.forceBcv
+                                                ? `${((p.halfBoxPriceBsUsdRef || 0) * activeRate).toFixed(0)} Bs`
+                                                : p.halfBoxPriceBs && !p.forceBcv
+                                                    ? `${Number(p.halfBoxPriceBs).toFixed(0)} Bs`
+                                                    : `${((p.halfBoxPriceUsd || 0) * activeRate).toFixed(0)} Bs`
+                                        }
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+                    );
+                })()}
 
                 {/* Margen */}
                 {!readOnly && margin !== null && (
@@ -425,27 +438,37 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                                     </div>
                                 );
                             })()
-                        ) : (
-                            <div className="flex flex-col items-center justify-center px-2 text-center min-w-[50px]">
-                                <span className={`text-base font-black leading-none mb-0.5 ${isLowStock ? 'text-amber-500' : 'text-slate-700 dark:text-slate-200'}`}>
-                                    {p.stock ?? 0}
-                                </span>
-                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none">{(p.unit === 'kg' || p.unit === 'litro') ? unitInfo?.short : 'UND'}</span>
-                                {p.unit === 'paquete' && p.unitsPerPackage > 0 && Math.floor((p.stock ?? 0) / p.unitsPerPackage) > 0 && (
-                                    <span className="text-[8px] text-slate-400 leading-none">= {Math.floor((p.stock ?? 0) / p.unitsPerPackage)} bultos</span>
-                                )}
-                                {p.sellByBox && p.boxUnits > 0 && (p.stock ?? 0) > 0 && (
-                                    <span className="text-[8px] text-slate-400 dark:text-slate-500 leading-none mt-0.5 font-bold">
-                                        ≈ {((p.stock ?? 0) / p.boxUnits).toFixed(1)} cajas
+                        ) : (() => {
+                            const rawBox = parseInt(p.boxUnits, 10);
+                            const rawHalf = parseInt(p.halfBoxUnits, 10);
+                            const displayBoxUnits = (!isNaN(rawBox) && rawBox > 1)
+                                ? rawBox
+                                : (!isNaN(rawHalf) && rawHalf > 1)
+                                    ? rawHalf * 2
+                                    : 36;
+
+                            return (
+                                <div className="flex flex-col items-center justify-center px-2 text-center min-w-[50px]">
+                                    <span className={`text-base font-black leading-none mb-0.5 ${isLowStock ? 'text-amber-500' : 'text-slate-700 dark:text-slate-200'}`}>
+                                        {p.stock ?? 0}
                                     </span>
-                                )}
-                                {!p.sellByBox && p.sellByHalfBox && p.halfBoxUnits > 0 && (p.stock ?? 0) > 0 && (
-                                    <span className="text-[8px] text-slate-400 dark:text-slate-500 leading-none mt-0.5 font-bold">
-                                        ≈ {((p.stock ?? 0) / (p.halfBoxUnits * 2)).toFixed(1)} cajas
-                                    </span>
-                                )}
-                            </div>
-                        )}
+                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none">{(p.unit === 'kg' || p.unit === 'litro') ? unitInfo?.short : 'UND'}</span>
+                                    {p.unit === 'paquete' && p.unitsPerPackage > 0 && Math.floor((p.stock ?? 0) / p.unitsPerPackage) > 0 && (
+                                        <span className="text-[8px] text-slate-400 leading-none">= {Math.floor((p.stock ?? 0) / p.unitsPerPackage)} bultos</span>
+                                    )}
+                                    {p.sellByBox && (p.stock ?? 0) > 0 && (
+                                        <span className="text-[8px] text-slate-400 dark:text-slate-500 leading-none mt-0.5 font-bold">
+                                            ≈ {((p.stock ?? 0) / displayBoxUnits).toFixed(1)} cajas
+                                        </span>
+                                    )}
+                                    {!p.sellByBox && p.sellByHalfBox && (p.stock ?? 0) > 0 && (
+                                        <span className="text-[8px] text-slate-400 dark:text-slate-500 leading-none mt-0.5 font-bold">
+                                            ≈ {((p.stock ?? 0) / displayBoxUnits).toFixed(1)} cajas
+                                        </span>
+                                    )}
+                                </div>
+                            );
+                        })()}
                         {!readOnly && !p.isCombo && (
                         <button onClick={() => onAdjustStock(p.id, 1)} className="w-10 h-10 rounded-lg bg-white dark:bg-slate-700 flex items-center justify-center text-slate-500 hover:text-emerald-500 shadow-sm active:scale-95 transition-all">
                             <Plus size={18} strokeWidth={2.5} />

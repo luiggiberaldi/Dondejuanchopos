@@ -110,6 +110,7 @@ export async function processSaleTransaction({
             boxUnits: i.boxUnits || null,
             halfBoxUnits: i.halfBoxUnits || null,
             priceBsManual: i.priceBsManual || null,
+            priceBsUsdRef: i.priceBsUsdRef || null,
             forceBcv: i.forceBcv || null,
             isModular: i.isModular || false,
             modularSelections: i.modularSelections || []

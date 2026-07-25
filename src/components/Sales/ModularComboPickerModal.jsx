@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Gift, CheckCircle, Package, Plus, Minus, Zap } from 'lucide-react';
+import { Gift, CheckCircle, Package, Plus, Minus, Zap, RotateCcw } from 'lucide-react';
 import { Modal } from '../Modal';
 
 export default function ModularComboPickerModal({
@@ -65,6 +65,25 @@ export default function ModularComboPickerModal({
                 ...prev,
                 [groupId]: groupSel
             };
+        });
+    };
+
+    const handleClearProduct = (groupId, productId) => {
+        setSelections(prev => {
+            const groupSel = { ...(prev[groupId] || {}) };
+            delete groupSel[productId];
+            return {
+                ...prev,
+                [groupId]: groupSel
+            };
+        });
+    };
+
+    const handleClearGroup = (groupId) => {
+        setSelections(prev => {
+            const next = { ...prev };
+            delete next[groupId];
+            return next;
         });
     };
 
@@ -228,13 +247,26 @@ export default function ModularComboPickerModal({
                                         <span className="font-black text-sm text-slate-800 dark:text-white capitalize">
                                             🔀 {group.title}
                                         </span>
-                                        <span className={`text-xs font-black px-2 py-0.5 rounded-full ${
-                                            isFulfilled
-                                                ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400'
-                                                : 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400'
-                                        }`}>
-                                            {currentTotal} / {reqQty} elegidas
-                                        </span>
+                                        <div className="flex items-center gap-1.5">
+                                            {currentTotal > 0 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleClearGroup(group.id)}
+                                                    className="text-[10px] font-black text-rose-500 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 px-2 py-0.5 rounded-full transition-all cursor-pointer flex items-center gap-1"
+                                                    title="Vaciar todas las selecciones de este grupo"
+                                                >
+                                                    <RotateCcw size={10} />
+                                                    <span>Vaciar todo</span>
+                                                </button>
+                                            )}
+                                            <span className={`text-xs font-black px-2 py-0.5 rounded-full ${
+                                                isFulfilled
+                                                    ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400'
+                                                    : 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400'
+                                            }`}>
+                                                {currentTotal} / {reqQty} elegidas
+                                            </span>
+                                        </div>
                                     </div>
                                     <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                                         <div
@@ -277,6 +309,19 @@ export default function ModularComboPickerModal({
                                                 </div>
 
                                                 <div className="flex items-center gap-1.5 shrink-0">
+                                                    {/* Botón rápido Quitar (si hay unidades seleccionadas de este producto) */}
+                                                    {qtySelected > 0 && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleClearProduct(group.id, pid)}
+                                                            title={`Quitar las ${qtySelected} unidades de este producto`}
+                                                            className="px-2 py-1.5 rounded-xl text-[10px] font-black bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-300 hover:bg-rose-600 hover:text-white dark:hover:bg-rose-600 border border-rose-200 dark:border-rose-800/80 transition-all active:scale-95 flex items-center gap-1 shadow-xs cursor-pointer"
+                                                        >
+                                                            <RotateCcw size={10} />
+                                                            <span>Quitar ({qtySelected})</span>
+                                                        </button>
+                                                    )}
+
                                                     {/* Botón rápido Llenar Todo/Restante */}
                                                     {stock > 0 && currentTotal < reqQty && (
                                                         <button
