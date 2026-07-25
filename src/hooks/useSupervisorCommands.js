@@ -108,7 +108,8 @@ export function useSupervisorCommands(deviceId) {
                         window.dispatchEvent(new CustomEvent('supervisor_inventory_applied', {
                             detail: {
                                 action: command.payload?.action,
-                                productName: result.productName || ''
+                                productName: result.productName || '',
+                                updatedProducts: result.updatedProducts || null
                             }
                         }));
 

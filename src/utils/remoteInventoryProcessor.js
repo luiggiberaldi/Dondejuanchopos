@@ -114,9 +114,10 @@ export async function applyInventoryCommand(payload) {
             const conflict = findBarcodeConflict(normalized, products);
             if (conflict) return { success: false, error: conflict };
             normalized.createdAt = new Date().toISOString();
-            await storageService.setItem(PRODUCTS_KEY, [...products, normalized]);
+            const updated = [...products, normalized];
+            await storageService.setItem(PRODUCTS_KEY, updated);
             logEvent('INVENTARIO', 'REMOTO_ADD', `Supervisor agregó "${normalized.name}"`);
-            return { success: true, productName: normalized.name };
+            return { success: true, productName: normalized.name, updatedProducts: updated };
         }
 
         const existing = products.find(p => p.id === productId);
@@ -138,13 +139,14 @@ export async function applyInventoryCommand(payload) {
             const updated = products.map(p => p.id === productId ? { ...existing, ...normalized } : p);
             await storageService.setItem(PRODUCTS_KEY, updated);
             logEvent('INVENTARIO', 'REMOTO_EDIT', `Supervisor editó "${normalized.name}"`);
-            return { success: true, productName: normalized.name };
+            return { success: true, productName: normalized.name, updatedProducts: updated };
         }
 
         if (action === 'delete') {
-            await storageService.setItem(PRODUCTS_KEY, products.filter(p => p.id !== productId));
+            const updated = products.filter(p => p.id !== productId);
+            await storageService.setItem(PRODUCTS_KEY, updated);
             logEvent('INVENTARIO', 'REMOTO_DELETE', `Supervisor eliminó "${existing.name}"`);
-            return { success: true, productName: existing.name };
+            return { success: true, productName: existing.name, updatedProducts: updated };
         }
 
         // adjust_stock — misma regla de negativos que adjustStock del ProductContext
@@ -156,7 +158,7 @@ export async function applyInventoryCommand(payload) {
         const updated = products.map(p => p.id === productId ? { ...p, stock: next } : p);
         await storageService.setItem(PRODUCTS_KEY, updated);
         logEvent('INVENTARIO', 'REMOTO_STOCK', `Supervisor ajustó stock de "${existing.name}": ${delta > 0 ? '+' : ''}${delta} (→ ${next})`);
-        return { success: true, productName: existing.name };
+        return { success: true, productName: existing.name, updatedProducts: updated };
     });
 
     return lockResult ?? { success: false, error: 'Fallo inesperado al aplicar el comando' };

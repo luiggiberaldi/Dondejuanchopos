@@ -317,6 +317,61 @@ export default function SalesView({ triggerHaptic, isActive }) {
 
     const formatBs = (n) => new Intl.NumberFormat('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
+    // Re-evaluar ítems en la cesta si los datos del producto (precio, modo) cambian en el catálogo
+    useEffect(() => {
+        if (!products || products.length === 0 || cart.length === 0) return;
+        let hasChanges = false;
+        const updatedCart = cart.map(item => {
+            const fresh = products.find(p => p.id === (item._originalId || item.id));
+            if (!fresh) return item;
+
+            const mode = item._mode || 'unit';
+            let priceToUse = fresh.priceUsd;
+            let priceBsToUse = fresh.priceBsManual;
+            let priceBsUsdRefToUse = fresh.priceBsUsdRef;
+            let baseName = fresh.name;
+
+            if (mode === 'box') {
+                priceToUse = fresh.boxPriceUsd != null ? fresh.boxPriceUsd : fresh.priceUsd;
+                priceBsToUse = fresh.boxPriceBs != null ? fresh.boxPriceBs : fresh.priceBsManual;
+                priceBsUsdRefToUse = fresh.boxPriceBsUsdRef != null ? fresh.boxPriceBsUsdRef : fresh.priceBsUsdRef;
+                baseName = fresh.name + ' (Caja)';
+            } else if (mode === 'halfBox') {
+                priceToUse = fresh.halfBoxPriceUsd != null ? fresh.halfBoxPriceUsd : fresh.priceUsd;
+                priceBsToUse = fresh.halfBoxPriceBs != null ? fresh.halfBoxPriceBs : fresh.priceBsManual;
+                priceBsUsdRefToUse = fresh.halfBoxPriceBsUsdRef != null ? fresh.halfBoxPriceBsUsdRef : fresh.priceBsUsdRef;
+                baseName = fresh.name + ' (½ Caja)';
+            }
+
+            if (
+                item.priceUsd !== priceToUse ||
+                item.priceBsManual !== priceBsToUse ||
+                item.priceBsUsdRef !== priceBsUsdRefToUse ||
+                item.pricingMode !== fresh.pricingMode ||
+                item.forceBcv !== fresh.forceBcv ||
+                item.name !== baseName
+            ) {
+                hasChanges = true;
+                return {
+                    ...item,
+                    name: baseName,
+                    priceUsd: priceToUse,
+                    priceBsManual: priceBsToUse,
+                    priceBsUsdRef: priceBsUsdRefToUse,
+                    pricingMode: fresh.pricingMode,
+                    forceBcv: fresh.forceBcv,
+                    costUsd: fresh.costUsd || item.costUsd,
+                    costBs: fresh.costBs || item.costBs,
+                };
+            }
+            return item;
+        });
+
+        if (hasChanges) {
+            setCart(updatedCart);
+        }
+    }, [products]);
+
     // Persist cart (With Debounce to avoid blocking UI on rapid scans)
     const isCartInitialized = useRef(false);
     useEffect(() => {

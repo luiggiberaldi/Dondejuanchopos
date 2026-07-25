@@ -96,6 +96,7 @@ export function ProductProvider({ children, rates }) {
 
     // Guard ref: prevents infinite loop when auto-save fires app_storage_update
     const savingRef = useRef(false);
+    const pendingStorageRefreshRef = useRef(false);
     const hasMountedRef = useRef(false);
     const rawProductsRef = useRef(rawProducts);
     useEffect(() => {
@@ -254,7 +255,17 @@ export function ProductProvider({ children, rates }) {
             savePromises.push(storageService.setItem('my_categories_v1', categories));
             Promise.all(savePromises).finally(() => {
                 // Reset guard after microtask queue flushes
-                setTimeout(() => { savingRef.current = false; }, 50);
+                setTimeout(() => {
+                    savingRef.current = false;
+                    if (pendingStorageRefreshRef.current) {
+                        pendingStorageRefreshRef.current = false;
+                        storageService.getItem('bodega_products_v1', []).then(fresh => {
+                            if (fresh && Array.isArray(fresh)) {
+                                setProducts(sanitizeProducts(fresh));
+                            }
+                        });
+                    }
+                }, 50);
             });
         }, 1000); // 1 segundo de debounce
 
@@ -330,8 +341,13 @@ export function ProductProvider({ children, rates }) {
 
         const handleAppStorageUpdate = async (e) => {
             const isMonitor = localStorage.getItem('dj_pairing_mode') === 'monitor';
-            if (savingRef.current && !isMonitor) return;
             const key = e.detail?.key;
+            if (savingRef.current && !isMonitor) {
+                if (key === 'bodega_products_v1' || key === 'my_categories_v1') {
+                    pendingStorageRefreshRef.current = true;
+                }
+                return;
+            }
             if (!key) return;
 
             if (key === 'bodega_products_v1') {
@@ -376,11 +392,25 @@ export function ProductProvider({ children, rates }) {
             }
         };
 
+        const handleSupervisorInventoryApplied = async (e) => {
+            const updated = e.detail?.updatedProducts;
+            if (Array.isArray(updated) && updated.length > 0) {
+                setProducts(sanitizeProducts(updated));
+            } else {
+                const fresh = await storageService.getItem('bodega_products_v1', []);
+                if (fresh && Array.isArray(fresh)) {
+                    setProducts(sanitizeProducts(fresh));
+                }
+            }
+        };
+
         window.addEventListener('storage', handleStorageChange);
         window.addEventListener('app_storage_update', handleAppStorageUpdate);
+        window.addEventListener('supervisor_inventory_applied', handleSupervisorInventoryApplied);
         return () => {
             window.removeEventListener('storage', handleStorageChange);
             window.removeEventListener('app_storage_update', handleAppStorageUpdate);
+            window.removeEventListener('supervisor_inventory_applied', handleSupervisorInventoryApplied);
         };
     }, []);
 
