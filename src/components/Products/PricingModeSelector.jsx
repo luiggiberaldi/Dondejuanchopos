@@ -41,7 +41,7 @@ const MODES = [
 
 export default function PricingModeSelector({ value, onChange, effectiveRate, bcvRate, compact = false }) {
     return (
-        <div className={`grid grid-cols-2 ${compact ? 'gap-1.5' : 'gap-2'}`}>
+        <div className={`grid grid-cols-1 sm:grid-cols-2 ${compact ? 'gap-2' : 'gap-2.5'}`}>
             {MODES.map(m => {
                 const Icon = m.icon;
                 const active = value === m.id;
@@ -50,18 +50,18 @@ export default function PricingModeSelector({ value, onChange, effectiveRate, bc
                         key={m.id}
                         type="button"
                         onClick={() => onChange(m.id)}
-                        className={`text-left rounded-xl border transition-all cursor-pointer ${compact ? 'p-2' : 'p-2.5'} ${
+                        className={`text-left rounded-2xl border-2 transition-all cursor-pointer ${compact ? 'p-2.5' : 'p-3'} ${
                             active
                                 ? m.activeCls
-                                : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-500 hover:border-slate-300 dark:hover:border-slate-600'
+                                : 'border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-850/60 text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600'
                         }`}
                     >
-                        <span className={`flex items-center gap-1.5 font-black uppercase tracking-wider ${compact ? 'text-[9px]' : 'text-[10px]'}`}>
-                            <Icon size={compact ? 12 : 14} className={active ? m.iconCls : 'text-slate-400'} />
+                        <span className={`flex items-center gap-2 font-black uppercase tracking-wider ${compact ? 'text-[10px]' : 'text-xs'}`}>
+                            <Icon size={compact ? 14 : 16} className={active ? m.iconCls : 'text-slate-500 dark:text-slate-400'} />
                             {m.title}
                         </span>
                         {!compact && (
-                            <span className="block text-[8.5px] font-medium mt-1 leading-snug opacity-80">
+                            <span className="block text-[10px] font-bold mt-1.5 leading-tight text-slate-600 dark:text-slate-300">
                                 {m.desc(effectiveRate, bcvRate || effectiveRate)}
                             </span>
                         )}

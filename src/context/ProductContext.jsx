@@ -38,16 +38,24 @@ const normalizeCategories = (cats) => {
 
 const sanitizeProducts = (productsList) => {
     if (!Array.isArray(productsList)) return [];
-    return productsList.map(p => {
-        if (!p || typeof p.image !== 'string') return p;
-        // Si la URL es de Supabase pero no contiene /public/, se lo insertamos
-        if (p.image.includes('.supabase.co/storage/v1/object/') && !p.image.includes('/storage/v1/object/public/')) {
-            return {
-                ...p,
-                image: p.image.replace('/storage/v1/object/', '/storage/v1/object/public/')
-            };
+    const seenIds = new Set();
+    return productsList.map((p, idx) => {
+        if (!p) return p;
+        let item = { ...p };
+
+        // Garantizar ID único para evitar advertencias de React por claves duplicadas
+        let pId = item.id;
+        if (!pId || seenIds.has(pId)) {
+            pId = item.id ? `${item.id}_dup_${idx}_${Math.random().toString(36).substring(2, 6)}` : `prod_${Date.now()}_${idx}`;
+            item.id = pId;
         }
-        return p;
+        seenIds.add(pId);
+
+        // Si la URL es de Supabase pero no contiene /public/, se lo insertamos
+        if (typeof item.image === 'string' && item.image.includes('.supabase.co/storage/v1/object/') && !item.image.includes('/storage/v1/object/public/')) {
+            item.image = item.image.replace('/storage/v1/object/', '/storage/v1/object/public/');
+        }
+        return item;
     });
 };
 
@@ -329,9 +337,7 @@ export function ProductProvider({ children, rates }) {
             if (key === 'bodega_products_v1') {
                 const updatedProducts = await storageService.getItem('bodega_products_v1', []);
                 const sanitized = sanitizeProducts(updatedProducts);
-                if (JSON.stringify(sanitized) !== JSON.stringify(rawProductsRef.current)) {
-                    setProducts(sanitized);
-                }
+                setProducts(sanitized);
             }
             if (key === 'my_categories_v1') {
                 const updatedCategories = await storageService.getItem('my_categories_v1', BODEGA_CATEGORIES);

@@ -38,7 +38,7 @@ const PENDING_KEY = 'dj_pending_inventory_changes_v1';
 
 export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) {
     const pairedDeviceId = localStorage.getItem('dj_paired_device_id');
-    const { products, effectiveRate: bcvRate, copEnabled, tasaCop, rates } = useProductContext();
+    const { products, setProducts, effectiveRate: bcvRate, copEnabled, tasaCop, rates, categories } = useProductContext();
     const { isConnected, lastSync, loading: syncLoading, triggerRefresh } = useMonitorSync(pairedDeviceId);
 
     const [sales, setSales] = useState([]);
@@ -157,10 +157,19 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 remaining.push(change);
             }
         }
+        if (sent > 0) {
+            // Actualización optimista del estado local en el monitor para que la vista NO revierta el stock
+            const updatedLocal = projectedProducts.map(p => {
+                const { _rawStock, _stockDelta, _isQueuedDelete, _isQueuedEdit, _isQueuedNew, _isCombo, _effectiveCost, ...clean } = p;
+                return clean;
+            });
+            if (setProducts) setProducts(updatedLocal);
+            storageService.setItem('bodega_products_v1', updatedLocal).catch(() => {});
+        }
         persistPending(remaining);
         setUploading(false);
         if (remaining.length === 0) {
-            showToast(`${sent} cambio${sent !== 1 ? 's' : ''} enviado${sent !== 1 ? 's' : ''} a la caja — se reflejarán al sincronizar`, 'success');
+            showToast(`${sent} cambio${sent !== 1 ? 's' : ''} enviado${sent !== 1 ? 's' : ''} a la caja`, 'success');
         } else {
             showToast(`${sent} enviados · ${remaining.length} fallaron y siguen en cola`, 'warning');
         }
@@ -1369,10 +1378,10 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             </div>
                         </div>
 
-                        {/* Listado de Productos */}
-                        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm overflow-hidden">
+                        {/* Listado de Productos (Fichas separadas e independientes con borde y margen claro) */}
+                        <div>
                             {filteredProducts.length === 0 ? (
-                                <div className="py-16 text-center text-slate-400 flex flex-col items-center justify-center space-y-3">
+                                <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/60 dark:border-slate-800 py-16 text-center text-slate-400 flex flex-col items-center justify-center space-y-3 shadow-sm">
                                     <div className="p-4 bg-slate-50 dark:bg-slate-800/50 text-slate-300 dark:text-slate-600 rounded-full">
                                         <Package size={36} />
                                     </div>
@@ -1382,7 +1391,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                     </div>
                                 </div>
                             ) : (
-                                <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                                <div className="space-y-3.5 sm:space-y-4">
                                     {paginatedProducts.map((p) => {
                                         const stock = p.stock || 0;
                                         const minStock = p.minStock || 5;
@@ -1391,72 +1400,87 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                         const itemCost = p._effectiveCost ?? (p.costUsd || p.costPrice || 0);
                                         const profitUsd = Math.max(0, p.priceUsd - itemCost);
                                         const profitPct = p.priceUsd > 0 ? Math.round((profitUsd / p.priceUsd) * 100) : 0;
+                                        const isComboProd = p.isCombo || p.type === 'combo' || p._isCombo;
 
                                         return (
-                                            <div key={p.id} className="p-3.5 sm:p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4 hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition-colors">
+                                            <div
+                                                key={p.id}
+                                                className="bg-white dark:bg-slate-900 rounded-3xl border-2 border-slate-200/90 dark:border-slate-800 p-4 sm:p-5 shadow-sm hover:shadow-md hover:border-brand/40 dark:hover:border-brand/40 transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative overflow-hidden group pl-5 sm:pl-6"
+                                            >
+                                                {/* Borde acentuado izquierdo para inicio de ficha claro */}
+                                                <div className={`absolute top-0 left-0 bottom-0 w-2 ${
+                                                    isAgotado
+                                                        ? 'bg-rose-500'
+                                                        : isBajo
+                                                            ? 'bg-amber-500'
+                                                            : 'bg-emerald-500'
+                                                }`} />
+
                                                 {/* Izquierda: Info de Producto */}
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                                        <h4 className="text-xs sm:text-sm font-black text-slate-800 dark:text-white uppercase leading-tight">{p.name}</h4>
-                                                        <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${
+                                                <div className="flex-1 min-w-0 space-y-1.5">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <h4 className="text-sm sm:text-base font-black text-slate-900 dark:text-white uppercase leading-snug tracking-tight">{p.name}</h4>
+                                                        <span className={`text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg shadow-2xs ${
                                                             isAgotado
-                                                                ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400'
+                                                                ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
                                                                 : isBajo
-                                                                    ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400'
-                                                                    : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400'
+                                                                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                                                                    : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
                                                         }`}>
                                                             {isAgotado ? 'Agotado' : isBajo ? 'Bajo Stock' : 'Disponible'}
                                                         </span>
                                                         {p.sellByBox && (
-                                                            <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400">
+                                                            <span className="text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                                                                 📦 Caja{p.boxUnits ? ` ×${p.boxUnits}` : ''}
                                                             </span>
                                                         )}
                                                         {p.sellByHalfBox && (
-                                                            <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 dark:bg-purple-950/30 dark:text-purple-400">
+                                                            <span className="text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
                                                                 ½ Caja{p.halfBoxUnits ? ` ×${p.halfBoxUnits}` : ''}
                                                             </span>
                                                         )}
                                                         {p._isQueuedNew && (
-                                                            <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300">
+                                                            <span className="text-[9.5px] font-black uppercase px-2 py-0.5 rounded-lg bg-purple-100 text-purple-800 dark:bg-purple-950/80 dark:text-purple-200 border border-purple-300">
                                                                 Nuevo en cola
                                                             </span>
                                                         )}
                                                         {p._isQueuedEdit && !p._isQueuedNew && (
-                                                            <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                                                            <span className="text-[9.5px] font-black uppercase px-2 py-0.5 rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-200 border border-amber-300">
                                                                 Editado en cola
                                                             </span>
                                                         )}
                                                         {hasPendingFor(p.id) && pendingStockDelta(p.id) === 0 && !p._isQueuedEdit && !p._isQueuedNew && (
-                                                            <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400 animate-pulse">
+                                                            <span className="text-[9.5px] font-black uppercase px-2 py-0.5 rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-200 border border-amber-300 animate-pulse">
                                                                 Cambio pendiente
                                                             </span>
                                                         )}
                                                     </div>
-                                                    <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-1 font-medium flex-wrap">
+                                                    <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 font-bold flex-wrap">
                                                         {p.barcode && (
-                                                            <span className="flex items-center gap-1">
-                                                                <Hash size={10} /> {p.barcode}
+                                                            <span className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md text-[11px]">
+                                                                <Hash size={12} className="text-slate-400" /> {p.barcode}
                                                             </span>
                                                         )}
-                                                        <span>Categoría: {toTitleCase(p.category || 'Varios')}</span>
+                                                        <span>Categoría: <strong className="text-slate-700 dark:text-slate-200">{
+                                                            (categories || []).find(c => c.id === p.category)?.label || toTitleCase(p.category || 'Varios')
+                                                        }</strong></span>
                                                     </div>
                                                 </div>
 
                                                 {/* Derecha: Valores y Stock (Responsivo: apilado en móvil, horizontal en desktop) */}
-                                                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between lg:justify-end gap-3 sm:gap-5 pt-2 lg:pt-0 border-t border-slate-100 dark:border-slate-800/60 lg:border-t-0 shrink-0">
+                                                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between lg:justify-end gap-3 sm:gap-5 pt-3 lg:pt-0 border-t border-slate-100 dark:border-slate-800 lg:border-t-0 shrink-0">
                                                     {/* Costo, Venta, Margen */}
-                                                    <div className="grid grid-cols-3 gap-2 sm:gap-4 text-left sm:text-right bg-slate-50/60 dark:bg-slate-950/40 lg:bg-transparent p-2.5 lg:p-0 rounded-2xl">
+                                                    <div className="grid grid-cols-3 gap-3 sm:gap-5 text-left sm:text-right bg-slate-50 dark:bg-slate-950/80 p-3 lg:p-2.5 rounded-2xl border border-slate-200/60 dark:border-slate-800">
                                                         {/* Costo */}
                                                         <div>
-                                                            <span className="text-[8px] text-slate-400 uppercase font-black block">Costo</span>
-                                                            <span className="font-outfit text-xs font-black text-slate-500 tabular-nums">${itemCost.toFixed(2)}</span>
+                                                            <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-black tracking-wider block mb-0.5">Costo</span>
+                                                            <span className="font-outfit text-sm sm:text-base font-black text-slate-700 dark:text-slate-200 tabular-nums">${itemCost.toFixed(2)}</span>
                                                         </div>
                                                         {/* Venta */}
                                                         <div>
-                                                            <span className="text-[8px] text-slate-400 uppercase font-black block">Venta (USD/Bs)</span>
-                                                            <span className="font-outfit text-xs font-black text-slate-800 dark:text-white tabular-nums block">${p.priceUsd.toFixed(2)}</span>
-                                                            <span className="font-outfit text-[8px] text-slate-400 block tabular-nums leading-none mt-0.5">
+                                                            <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-black tracking-wider block mb-0.5">Venta (USD/Bs)</span>
+                                                            <span className="font-outfit text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 tabular-nums block">${p.priceUsd.toFixed(2)}</span>
+                                                            <span className="font-outfit text-xs font-bold text-slate-600 dark:text-slate-300 block tabular-nums leading-tight mt-0.5">
                                                                 {p.priceBsManual > 0
                                                                     ? `${formatBs(p.priceBsManual)} Bs`
                                                                     : bcvRate ? `${formatBs(p.priceUsd * bcvRate)} Bs` : 'N/D'}
@@ -1464,63 +1488,63 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                         </div>
                                                         {/* Ganancia */}
                                                         <div>
-                                                            <span className="text-[8px] text-slate-400 uppercase font-black block">Ganancia</span>
-                                                            <span className="font-outfit text-xs font-black text-blue-600 dark:text-blue-400 tabular-nums block">${profitUsd.toFixed(2)}</span>
-                                                            <span className="text-[8px] text-slate-400 block font-medium leading-none mt-0.5">{profitPct}%</span>
+                                                            <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-black tracking-wider block mb-0.5">Ganancia</span>
+                                                            <span className="font-outfit text-sm sm:text-base font-black text-blue-600 dark:text-blue-400 tabular-nums block">${profitUsd.toFixed(2)}</span>
+                                                            <span className="text-[10px] text-blue-500 dark:text-blue-300 block font-extrabold leading-none mt-0.5">+{profitPct}%</span>
                                                         </div>
                                                     </div>
 
                                                     {/* Controles de Stock y Acciones */}
-                                                    <div className="flex items-center justify-between sm:justify-end gap-2.5">
+                                                    <div className="flex items-center justify-between sm:justify-end gap-3">
                                                         {/* Botones +/- y Badge de Stock */}
-                                                        {p.isCombo || p.type === 'combo' || p._isCombo ? (
+                                                        {isComboProd ? (
                                                             <div 
                                                                 title="El stock de los combos es dinámico y se calcula automáticamente en función del stock disponible de sus insumos componentes."
-                                                                className="relative w-24 sm:w-28 text-center py-1.5 px-2 rounded-2xl border border-blue-200/80 bg-blue-50/60 dark:bg-blue-950/30 dark:border-blue-900/50 text-blue-700 dark:text-blue-300 shadow-sm cursor-help"
+                                                                className="relative px-3 py-2 rounded-2xl border border-purple-200/80 bg-purple-50/80 dark:bg-purple-950/50 dark:border-purple-900/60 text-purple-700 dark:text-purple-300 shadow-2xs flex items-center gap-2 cursor-help"
                                                             >
-                                                                <span className="text-[8px] uppercase font-black block leading-none mb-0.5 opacity-80">
-                                                                    Combo • Auto
-                                                                </span>
-                                                                <span className="font-outfit text-xs font-black tabular-nums leading-none">
-                                                                    {stock} u
-                                                                </span>
-                                                                <span className="text-[7px] font-bold block leading-none mt-0.5 opacity-70">
-                                                                    (Dinámico)
-                                                                </span>
+                                                                <div className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
+                                                                <div>
+                                                                    <span className="text-[9px] uppercase font-black block leading-none mb-0.5 opacity-90">
+                                                                        Combo • Auto
+                                                                    </span>
+                                                                    <span className="font-outfit text-sm font-black tabular-nums leading-none">
+                                                                        {stock} u <span className="text-[9px] font-bold opacity-75">(Dinámico)</span>
+                                                                    </span>
+                                                                </div>
                                                             </div>
                                                         ) : (
                                                             <div className="flex items-center gap-1.5">
                                                                 <button
                                                                     onClick={() => { triggerHaptic?.(); queueInventoryChange('adjust_stock', p.id, { delta: -1 }); }}
                                                                     title="Restar 1 unidad (en cola)"
-                                                                    className="w-8 h-8 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-rose-500 hover:border-rose-200 transition-colors active:scale-90"
+                                                                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-rose-600 hover:border-rose-300 dark:hover:text-rose-400 shadow-2xs transition-all active:scale-90 cursor-pointer"
                                                                 >
-                                                                    <MinusCircle size={14} />
+                                                                    <MinusCircle size={16} />
                                                                 </button>
                                                                 <button
                                                                     onClick={() => { triggerHaptic?.(); setStockAdjustProduct(p); }}
                                                                     title="Toca para ingresar stock (+40, -10) o fijar cantidad exacta"
-                                                                    className={`relative w-20 text-center py-1.5 px-2 rounded-2xl border transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-sm ${
+                                                                    className={`relative min-w-[85px] sm:min-w-[95px] text-center py-2 px-2.5 rounded-2xl border-2 transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-xs ${
                                                                         isAgotado
-                                                                            ? 'bg-rose-50/50 border-rose-150/70 text-rose-700 dark:bg-rose-950/20 dark:border-rose-900/30 dark:text-rose-455 hover:border-rose-400'
+                                                                            ? 'bg-rose-50 border-rose-300 text-rose-700 dark:bg-rose-950/40 dark:border-rose-800 dark:text-rose-300 hover:border-rose-400'
                                                                             : isBajo
-                                                                                ? 'bg-amber-50/50 border-amber-150/70 text-amber-700 dark:bg-amber-950/20 dark:border-amber-900/30 dark:text-amber-455 hover:border-amber-400'
-                                                                                : 'bg-slate-50 border-slate-150/70 text-slate-700 dark:bg-slate-850/60 dark:border-slate-800 dark:text-slate-300 hover:border-emerald-400 hover:bg-emerald-50/20'
+                                                                                ? 'bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300 hover:border-amber-400'
+                                                                                : 'bg-white border-slate-200 text-slate-800 dark:bg-slate-850 dark:border-slate-700 dark:text-slate-100 hover:border-emerald-400 hover:bg-emerald-50/30'
                                                                     }`}
                                                                 >
-                                                                    <span className="text-[8px] uppercase font-black block leading-none mb-0.5 text-slate-400 flex items-center justify-center gap-0.5">
-                                                                        Stock <Pencil size={7} />
+                                                                    <span className="text-[9px] uppercase font-black block leading-none mb-1 text-slate-500 dark:text-slate-400 flex items-center justify-center gap-0.5">
+                                                                        Stock <Pencil size={8} />
                                                                     </span>
-                                                                    <span className="font-outfit text-xs font-black tabular-nums leading-none">
+                                                                    <span className="font-outfit text-sm font-black tabular-nums leading-none">
                                                                         {p.isWeight ? `${stock.toFixed(3)} Kg` : `${stock} u`}
                                                                     </span>
                                                                     {p.sellByBox && p.boxUnits > 0 && !p.isWeight && (
-                                                                        <span className="text-[7px] font-bold block leading-none mt-0.5 opacity-70 truncate">
+                                                                        <span className="text-[8px] font-bold block leading-none mt-1 text-slate-500 dark:text-slate-400 truncate">
                                                                             ≈ {(stock / p.boxUnits).toFixed(1)} cj
                                                                         </span>
                                                                     )}
                                                                     {pendingStockDelta(p.id) !== 0 && (
-                                                                        <span className={`absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded-full text-[8px] font-black text-white shadow ${pendingStockDelta(p.id) > 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}>
+                                                                        <span className={`absolute -top-2 -right-2 px-2 py-0.5 rounded-full text-[9px] font-black text-white shadow-md ${pendingStockDelta(p.id) > 0 ? 'bg-emerald-600' : 'bg-rose-600'}`}>
                                                                             {pendingStockDelta(p.id) > 0 ? '+' : ''}{pendingStockDelta(p.id)}
                                                                         </span>
                                                                     )}
@@ -1528,29 +1552,30 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                                 <button
                                                                     onClick={() => { triggerHaptic?.(); queueInventoryChange('adjust_stock', p.id, { delta: 1 }); }}
                                                                     title="Sumar 1 unidad (en cola)"
-                                                                    className="w-8 h-8 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-emerald-500 hover:border-emerald-200 transition-colors active:scale-90"
+                                                                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-emerald-600 hover:border-emerald-300 dark:hover:text-emerald-400 shadow-2xs transition-all active:scale-90 cursor-pointer"
                                                                 >
-                                                                    <PlusCircle size={14} />
+                                                                    <PlusCircle size={16} />
                                                                 </button>
                                                             </div>
                                                         )}
 
                                                         {/* Botones Editar / Eliminar horizontales */}
-                                                        <div className="flex items-center gap-1.5 ml-1">
-                                                            <button
-                                                                onClick={() => { triggerHaptic?.(); setRemoteEditingProduct(p); setShowRemoteForm(true); }}
-                                                                disabled={p.isCombo}
-                                                                title={p.isCombo ? 'Los combos se editan desde la caja' : 'Editar (en cola)'}
-                                                                className="w-8 h-8 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-brand hover:border-brand/40 transition-colors disabled:opacity-30 active:scale-90"
-                                                            >
-                                                                <Pencil size={13} />
-                                                            </button>
+                                                        <div className="flex items-center gap-2 ml-1">
+                                                            {!isComboProd && (
+                                                                <button
+                                                                    onClick={() => { triggerHaptic?.(); setRemoteEditingProduct(p); setShowRemoteForm(true); }}
+                                                                    title="Editar producto (en cola)"
+                                                                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-brand hover:border-brand/40 shadow-2xs transition-all active:scale-90 cursor-pointer"
+                                                                >
+                                                                    <Pencil size={15} />
+                                                                </button>
+                                                            )}
                                                             <button
                                                                 onClick={() => { triggerHaptic?.(); setRemoteDeleteTarget(p); }}
                                                                 title="Eliminar (en cola)"
-                                                                className="w-8 h-8 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-rose-500 hover:border-rose-200 transition-colors active:scale-90"
+                                                                className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-rose-600 hover:border-rose-300 dark:hover:text-rose-400 shadow-2xs transition-all active:scale-90 cursor-pointer"
                                                             >
-                                                                <Trash2 size={13} />
+                                                                <Trash2 size={15} />
                                                             </button>
                                                         </div>
                                                     </div>

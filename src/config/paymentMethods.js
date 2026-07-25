@@ -153,7 +153,12 @@ export async function togglePaymentMethodEnabled(id) {
 
 export const toTitleCase = (str) => {
     if (!str) return '';
-    return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+    return str
+        .replace(/_/g, ' ')
+        .replace(/-/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/\b\w/g, (txt) => txt.toUpperCase());
 };
 
 // In-memory cache for synchronous lookups (populated from IndexedDB)

@@ -744,9 +744,9 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                     <div className="flex-1 overflow-y-auto pb-4 scrollbar-hide">
                         {viewMode === 'grid' ? (
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
-                            {paginatedProducts.map(p => (
+                            {paginatedProducts.map((p, pIdx) => (
                                 // v1.2.0: hover lift wrapper para ProductCard (design system hover state).
-                                <div key={p.id} className="transition-transform duration-200 hover:-translate-y-1">
+                                <div key={p.id || `p_${pIdx}`} className="transition-transform duration-200 hover:-translate-y-1">
                                 <SwipeableItem
                                     onEdit={isCajero ? undefined : () => handleEdit(p)}
                                     onDelete={isCajero ? undefined : () => handleDelete(p.id)}
@@ -807,14 +807,14 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                             </div>
                             {/* Rows */}
                             <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                                {paginatedProducts.map(p => {
+                                {paginatedProducts.map((p, pIdx) => {
                                     const actualStock = getProductStock(p);
                                     const valBs = p.priceUsdt * effectiveRate;
                                     const isLowStock = !p.isCombo && actualStock <= (p.lowStockAlert ?? 5);
                                     const margin = p.costBs > 0 ? ((valBs - p.costBs) / p.costBs * 100) : null;
                                     const catInfo = categories.find(c => c.id === p.category);
                                     return (
-                                        <div key={p.id} className={`grid grid-cols-[auto_1fr_auto] sm:grid-cols-[40px_1fr_100px_100px_70px_80px_110px] gap-2 px-4 py-3 items-center hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors ${selectedIds.has(p.id) ? 'bg-brand/5 dark:bg-brand/10' : ''} ${isLowStock ? 'bg-amber-50/50 dark:bg-amber-900/5' : ''}`}>
+                                        <div key={p.id || `p_${pIdx}`} className={`grid grid-cols-[auto_1fr_auto] sm:grid-cols-[40px_1fr_100px_100px_70px_80px_110px] gap-2 px-4 py-3 items-center hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors ${selectedIds.has(p.id) ? 'bg-brand/5 dark:bg-brand/10' : ''} ${isLowStock ? 'bg-amber-50/50 dark:bg-amber-900/5' : ''}`}>
                                             {/* Checkbox */}
                                             <div className="flex items-center justify-center px-1">
                                                 <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => handleToggleSelect(p.id)} className="w-5 h-5 sm:w-4 sm:h-4 rounded border-slate-300 text-brand focus:ring-brand cursor-pointer focus:ring-offset-0" />

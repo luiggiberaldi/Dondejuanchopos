@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Camera, X, AlertTriangle, Package, Tag, Barcode, Eye, ShoppingBag, Zap, Boxes, Landmark, Banknote, Lock, DollarSign, ArrowLeftRight } from 'lucide-react';
+import { Camera, X, AlertTriangle, Package, Tag, Barcode, Eye, ShoppingBag, Zap, Boxes, Landmark, Banknote, Lock, DollarSign, ArrowLeftRight, Check } from 'lucide-react';
 import CustomSelect from '../CustomSelect';
 import PricingModeSelector from './PricingModeSelector';
 import PricePreviewLine from './PricePreviewLine';
@@ -225,26 +225,31 @@ export default function ProductFormWizard({
                     </div>
 
                     {/* Formato 2: Caja */}
-                    <div className="bg-slate-50/50 dark:bg-slate-850/30 p-4 rounded-xl border border-slate-100 dark:border-slate-800 space-y-3">
-                        <label className="flex items-center gap-3 cursor-pointer select-none">
-                            <div className={`w-10 h-5.5 rounded-full relative transition-colors duration-200 shrink-0 ${sellByBox ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-650'}`}
-                                onClick={() => {
-                                    const next = !sellByBox;
-                                    setSellByBox(next);
-                                    if (!next) setSellByHalfBox(false);
-                                }}>
-                                <div className={`absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-transform duration-200 ${sellByBox ? 'translate-x-[20px]' : 'translate-x-0.5'}`} />
-                            </div>
-                            <div onClick={() => {
+                    <div className={`p-4 rounded-xl border transition-all duration-150 space-y-3 ${sellByBox ? 'bg-emerald-500/10 border-emerald-500/40 shadow-xs' : 'bg-slate-50/50 dark:bg-slate-850/30 border-slate-100 dark:border-slate-800'}`}>
+                        <div 
+                            onClick={() => {
                                 const next = !sellByBox;
                                 setSellByBox(next);
                                 if (!next) setSellByHalfBox(false);
-                            }}>
-                                <span className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1">
-                                    <Package size={12} /> Habilitar venta por Caja
+                            }}
+                            className="flex items-center justify-between gap-3 cursor-pointer select-none group"
+                        >
+                            <div className="flex-1 min-w-0">
+                                <span className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                                    <Package size={14} className={sellByBox ? 'text-emerald-500' : 'text-slate-400'} /> Habilitar venta por Caja
                                 </span>
                             </div>
-                        </label>
+                            {/* Recuadro con palomita (Checkbox a la derecha) */}
+                            <div 
+                                className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all duration-150 shrink-0 ${
+                                    sellByBox 
+                                        ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm shadow-emerald-500/30 scale-105' 
+                                        : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 group-hover:border-emerald-400'
+                                }`}
+                            >
+                                {sellByBox && <Check size={15} strokeWidth={3.5} />}
+                            </div>
+                        </div>
                         {sellByBox && (
                             <div className="grid grid-cols-2 gap-3 pt-1 animate-in fade-in slide-in-from-top-1">
                                 <div>
@@ -275,22 +280,29 @@ export default function ProductFormWizard({
                     </div>
 
                     {/* Formato 3: ½ Caja */}
-                    <div className="bg-slate-50/50 dark:bg-slate-850/30 p-4 rounded-xl border border-slate-100 dark:border-slate-800 space-y-3">
-                        <label className={`flex items-center gap-3 select-none transition-all duration-200 ${sellByBox ? 'cursor-pointer' : 'cursor-not-allowed opacity-40'}`}>
-                            <div className={`w-10 h-5.5 rounded-full relative transition-colors duration-200 shrink-0 ${sellByHalfBox && sellByBox ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-650'}`}
-                                onClick={() => {
-                                    if (sellByBox) setSellByHalfBox(!sellByHalfBox);
-                                }}>
-                                <div className={`absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-transform duration-200 ${sellByHalfBox && sellByBox ? 'translate-x-[20px]' : 'translate-x-0.5'}`} />
-                            </div>
-                            <div onClick={() => {
+                    <div className={`p-4 rounded-xl border transition-all duration-150 space-y-3 ${sellByHalfBox && sellByBox ? 'bg-emerald-500/10 border-emerald-500/40 shadow-xs' : 'bg-slate-50/50 dark:bg-slate-850/30 border-slate-100 dark:border-slate-800'}`}>
+                        <div 
+                            onClick={() => {
                                 if (sellByBox) setSellByHalfBox(!sellByHalfBox);
-                            }}>
-                                <span className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1">
-                                    <Package size={12} /> Habilitar venta por ½ Caja
+                            }}
+                            className={`flex items-center justify-between gap-3 select-none group transition-all duration-150 ${sellByBox ? 'cursor-pointer' : 'cursor-not-allowed opacity-40'}`}
+                        >
+                            <div className="flex-1 min-w-0">
+                                <span className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                                    <Package size={14} className={sellByHalfBox && sellByBox ? 'text-emerald-500' : 'text-slate-400'} /> Habilitar venta por ½ Caja
                                 </span>
                             </div>
-                        </label>
+                            {/* Recuadro con palomita (Checkbox a la derecha) */}
+                            <div 
+                                className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all duration-150 shrink-0 ${
+                                    sellByHalfBox && sellByBox 
+                                        ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm shadow-emerald-500/30 scale-105' 
+                                        : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 group-hover:border-emerald-400'
+                                }`}
+                            >
+                                {sellByHalfBox && sellByBox && <Check size={15} strokeWidth={3.5} />}
+                            </div>
+                        </div>
                         {sellByHalfBox && (
                             <div className="grid grid-cols-2 gap-3 pt-1 animate-in fade-in slide-in-from-top-1">
                                 <div>
