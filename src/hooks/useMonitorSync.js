@@ -181,19 +181,39 @@ export function useMonitorSync(pairedDeviceId) {
         await initMonitor(false);
     };
 
+    // Heartbeat de presencia del monitor hacia la nube (cada 60s)
+    const sendHeartbeat = useCallback(async () => {
+        if (!supabaseCloud) return;
+        const myDeviceId = localStorage.getItem('dj_device_id');
+        if (!myDeviceId) return;
+
+        try {
+            const { data, error } = await supabaseCloud.rpc('touch_monitor_heartbeat', {
+                p_monitor_device_id: myDeviceId
+            });
+            if (!error && data && data.is_revoked) {
+                window.dispatchEvent(new CustomEvent('monitor_revoked'));
+            }
+        } catch {
+            // Silencioso si falla la red o el RPC aún no existe en el servidor
+        }
+    }, []);
+
     useEffect(() => {
         if (!supabaseCloud || !pairedDeviceId) {
             setLoading(false);
             return;
         }
 
-        // Inicializar sincronización
+        // Inicializar sincronización y enviar heartbeat inicial
         initMonitor(false);
+        sendHeartbeat();
 
         // 1. Escuchar reconexión de red del navegador (online / offline)
         const handleOnline = () => {
             console.log('[useMonitorSync] Conexión de red restablecida. Sincronizando al instante...');
             setIsConnected(true);
+            sendHeartbeat();
             triggerRefresh();
         };
 
@@ -229,18 +249,26 @@ export function useMonitorSync(pairedDeviceId) {
             }
         }, healthCheckInterval);
 
+        // 4. Heartbeat de presencia hacia Supabase (cada 60s)
+        const heartbeatTimer = setInterval(() => {
+            if (navigator.onLine) {
+                sendHeartbeat();
+            }
+        }, 60000);
+
         return () => {
             window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             if (reconnectTimer) clearInterval(reconnectTimer);
+            clearInterval(heartbeatTimer);
 
             if (monitorSubscription) {
                 supabaseCloud.removeChannel(monitorSubscription).catch(() => {});
                 monitorSubscription = null;
             }
         };
-    }, [pairedDeviceId, initMonitor, checkPosPresence, isConnected]);
+    }, [pairedDeviceId, initMonitor, checkPosPresence, sendHeartbeat, isConnected]);
 
     return { isConnected, lastSync, loading, triggerRefresh, posLastSeen, isPosOnline };
 }
