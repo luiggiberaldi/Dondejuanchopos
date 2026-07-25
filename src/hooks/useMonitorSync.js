@@ -6,6 +6,27 @@ import localforage from 'localforage';
 // Configurar localforage a nivel de módulo
 localforage.config({ name: 'BodegaApp', storeName: 'bodega_app_data' });
 
+// Documentos que el Monitor consume activamente para renderizar métricas, inventario, ventas y usuarios
+const MONITOR_DOC_IDS = [
+    'bodega_products_v1',
+    'bodega_sales_v1',
+    'bodega_customers_v1',
+    'bodega_suppliers_v1',
+    'bodega_supplier_invoices_v1',
+    'bodega_accounts_v2',
+    'bodega_payment_methods_v1',
+    'bodega_pending_cart_v1',
+    'my_categories_v1',
+    'bodega_rate_mode',
+    'bodega_users_catalog_v1',
+    'business_name',
+    'business_rif',
+    'bodega_custom_rate',
+    'street_rate_bs',
+    'monitor_rates_v12',
+    'tasa_cop'
+];
+
 let monitorSubscription = null;
 let reconnectTimer = null;
 
@@ -19,6 +40,11 @@ export function useMonitorSync(pairedDeviceId) {
     const [posLastSeen, setPosLastSeen] = useState(null);
     const [isPosOnline, setIsPosOnline] = useState(false);
     const isSyncingRef = useRef(false);
+    const lastSyncRef = useRef(lastSync);
+
+    useEffect(() => {
+        lastSyncRef.current = lastSync;
+    }, [lastSync]);
 
     const checkPosPresence = useCallback(async () => {
         if (!supabaseCloud || !pairedDeviceId) return;
@@ -82,12 +108,12 @@ export function useMonitorSync(pairedDeviceId) {
             // Verificar presencia de la caja principal
             await checkPosPresence();
 
-            // 1. Pull inicial o de recuperación (catch-up) desde sync_documents del equipo vinculado
+            // 1. Pull inicial o de recuperación (catch-up) usando filtro explícito doc_id para reducir egress
             const { data: docs, error } = await supabaseCloud
                 .from('sync_documents')
                 .select('collection, doc_id, data')
                 .eq('device_id', pairedDeviceId)
-                .in('collection', ['store', 'local']);
+                .in('doc_id', MONITOR_DOC_IDS);
 
             if (error) throw error;
 
@@ -179,7 +205,12 @@ export function useMonitorSync(pairedDeviceId) {
         // 2. Escuchar cuando el usuario regresa a la app (desbloqueo de pantalla o cambio de pestaña)
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'visible' && navigator.onLine) {
-                initMonitor(true);
+                const now = Date.now();
+                const lastSyncMs = lastSyncRef.current ? lastSyncRef.current.getTime() : 0;
+                const isFresh = monitorSubscription && (now - lastSyncMs < 60000);
+                if (!isFresh) {
+                    initMonitor(true);
+                }
             }
         };
 
@@ -187,7 +218,8 @@ export function useMonitorSync(pairedDeviceId) {
         window.addEventListener('offline', handleOffline);
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
-        // 3. Health-check en segundo plano (Re-intento automático cada 10 segundos)
+        // 3. Health-check en segundo plano (30s cuando el canal está sano, 10s cuando está caído)
+        const healthCheckInterval = (isConnected && monitorSubscription) ? 30000 : 10000;
         reconnectTimer = setInterval(() => {
             if (navigator.onLine) {
                 checkPosPresence();
@@ -195,7 +227,7 @@ export function useMonitorSync(pairedDeviceId) {
                     initMonitor(true);
                 }
             }
-        }, 10000);
+        }, healthCheckInterval);
 
         return () => {
             window.removeEventListener('online', handleOnline);
@@ -208,7 +240,7 @@ export function useMonitorSync(pairedDeviceId) {
                 monitorSubscription = null;
             }
         };
-    }, [pairedDeviceId, initMonitor, checkPosPresence]);
+    }, [pairedDeviceId, initMonitor, checkPosPresence, isConnected]);
 
     return { isConnected, lastSync, loading, triggerRefresh, posLastSeen, isPosOnline };
 }
