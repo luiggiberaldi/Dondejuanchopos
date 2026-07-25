@@ -29,17 +29,12 @@ CREATE TABLE IF NOT EXISTS public.supervisor_commands (
 ALTER TABLE public.supervisor_commands ADD COLUMN IF NOT EXISTS error_reason TEXT;
 
 -- 3. CHECK constraints (idempotentes)
+ALTER TABLE public.supervisor_commands DROP CONSTRAINT IF EXISTS supervisor_commands_command_type_check;
+ALTER TABLE public.supervisor_commands ADD CONSTRAINT supervisor_commands_command_type_check
+    CHECK (command_type IN ('rate_change', 'inventory_update', 'void_sale', 'user_update'));
+
 DO $$
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint
-        WHERE conname = 'supervisor_commands_command_type_check'
-    ) THEN
-        ALTER TABLE public.supervisor_commands
-            ADD CONSTRAINT supervisor_commands_command_type_check
-            CHECK (command_type IN ('rate_change', 'inventory_update'));
-    END IF;
-
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'supervisor_commands_status_check'
