@@ -149,9 +149,22 @@ export default function ComboFormModal({
         setCollapsedGroups(prev => ({ ...prev, [groupId]: !prev[groupId] }));
     };
 
-    // ── Carga en caso de edición ──
+    const prevIsOpenRef = useRef(false);
+    const prevEditingComboRef = useRef(null);
+
+    // ── Carga en caso de edición / apertura del modal ──
     useEffect(() => {
+        const justOpened = isOpen && !prevIsOpenRef.current;
+        const comboChanged = editingCombo !== prevEditingComboRef.current;
+
+        prevIsOpenRef.current = isOpen;
+        prevEditingComboRef.current = editingCombo;
+
         if (!isOpen) return;
+
+        // Solo re-inicializar el formulario si el modal acaba de abrirse o si cambió el objeto editingCombo
+        if (!justOpened && !comboChanged) return;
+
         setCurrentStep(1);
         setShowExitConfirm(false);
         setShowModularChangeConfirm(false);
