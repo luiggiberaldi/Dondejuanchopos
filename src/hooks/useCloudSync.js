@@ -120,7 +120,7 @@ export const pushCloudSync = async (key, value) => {
  * Empuja de forma forzada TODOS los datos del punto de venta a la nube Supabase.
  * Se invoca al iniciar la app o al generar un nuevo código de vinculación.
  */
-export const forceSyncAllPOSData = async (overrideDeviceId) => {
+export const forceSyncAllPOSData = async (overrideDeviceId, forceUnconditional = false) => {
     if (!supabaseCloud) return;
     const isMonitor = localStorage.getItem('dj_pairing_mode') === 'monitor';
     if (isMonitor) return;
@@ -135,20 +135,30 @@ export const forceSyncAllPOSData = async (overrideDeviceId) => {
         const lf = localforage.createInstance({ name: 'BodegaApp', storeName: 'bodega_app_data' });
         
         for (const key of IDB_KEYS) {
+            if (CLOUD_SYNC_EXCLUDE.includes(key)) continue;
             const val = await lf.getItem(key);
             if (val !== null) {
+                const hashKey = LAST_PUSH_HASH_PREFIX + key;
+                const currentHash = quickHash(val);
+                if (!forceUnconditional && localStorage.getItem(hashKey) === currentHash) continue;
                 await pushCloudSync(key, val);
+                localStorage.setItem(hashKey, currentHash);
             }
         }
         for (const key of LOCAL_KEYS) {
+            if (CLOUD_SYNC_EXCLUDE.includes(key)) continue;
             const val = localStorage.getItem(key);
             if (val !== null) {
+                const hashKey = LAST_PUSH_HASH_PREFIX + key;
+                const currentHash = quickHash(val);
+                if (!forceUnconditional && localStorage.getItem(hashKey) === currentHash) continue;
                 let parsed = val;
                 try { parsed = JSON.parse(val); } catch {}
                 await pushCloudSync(key, parsed);
+                localStorage.setItem(hashKey, currentHash);
             }
         }
-        console.log('[CloudSync] Sincronización forzada POS completada para device_id:', activeDeviceId);
+        console.log('[CloudSync] Sincronización POS verificada/completada para device_id:', activeDeviceId);
     } catch (e) {
         console.warn('[CloudSync] Error en sincronización forzada POS:', e);
     }

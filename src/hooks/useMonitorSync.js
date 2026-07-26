@@ -33,6 +33,7 @@ const MONITOR_DOC_IDS = [
 
 let monitorSubscription = null;
 let reconnectTimer = null;
+let oversizePullTimer = null;
 
 export function useMonitorSync(pairedDeviceId) {
     const [isConnected, setIsConnected] = useState(false);
@@ -45,6 +46,7 @@ export function useMonitorSync(pairedDeviceId) {
     const [isPosOnline, setIsPosOnline] = useState(false);
     const isSyncingRef = useRef(false);
     const lastSyncRef = useRef(lastSync);
+    const initMonitorRef = useRef(null);
 
     useEffect(() => {
         lastSyncRef.current = lastSync;
@@ -148,8 +150,22 @@ export function useMonitorSync(pairedDeviceId) {
                         table: 'sync_documents',
                         filter: `device_id=eq.${pairedDeviceId}`
                     }, async (payload) => {
+                        if (payload?.eventType === 'DELETE') return;
+
                         const doc = payload?.new;
-                        if (!doc || !doc.data || !['store', 'local'].includes(doc.collection)) return;
+
+                        if (!doc || !doc.doc_id || !doc.data) {
+                            console.warn('[useMonitorSync] Evento de Realtime sin cuerpo (posible 413). Forzando pull completo.', payload?.errors);
+                            if (!oversizePullTimer) {
+                                oversizePullTimer = setTimeout(() => {
+                                    oversizePullTimer = null;
+                                    initMonitorRef.current?.(true);
+                                }, 3000);
+                            }
+                            return;
+                        }
+
+                        if (!['store', 'local'].includes(doc.collection)) return;
                         if (!MONITOR_DOC_IDS.includes(doc.doc_id)) return;
                         await applyDocToLocal(doc.doc_id, doc.collection, doc.data?.payload);
                         const now = new Date();
@@ -178,6 +194,10 @@ export function useMonitorSync(pairedDeviceId) {
             setLoading(false);
         }
     }, [pairedDeviceId, checkPosPresence]);
+
+    useEffect(() => {
+        initMonitorRef.current = initMonitor;
+    }, [initMonitor]);
 
     const triggerRefresh = async () => {
         if (monitorSubscription) {
@@ -278,14 +298,14 @@ export function useMonitorSync(pairedDeviceId) {
             window.removeEventListener('offline', handleOffline);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             if (reconnectTimer) clearInterval(reconnectTimer);
-            clearInterval(heartbeatTimer);
-
+            if (heartbeatTimer) clearInterval(heartbeatTimer);
+            if (oversizePullTimer) { clearTimeout(oversizePullTimer); oversizePullTimer = null; }
             if (monitorSubscription) {
                 supabaseCloud.removeChannel(monitorSubscription).catch(() => {});
                 monitorSubscription = null;
             }
         };
-    }, [pairedDeviceId, initMonitor, checkPosPresence, sendHeartbeat]);
+    }, [pairedDeviceId, initMonitor, sendHeartbeat, checkPosPresence]);
 
     return { isConnected, lastSync, loading, triggerRefresh, posLastSeen, isPosOnline };
 }

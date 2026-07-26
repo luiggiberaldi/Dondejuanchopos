@@ -202,6 +202,12 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
             };
 
             if (!editingProduct) data.id = crypto.randomUUID();
+
+            // FS6: Los campos con prefijo _ son de la proyección del monitor, no del producto.
+            for (const k of Object.keys(data)) {
+                if (k.startsWith('_')) delete data[k];
+            }
+
             const payloadData = editingProduct ? { ...data, baseUpdatedAt: editingProduct.updatedAt } : data;
             await onSubmit(editingProduct ? 'edit' : 'add', data.id, payloadData);
             onClose();

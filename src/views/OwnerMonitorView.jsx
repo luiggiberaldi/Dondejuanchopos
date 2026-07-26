@@ -544,53 +544,59 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             return;
         }
         if (pendingChanges.length === 0 || uploading) return;
+        setUploading(true);
         const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
 
         const remaining = [];
         let sent = 0;
-        for (const change of pendingChanges) {
-            try {
-                const commandType = change.action === 'user_update' ? 'user_update' : 'inventory_update';
-                const payload = change.action === 'user_update'
-                    ? (change.data || {})
-                    : {
-                        action: change.action,
-                        productId: change.productId,
-                        data: change.data,
-                        issuedAt: change.queuedAt,
-                    };
+        try {
+            for (const change of pendingChanges) {
+                try {
+                    const commandType = change.action === 'user_update' ? 'user_update' : 'inventory_update';
+                    const payload = change.action === 'user_update'
+                        ? (change.data || {})
+                        : {
+                            action: change.action,
+                            productId: change.productId,
+                            data: change.data,
+                            issuedAt: change.queuedAt,
+                        };
 
-                const { error } = await supabaseCloud
-                    .from('supervisor_commands')
-                    .insert({
-                        primary_device_id: pairedDeviceId,
-                        monitor_device_id: monitorDeviceId,
-                        command_type: commandType,
-                        payload: payload,
-                        status: 'pending'
-                    });
-                if (error) throw error;
-                sent += 1;
-            } catch (err) {
-                console.error('[OwnerMonitor] Error al subir cambio:', err);
-                remaining.push(change);
+                    const { error } = await supabaseCloud
+                        .from('supervisor_commands')
+                        .insert({
+                            primary_device_id: pairedDeviceId,
+                            monitor_device_id: monitorDeviceId,
+                            command_type: commandType,
+                            payload: payload,
+                            status: 'pending'
+                        });
+                    if (error) throw error;
+                    sent += 1;
+                } catch (err) {
+                    console.error('[OwnerMonitor] Error al subir cambio:', err);
+                    remaining.push(change);
+                }
             }
-        }
-        if (sent > 0) {
-            // Actualización optimista del estado local en el monitor para que la vista NO revierta el stock
-            const updatedLocal = projectedProducts.map(p => {
-                const { _rawStock, _stockDelta, _isQueuedDelete, _isQueuedEdit, _isQueuedNew, _isCombo, _effectiveCost, ...clean } = p;
-                return clean;
-            });
-            if (setProducts) setProducts(updatedLocal);
-            storageService.setItem('bodega_products_v1', updatedLocal).catch(() => {});
-        }
-        persistPending(remaining);
-        setUploading(false);
-        if (remaining.length === 0) {
-            showToast(`${sent} cambio${sent !== 1 ? 's' : ''} enviado${sent !== 1 ? 's' : ''} a la caja`, 'success');
-        } else {
-            showToast(`${sent} enviados · ${remaining.length} fallaron y siguen en cola`, 'warning');
+            if (sent > 0) {
+                // Actualización optimista SÓLO en memoria: la copia durable de bodega_products_v1
+                // debe venir siempre del eco de la caja (fuente de verdad). Persistir la proyección
+                // guardaba stock calculado, costUsd efectivo y un updatedAt viejo que hacía
+                // rechazar la siguiente edición por conflicto de versión (FS5).
+                const updatedLocal = projectedProducts.map(p => {
+                    const { _rawStock, _stockDelta, _isQueuedDelete, _isQueuedEdit, _isQueuedNew, _isCombo, _effectiveCost, ...clean } = p;
+                    return clean;
+                });
+                if (setProducts) setProducts(updatedLocal);
+            }
+            persistPending(remaining);
+            if (remaining.length === 0) {
+                showToast(`${sent} cambio${sent !== 1 ? 's' : ''} enviado${sent !== 1 ? 's' : ''} a la caja`, 'success');
+            } else {
+                showToast(`${sent} enviados · ${remaining.length} fallaron y siguen en cola`, 'warning');
+            }
+        } finally {
+            setUploading(false);
         }
     };
 
@@ -2546,6 +2552,14 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                 >
                                     Anulados ({allCloudCmds.filter(c => c.status === 'cancelled').length})
                                 </button>
+                                <button
+                                    onClick={() => { setCmdTabFilter('failed'); setCurrentPageCambios(1); }}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                                        cmdTabFilter === 'failed' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                                    }`}
+                                >
+                                    Rechazados ({allCloudCmds.filter(c => c.status === 'failed').length})
+                                </button>
                             </div>
 
                             {/* Acciones globales */}
@@ -2581,6 +2595,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                         if (cmdTabFilter === 'pending') return cmd.status === 'pending';
                                         if (cmdTabFilter === 'applied') return cmd.status === 'applied';
                                         if (cmdTabFilter === 'cancelled') return cmd.status === 'cancelled';
+                                        if (cmdTabFilter === 'failed') return cmd.status === 'failed';
                                         return true;
                                     })
                                     .map(cmd => ({ isLocal: false, data: cmd, key: `cloud-${cmd.id}` }))
@@ -2671,6 +2686,12 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                         ANULADO
                                                     </span>
                                                 );
+                                            } else if (cmd.status === 'failed') {
+                                                statusBadge = (
+                                                    <span className="text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300 border border-orange-200 dark:border-orange-800">
+                                                        RECHAZADO POR LA CAJA
+                                                    </span>
+                                                );
                                             }
 
                                             return (
@@ -2685,6 +2706,9 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                         </div>
                                                         <h4 className="text-sm sm:text-base font-black text-slate-800 dark:text-white truncate">{prodName}</h4>
                                                         <p className="text-xs font-bold text-slate-500 dark:text-slate-400">{actionLabel}</p>
+                                                        {cmd.status === 'failed' && cmd.error_reason && (
+                                                            <p className="text-[11px] font-bold text-orange-600 dark:text-orange-400">{cmd.error_reason}</p>
+                                                        )}
                                                     </div>
                                                     <div className="flex items-center gap-2 shrink-0">
                                                         {cmd.status === 'pending' && (
@@ -2694,6 +2718,18 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                                 className="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-xs font-black uppercase transition-colors shrink-0 disabled:opacity-40 cursor-pointer"
                                                             >
                                                                 {cancellingCmdId === cmd.id ? 'Anulando...' : 'Anular 🚫'}
+                                                            </button>
+                                                        )}
+                                                        {cmd.status === 'failed' && cmd.command_type === 'inventory_update' && (
+                                                            <button
+                                                                onClick={() => {
+                                                                    const p = cmd.payload || {};
+                                                                    queueInventoryChange(p.action, p.productId, p.data);
+                                                                    showToast('Cambio devuelto a la cola local', 'info');
+                                                                }}
+                                                                className="px-3.5 py-2 rounded-xl bg-orange-50 hover:bg-orange-100 dark:bg-orange-950/40 text-orange-600 dark:text-orange-300 border border-orange-200 dark:border-orange-800 text-xs font-black uppercase transition-colors shrink-0 cursor-pointer"
+                                                            >
+                                                                Reintentar ↺
                                                             </button>
                                                         )}
                                                         {cmd.status === 'applied' && (

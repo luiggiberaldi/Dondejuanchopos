@@ -177,14 +177,21 @@ CREATE OR REPLACE FUNCTION public.touch_monitor_heartbeat(
 )
 RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
-    v_revoked TIMESTAMPTZ;
+    v_target_id UUID;
+    v_revoked   TIMESTAMPTZ;
 BEGIN
-    UPDATE public.device_monitors
-    SET last_seen_at = now()
+    -- Seleccionar la fila más reciente (preferir no revocada) para evitar 'query returned more than one row'
+    SELECT id, revoked_at INTO v_target_id, v_revoked
+    FROM public.device_monitors
     WHERE monitor_device_id = p_monitor_device_id
-    RETURNING revoked_at INTO v_revoked;
+    ORDER BY (revoked_at IS NULL) DESC, last_seen_at DESC
+    LIMIT 1;
 
-    IF FOUND THEN
+    IF v_target_id IS NOT NULL THEN
+        UPDATE public.device_monitors
+        SET last_seen_at = now()
+        WHERE id = v_target_id;
+
         RETURN json_build_object('success', true, 'is_revoked', (v_revoked IS NOT NULL));
     END IF;
 

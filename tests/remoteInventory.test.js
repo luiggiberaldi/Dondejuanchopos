@@ -178,6 +178,32 @@ describe('applyInventoryCommand — comandos remotos de inventario', () => {
         expect(p.priceUsd).toBe(10); // Sin modificar
     });
 
+    it('FS6: edit limpia baseUpdatedAt y campos de proyección _stockDelta, _isCombo del producto resultante', async () => {
+        const freshIso = new Date().toISOString();
+        await storageService.setItem(PRODUCTS_KEY, [{ ...baseProduct, updatedAt: freshIso }]);
+
+        const res = await applyInventoryCommand({
+            action: 'edit',
+            productId: 'p1',
+            data: {
+                name: 'Ron Santa Teresa Limpio',
+                priceUsd: 12,
+                baseUpdatedAt: freshIso,
+                _stockDelta: 5,
+                _isCombo: true,
+                _effectiveCost: 8.5
+            }
+        });
+
+        expect(res.success).toBe(true);
+        const [p] = await storageService.getItem(PRODUCTS_KEY);
+        expect(p.name).toBe('Ron Santa Teresa Limpio');
+        expect(p.baseUpdatedAt).toBeUndefined();
+        expect(p._stockDelta).toBeUndefined();
+        expect(p._isCombo).toBeUndefined();
+        expect(p._effectiveCost).toBeUndefined();
+    });
+
     it('edit con baseUpdatedAt fresco o sin baseUpdatedAt → aplicado con éxito', async () => {
         const freshIso = new Date('2026-01-01T12:00:00.000Z').toISOString();
         const newerIso = new Date('2026-01-01T13:00:00.000Z').toISOString();

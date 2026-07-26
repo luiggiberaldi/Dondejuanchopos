@@ -58,6 +58,10 @@ function validateProductData(data) {
 /** Normalización mínima de consistencia (espejo de buildProductPayload para la vía remota). */
 function normalizeProduct(data) {
     const normalized = { ...data };
+    delete normalized.baseUpdatedAt;
+    for (const k of Object.keys(normalized)) {
+        if (k.startsWith('_')) delete normalized[k];
+    }
     normalized.name = String(data.name).trim();
     normalized.priceUsd = Number(data.priceUsd) || 0;
     normalized.priceUsdt = normalized.priceUsd; // alias canónico legacy — SIEMPRE espejo
