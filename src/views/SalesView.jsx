@@ -489,6 +489,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
         let priceToUse = CurrencyService.safeParse(product.priceUsd) || 0;
         let priceBsToUse = product.priceBsManual ? CurrencyService.safeParse(product.priceBsManual) : null;
         let priceBsUsdRefToUse = product.priceBsUsdRef ? CurrencyService.safeParse(product.priceBsUsdRef) : null;
+        let pricingModeToUse = product.pricingMode || 'tasa_dia';
         let cartId = product.id;
         let cartName = product.name;
         let unitsMultiplier = 1;
@@ -497,6 +498,9 @@ export default function SalesView({ triggerHaptic, isActive }) {
             priceToUse = CurrencyService.safeParse(product.boxPriceUsd) || 0;
             priceBsToUse = product.boxPriceBs ? CurrencyService.safeParse(product.boxPriceBs) : null;
             priceBsUsdRefToUse = product.boxPriceBsUsdRef ? CurrencyService.safeParse(product.boxPriceBsUsdRef) : null;
+            pricingModeToUse = product.boxPricingMode && product.boxPricingMode !== 'inherit'
+                ? product.boxPricingMode
+                : (product.pricingMode || 'tasa_dia');
             cartId = product.id + '_box';
             cartName = product.name + ' (Caja)';
             unitsMultiplier = parseInt(product.boxUnits, 10) || 1;
@@ -504,6 +508,9 @@ export default function SalesView({ triggerHaptic, isActive }) {
             priceToUse = CurrencyService.safeParse(product.halfBoxPriceUsd) || 0;
             priceBsToUse = product.halfBoxPriceBs ? CurrencyService.safeParse(product.halfBoxPriceBs) : null;
             priceBsUsdRefToUse = product.halfBoxPriceBsUsdRef ? CurrencyService.safeParse(product.halfBoxPriceBsUsdRef) : null;
+            pricingModeToUse = product.halfBoxPricingMode && product.halfBoxPricingMode !== 'inherit'
+                ? product.halfBoxPricingMode
+                : (product.pricingMode || 'tasa_dia');
             cartId = product.id + '_half';
             cartName = product.name + ' (½ Caja)';
             unitsMultiplier = parseInt(product.halfBoxUnits, 10) || 1;
@@ -554,6 +561,8 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 id: cartId,
                 name: cartName,
                 priceUsd: priceToUse,
+                pricingMode: pricingModeToUse,
+                forceBcv: pricingModeToUse === 'bcv',
                 priceBsManual: priceBsToUse,
                 priceBsUsdRef: priceBsUsdRefToUse,
                 costUsd: product.costUsd ? CurrencyService.safeParse(product.costUsd) * unitsMultiplier : 0,

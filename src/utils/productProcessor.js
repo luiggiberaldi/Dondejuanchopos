@@ -164,12 +164,14 @@ export function normalizeProduct(raw = {}) {
         sellByBox: Boolean(raw.sellByBox),
         boxUnits: raw.sellByBox ? (parseInt(raw.boxUnits, 10) || null) : null,
         boxPriceUsd: raw.sellByBox && raw.boxPriceUsd != null ? Number(raw.boxPriceUsd) : null,
+        boxPricingMode: raw.sellByBox ? (raw.boxPricingMode || 'inherit') : 'inherit',
         boxPriceBs: raw.sellByBox && raw.boxPriceBs != null ? Number(raw.boxPriceBs) : null,
         boxPriceBsUsdRef: raw.sellByBox && raw.boxPriceBsUsdRef != null ? Number(raw.boxPriceBsUsdRef) : null,
 
         sellByHalfBox: Boolean(raw.sellByHalfBox),
         halfBoxUnits: raw.sellByHalfBox ? (parseInt(raw.halfBoxUnits, 10) || null) : null,
         halfBoxPriceUsd: raw.sellByHalfBox && raw.halfBoxPriceUsd != null ? Number(raw.halfBoxPriceUsd) : null,
+        halfBoxPricingMode: raw.sellByHalfBox ? (raw.halfBoxPricingMode || 'inherit') : 'inherit',
         halfBoxPriceBs: raw.sellByHalfBox && raw.halfBoxPriceBs != null ? Number(raw.halfBoxPriceBs) : null,
         halfBoxPriceBsUsdRef: raw.sellByHalfBox && raw.halfBoxPriceBsUsdRef != null ? Number(raw.halfBoxPriceBsUsdRef) : null,
     };
@@ -178,16 +180,17 @@ export function normalizeProduct(raw = {}) {
 /**
  * Calcula la estructura completa de cobro para un producto en el carrito (D1, D3, D5).
  */
-export function calculatePricing(product, effectiveRate, bcvRate, format = 'unit') {
+export function calculatePricing(product, effectiveRate, bcvRate, format = null) {
     const p = normalizeProduct(product);
+    const targetFormat = format || p._mode || 'unit';
     let baseUsd = p.priceUsd;
     let mode = p.pricingMode;
 
-    if (format === 'box' && p.sellByBox && p.boxPriceUsd > 0) {
-        baseUsd = p.boxPriceUsd;
+    if (targetFormat === 'box' && (p.sellByBox || p._mode === 'box') && (p.boxPriceUsd > 0 || p.priceUsd > 0)) {
+        baseUsd = p.boxPriceUsd || p.priceUsd;
         if (p.boxPricingMode && p.boxPricingMode !== 'inherit') mode = p.boxPricingMode;
-    } else if (format === 'halfBox' && p.sellByHalfBox && p.halfBoxPriceUsd > 0) {
-        baseUsd = p.halfBoxPriceUsd;
+    } else if (targetFormat === 'halfBox' && (p.sellByHalfBox || p._mode === 'halfBox') && (p.halfBoxPriceUsd > 0 || p.priceUsd > 0)) {
+        baseUsd = p.halfBoxPriceUsd || p.priceUsd;
         if (p.halfBoxPricingMode && p.halfBoxPricingMode !== 'inherit') mode = p.halfBoxPricingMode;
     }
 

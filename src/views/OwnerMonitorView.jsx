@@ -18,6 +18,7 @@ import {
     MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud, Sparkles, Gift, RotateCcw, Target, Lock
 } from 'lucide-react';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
+import { mulR, round2 } from '../utils/dinero';
 import { getLocalISODate } from '../utils/dateHelpers';
 import { getPaymentLabel, toTitleCase } from '../config/paymentMethods';
 import { findOpenApertura, getOpenShiftMovements } from '../utils/shiftScope';
@@ -82,7 +83,39 @@ function getFormattedSaleCode(sale) {
     return `#${sale.id ? sale.id.slice(-6).toUpperCase() : ''}`;
 }
 
-function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId, onVoidSaleSuccess }) {
+export function getEffectiveSaleTotalBs(sale, products = [], effectiveRate = 1, bcvRate = 1) {
+    if (!sale) return 0;
+    if (!sale.items || sale.items.length === 0) return sale.totalBs || 0;
+
+    const rate = sale.rate || effectiveRate || 1;
+    const realBcv = sale.bcvRate || bcvRate || rate;
+
+    let hasMatch = false;
+    let sumBs = 0;
+
+    for (const item of sale.items) {
+        const cleanId = (item._originalId || item.id || '').replace(/_half|_box$/, '');
+        const prod = products.find(p => p.id === cleanId || p.id === item.productId || p.id === item.id);
+
+        if (prod) {
+            hasMatch = true;
+            const format = item._mode || (item.id && item.id.endsWith('_half') ? 'halfBox' : item.id && item.id.endsWith('_box') ? 'box' : 'unit');
+            const pricing = calculatePricing(prod, rate, realBcv, format);
+            sumBs += mulR(pricing.unitPriceBs, item.qty || 1);
+        } else if (item.priceBsManual && item.pricingMode === 'bs_fijo') {
+            hasMatch = true;
+            sumBs += mulR(item.priceBsManual, item.qty || 1);
+        } else if (item.subtotalBs != null && item.subtotalBs > 0) {
+            sumBs += item.subtotalBs;
+        } else {
+            sumBs += mulR(mulR(item.priceUsd ?? item.price ?? 0, item.qty || 1), rate);
+        }
+    }
+
+    return hasMatch ? round2(sumBs) : (sale.totalBs || 0);
+}
+
+function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId, onVoidSaleSuccess, products = [], effectiveRate = 1 }) {
     if (!sale) return null;
 
     const [showConfirmVoid, setShowConfirmVoid] = useState(false);
@@ -205,13 +238,21 @@ function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId, onVoidSaleSuc
                             <span>Subtotal</span>
                         </div>
                         
-                        <div className="space-y-2.5 max-h-[280px] overflow-y-auto pr-1">
                             {sale.items && sale.items.length > 0 ? (
                                 sale.items.map((item, idx) => {
                                     const qty = item.qty || 1;
                                     const price = item.priceUsd ?? item.price ?? 0;
                                     const subtotalUsd = qty * price;
-                                    const subtotalBs = item.subtotalBs || (subtotalUsd * (sale.bcvRate || bcvRate || 1));
+                                    const appliedRate = sale.rate || sale.bcvRate || effectiveRate || bcvRate || 1;
+                                    const realBcv = sale.bcvRate || bcvRate || appliedRate;
+
+                                    const cleanId = (item._originalId || item.id || '').replace(/_half|_box$/, '');
+                                    const prod = products.find(p => p.id === cleanId || p.id === item.productId || p.id === item.id);
+                                    const format = item._mode || (item.id && item.id.endsWith('_half') ? 'halfBox' : item.id && item.id.endsWith('_box') ? 'box' : 'unit');
+
+                                    const subtotalBs = prod
+                                        ? mulR(calculatePricing(prod, appliedRate, realBcv, format).unitPriceBs, qty)
+                                        : (item.subtotalBs != null ? item.subtotalBs : mulR(subtotalUsd, appliedRate));
                                     
                                     return (
                                         <div key={idx} className="p-3 bg-slate-50/80 dark:bg-slate-800/20 border border-slate-100 dark:border-slate-800 rounded-2xl flex justify-between items-start gap-3">
@@ -246,16 +287,15 @@ function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId, onVoidSaleSuc
                         </div>
                         <div className="flex items-center justify-between text-xs pt-1 border-t border-emerald-200/40 dark:border-emerald-900/30">
                             <span className="font-bold text-slate-600 dark:text-slate-300">Total Venta (Bs)</span>
-                            <span className={`font-outfit text-sm font-black ${isVoided ? 'line-through text-slate-400' : 'text-emerald-700 dark:text-emerald-400'}`}>{formatBs(sale.totalBs || 0)} Bs</span>
+                            <span className={`font-outfit text-sm font-black ${isVoided ? 'line-through text-slate-400' : 'text-emerald-700 dark:text-emerald-400'}`}>{formatBs(getEffectiveSaleTotalBs(sale, products, effectiveRate, bcvRate))} Bs</span>
                         </div>
-                        {(sale.bcvRate || bcvRate) && (
+                        {(sale.rate || sale.bcvRate || bcvRate) && (
                             <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1">
                                 <span>Tasa Aplicada</span>
-                                <span>1 USD = {formatBs(sale.bcvRate || bcvRate)} Bs</span>
+                                <span>1 USD = {formatBs(sale.rate || sale.bcvRate || bcvRate)} Bs</span>
                             </div>
                         )}
                     </div>
-                </div>
 
                 {/* Modal Footer */}
                 <div className="p-4 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-800/30">
@@ -941,7 +981,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         const validSales = activeShiftSales.filter(s => s.status !== 'ANULADA');
         validSales.forEach(s => {
             usd += s.totalUsd || 0;
-            bs += s.totalBs || 0;
+            bs += getEffectiveSaleTotalBs(s, products, effectiveRate, bcvRate);
         });
 
         // Calcular ganancia estimada si los productos tienen costo
@@ -964,7 +1004,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             profitUsd,
             count: validSales.length
         };
-    }, [activeShiftSales, products]);
+    }, [activeShiftSales, products, effectiveRate, bcvRate]);
 
     // Desglose por método de pago del turno activo (incluye vueltos desglosados en Bs y $)
     const activeShiftPaymentBreakdown = useMemo(() => {
@@ -1817,7 +1857,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                             </div>
                                                             <div className="hidden sm:block text-right space-y-0.5 shrink-0">
                                                                 <span className="font-outfit text-sm font-black text-slate-800 dark:text-white block">${(sale.totalUsd || 0).toFixed(2)}</span>
-                                                                <span className="font-outfit text-[10px] font-bold text-slate-400 block">{formatBs(sale.totalBs || 0)} Bs</span>
+                                                                <span className="font-outfit text-[10px] font-bold text-slate-400 block">{formatBs(getEffectiveSaleTotalBs(sale, products, effectiveRate, bcvRate))} Bs</span>
                                                             </div>
                                                         </div>
                                                     ))}
@@ -3111,6 +3151,8 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                     sale={selectedSaleDetail}
                     onClose={() => setSelectedSaleDetail(null)}
                     bcvRate={bcvRate}
+                    effectiveRate={effectiveRate}
+                    products={products}
                     pairedDeviceId={pairedDeviceId}
                     onVoidSaleSuccess={(saleId) => {
                         setSelectedSaleDetail(prev => prev ? { ...prev, status: 'ANULADA' } : null);
