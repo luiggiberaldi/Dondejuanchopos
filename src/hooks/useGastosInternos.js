@@ -62,8 +62,13 @@ export function useGastosInternos({ bcvRate, tasaCop, copEnabled, triggerHaptic,
             }]
         };
 
-        const updatedSales = [newGasto, ...sales];
-        await storageService.setItem(SALES_KEY, updatedSales);
+        const updatedSales = await withLock('pos_write_lock', async () => {
+            const freshSales = await storageService.getItem(SALES_KEY, []) || [];
+            const freshUpdated = [newGasto, ...freshSales];
+            await storageService.setItem(SALES_KEY, freshUpdated);
+            return freshUpdated;
+        });
+
         if (typeof setSales === 'function') setSales(updatedSales);
 
         showToast('Gasto registrado con éxito', 'success');
@@ -72,7 +77,7 @@ export function useGastosInternos({ bcvRate, tasaCop, copEnabled, triggerHaptic,
         }
         setIsAddGastoOpen(false);
         return true;
-    }, [sales, setSales, bcvRate, tasaCop, copEnabled, triggerHaptic, auditLog]);
+    }, [setSales, bcvRate, tasaCop, copEnabled, triggerHaptic, auditLog]);
 
     // ─── Autoconsumo: retiro de mercancía por el dueño ──────────────────────
     const registrarAutoconsumo = useCallback(async ({ description, items, valoracion = 'costo', note, totalUsd, totalBs }) => {

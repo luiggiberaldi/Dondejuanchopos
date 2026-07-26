@@ -365,50 +365,56 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
         }
 
         const currentCierreId = new Date().getTime();
-        const existingCloses = sales.filter(s => s.tipo === 'REGISTRO_CIERRE');
-        const cierreNumber = existingCloses.reduce((mx, s) => Math.max(mx, s.cierreNumber || 0), 0) + 1;
-        
-        // Registrar el cierre formalmente en el log de transacciones para sincronización con el supervisor
-        let registroCierre = null;
-        if (summaryObj) {
-            registroCierre = {
-                id: `cierre_${currentCierreId}`,
-                tipo: 'REGISTRO_CIERRE',
-                cierreId: currentCierreId,
-                cierreNumber: cierreNumber,
-                timestamp: new Date().toISOString(),
-                cajaCerrada: true,
-                summary: {
-                    todayTotalUsd: shiftTotalUsd,
-                    todayTotalBs: shiftTotalBs,
-                    todayProfit: shiftProfit,
-                    todayItemsSold: shiftItemsSold,
-                    reconData,
-                    copEnabled,
-                    tasaCop,
-                    cashier: {
-                        nombre: activeUser?.nombre || 'Cajero',
-                        rol: activeUser?.rol || 'CAJERO'
-                    }
-                }
-            };
-        }
 
-        const closingIds = new Set(shiftCashFlow.map(s => s.id));
-        const updatedSales = sales.map(s => {
-            if (closingIds.has(s.id)) {
-                return { ...s, cajaCerrada: true, cierreId: currentCierreId };
+        const updatedSales = await withLock('pos_write_lock', async () => {
+            const freshSales = await storageService.getItem(SALES_KEY, []) || [];
+            const existingCloses = freshSales.filter(s => s.tipo === 'REGISTRO_CIERRE');
+            const cierreNumber = existingCloses.reduce((mx, s) => Math.max(mx, s.cierreNumber || 0), 0) + 1;
+
+            let registroCierre = null;
+            if (summaryObj) {
+                registroCierre = {
+                    id: `cierre_${currentCierreId}`,
+                    tipo: 'REGISTRO_CIERRE',
+                    cierreId: currentCierreId,
+                    cierreNumber: cierreNumber,
+                    timestamp: new Date().toISOString(),
+                    cajaCerrada: true,
+                    summary: {
+                        todayTotalUsd: shiftTotalUsd,
+                        todayTotalBs: shiftTotalBs,
+                        todayProfit: shiftProfit,
+                        todayItemsSold: shiftItemsSold,
+                        reconData,
+                        copEnabled,
+                        tasaCop,
+                        cashier: {
+                            nombre: activeUser?.nombre || 'Cajero',
+                            rol: activeUser?.rol || 'CAJERO'
+                        }
+                    }
+                };
             }
-            return s;
+
+            const closingIds = new Set(shiftCashFlow.map(s => s.id));
+            const freshUpdated = freshSales.map(s => {
+                if (closingIds.has(s.id)) {
+                    return { ...s, cajaCerrada: true, cierreId: currentCierreId };
+                }
+                return s;
+            });
+
+            if (registroCierre) {
+                freshUpdated.push(registroCierre);
+            }
+
+            await storageService.setItem(SALES_KEY, freshUpdated);
+            return freshUpdated;
         });
 
-        if (registroCierre) {
-            updatedSales.push(registroCierre);
-        }
-
-        await storageService.setItem(SALES_KEY, updatedSales);
         setSales(updatedSales);
         setIsCashReconOpen(false);
+        window.dispatchEvent(new CustomEvent('sales-updated'));
 
         if (summaryObj) {
             setShowCierreSummary(true);
