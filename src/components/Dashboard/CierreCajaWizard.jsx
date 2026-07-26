@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, ChevronRight, DollarSign, Wallet, CheckCircle2, AlertTriangle, TrendingUp, ShoppingBag, Package, ArrowRight, Coins } from 'lucide-react';
+import { X, ChevronRight, DollarSign, Wallet, CheckCircle2, AlertTriangle, TrendingUp, ShoppingBag, Package, ArrowRight, Coins, RefreshCw } from 'lucide-react';
 import { formatBs, formatCop } from '../../utils/calculatorUtils';
 import { getPaymentLabel, getPaymentIcon, toTitleCase } from '../../config/paymentMethods';
 import { round2, subR, mulR } from '../../utils/dinero';
@@ -30,9 +30,17 @@ export default function CierreCajaWizard({
     const [actualUsd, setActualUsd] = useState('');
     const [actualBs, setActualBs] = useState('');
     const [actualCop, setActualCop] = useState('');
+    const [submitting, setSubmitting] = useState(false);
 
     useEffect(() => {
-        if (!isOpen) return;
+        if (!isOpen) {
+            setStep(1);
+            setActualUsd('');
+            setActualBs('');
+            setActualCop('');
+            setSubmitting(false);
+            return;
+        }
         const originalOverflow = document.body.style.overflow;
         document.body.style.overflow = 'hidden';
         return () => {
@@ -80,26 +88,30 @@ export default function CierreCajaWizard({
         return { color: 'red', label: 'Discrepancia significativa', icon: AlertTriangle, bg: 'bg-red-500' };
     };
 
-    const handleConfirm = () => {
-        onConfirm({
-            expectedUsd,
-            expectedBs,
-            expectedCop,
-            cashUsd: declaredUsd,
-            declaredUsd,
-            cashBs: declaredBs,
-            declaredBs,
-            cashCop: declaredCop,
-            declaredCop,
-            diffUsd,
-            diffBs,
-            diffCop,
-            isBlindClose: isBlindMode
-        });
-        setStep(1);
-        setActualUsd('');
-        setActualBs('');
-        setActualCop('');
+    const handleConfirm = async () => {
+        if (submitting) return;
+        setSubmitting(true);
+        try {
+            await onConfirm({
+                expectedUsd,
+                expectedBs,
+                expectedCop,
+                cashUsd: declaredUsd,
+                declaredUsd,
+                cashBs: declaredBs,
+                declaredBs,
+                cashCop: declaredCop,
+                declaredCop,
+                diffUsd,
+                diffBs,
+                diffCop,
+                isBlindClose: isBlindMode
+            });
+        } catch (err) {
+            console.error('[CierreCajaWizard] Error al confirmar:', err);
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     const handleClose = () => {
@@ -107,6 +119,7 @@ export default function CierreCajaWizard({
         setActualUsd('');
         setActualBs('');
         setActualCop('');
+        setSubmitting(false);
         onClose();
     };
 
@@ -525,9 +538,18 @@ export default function CierreCajaWizard({
                                     </button>
                                     <button
                                         onClick={handleConfirm}
-                                        className={`flex-1 py-3.5 text-sm font-bold text-white ${isBlindMode ? 'bg-brand hover:bg-brand-dark' : sem.bg} hover:brightness-110 rounded-xl shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2`}
+                                        disabled={submitting}
+                                        className={`flex-1 py-3.5 text-sm font-bold text-white ${isBlindMode ? 'bg-brand hover:bg-brand-dark' : sem.bg} hover:brightness-110 rounded-xl shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed`}
                                     >
-                                        <CheckCircle2 size={18} /> Confirmar Cierre
+                                        {submitting ? (
+                                            <>
+                                                <RefreshCw size={18} className="animate-spin" /> Procesando Cierre...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <CheckCircle2 size={18} /> Confirmar Cierre
+                                            </>
+                                        )}
                                     </button>
                                 </div>
                             </div>

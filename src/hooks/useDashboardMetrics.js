@@ -31,6 +31,11 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
         [shiftSales, bcvRate, products]
     );
 
+    const shiftExpenses = useMemo(() => {
+        return shiftCashFlow.filter(s => s.tipo === 'PAGO_PROVEEDOR' || (s.tipo === 'GASTO_INTERNO' && s.afectaCaja !== false));
+    }, [shiftCashFlow]);
+    const shiftExpensesUsd = useMemo(() => sumR(shiftExpenses.map(s => Math.abs(s.totalUsd || 0))), [shiftExpenses]);
+
     const shiftPaymentBreakdown = useMemo(() => {
         return FinancialEngine.calculatePaymentBreakdown(shiftCashFlow);
     }, [shiftCashFlow]);
@@ -233,6 +238,7 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
         shiftTotalUsd,
         shiftTotalCop,
         shiftItemsSold,
+        shiftExpensesUsd,
         shiftProfit,
         shiftPaymentBreakdown,
         shiftTopProducts,

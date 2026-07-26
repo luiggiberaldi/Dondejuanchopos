@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { processVoidSale } from '../utils/voidSaleProcessor';
 import { storageService } from '../utils/storageService';
+import { withLock } from '../utils/withLock';
 import { showToast } from '../components/Toast';
 import { BarChart3, TrendingUp, Package, AlertTriangle, ShoppingCart, Store, Users, Settings, LogOut, Bell, BellOff, Lock } from 'lucide-react';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
@@ -227,6 +228,8 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
         todayExpenses, todayExpensesUsd, todayProfit,
         getRecentSales, weekData, lowStockProducts,
         totalDeudas, topProducts, paymentBreakdown, todayTopProducts,
+        shiftCashFlow, shiftSales, shiftTotalUsd, shiftTotalBs, shiftTotalCop, shiftProfit,
+        shiftItemsSold, shiftExpensesUsd, shiftPaymentBreakdown, shiftTopProducts, shiftApertura,
     } = useDashboardMetrics(sales, customers, products, bcvRate);
 
     const recentSales = useMemo(() => getRecentSales(selectedChartDate), [getRecentSales, selectedChartDate]);
@@ -340,89 +343,94 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
     };
 
     const handleConfirmCashRecon = async (reconData) => {
-        let summaryObj = null;
-        const activeUser = useAuthStore.getState().usuarioActivo;
+        try {
+            let summaryObj = null;
+            const activeUser = useAuthStore.getState().usuarioActivo;
 
-        if (shiftCashFlow.length > 0) {
-            const salesForPDF = shiftCashFlow.filter(s => s.tipo !== 'APERTURA_CAJA');
+            if (shiftCashFlow && shiftCashFlow.length > 0) {
+                const salesForPDF = shiftCashFlow.filter(s => s.tipo !== 'APERTURA_CAJA');
 
-            summaryObj = {
-                sales: salesForPDF,
-                allSales: shiftCashFlow,
-                bcvRate,
-                paymentBreakdown: shiftPaymentBreakdown,
-                topProducts: shiftTopProducts,
-                todayTotalUsd: shiftTotalUsd,
-                todayTotalBs: shiftTotalBs,
-                todayProfit: shiftProfit,
-                todayItemsSold: shiftItemsSold,
-                reconData,
-                apertura: shiftApertura || todayApertura,
-                copEnabled,
-                tasaCop,
-            };
-            setCierreSummaryData(summaryObj);
-        }
-
-        const currentCierreId = new Date().getTime();
-
-        const updatedSales = await withLock('pos_write_lock', async () => {
-            const freshSales = await storageService.getItem(SALES_KEY, []) || [];
-            const existingCloses = freshSales.filter(s => s.tipo === 'REGISTRO_CIERRE');
-            const cierreNumber = existingCloses.reduce((mx, s) => Math.max(mx, s.cierreNumber || 0), 0) + 1;
-
-            let registroCierre = null;
-            if (summaryObj) {
-                registroCierre = {
-                    id: `cierre_${currentCierreId}`,
-                    tipo: 'REGISTRO_CIERRE',
-                    cierreId: currentCierreId,
-                    cierreNumber: cierreNumber,
-                    timestamp: new Date().toISOString(),
-                    cajaCerrada: true,
-                    summary: {
-                        todayTotalUsd: shiftTotalUsd,
-                        todayTotalBs: shiftTotalBs,
-                        todayProfit: shiftProfit,
-                        todayItemsSold: shiftItemsSold,
-                        reconData,
-                        copEnabled,
-                        tasaCop,
-                        cashier: {
-                            nombre: activeUser?.nombre || 'Cajero',
-                            rol: activeUser?.rol || 'CAJERO'
-                        }
-                    }
+                summaryObj = {
+                    sales: salesForPDF,
+                    allSales: shiftCashFlow,
+                    bcvRate,
+                    paymentBreakdown: shiftPaymentBreakdown,
+                    topProducts: shiftTopProducts,
+                    todayTotalUsd: shiftTotalUsd,
+                    todayTotalBs: shiftTotalBs,
+                    todayProfit: shiftProfit,
+                    todayItemsSold: shiftItemsSold,
+                    reconData,
+                    apertura: shiftApertura || todayApertura,
+                    copEnabled,
+                    tasaCop,
                 };
+                setCierreSummaryData(summaryObj);
             }
 
-            const closingIds = new Set(shiftCashFlow.map(s => s.id));
-            const freshUpdated = freshSales.map(s => {
-                if (closingIds.has(s.id)) {
-                    return { ...s, cajaCerrada: true, cierreId: currentCierreId };
+            const currentCierreId = new Date().getTime();
+
+            const updatedSales = await withLock('pos_write_lock', async () => {
+                const freshSales = await storageService.getItem(SALES_KEY, []) || [];
+                const existingCloses = freshSales.filter(s => s.tipo === 'REGISTRO_CIERRE');
+                const cierreNumber = existingCloses.reduce((mx, s) => Math.max(mx, s.cierreNumber || 0), 0) + 1;
+
+                let registroCierre = null;
+                if (summaryObj) {
+                    registroCierre = {
+                        id: `cierre_${currentCierreId}`,
+                        tipo: 'REGISTRO_CIERRE',
+                        cierreId: currentCierreId,
+                        cierreNumber: cierreNumber,
+                        timestamp: new Date().toISOString(),
+                        cajaCerrada: true,
+                        summary: {
+                            todayTotalUsd: shiftTotalUsd,
+                            todayTotalBs: shiftTotalBs,
+                            todayProfit: shiftProfit,
+                            todayItemsSold: shiftItemsSold,
+                            reconData,
+                            copEnabled,
+                            tasaCop,
+                            cashier: {
+                                nombre: activeUser?.nombre || 'Cajero',
+                                rol: activeUser?.rol || 'CAJERO'
+                            }
+                        }
+                    };
                 }
-                return s;
+
+                const closingIds = new Set((shiftCashFlow || []).map(s => s.id));
+                const freshUpdated = freshSales.map(s => {
+                    if (closingIds.has(s.id)) {
+                        return { ...s, cajaCerrada: true, cierreId: currentCierreId };
+                    }
+                    return s;
+                });
+
+                if (registroCierre) {
+                    freshUpdated.push(registroCierre);
+                }
+
+                await storageService.setItem(SALES_KEY, freshUpdated);
+                return freshUpdated;
             });
 
-            if (registroCierre) {
-                freshUpdated.push(registroCierre);
+            setSales(updatedSales);
+            setIsCashReconOpen(false);
+            window.dispatchEvent(new CustomEvent('sales-updated'));
+
+            if (summaryObj) {
+                setShowCierreSummary(true);
+            } else {
+                showToast('Cierre de caja completado (Sin movimientos)', 'success');
             }
 
-            await storageService.setItem(SALES_KEY, freshUpdated);
-            return freshUpdated;
-        });
-
-        setSales(updatedSales);
-        setIsCashReconOpen(false);
-        window.dispatchEvent(new CustomEvent('sales-updated'));
-
-        if (summaryObj) {
-            setShowCierreSummary(true);
-        } else {
-            showToast('Cierre de caja completado (Sin movimientos)', 'success');
+            auditLog('VENTA', 'CIERRE_CAJA', 'Cierre de caja completado');
+        } catch (err) {
+            console.error('[DashboardView] Error al procesar cierre de caja:', err);
+            showToast('Error al procesar el cierre de caja', 'error');
         }
-
-        auditLog('VENTA', 'CIERRE_CAJA', 'Cierre de caja completado');
     };
 
     if (isLoading) {
@@ -895,15 +903,15 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                 isOpen={isCashReconOpen}
                 onClose={() => setIsCashReconOpen(false)}
                 onConfirm={handleConfirmCashRecon}
-                todaySales={todaySales}
-                todayTotalUsd={todayTotalUsd}
-                todayTotalBs={todayTotalBs}
-                todayTotalCop={todayTotalCop}
-                todayProfit={todayProfit}
-                todayItemsSold={todayItemsSold}
-                todayExpensesUsd={todayExpensesUsd}
-                paymentBreakdown={paymentBreakdown}
-                todayTopProducts={todayTopProducts}
+                todaySales={shiftSales}
+                todayTotalUsd={shiftTotalUsd}
+                todayTotalBs={shiftTotalBs}
+                todayTotalCop={shiftTotalCop}
+                todayProfit={shiftProfit}
+                todayItemsSold={shiftItemsSold}
+                todayExpensesUsd={shiftExpensesUsd}
+                paymentBreakdown={shiftPaymentBreakdown}
+                todayTopProducts={shiftTopProducts}
                 bcvRate={bcvRate}
                 copEnabled={copEnabled}
                 copPrimary={copPrimary}
