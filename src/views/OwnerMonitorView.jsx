@@ -572,7 +572,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const projectedProducts = useMemo(() => {
         if (!products) return [];
 
-        let list = products.map(p => {
+        const baseList = products.map(p => {
             const stockDelta = pendingChanges
                 .filter(c => c.productId === p.id && c.action === 'adjust_stock')
                 .reduce((sum, c) => sum + (Number(c.data?.delta) || 0), 0);
@@ -586,46 +586,43 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             }
 
             const baseStock = Number(merged.stock) || 0;
-            merged.stock = Math.max(0, baseStock + stockDelta);
-            merged._rawStock = baseStock;
-            merged._stockDelta = stockDelta;
-            merged._isQueuedDelete = isDeleted;
-            merged._isQueuedEdit = !!editChange;
-
-            return merged;
+            return {
+                ...merged,
+                stock: Math.max(0, baseStock + stockDelta),
+                _rawStock: baseStock,
+                _stockDelta: stockDelta,
+                _isQueuedDelete: isDeleted,
+                _isQueuedEdit: !!editChange
+            };
         });
 
         // Excluir de la vista los eliminados en cola
-        list = list.filter(p => !p._isQueuedDelete);
+        const activeList = baseList.filter(p => !p._isQueuedDelete);
 
         // Agregar a la vista los creados en cola (nuevos)
         const addChanges = pendingChanges.filter(c => c.action === 'add');
-        for (const addChange of addChanges) {
-            if (addChange.data) {
-                list.unshift({
-                    ...addChange.data,
-                    id: addChange.productId || addChange.data.id || `temp_${Date.now()}`,
-                    name: addChange.data.name || 'Nuevo Producto',
-                    category: addChange.data.category || 'Varios',
-                    stock: Number(addChange.data.stock || 0),
-                    priceUsd: Number(addChange.data.priceUsd || addChange.data.price || 0),
-                    costUsd: Number(addChange.data.costUsd || addChange.data.costPrice || 0),
-                    _isQueuedNew: true
-                });
-            }
-        }
+        const newItems = addChanges.filter(c => c.data).map(addChange => ({
+            ...addChange.data,
+            id: addChange.productId || addChange.data.id || `temp_${Date.now()}`,
+            name: addChange.data.name || 'Nuevo Producto',
+            category: addChange.data.category || 'Varios',
+            stock: Number(addChange.data.stock || 0),
+            priceUsd: Number(addChange.data.priceUsd || addChange.data.price || 0),
+            costUsd: Number(addChange.data.costUsd || addChange.data.costPrice || 0),
+            _isQueuedNew: true
+        }));
+
+        const combinedList = [...newItems, ...activeList];
 
         // Recalcular stock dinámico y costo efectivo para combos basándonos en la proyección de sus insumos
-        list = list.map(p => {
-            const effCost = getEffectiveCostUsd(p, list);
+        return combinedList.map(p => {
+            const effCost = getEffectiveCostUsd(p, combinedList);
             if (p.isCombo || p.type === 'combo' || p.category === 'combo') {
-                const dynamicStock = calculateComboStock(p, list);
+                const dynamicStock = calculateComboStock(p, combinedList);
                 return { ...p, stock: dynamicStock, _isCombo: true, _effectiveCost: effCost, costUsd: p.costUsd || effCost };
             }
             return { ...p, _effectiveCost: effCost, costUsd: p.costUsd || effCost };
         });
-
-        return list;
     }, [products, pendingChanges]);
 
     const filteredProducts = useMemo(() => {
