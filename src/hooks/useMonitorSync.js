@@ -179,10 +179,10 @@ export function useMonitorSync(pairedDeviceId) {
                         table: 'sync_documents',
                         filter: `device_id=eq.${pairedDeviceId}`
                     }, async (payload) => {
-                        const doc = payload.new;
-                        if (!doc || !['store', 'local'].includes(doc.collection)) return;
+                        const doc = payload?.new;
+                        if (!doc || !doc.data || !['store', 'local'].includes(doc.collection)) return;
                         if (!MONITOR_DOC_IDS.includes(doc.doc_id)) return;
-                        await applyDocToLocal(doc.doc_id, doc.collection, doc.data.payload);
+                        await applyDocToLocal(doc.doc_id, doc.collection, doc.data?.payload);
                         const now = new Date();
                         setLastSync(now);
                         setPosLastSeen(now);

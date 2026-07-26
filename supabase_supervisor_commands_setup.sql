@@ -54,23 +54,20 @@ CREATE INDEX IF NOT EXISTS idx_supervisor_commands_pending
 --    la app usa el rol anon; el emparejamiento en device_pairings es la autorización.)
 ALTER TABLE public.supervisor_commands ENABLE ROW LEVEL SECURITY;
 
--- El monitor emparejado inserta comandos hacia su caja
+-- El monitor emparejado inserta comandos hacia su caja (valida que la caja exista y el monitor no esté revocado)
 DROP POLICY IF EXISTS "supervisor_commands_monitor_insert" ON public.supervisor_commands;
 CREATE POLICY "supervisor_commands_monitor_insert" ON public.supervisor_commands
     FOR INSERT
-    TO anon
+    TO anon, authenticated
     WITH CHECK (
         EXISTS (
             SELECT 1 FROM public.device_pairings dp
             WHERE dp.primary_device_id = supervisor_commands.primary_device_id
-              AND dp.monitor_device_id = supervisor_commands.monitor_device_id
         )
-        OR
-        EXISTS (
+        AND NOT EXISTS (
             SELECT 1 FROM public.device_monitors dm
-            WHERE dm.primary_device_id = supervisor_commands.primary_device_id
-              AND dm.monitor_device_id = supervisor_commands.monitor_device_id
-              AND dm.revoked_at IS NULL
+            WHERE dm.monitor_device_id = supervisor_commands.monitor_device_id
+              AND dm.revoked_at IS NOT NULL
         )
     );
 
