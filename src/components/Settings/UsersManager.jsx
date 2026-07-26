@@ -466,7 +466,7 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
                         key={user.id}
                         user={user}
                         currentUserId={usuarioActivo?.id}
-                        onChangePin={u => { setChangePinUser(u); setPinValue(''); setShowPin(false); }}
+                        onChangePin={handleStartChangePin}
                         onEditName={u => { setEditNameUser(u); setEditNameValue(u.nombre); }}
                         onDelete={u => setDeleteUser(u)}
                         onToggleBypassPin={handleToggleBypassPin}
