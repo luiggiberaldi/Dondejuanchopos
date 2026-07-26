@@ -454,10 +454,26 @@ export function useCloudSync(deviceId) {
         // Ejecución periódica cada 20 segundos para asegurar sincronización en tiempo real
         const intervalId = setInterval(forcePushLocalData, 20000);
 
+        // Heartbeat de presencia de la caja principal hacia la nube (cada 60s)
+        const pingPosPresence = async () => {
+            if (navigator.onLine && isCloudSyncActive && deviceId) {
+                try {
+                    await supabaseCloud
+                        .from('device_pairings')
+                        .update({ paired_at: new Date().toISOString() })
+                        .eq('primary_device_id', deviceId);
+                } catch {}
+            }
+        };
+
+        pingPosPresence();
+        const presenceIntervalId = setInterval(pingPosPresence, 60000);
+
         return () => {
             isCloudSyncActive = false;
             window.removeEventListener('online', forcePushLocalData);
             clearInterval(intervalId);
+            clearInterval(presenceIntervalId);
 
             // HOOK-012: limpiar suscripción en cleanup para evitar leaks.
             if (globalSubscription) {

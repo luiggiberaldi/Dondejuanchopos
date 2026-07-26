@@ -56,12 +56,29 @@ export function useMonitorSync(pairedDeviceId) {
                 .order('updated_at', { ascending: false })
                 .limit(1);
 
+            let maxLastSeenMs = 0;
             if (docs && docs.length > 0 && docs[0].updated_at) {
-                const lastDate = new Date(docs[0].updated_at);
+                maxLastSeenMs = new Date(docs[0].updated_at).getTime();
+            }
+
+            // Consultar también la última presencia registrada en device_pairings
+            const { data: pairing } = await supabaseCloud
+                .from('device_pairings')
+                .select('paired_at')
+                .eq('primary_device_id', pairedDeviceId)
+                .maybeSingle();
+
+            if (pairing && pairing.paired_at) {
+                const pairingMs = new Date(pairing.paired_at).getTime();
+                if (pairingMs > maxLastSeenMs) maxLastSeenMs = pairingMs;
+            }
+
+            if (maxLastSeenMs > 0) {
+                const lastDate = new Date(maxLastSeenMs);
                 setPosLastSeen(lastDate);
-                const diffMs = Date.now() - lastDate.getTime();
-                // Considerar la caja En Línea si reportó actividad a la nube en los últimos 3 minutos (180,000 ms)
-                setIsPosOnline(diffMs <= 180000);
+                const diffMs = Date.now() - maxLastSeenMs;
+                // Considerar la caja En Línea si reportó actividad en los últimos 10 minutos (600,000 ms)
+                setIsPosOnline(diffMs <= 600000);
             } else {
                 setIsPosOnline(false);
             }
