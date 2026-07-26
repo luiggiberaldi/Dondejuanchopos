@@ -156,11 +156,21 @@ BEGIN
     WHERE monitor_device_id = p_monitor_device_id
     RETURNING revoked_at INTO v_revoked;
 
-    IF NOT FOUND THEN
-        RETURN json_build_object('success', false, 'is_revoked', true);
+    IF FOUND THEN
+        RETURN json_build_object('success', true, 'is_revoked', (v_revoked IS NOT NULL));
     END IF;
 
-    RETURN json_build_object('success', true, 'is_revoked', (v_revoked IS NOT NULL));
+    -- Si no está en device_monitors pero está en device_pairings (legacy o principal)
+    IF EXISTS (
+        SELECT 1 FROM public.device_pairings 
+        WHERE monitor_device_id = p_monitor_device_id 
+           OR primary_device_id = p_monitor_device_id
+    ) THEN
+        RETURN json_build_object('success', true, 'is_revoked', false);
+    END IF;
+
+    -- No revocar por defecto a dispositivos nuevos o manuales
+    RETURN json_build_object('success', true, 'is_revoked', false);
 END; $$;
 
 -- 7. RLS y Permisos
