@@ -15,7 +15,7 @@ import {
     RefreshCw, Wifi, WifiOff, Clock, FileText, DollarSign,
     Wallet, CreditCard, Smartphone, Banknote, ArrowDownRight,
     ShieldCheck, Hash, AlertTriangle, Search, X, ChevronLeft, ChevronRight,
-    MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud, Sparkles, Gift, RotateCcw, Target
+    MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud, Sparkles, Gift, RotateCcw, Target, Lock
 } from 'lucide-react';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
 import { getLocalISODate } from '../utils/dateHelpers';
@@ -353,6 +353,8 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const ITEMS_PER_PAGE_CAMBIOS = 10;
     const [showCloudPendingModal, setShowCloudPendingModal] = useState(false);
     const [showUsersModal, setShowUsersModal] = useState(false);
+    const [showRemoteCloseModal, setShowRemoteCloseModal] = useState(false);
+    const [closingRemote, setClosingRemote] = useState(false);
     const [showPairingModal, setShowPairingModal] = useState(false);
     const [cancellingCmdId, setCancellingCmdId] = useState(null);
     const [pendingChanges, setPendingChanges] = useState(() => {
@@ -640,6 +642,91 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         } catch (err) {
             console.error('[OwnerMonitor] Error al anular comandos:', err);
             showToast('Error al anular los comandos', 'error');
+        }
+    };
+
+    const handleRemoteForceDailyClose = async () => {
+        if (!pairedDeviceId || !supabaseCloud) return;
+        setClosingRemote(true);
+        triggerHaptic?.();
+        try {
+            const currentCierreId = Date.now();
+            const existingCloses = sales.filter(s => s.tipo === 'REGISTRO_CIERRE');
+            const cierreNumber = existingCloses.reduce((mx, s) => Math.max(mx, s.cierreNumber || 0), 0) + 1;
+            const validTiposParaCerrar = ['VENTA', 'VENTA_FIADA', 'VENTA_CASHEA', 'COBRO_DEUDA', 'PAGO_PROVEEDOR', 'APERTURA_CAJA'];
+
+            const summaryObj = {
+                todayTotalUsd: activeShiftMetrics.totalUsd,
+                todayTotalBs: activeShiftMetrics.totalBs,
+                todayProfit: activeShiftMetrics.profitUsd,
+                todayItemsSold: activeShiftMetrics.count,
+                copEnabled,
+                tasaCop,
+                cashier: {
+                    nombre: activeCashier?.nombre || 'Supervisión Remota',
+                    rol: 'SUPERVISOR_REMOTO'
+                }
+            };
+
+            const registroCierre = {
+                id: `cierre_${currentCierreId}`,
+                tipo: 'REGISTRO_CIERRE',
+                cierreId: currentCierreId,
+                cierreNumber: cierreNumber,
+                timestamp: new Date().toISOString(),
+                cajaCerrada: true,
+                remoteTriggered: true,
+                summary: summaryObj
+            };
+
+            const updatedSales = sales.map(s => {
+                if (!s.cajaCerrada && validTiposParaCerrar.includes(s.tipo || 'VENTA')) {
+                    return { ...s, cajaCerrada: true, cierreId: currentCierreId };
+                }
+                return s;
+            });
+            updatedSales.push(registroCierre);
+
+            // 1. Guardar en Supabase sync_documents para la caja remota
+            const { error: syncErr } = await supabaseCloud
+                .from('sync_documents')
+                .upsert({
+                    device_id: pairedDeviceId,
+                    collection: 'local',
+                    doc_id: 'bodega_sales_v1',
+                    data: { payload: updatedSales },
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'device_id,collection,doc_id' });
+
+            if (syncErr) throw syncErr;
+
+            // 2. Enviar orden a supervisor_commands para que la caja la aplique si reacciona (no bloqueante)
+            try {
+                const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
+                await supabaseCloud
+                    .from('supervisor_commands')
+                    .insert({
+                        primary_device_id: pairedDeviceId,
+                        monitor_device_id: monitorDeviceId,
+                        command_type: 'force_daily_close',
+                        payload: { cierreId: currentCierreId, cierreNumber: cierreNumber, ...summaryObj },
+                        status: 'pending'
+                    });
+            } catch (cmdErr) {
+                console.warn('[OwnerMonitor] Registro secundario en supervisor_commands omitido:', cmdErr);
+            }
+
+            // 3. Actualizar memoria local del Monitor y cambiar a pestaña 'cierres'
+            setSales(updatedSales);
+            setSelectedCierreId(currentCierreId);
+            setShowRemoteCloseModal(false);
+            setViewTab('cierres');
+            showToast(`Cierre #${cierreNumber} completado exitosamente con éxito`, 'success');
+        } catch (err) {
+            console.error('[OwnerMonitor] Error en cierre remoto:', err);
+            showToast('Error al ejecutar el cierre remoto', 'error');
+        } finally {
+            setClosingRemote(false);
         }
     };
 
@@ -1454,12 +1541,23 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                     </p>
                                 </div>
                             </div>
-                            {activeCashier?.nombre && activeCashier.nombre !== 'Ninguno' && (
-                                <div className="text-left sm:text-right border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-200/60 dark:border-slate-800">
-                                    <span className="text-[9.5px] font-black uppercase text-slate-400 block">Cajero en Turno</span>
-                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{activeCashier.nombre}</span>
-                                </div>
-                            )}
+                            <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap">
+                                {activeCashier?.nombre && activeCashier.nombre !== 'Ninguno' && (
+                                    <div className="text-left sm:text-right border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-200/60 dark:border-slate-800">
+                                        <span className="text-[9.5px] font-black uppercase text-slate-400 block">Cajero en Turno</span>
+                                        <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{activeCashier.nombre}</span>
+                                    </div>
+                                )}
+                                {shiftStatusInfo.isOpen && (
+                                    <button
+                                        onClick={() => { triggerHaptic?.(); setShowRemoteCloseModal(true); }}
+                                        className="flex items-center justify-center gap-2 px-3.5 py-2 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs shadow-md shadow-amber-500/20 transition-all hover:scale-[1.02] active:scale-95 cursor-pointer shrink-0"
+                                    >
+                                        <Lock size={15} />
+                                        <span>Cerrar Caja Remotamente</span>
+                                    </button>
+                                )}
+                            </div>
                         </div>
 
                         {/* Fila 1: Tarjetas de Métricas de Turno Activo */}
@@ -3068,6 +3166,66 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                     pairedDeviceId={pairedDeviceId}
                     triggerHaptic={triggerHaptic}
                 />
+            )}
+
+            {/* Modal de Confirmación de Cierre Remoto de Caja */}
+            {showRemoteCloseModal && (
+                <div className="fixed inset-0 z-[300] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in" onClick={() => !closingRemote && setShowRemoteCloseModal(false)}>
+                    <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                        <div className="p-5 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between bg-amber-50/50 dark:bg-amber-950/20">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center font-black shrink-0 shadow-md shadow-amber-500/20">
+                                    <Lock size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-black text-slate-800 dark:text-white">Ejecutar Cierre Remoto</h3>
+                                    <p className="text-xs text-slate-400 font-medium mt-0.5">Caja ID: {pairedDeviceId?.slice(0, 16)}...</p>
+                                </div>
+                            </div>
+                            <button onClick={() => !closingRemote && setShowRemoteCloseModal(false)} className="p-2 rounded-2xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">
+                                <X size={18} />
+                            </button>
+                        </div>
+                        
+                        <div className="p-5 sm:p-6 space-y-4">
+                            <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 space-y-2">
+                                <div className="flex justify-between items-center text-xs">
+                                    <span className="text-slate-500 dark:text-slate-400 font-medium">Total Ventas (Turno Abierto):</span>
+                                    <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">${activeShiftMetrics.totalUsd.toFixed(2)} USD</span>
+                                </div>
+                                <div className="flex justify-between items-center text-xs">
+                                    <span className="text-slate-500 dark:text-slate-400 font-medium">Equivalente en Bolívares:</span>
+                                    <span className="font-bold text-slate-700 dark:text-slate-200">Bs {activeShiftMetrics.totalBs.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between items-center text-xs">
+                                    <span className="text-slate-500 dark:text-slate-400 font-medium">Ventas Acumuladas:</span>
+                                    <span className="font-bold text-slate-700 dark:text-slate-200">{activeShiftMetrics.count} transacciones</span>
+                                </div>
+                            </div>
+
+                            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-medium">
+                                Al confirmar, se consolidarán todas las ventas abiertas (incluyendo las realizadas ayer y hoy) en un documento oficial de <strong>Cierre de Caja</strong>. La caja remota actualizará su estado automáticamente.
+                            </p>
+
+                            <div className="grid grid-cols-2 gap-3 pt-2">
+                                <button
+                                    onClick={() => setShowRemoteCloseModal(false)}
+                                    disabled={closingRemote}
+                                    className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 rounded-2xl font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={handleRemoteForceDailyClose}
+                                    disabled={closingRemote}
+                                    className="py-3 px-4 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-black text-xs transition-all shadow-md hover:shadow-amber-500/30 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                                >
+                                    {closingRemote ? 'Procesando Cierre...' : '🔒 Confirmar Cierre'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             )}
 
             {/* Modal de Gestión de Usuarios y PINs */}

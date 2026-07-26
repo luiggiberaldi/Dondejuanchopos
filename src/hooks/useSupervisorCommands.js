@@ -197,6 +197,47 @@ export function useSupervisorCommands(deviceId) {
                     console.error('[SupervisorCommands] Error al anular venta remota:', err);
                     await updateCommandStatus(command.id, 'failed', err?.message);
                 }
+            } else if (command.command_type === 'force_daily_close') {
+                try {
+                    appliedIds.add(command.id);
+                    markApplied(command.id);
+                    const { storageService } = await import('../utils/storageService');
+                    const { pushCloudSync } = await import('./useCloudSync');
+                    const sales = await storageService.getItem('bodega_sales_v1', []) || [];
+
+                    const targetCierreId = command.payload?.cierreId || Date.now();
+                    const validTiposParaCerrar = ['VENTA', 'VENTA_FIADA', 'VENTA_CASHEA', 'COBRO_DEUDA', 'PAGO_PROVEEDOR', 'APERTURA_CAJA'];
+
+                    const updatedSales = sales.map(s => {
+                        if (!s.cajaCerrada && validTiposParaCerrar.includes(s.tipo || 'VENTA')) {
+                            return { ...s, cajaCerrada: true, cierreId: targetCierreId };
+                        }
+                        return s;
+                    });
+
+                    if (!updatedSales.some(s => s.cierreId === targetCierreId && s.tipo === 'REGISTRO_CIERRE')) {
+                        const existingCloses = sales.filter(s => s.tipo === 'REGISTRO_CIERRE');
+                        const cierreNumber = command.payload?.cierreNumber || (existingCloses.reduce((mx, s) => Math.max(mx, s.cierreNumber || 0), 0) + 1);
+                        updatedSales.push({
+                            id: `cierre_${targetCierreId}`,
+                            tipo: 'REGISTRO_CIERRE',
+                            cierreId: targetCierreId,
+                            cierreNumber: cierreNumber,
+                            timestamp: new Date().toISOString(),
+                            cajaCerrada: true,
+                            remoteTriggered: true,
+                            summary: command.payload || {}
+                        });
+                    }
+
+                    await storageService.setItem('bodega_sales_v1', updatedSales);
+                    await pushCloudSync('bodega_sales_v1', updatedSales);
+                    await updateCommandStatus(command.id, 'applied');
+                    window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_sales_v1' } }));
+                } catch (err) {
+                    console.error('[SupervisorCommands] Error al ejecutar Cierre Remoto en la caja:', err);
+                    await updateCommandStatus(command.id, 'failed', err?.message);
+                }
             }
             // Tipos desconocidos: se ignoran (comportamiento histórico)
         };

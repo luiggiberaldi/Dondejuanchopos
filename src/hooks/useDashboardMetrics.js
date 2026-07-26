@@ -44,13 +44,10 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
         [salesWithLocalDate, today]
     );
 
-    // Detect if apertura was already registered today
+    // Detect if apertura is active for current unclosed shift
     const todayApertura = useMemo(() => {
-        return salesWithLocalDate.find(s => {
-            if (s.tipo !== 'APERTURA_CAJA' || s.cajaCerrada) return false;
-            return s.localDate === today;
-        });
-    }, [salesWithLocalDate, today]);
+        return salesWithLocalDate.find(s => s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada);
+    }, [salesWithLocalDate]);
 
     const todayTotalBs = useMemo(() => sumR(todaySales.map(s => s.totalBs || 0)), [todaySales]);
     const todayTotalUsd = useMemo(() => sumR(todaySales.map(s => s.totalUsd || 0)), [todaySales]);

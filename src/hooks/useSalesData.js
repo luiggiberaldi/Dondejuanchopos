@@ -72,13 +72,8 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
                     setCart(savedCart);
                 }
 
-                // Check Apertura (timezone-safe)
-                const todayStr = getLocalISODate(new Date());
-                const apertura = savedSales.find(s => {
-                    if (s.tipo !== 'APERTURA_CAJA' || s.cajaCerrada) return false;
-                    const saleDay = s.timestamp ? getLocalISODate(new Date(s.timestamp)) : todayStr;
-                    return saleDay === todayStr;
-                });
+                // Check Apertura (busca la apertura del turno activo que no haya sido cerrada)
+                const apertura = savedSales.find(s => s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada);
                 setTodayAperturaData(apertura || null);
 
                 setIsLoadingLocal(false);
@@ -104,14 +99,8 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
             setCustomers(savedCustomers);
             setSalesData(savedSales);
 
-            // Recalculate Apertura (uses imported getLocalISODate)
-            const todayStr = getLocalISODate(new Date());
-
-            const apertura = savedSales.find(s => {
-                if (s.tipo !== 'APERTURA_CAJA' || s.cajaCerrada) return false;
-                const saleLocalDay = s.timestamp ? getLocalISODate(new Date(s.timestamp)) : todayStr;
-                return saleLocalDay === todayStr;
-            });
+            // Recalculate Apertura (busca la apertura del turno activo que no haya sido cerrada)
+            const apertura = savedSales.find(s => s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada);
             setTodayAperturaData(apertura || null);
         }).catch(err => console.error('[useSalesData] Error al recargar datos:', err));
     }, [isActive, setProducts]);
