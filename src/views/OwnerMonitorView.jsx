@@ -1110,7 +1110,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 if (!groups[cId]) {
                     groups[cId] = {
                         cierreId: cId,
-                        timestamp: new Date(cId).toISOString(),
+                        timestamp: typeof cId === 'number' ? new Date(cId).toISOString() : (s.timestamp || new Date().toISOString()),
                         sales: []
                     };
                 }
@@ -1118,18 +1118,35 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             }
         });
 
+        // Asegurar que todo REGISTRO_CIERRE explícito quede incluido en los grupos
+        explicitCloses.forEach(ec => {
+            const cId = ec.cierreId || ec.timestamp;
+            if (!cId) return;
+            if (!groups[cId]) {
+                groups[cId] = {
+                    cierreId: cId,
+                    timestamp: ec.timestamp || (typeof cId === 'number' ? new Date(cId).toISOString() : new Date().toISOString()),
+                    sales: []
+                };
+            }
+        });
+
         // Formatear cada grupo combinando datos explícitos de arqueo si existen
         return Object.values(groups).map(g => {
-            const explicit = explicitCloses.find(ec => ec.cierreId === g.cierreId);
+            const explicit = explicitCloses.find(ec => ec.cierreId === g.cierreId || ec.timestamp === g.timestamp);
             
             // Filtrar para métricas generales y de caja
             const salesForStats = g.sales.filter(s => s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA');
             const salesForCashFlow = g.sales.filter(s => s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA' || s.tipo === 'COBRO_DEUDA' || s.tipo === 'PAGO_PROVEEDOR');
             
-            const totalUsd = salesForStats.reduce((sum, s) => sum + (s.totalUsd || 0), 0);
-            const totalBs = salesForStats.reduce((sum, s) => sum + (s.totalBs || 0), 0);
-            const totalItems = salesForStats.reduce((sum, s) => sum + (s.items ? s.items.reduce((is, it) => is + it.qty, 0) : 0), 0);
+            const calculatedTotalUsd = salesForStats.reduce((sum, s) => sum + (s.totalUsd || 0), 0);
+            const calculatedTotalBs = salesForStats.reduce((sum, s) => sum + (s.totalBs || 0), 0);
+            const calculatedTotalItems = salesForStats.reduce((sum, s) => sum + (s.items ? s.items.reduce((is, it) => is + it.qty, 0) : 0), 0);
             
+            const totalUsd = explicit?.summary?.todayTotalUsd ?? calculatedTotalUsd;
+            const totalBs = explicit?.summary?.todayTotalBs ?? calculatedTotalBs;
+            const totalItems = explicit?.summary?.todayItemsSold ?? calculatedTotalItems;
+
             // Reconstruir desglose de pagos del cierre
             const breakdown = {};
             salesForCashFlow.forEach(sale => {
@@ -1170,6 +1187,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
             return {
                 cierreId: g.cierreId,
+                cierreNumber: explicit?.cierreNumber || (typeof g.cierreId === 'number' ? String(g.cierreId).slice(-4) : 'N/A'),
                 timestamp: g.timestamp,
                 sales: salesForStats,
                 totalUsd,
@@ -1180,7 +1198,8 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 reconData: explicit?.summary?.reconData || null,
                 cashier: explicit?.summary?.cashier || { nombre: 'Cajero', rol: 'CAJERO' }
             };
-        }).sort((a, b) => b.cierreId - a.cierreId);
+        }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    }, [sales]);
     }, [sales]);
 
     // Establecer primer cierre por defecto si cambia la lista
