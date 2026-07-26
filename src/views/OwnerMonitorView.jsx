@@ -388,7 +388,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         const channel = supabaseCloud
             .channel(`supervisor_cmds:${pairedDeviceId}`)
             .on('postgres_changes', {
-                event: 'INSERT',
+                event: '*',
                 schema: 'public',
                 table: 'supervisor_commands',
                 filter: `primary_device_id=eq.${pairedDeviceId}`
