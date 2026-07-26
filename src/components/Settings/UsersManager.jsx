@@ -245,6 +245,17 @@ export default function UsersManager({ triggerHaptic }) {
         }
     };
 
+    // Helper para publicar el catálogo sanitizado de usuarios en la nube (caja principal)
+    const publishUserCatalog = async (users) => {
+        try {
+            const { pushLocalSync } = await import('../../hooks/useCloudSync');
+            const { sanitizeUserCatalog } = await import('../../utils/userCatalog');
+            pushLocalSync('bodega_users_catalog_v1', sanitizeUserCatalog(users));
+        } catch (e) {
+            console.warn('[UsersManager] No se pudo publicar el catálogo de usuarios:', e);
+        }
+    };
+
     // States
     const [showAddForm, setShowAddForm] = useState(false);
     const [newName, setNewName] = useState('');
@@ -273,15 +284,20 @@ export default function UsersManager({ triggerHaptic }) {
             if (displayUsers.some(u => u.pin === newPin)) return showToast('Ese PIN ya esta en uso', 'error');
         }
 
-        agregarUsuario(newName.trim(), newRole, newBypassPin ? '' : newPin, newBypassPin);
+        const res = agregarUsuario(newName.trim(), newRole, newBypassPin ? '' : newPin, newBypassPin);
         pushRemoteUserCmd('add', { nombre: newName.trim(), rol: newRole, newPin: newBypassPin ? '' : newPin, bypassPin: newBypassPin });
         
-        // Actualización optimista de estado local
+        // Actualización optimista de estado local y publicación
         setSyncedUsers(prev => {
             const current = prev && prev.length > 0 ? prev : usuarios;
             const fresh = [...current, { id: Date.now(), nombre: newName.trim(), rol: newRole, plainPin: newBypassPin ? '' : newPin, bypassPin: newBypassPin }];
             try { localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(fresh)); } catch {}
+            publishUserCatalog(fresh);
             return fresh;
+        });
+
+        res?.done?.then(() => {
+            publishUserCatalog(useAuthStore.getState().usuarios);
         });
 
         showToast(`Usuario "${newName.trim()}" creado`, 'success');
@@ -303,6 +319,7 @@ export default function UsersManager({ triggerHaptic }) {
             const current = prev && prev.length > 0 ? prev : usuarios;
             const fresh = current.map(u => u.id === user.id ? { ...u, bypassPin: newVal } : u);
             try { localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(fresh)); } catch {}
+            publishUserCatalog(fresh);
             return fresh;
         });
 
@@ -375,12 +392,17 @@ export default function UsersManager({ triggerHaptic }) {
 
         pushRemoteUserCmd('change_pin', { userId: changePinUser.id, newPin: pinValue });
 
-        // Actualización optimista de estado local (0ms de lag)
+        // Actualización optimista de estado local y publicación
         setSyncedUsers(prev => {
             const current = prev && prev.length > 0 ? prev : usuarios;
             const fresh = current.map(u => u.id === changePinUser.id ? { ...u, plainPin: pinValue } : u);
             try { localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(fresh)); } catch {}
+            publishUserCatalog(fresh);
             return fresh;
+        });
+
+        res?.done?.then(() => {
+            publishUserCatalog(useAuthStore.getState().usuarios);
         });
 
         showToast(`PIN de ${changePinUser.nombre} actualizado`, 'success');
@@ -401,6 +423,13 @@ export default function UsersManager({ triggerHaptic }) {
             showToast('No se puede eliminar este usuario', 'error');
         } else {
             pushRemoteUserCmd('delete', { userId: deleteUser.id });
+            setSyncedUsers(prev => {
+                const current = prev && prev.length > 0 ? prev : usuarios;
+                const fresh = current.filter(u => u.id !== deleteUser.id);
+                try { localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(fresh)); } catch {}
+                publishUserCatalog(fresh);
+                return fresh;
+            });
             showToast(`"${deleteUser.nombre}" eliminado`, 'success');
             triggerHaptic?.();
         }
@@ -411,6 +440,13 @@ export default function UsersManager({ triggerHaptic }) {
         if (!editNameValue.trim()) return showToast('Ingresa un nombre válido', 'error');
         editarUsuario(editNameUser.id, { nombre: editNameValue.trim() });
         pushRemoteUserCmd('edit', { userId: editNameUser.id, nombre: editNameValue.trim() });
+        setSyncedUsers(prev => {
+            const current = prev && prev.length > 0 ? prev : usuarios;
+            const fresh = current.map(u => u.id === editNameUser.id ? { ...u, nombre: editNameValue.trim() } : u);
+            try { localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(fresh)); } catch {}
+            publishUserCatalog(fresh);
+            return fresh;
+        });
         showToast(`Nombre actualizado a ${editNameValue.trim()}`, 'success');
         triggerHaptic?.();
         setEditNameUser(null);
