@@ -110,15 +110,14 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
         [todaySales, bcvRate, products]
     );
 
-    // Últimas ventas (por defecto todas ordenadas por fecha más reciente, o filtradas por el día seleccionado en la gráfica)
+    // Últimas ventas (por defecto las ventas del turno activo shiftSales, o filtradas por la fecha seleccionada en la gráfica)
     const getRecentSales = useCallback((selectedChartDate) => {
-        const filteredSales = salesWithLocalDate.filter(s => s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA');
-        const sorted = [...filteredSales].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         if (selectedChartDate) {
-            return sorted.filter(s => s.localDate === selectedChartDate);
+            const filteredSales = salesWithLocalDate.filter(s => (s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA') && s.localDate === selectedChartDate);
+            return [...filteredSales].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         }
-        return sorted;
-    }, [salesWithLocalDate]);
+        return [...shiftSales].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    }, [salesWithLocalDate, shiftSales]);
 
     // Datos últimos 7 días (para gráfica)
     // FIN-013: unificar criterio — INCLUIR VENTA_FIADA como todayTotalUsd hace.
