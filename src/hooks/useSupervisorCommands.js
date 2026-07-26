@@ -131,21 +131,55 @@ export function useSupervisorCommands(deviceId) {
                 }
             } else if (command.command_type === 'user_update') {
                 try {
-                    appliedIds.add(command.id);
-                    markApplied(command.id);
                     const { action, userId, newPin, nombre, rol, bypassPin } = command.payload || {};
                     const { useAuthStore } = await import('./store/useAuthStore');
                     const store = useAuthStore.getState();
 
+                    let applied = false;
+                    let failReason = '';
+
                     if (action === 'change_pin' && userId && newPin) {
-                        store.cambiarPin(userId, newPin);
+                        const target = store.usuarios.find(u => u.id === userId);
+                        if (!target) {
+                            failReason = `Usuario con ID ${userId} no existe en la caja`;
+                        } else {
+                            store.cambiarPin(userId, newPin);
+                            applied = true;
+                        }
                     } else if (action === 'add' && nombre) {
                         store.agregarUsuario(nombre, rol || 'CAJERO', newPin || '000000', bypassPin);
+                        applied = true;
                     } else if (action === 'edit' && userId) {
-                        store.editarUsuario(userId, { nombre, rol, bypassPin });
+                        const target = store.usuarios.find(u => u.id === userId);
+                        if (!target) {
+                            failReason = `Usuario con ID ${userId} no existe en la caja`;
+                        } else {
+                            store.editarUsuario(userId, { nombre, rol, bypassPin });
+                            applied = true;
+                        }
                     } else if (action === 'delete' && userId) {
-                        store.eliminarUsuario(userId);
+                        const target = store.usuarios.find(u => u.id === userId);
+                        if (!target) {
+                            failReason = `Usuario con ID ${userId} no existe en la caja`;
+                        } else {
+                            const res = store.eliminarUsuario(userId);
+                            if (res === false) {
+                                failReason = `No se puede eliminar el usuario ${target.nombre} (último admin o sesión activa)`;
+                            } else {
+                                applied = true;
+                            }
+                        }
+                    } else {
+                        failReason = `Acción de usuario no reconocida o incompleta: ${action}`;
                     }
+
+                    if (!applied) {
+                        await updateCommandStatus(command.id, 'failed', failReason || 'Acción no aplicada');
+                        return;
+                    }
+
+                    appliedIds.add(command.id);
+                    markApplied(command.id);
 
                     // Notificar y actualizar catálogo de usuarios en la nube
                     const freshUsers = useAuthStore.getState().usuarios;
