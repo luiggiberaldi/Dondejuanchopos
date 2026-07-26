@@ -4,7 +4,7 @@ import { supabaseCloud } from '../../config/supabaseCloud';
 import { showToast } from '../Toast';
 import { 
     QrCode, Smartphone, RefreshCw, X, Copy, Check, 
-    ShieldAlert, Trash2, Clock, CheckCircle2, AlertTriangle 
+    ShieldAlert, Trash2, Clock, CheckCircle2, AlertTriangle, Share2 
 } from 'lucide-react';
 
 export default function SupervisorPairingModal({ onClose, pairedDeviceId, triggerHaptic }) {
@@ -24,6 +24,15 @@ export default function SupervisorPairingModal({ onClose, pairedDeviceId, trigge
     const timerRef = useRef(null);
 
     const myDeviceId = typeof window !== 'undefined' ? (localStorage.getItem('dj_device_id') || '') : '';
+
+    // Copiar mensaje formateado para WhatsApp
+    const handleShareWhatsApp = () => {
+        if (!token) return;
+        triggerHaptic?.();
+        const message = `*Código de Vinculación - POS Donde Juancho*\n\nPIN: *${token}*\n\nAbre la aplicación en tu celular, presiona *"Conectar Modo Supervisor"* e ingresa este código.\n\n_Válido por 10 minutos._`;
+        const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
+        window.open(url, '_blank');
+    };
 
     // 1. Generar token de 6 caracteres desde el backend
     const generateToken = async () => {
@@ -232,7 +241,7 @@ export default function SupervisorPairingModal({ onClose, pairedDeviceId, trigge
                                 </div>
 
                                 {/* PIN Code Display */}
-                                <div className="w-full text-center space-y-2">
+                                <div className="w-full text-center space-y-3">
                                     <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Código Manual de 6 Caracteres</span>
                                     <div className="flex items-center justify-center gap-2 bg-slate-100 dark:bg-slate-800/80 p-3.5 rounded-2xl border border-slate-200/60 dark:border-slate-700/60">
                                         <span className="font-outfit text-2xl font-black text-emerald-600 dark:text-emerald-400 tracking-widest uppercase">
@@ -240,12 +249,18 @@ export default function SupervisorPairingModal({ onClose, pairedDeviceId, trigge
                                         </span>
                                         <button
                                             onClick={handleCopy}
-                                            className="ml-2 p-2 bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-200 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors shadow-2xs"
+                                            className="ml-2 p-2 bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-200 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors shadow-2xs cursor-pointer"
                                             title="Copiar Código"
                                         >
                                             {copied ? <Check size={16} className="text-emerald-500" /> : <Copy size={16} />}
                                         </button>
                                     </div>
+                                    <button
+                                        onClick={handleShareWhatsApp}
+                                        className="w-full py-2.5 px-4 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white rounded-2xl font-black text-xs flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
+                                    >
+                                        <Share2 size={15} /> Compartir PIN por WhatsApp
+                                    </button>
                                 </div>
 
                                 {/* Timer & Action */}

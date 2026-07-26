@@ -15,7 +15,7 @@ import {
     RefreshCw, Wifi, WifiOff, Clock, FileText, DollarSign,
     Wallet, CreditCard, Smartphone, Banknote, ArrowDownRight,
     ShieldCheck, Hash, AlertTriangle, Search, X, ChevronLeft, ChevronRight,
-    MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud, Sparkles, Gift, RotateCcw
+    MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud, Sparkles, Gift, RotateCcw, Target
 } from 'lucide-react';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
 import { getLocalISODate } from '../utils/dateHelpers';
@@ -364,6 +364,35 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     });
     const [uploading, setUploading] = useState(false);
 
+    // 🎯 Sniper Auto-Repair: Detectar y conectar a la caja activa más reciente en Supabase
+    const handleAutoRepairPairing = async () => {
+        if (!supabaseCloud) return;
+        triggerHaptic?.();
+        showToast('🎯 Buscando caja activa en Supabase...', 'info');
+        try {
+            const { data, error } = await supabaseCloud
+                .from('sync_documents')
+                .select('device_id, updated_at')
+                .eq('doc_id', 'bodega_sales_v1')
+                .order('updated_at', { ascending: false })
+                .limit(1);
+
+            if (error) throw error;
+
+            if (data && data[0]?.device_id) {
+                const activeId = data[0].device_id;
+                localStorage.setItem('dj_paired_device_id', activeId);
+                showToast(`🎯 Conectado con éxito a la caja activa`, 'success');
+                setTimeout(() => window.location.reload(), 600);
+            } else {
+                showToast('No se encontró ninguna caja con ventas recientes', 'error');
+            }
+        } catch (err) {
+            console.error('[SniperAutoRepair] Error:', err);
+            showToast('Error al buscar caja activa', 'error');
+        }
+    };
+
     // Consulta en tiempo real del historial completo de comandos (pendientes, aplicados y anulados)
     const fetchAllCloudCmds = useCallback(async () => {
         if (!supabaseCloud || !pairedDeviceId) return;
@@ -399,9 +428,9 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             }, (payload) => {
                 fetchAllCloudCmds();
 
-                // Notificar en tiempo real si el comando fue emitido por OTRO supervisor (D7, FASE 5)
+                // Notificar en tiempo real únicamente cuando OTRO supervisor inserte un comando nuevo (FP6)
                 const newCmd = payload.new;
-                if (newCmd && newCmd.monitor_device_id !== myDeviceId) {
+                if (payload.eventType === 'INSERT' && newCmd && newCmd.monitor_device_id !== myDeviceId) {
                     let actionText = 'realizó un cambio remoto';
                     if (newCmd.command_type === 'void_sale') actionText = 'anuló una venta';
                     else if (newCmd.command_type === 'rate_change') actionText = 'actualizó la tasa de cambio';
@@ -1217,10 +1246,13 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             )}
                         </div>
 
-                        {/* Status Badge de la Caja Principal (Online/Offline) */}
+                        {/* Status Badge de la Caja Principal (Online/Offline) con Sniper Auto-Repair */}
                         <div 
-                            title={posLastSeen ? `Última sincronización de la caja principal: ${posLastSeen.toLocaleTimeString()}` : 'Buscando estado de la caja...'}
+                            onClick={!isPosOnline ? handleAutoRepairPairing : undefined}
+                            title={isPosOnline ? `Caja conectada (${posLastSeen ? posLastSeen.toLocaleTimeString() : ''})` : 'Haz clic para Auto-Conectar a la Caja Activa en Supabase'}
                             className={`flex items-center gap-1 sm:gap-1.5 px-2.5 py-1 rounded-full text-[9px] sm:text-[10px] font-black tracking-wider uppercase shadow-xs shrink-0 transition-colors duration-300 ${
+                                !isPosOnline ? 'cursor-pointer hover:bg-amber-100 hover:scale-105' : ''
+                            } ${
                                 isPosOnline 
                                     ? 'bg-emerald-50 border border-emerald-200/60 text-emerald-700 dark:bg-emerald-950/30 dark:border-emerald-800/50 dark:text-emerald-400' 
                                     : 'bg-amber-50 border border-amber-200/60 text-amber-700 dark:bg-amber-950/30 dark:border-amber-800/50 dark:text-amber-400'
@@ -1228,7 +1260,19 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                         >
                             <span className={`w-2 h-2 rounded-full shrink-0 ${isPosOnline ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
                             <span>Caja: {isPosOnline ? 'En Línea' : 'Offline'}</span>
+                            {!isPosOnline && <Target size={11} className="text-amber-600 animate-pulse ml-0.5" />}
                         </div>
+
+                        {!isPosOnline && (
+                            <button
+                                onClick={handleAutoRepairPairing}
+                                className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-full text-[9px] font-black tracking-wider uppercase flex items-center gap-1 shadow-xs transition-transform active:scale-95 cursor-pointer shrink-0"
+                                title="Auto-Conectar a la caja más reciente activa en la tienda"
+                            >
+                                <Target size={11} />
+                                <span>Auto-Conectar Caja</span>
+                            </button>
+                        )}
 
                         {/* Status Badge del Estado del Turno (Abierta/Cerrada + Tiempo) */}
                         <div 
@@ -1279,6 +1323,15 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             >
                                 <Users size={15} />
                                 <span className="hidden lg:inline text-xs font-black text-slate-600 dark:text-slate-300">Usuarios</span>
+                            </button>
+
+                            <button 
+                                onClick={() => { triggerHaptic?.(); setShowPairingModal(true); }}
+                                className="px-2.5 py-2 rounded-xl text-emerald-600 dark:text-emerald-400 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-800/60 dark:bg-emerald-950/30 transition-colors flex items-center gap-1.5 cursor-pointer"
+                                title="Vincular Celular u otro equipo Supervisor"
+                            >
+                                <QrCode size={15} />
+                                <span className="hidden lg:inline text-xs font-black text-emerald-700 dark:text-emerald-300">+ Vincular Celular</span>
                             </button>
 
                             <button 

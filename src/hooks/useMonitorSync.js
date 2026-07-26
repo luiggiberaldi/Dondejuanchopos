@@ -53,51 +53,20 @@ export function useMonitorSync(pairedDeviceId) {
     const checkPosPresence = useCallback(async () => {
         if (!supabaseCloud || !pairedDeviceId) return;
         try {
-            const { data: docs } = await supabaseCloud
-                .from('sync_documents')
-                .select('updated_at')
-                .eq('device_id', pairedDeviceId)
-                .order('updated_at', { ascending: false })
-                .limit(1);
-
-            let maxLastSeenMs = 0;
-            if (docs && docs.length > 0 && docs[0].updated_at) {
-                maxLastSeenMs = new Date(docs[0].updated_at).getTime();
-            }
-
-            // Consultar también la última presencia registrada en device_pairings
             const { data: pairing } = await supabaseCloud
                 .from('device_pairings')
-                .select('paired_at')
+                .select('last_seen_at, paired_at')
                 .eq('primary_device_id', pairedDeviceId)
                 .maybeSingle();
 
-            if (pairing && pairing.paired_at) {
-                const pairingMs = new Date(pairing.paired_at).getTime();
-                if (pairingMs > maxLastSeenMs) maxLastSeenMs = pairingMs;
-            }
+            const stamp = pairing?.last_seen_at || pairing?.paired_at || null;
 
-            // Consultar también la última presencia en device_monitors
-            try {
-                const { data: monitors } = await supabaseCloud
-                    .from('device_monitors')
-                    .select('last_seen_at')
-                    .eq('primary_device_id', pairedDeviceId)
-                    .order('last_seen_at', { ascending: false })
-                    .limit(1);
-
-                if (monitors && monitors.length > 0 && monitors[0].last_seen_at) {
-                    const monMs = new Date(monitors[0].last_seen_at).getTime();
-                    if (monMs > maxLastSeenMs) maxLastSeenMs = monMs;
-                }
-            } catch (e) {}
-
-            if (maxLastSeenMs > 0) {
-                const lastDate = new Date(maxLastSeenMs);
+            if (stamp) {
+                const lastDate = new Date(stamp);
                 setPosLastSeen(lastDate);
-                const diffMs = Date.now() - maxLastSeenMs;
-                // Considerar la caja En Línea si reportó actividad en los últimos 10 minutos (600,000 ms)
-                setIsPosOnline(diffMs <= 600000);
+                const diffMs = Date.now() - lastDate.getTime();
+                // Considerar la caja En Línea si reportó actividad en los últimos 3 minutos (180,000 ms)
+                setIsPosOnline(diffMs <= 180000);
             } else {
                 setIsPosOnline(false);
             }

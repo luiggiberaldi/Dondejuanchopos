@@ -39,6 +39,7 @@ let isSyncingFromCloud = false; // true mientras aplicamos cambios de la nube 鈫
 let pendingPush = {};           // Debounce: { [key]: timeoutId }
 let _currentDeviceId = '';      // Device ID activo para pushCloudSync
 let isCloudSyncActive = false;   // Evita empujar a la nube si el dispositivo no est谩 autenticado/emparejado
+let gateRetryTimer = null;
 
 // SEC-009 / HOOK-011: ELIMINADO el monkeypatch global de `localStorage.setItem`.
 // Antes se reemplazaba `localStorage.setItem` a nivel m贸dulo, interceptando TODAS
@@ -279,28 +280,6 @@ export function useCloudSync(deviceId) {
                         .eq('primary_device_id', deviceId)
                         .maybeSingle();
                     isRegisteredOrPaired = !!pairing;
-
-                    if (!isRegisteredOrPaired) {
-                        const { data: monitorRow } = await supabaseCloud
-                            .from('device_monitors')
-                            .select('primary_device_id')
-                            .eq('primary_device_id', deviceId)
-                            .maybeSingle();
-                        isRegisteredOrPaired = !!monitorRow;
-                    }
-
-                    // Auto-registrar la caja principal v铆a RPC SECURITY DEFINER (evita 401 Unauthorized por SEC-010)
-                    if (!isRegisteredOrPaired && deviceId) {
-                        const { data: rpcRes, error: rpcErr } = await supabaseCloud.rpc('touch_pos_heartbeat', {
-                            p_device_id: deviceId
-                        });
-                        if (!rpcErr && rpcRes && rpcRes.success) {
-                            isRegisteredOrPaired = true;
-                        } else {
-                            // Si la RPC a煤n no ha sido corrida en SQL, asumimos verdadero para cajas locales activas
-                            isRegisteredOrPaired = true;
-                        }
-                    }
                 } catch (e) {
                     console.warn('[CloudSync] Error verificando registro de la caja:', e);
                 }
@@ -309,6 +288,13 @@ export function useCloudSync(deviceId) {
                     isCloudSyncActive = false;
                     isInitialized.current = true;
                     console.log('[CloudSync] Dispositivo sin sesi贸n ni vinculaci贸n remota. Sincronizaci贸n en la nube pausada (Modo Local/Offline).');
+                    if (!gateRetryTimer) {
+                        gateRetryTimer = setTimeout(() => {
+                            gateRetryTimer = null;
+                            isInitialized.current = false;
+                            initSync();
+                        }, 60000);
+                    }
                     return;
                 }
 
@@ -492,6 +478,10 @@ export function useCloudSync(deviceId) {
 
         return () => {
             isCloudSyncActive = false;
+            if (gateRetryTimer) {
+                clearTimeout(gateRetryTimer);
+                gateRetryTimer = null;
+            }
             window.removeEventListener('online', forcePushLocalData);
             clearInterval(intervalId);
             clearInterval(presenceIntervalId);

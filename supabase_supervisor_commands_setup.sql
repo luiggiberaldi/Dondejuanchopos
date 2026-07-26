@@ -54,20 +54,37 @@ CREATE INDEX IF NOT EXISTS idx_supervisor_commands_pending
 --    la app usa el rol anon; el emparejamiento en device_pairings es la autorización.)
 ALTER TABLE public.supervisor_commands ENABLE ROW LEVEL SECURITY;
 
--- El monitor emparejado inserta comandos hacia su caja (valida que la caja exista y el monitor no esté revocado)
+-- Valida pertenencia monitor↔caja saltando RLS (device_monitors no es legible por anon desde FX6).
+CREATE OR REPLACE FUNCTION public.is_authorized_monitor(p_primary TEXT, p_monitor TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.device_monitors dm
+        WHERE dm.primary_device_id = p_primary
+          AND dm.monitor_device_id = p_monitor
+          AND dm.revoked_at IS NULL
+    ) OR EXISTS (
+        SELECT 1 FROM public.device_pairings dp
+        WHERE dp.primary_device_id = p_primary
+          AND dp.monitor_device_id = p_monitor
+    );
+$$;
+
+GRANT EXECUTE ON FUNCTION public.is_authorized_monitor(TEXT, TEXT) TO anon, authenticated;
+
+-- El monitor emparejado inserta comandos hacia su caja
 DROP POLICY IF EXISTS "supervisor_commands_monitor_insert" ON public.supervisor_commands;
 CREATE POLICY "supervisor_commands_monitor_insert" ON public.supervisor_commands
     FOR INSERT
     TO anon, authenticated
     WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM public.device_pairings dp
-            WHERE dp.primary_device_id = supervisor_commands.primary_device_id
-        )
-        AND NOT EXISTS (
-            SELECT 1 FROM public.device_monitors dm
-            WHERE dm.monitor_device_id = supervisor_commands.monitor_device_id
-              AND dm.revoked_at IS NOT NULL
+        public.is_authorized_monitor(
+            supervisor_commands.primary_device_id,
+            supervisor_commands.monitor_device_id
         )
     );
 

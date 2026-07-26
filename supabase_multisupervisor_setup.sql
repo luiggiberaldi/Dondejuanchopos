@@ -28,7 +28,7 @@ FROM public.device_pairings
 WHERE monitor_device_id IS NOT NULL
 ON CONFLICT (primary_device_id, monitor_device_id) DO NOTHING;
 
--- 3. RPC: Generar token de vinculación desde Caja o Monitor activo
+-- 3. RPC: Generar token de vinculación desde Caja o Monitor activo (con auto-healing de caja activa)
 CREATE OR REPLACE FUNCTION public.generate_monitor_token(p_requester_id TEXT)
 RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
@@ -46,21 +46,35 @@ BEGIN
         FROM public.device_pairings WHERE primary_device_id = p_requester_id;
     END IF;
 
+    -- Auto-healing: Si la caja solicitante es obsoleta/inactiva (> 1 día sin presencia), redirigir a la caja activa más reciente
+    IF v_primary IS NULL OR NOT EXISTS (
+        SELECT 1 FROM public.device_pairings 
+        WHERE primary_device_id = v_primary 
+          AND last_seen_at > now() - interval '1 day'
+    ) THEN
+        SELECT device_id INTO v_primary
+        FROM public.sync_documents
+        WHERE doc_id = 'bodega_sales_v1'
+        ORDER BY updated_at DESC
+        LIMIT 1;
+    END IF;
+
     IF v_primary IS NULL THEN
-        RETURN json_build_object('success', false, 'message', 'Dispositivo no autorizado para generar códigos.');
+        RETURN json_build_object('success', false, 'message', 'No se encontró ninguna caja activa en el sistema.');
     END IF;
 
     v_token := upper(substring(md5(random()::text) from 1 for 6));
 
-    UPDATE public.device_pairings
+    INSERT INTO public.device_pairings (primary_device_id, pairing_token, token_expires_at, paired_at, last_seen_at)
+    VALUES (v_primary, v_token, now() + interval '10 minutes', now(), now())
+    ON CONFLICT (primary_device_id) DO UPDATE
     SET pairing_token = v_token,
-        token_expires_at = now() + interval '10 minutes'
-    WHERE primary_device_id = v_primary;
+        token_expires_at = now() + interval '10 minutes';
 
     RETURN json_build_object('success', true, 'token', v_token, 'primary_device_id', v_primary);
 END; $$;
 
--- 4. RPC: Vincular monitor adicional (Tope de 4 monitores activos)
+-- 4. RPC: Vincular monitor adicional (con auto-healing de caja activa)
 CREATE OR REPLACE FUNCTION public.pair_additional_monitor(
     p_token TEXT,
     p_monitor_device_id TEXT,
@@ -82,6 +96,19 @@ BEGIN
         RETURN json_build_object('success', false, 'message', 'Código de vinculación inválido o expirado.');
     END IF;
 
+    -- Auto-healing: Si el token apunta a una caja inactiva (> 1 día), re-vincular a la caja activa más reciente
+    IF NOT EXISTS (
+        SELECT 1 FROM public.device_pairings 
+        WHERE primary_device_id = v_primary 
+          AND last_seen_at > now() - interval '1 day'
+    ) THEN
+        SELECT device_id INTO v_primary
+        FROM public.sync_documents
+        WHERE doc_id = 'bodega_sales_v1'
+        ORDER BY updated_at DESC
+        LIMIT 1;
+    END IF;
+
     -- Validar tope de 4 monitores activos por caja (D2)
     SELECT count(*) INTO v_active_count
     FROM public.device_monitors
@@ -97,7 +124,8 @@ BEGIN
     INSERT INTO public.device_monitors (primary_device_id, monitor_device_id, device_label, user_agent, paired_at, last_seen_at, revoked_at)
     VALUES (v_primary, p_monitor_device_id, COALESCE(nullif(trim(p_label), ''), 'Supervisor Remoto'), p_user_agent, now(), now(), NULL)
     ON CONFLICT (primary_device_id, monitor_device_id) DO UPDATE
-    SET device_label = COALESCE(nullif(trim(EXCLUDED.device_label), ''), device_monitors.device_label),
+    SET primary_device_id = EXCLUDED.primary_device_id,
+        device_label = COALESCE(nullif(trim(EXCLUDED.device_label), ''), device_monitors.device_label),
         user_agent = COALESCE(EXCLUDED.user_agent, device_monitors.user_agent),
         last_seen_at = now(),
         revoked_at = NULL;
@@ -204,14 +232,18 @@ BEGIN
     ), '[]'::json));
 END; $$;
 
--- 8. RPC: Heartbeat de presencia de la caja principal
+-- 8. Columna dedicada y RPC: Heartbeat de presencia de la caja principal (FP2)
+ALTER TABLE public.device_pairings ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
+
 CREATE OR REPLACE FUNCTION public.touch_pos_heartbeat(p_device_id TEXT)
-RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
 BEGIN
-    INSERT INTO public.device_pairings (primary_device_id, paired_at)
-    VALUES (p_device_id, now())
+    INSERT INTO public.device_pairings (primary_device_id, last_seen_at, paired_at)
+    VALUES (p_device_id, now(), now())
     ON CONFLICT (primary_device_id) DO UPDATE
-    SET paired_at = now();
+    SET last_seen_at = now();
 
     RETURN json_build_object('success', true);
 END; $$;
