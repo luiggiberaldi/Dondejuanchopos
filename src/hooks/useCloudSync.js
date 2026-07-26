@@ -267,6 +267,7 @@ export function useCloudSync(deviceId) {
                 try { supabaseCloud.removeChannel(globalSubscription).catch(() => {}); } catch { }
                 globalSubscription = null;
             }
+            localStorage.removeItem('dj_cloud_sync_ts');
             isInitialized.current = false;
         }
 
@@ -351,13 +352,32 @@ export function useCloudSync(deviceId) {
                     }
 
                     localStorage.removeItem('dj_backup_imported_flag');
+                    localStorage.removeItem('dj_cloud_sync_ts');
                     console.log('[CloudSync] Sincronización de importación completada de todas las llaves.');
                 } else {
-                    const { data: docs } = await supabaseCloud
+                    const lastSyncIso = localStorage.getItem('dj_cloud_sync_ts');
+                    const lastFullPullTs = parseInt(localStorage.getItem('dj_last_full_pull_ts') || '0', 10);
+                    const nowTs = Date.now();
+                    const FULL_PULL_MIN_INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
+
+                    let query = supabaseCloud
                         .from('sync_documents')
                         .select('collection, doc_id, data')
                         .eq('device_id', deviceId)
                         .in('collection', ['store', 'local']);
+
+                    if (lastSyncIso) {
+                        query = query.gt('updated_at', lastSyncIso);
+                    } else if (nowTs - lastFullPullTs < FULL_PULL_MIN_INTERVAL_MS) {
+                        // Rate limiter: evitar re-descargar los 1.1 MB completos si el cold start ocurrió hace menos de 5 min
+                        console.log('[CloudSync] Full-Pull masivo omitido por Rate Limiter (< 5 min). Usando datos locales.');
+                        localStorage.setItem('dj_cloud_sync_ts', new Date(lastFullPullTs).toISOString());
+                        query = query.gt('updated_at', new Date(lastFullPullTs).toISOString());
+                    } else {
+                        localStorage.setItem('dj_last_full_pull_ts', String(nowTs));
+                    }
+
+                    const { data: docs } = await query;
 
                     if (docs?.length > 0) {
                         for (const doc of docs) {
@@ -370,8 +390,9 @@ export function useCloudSync(deviceId) {
                                 console.warn(`[CloudSync] Error aplicando doc ${doc.doc_id}:`, e);
                             }
                         }
-                        console.log(`[CloudSync] Pull inicial: ${docs.length} documentos aplicados.`);
+                        console.log(`[CloudSync] Pull incremental (${lastSyncIso ? 'cambios' : 'inicial'}): ${docs.length} documentos aplicados.`);
                     }
+                    localStorage.setItem('dj_cloud_sync_ts', new Date().toISOString());
                 }
 
                 // ── Auto-recuperación: Purgar/subir datos locales que no llegaron a enviarse debido al bug anterior ──
@@ -478,8 +499,8 @@ export function useCloudSync(deviceId) {
 
         window.addEventListener('online', forcePushLocalData);
         
-        // Ejecución periódica cada 20 segundos para asegurar sincronización en tiempo real
-        const intervalId = setInterval(forcePushLocalData, 20000);
+        // Ejecución periódica cada 60 segundos para asegurar sincronización en tiempo real
+        const intervalId = setInterval(forcePushLocalData, 60000);
 
         // Heartbeat de presencia de la caja principal hacia la nube (cada 60s)
         const pingPosPresence = async () => {

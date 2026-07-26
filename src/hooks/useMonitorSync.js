@@ -115,13 +115,29 @@ export function useMonitorSync(pairedDeviceId) {
             // Verificar presencia de la caja principal
             await checkPosPresence();
 
-            // 1. Pull inicial o de recuperación (catch-up) ordenado por fecha más reciente
-            const { data: docs, error } = await supabaseCloud
+            // 1. Pull inicial o de recuperación incremental (catch-up)
+            const lastSyncIso = (isSilent && lastSyncRef.current) ? lastSyncRef.current.toISOString() : null;
+            const lastFullPullTs = parseInt(localStorage.getItem('dj_monitor_last_full_pull_ts') || '0', 10);
+            const nowTs = Date.now();
+            const MONITOR_FULL_PULL_MIN_INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
+
+            let query = supabaseCloud
                 .from('sync_documents')
                 .select('collection, doc_id, data, updated_at')
                 .eq('device_id', pairedDeviceId)
                 .in('doc_id', MONITOR_DOC_IDS)
                 .order('updated_at', { ascending: true });
+
+            if (lastSyncIso) {
+                query = query.gt('updated_at', lastSyncIso);
+            } else if (nowTs - lastFullPullTs < MONITOR_FULL_PULL_MIN_INTERVAL_MS) {
+                console.log('[useMonitorSync] Full-Pull del Monitor omitido por Rate Limiter (< 5 min). Usando datos locales.');
+                query = query.gt('updated_at', new Date(lastFullPullTs).toISOString());
+            } else {
+                localStorage.setItem('dj_monitor_last_full_pull_ts', String(nowTs));
+            }
+
+            const { data: docs, error } = await query;
 
             if (error) throw error;
 

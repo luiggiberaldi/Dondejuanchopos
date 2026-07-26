@@ -5,6 +5,11 @@ import ResetPasswordView from './views/ResetPasswordView.jsx'
 import { ToastProvider } from './components/Toast.jsx'
 import { SecurityProvider } from './hooks/useSecurity.jsx'
 import { supabaseCloud } from './config/supabaseCloud.js'
+import { recordReload, isLoopDetected, clearReloadGuard } from './utils/reloadGuard.js'
+
+// Registrar esta carga de página UNA SOLA VEZ al inicio del módulo.
+// `recordReload` escribe en localStorage; `isLoopDetected` solo lee.
+recordReload();
 import './index.css'
 
 // ── Interceptor global de Fetch para Electron (protocolo file://) ──
@@ -40,6 +45,10 @@ if ('serviceWorker' in navigator) {
   let refreshing = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (refreshing) return;
+    if (isLoopDetected()) {
+      console.warn('[ServiceWorker] Reload cancelado por ReloadGuard.');
+      return;
+    }
     refreshing = true;
     window.location.reload();
   });
@@ -71,6 +80,7 @@ function detectRecovery() {
 
 function AppRouter() {
   const [isRecovery, setIsRecovery] = useState(detectRecovery);
+  const [isLoopBlocked, setIsLoopBlocked] = useState(() => isLoopDetected());
 
   // HOOK-033: wheel listener con cleanup correcto.
   useEffect(() => _attachWheelGuard(), []);
@@ -82,6 +92,29 @@ function AppRouter() {
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  if (isLoopBlocked) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 text-center select-none">
+        <div className="w-16 h-16 bg-amber-500/20 text-amber-400 rounded-full flex items-center justify-center mb-4 text-3xl font-bold border border-amber-500/30">
+          ⚠️
+        </div>
+        <h1 className="text-2xl font-bold mb-2">Bucle de Recargas Pausado</h1>
+        <p className="text-slate-300 max-w-md mb-6 text-sm leading-relaxed">
+          La aplicación se ha recargado varias veces seguidas rápidamente. La sincronización se ha pausado para proteger tu consumo de datos de red.
+        </p>
+        <button
+          onClick={() => {
+            clearReloadGuard();
+            setIsLoopBlocked(false);
+          }}
+          className="px-6 py-3 bg-cyan-600 hover:bg-cyan-500 font-bold rounded-xl text-white shadow-lg active:scale-95 transition-all"
+        >
+          Reintentar y Restaurar App
+        </button>
+      </div>
+    );
+  }
 
   if (isRecovery) {
     return (
