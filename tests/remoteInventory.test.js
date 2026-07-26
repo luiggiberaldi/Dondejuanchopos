@@ -158,4 +158,41 @@ describe('applyInventoryCommand — comandos remotos de inventario', () => {
         expect(p.priceBsManual).toBeNull();
         expect(p.forceBcv).toBe(false);
     });
+
+    it('edit con baseUpdatedAt obsoleto (stale) → rechazado por concurrencia (FASE 6)', async () => {
+        const staleIso = new Date('2026-01-01T10:00:00.000Z').toISOString();
+        const freshIso = new Date('2026-01-01T12:00:00.000Z').toISOString();
+
+        await storageService.setItem(PRODUCTS_KEY, [{ ...baseProduct, updatedAt: freshIso }]);
+
+        const res = await applyInventoryCommand({
+            action: 'edit',
+            productId: 'p1',
+            data: { name: 'Ron Santa Teresa Modificado', priceUsd: 15, baseUpdatedAt: staleIso }
+        });
+
+        expect(res.success).toBe(false);
+        expect(res.error).toMatch(/modificado por otro supervisor/i);
+
+        const [p] = await storageService.getItem(PRODUCTS_KEY);
+        expect(p.priceUsd).toBe(10); // Sin modificar
+    });
+
+    it('edit con baseUpdatedAt fresco o sin baseUpdatedAt → aplicado con éxito', async () => {
+        const freshIso = new Date('2026-01-01T12:00:00.000Z').toISOString();
+        const newerIso = new Date('2026-01-01T13:00:00.000Z').toISOString();
+
+        await storageService.setItem(PRODUCTS_KEY, [{ ...baseProduct, updatedAt: freshIso }]);
+
+        const res = await applyInventoryCommand({
+            action: 'edit',
+            productId: 'p1',
+            data: { name: 'Ron Santa Teresa Nuevo', priceUsd: 15, baseUpdatedAt: newerIso }
+        });
+
+        expect(res.success).toBe(true);
+        const [p] = await storageService.getItem(PRODUCTS_KEY);
+        expect(p.priceUsd).toBe(15);
+        expect(p.updatedAt).toBeTruthy();
+    });
 });

@@ -383,15 +383,29 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         fetchAllCloudCmds();
         if (!supabaseCloud || !pairedDeviceId) return;
 
+        const myDeviceId = localStorage.getItem('dj_device_id');
+
         const channel = supabaseCloud
             .channel(`supervisor_cmds:${pairedDeviceId}`)
             .on('postgres_changes', {
-                event: '*',
+                event: 'INSERT',
                 schema: 'public',
                 table: 'supervisor_commands',
                 filter: `primary_device_id=eq.${pairedDeviceId}`
-            }, () => {
+            }, (payload) => {
                 fetchAllCloudCmds();
+
+                // Notificar en tiempo real si el comando fue emitido por OTRO supervisor (D7, FASE 5)
+                const newCmd = payload.new;
+                if (newCmd && newCmd.monitor_device_id !== myDeviceId) {
+                    let actionText = 'realizó un cambio remoto';
+                    if (newCmd.command_type === 'void_sale') actionText = 'anuló una venta';
+                    else if (newCmd.command_type === 'rate_change') actionText = 'actualizó la tasa de cambio';
+                    else if (newCmd.command_type === 'inventory_update') actionText = 'actualizó el inventario';
+                    else if (newCmd.command_type === 'user_update') actionText = 'modificó la lista de usuarios';
+
+                    showToast(`Otro supervisor ${actionText}`, 'info');
+                }
             })
             .subscribe();
 
@@ -399,6 +413,23 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             supabaseCloud.removeChannel(channel).catch(() => {});
         };
     }, [pairedDeviceId, fetchAllCloudCmds]);
+
+    // Detección de revocación remota emitida por el heartbeat (F4, B4)
+    useEffect(() => {
+        const handleRevoked = () => {
+            showToast('El acceso de este dispositivo ha sido revocado', 'error');
+            localStorage.removeItem('dj_pairing_code');
+            localStorage.removeItem('dj_pairing_mode');
+            localStorage.removeItem('dj_paired_device_id');
+            localStorage.removeItem('monitor_last_sync');
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500);
+        };
+
+        window.addEventListener('monitor_revoked', handleRevoked);
+        return () => window.removeEventListener('monitor_revoked', handleRevoked);
+    }, []);
 
     const persistPending = useCallback((next) => {
         setPendingChanges(next);

@@ -113,7 +113,9 @@ export async function applyInventoryCommand(payload) {
             }
             const conflict = findBarcodeConflict(normalized, products);
             if (conflict) return { success: false, error: conflict };
-            normalized.createdAt = new Date().toISOString();
+            const nowIso = new Date().toISOString();
+            normalized.createdAt = normalized.createdAt || nowIso;
+            normalized.updatedAt = nowIso;
             const updated = [...products, normalized];
             await storageService.setItem(PRODUCTS_KEY, updated);
             logEvent('INVENTARIO', 'REMOTO_ADD', `Supervisor agregó "${normalized.name}"`);
@@ -124,6 +126,18 @@ export async function applyInventoryCommand(payload) {
         if (!existing) return { success: false, error: 'Producto no encontrado en la caja' };
 
         if (action === 'edit') {
+            // Versionado optimista (FASE 6, R1): verificar que el producto no haya sido modificado posteriormente por otro supervisor
+            if (data?.baseUpdatedAt && existing.updatedAt) {
+                const baseTime = new Date(data.baseUpdatedAt).getTime();
+                const existingTime = new Date(existing.updatedAt).getTime();
+                if (!isNaN(baseTime) && !isNaN(existingTime) && baseTime < existingTime) {
+                    return {
+                        success: false,
+                        error: 'El producto fue modificado por otro supervisor. Vuelve a encolar el cambio.'
+                    };
+                }
+            }
+
             const validationError = validateProductData(data);
             if (validationError) return { success: false, error: validationError };
             const normalized = normalizeProduct(data);
@@ -134,6 +148,7 @@ export async function applyInventoryCommand(payload) {
             // vender mientras el cambio esperaba en la cola del monitor. El stock
             // solo cambia vía 'adjust_stock' (deltas aditivos).
             normalized.stock = existing.stock;
+            normalized.updatedAt = new Date().toISOString();
             const conflict = findBarcodeConflict(normalized, products, productId);
             if (conflict) return { success: false, error: conflict };
             const updated = products.map(p => p.id === productId ? { ...existing, ...normalized } : p);
@@ -155,7 +170,8 @@ export async function applyInventoryCommand(payload) {
         const allowNeg = localStorage.getItem('allow_negative_stock') === 'true';
         const current = Number(existing.stock) || 0;
         const next = allowNeg ? current + delta : Math.max(0, current + delta);
-        const updated = products.map(p => p.id === productId ? { ...p, stock: next } : p);
+        const nowIso = new Date().toISOString();
+        const updated = products.map(p => p.id === productId ? { ...p, stock: next, updatedAt: nowIso } : p);
         await storageService.setItem(PRODUCTS_KEY, updated);
         logEvent('INVENTARIO', 'REMOTO_STOCK', `Supervisor ajustó stock de "${existing.name}": ${delta > 0 ? '+' : ''}${delta} (→ ${next})`);
         return { success: true, productName: existing.name, updatedProducts: updated };

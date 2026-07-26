@@ -192,6 +192,8 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
         }
     };
 
+    const [deviceLabel, setDeviceLabel] = useState('');
+
     // Ejecutar el emparejamiento con el token
     const executePairing = async (token, isRetry = false) => {
         if (!supabaseCloud) {
@@ -210,28 +212,55 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
                 localStorage.setItem('dj_device_id', monitorId);
             }
 
-            // Llamar al RPC en Supabase
-            const { data, error } = await supabaseCloud.rpc('pair_monitor_device', {
-                p_token: token.trim().toUpperCase(),
-                p_monitor_device_id: monitorId
-            });
+            const cleanToken = token.trim().toUpperCase();
+            const userLabel = deviceLabel.trim() || 'Supervisor Remoto';
+            const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 200) : '';
 
-            if (error) throw error;
+            let primaryDeviceId = null;
 
-            if (data && data.success) {
-                // Éxito: Guardar credenciales de emparejamiento
-                localStorage.setItem('dj_paired_device_id', data.primary_device_id);
-                localStorage.setItem('dj_pairing_mode', 'monitor');
-                showToast('¡Vinculado con éxito! Cargando monitor...', 'success');
-                
-                // Forzar reinicio de la app para cargar la nueva vista limpia
-                setTimeout(() => {
-                    window.location.reload();
-                }, 1500);
-            } else {
-                setErrorMsg(data?.message || 'Error desconocido al vincular.');
-                if (scanMethod === 'camera') startScanning();
+            // Intentar primero con la nueva RPC 1-N pair_additional_monitor
+            try {
+                const { data: addData, error: addErr } = await supabaseCloud.rpc('pair_additional_monitor', {
+                    p_token: cleanToken,
+                    p_monitor_device_id: monitorId,
+                    p_label: userLabel,
+                    p_user_agent: userAgent
+                });
+
+                if (!addErr && addData && addData.success) {
+                    primaryDeviceId = addData.primary_device_id;
+                } else if (addData && addData.message) {
+                    throw new Error(addData.message);
+                } else {
+                    throw addErr || new Error('Error de vinculación');
+                }
+            } catch (rpcErr) {
+                if (rpcErr.message && (rpcErr.message.includes('Límite') || rpcErr.message.includes('expirado') || rpcErr.message.includes('inválido'))) {
+                    throw rpcErr;
+                }
+                // Fallback a la RPC legacy por compatibilidad (D6)
+                const { data: legacyData, error: legacyErr } = await supabaseCloud.rpc('pair_monitor_device', {
+                    p_token: cleanToken,
+                    p_monitor_device_id: monitorId
+                });
+                if (legacyErr) throw legacyErr;
+                primaryDeviceId = typeof legacyData === 'string' ? legacyData : legacyData?.primary_device_id;
             }
+
+            if (!primaryDeviceId) {
+                throw new Error('No se recibió confirmación del equipo principal');
+            }
+
+            // Éxito: Guardar credenciales de emparejamiento
+            localStorage.setItem('dj_paired_device_id', primaryDeviceId);
+            localStorage.setItem('dj_pairing_mode', 'monitor');
+            showToast('¡Vinculado con éxito! Cargando monitor...', 'success');
+            
+            // Forzar reinicio de la app para cargar la nueva vista limpia
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500);
+
         } catch (err) {
             console.error('[PairingScanScreen] Error al vincular:', err);
             const status = err?.status || err?.code;
@@ -396,6 +425,18 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
                                         ? 'text-xl font-black uppercase tracking-widest text-slate-800 dark:text-white' 
                                         : 'text-xs font-bold text-slate-400 placeholder-slate-400'
                                 }`}
+                                disabled={loading}
+                            />
+                        </div>
+                        <div className="space-y-1">
+                            <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">¿De quién es este dispositivo? (Opcional)</label>
+                            <input 
+                                type="text"
+                                maxLength={30}
+                                value={deviceLabel}
+                                onChange={(e) => setDeviceLabel(e.target.value)}
+                                placeholder="Ej: Celular de Juan, Tablet Gerencia"
+                                className="w-full py-2.5 px-4 border border-slate-200 dark:border-slate-700/60 dark:bg-slate-800 rounded-2xl text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500 transition-all placeholder-slate-400"
                                 disabled={loading}
                             />
                         </div>
