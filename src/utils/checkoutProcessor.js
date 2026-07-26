@@ -58,8 +58,16 @@ export async function processSaleTransaction({
 
     // ── Aritmética precisa con dinero.js (elimina IEEE 754 drift) ──
     const totalPaidUsd = sumR(payments.map(p => p.amountUsd));
-    const remainingUsd = round2(Math.max(0, subR(cartTotalUsd, totalPaidUsd)));
-    const changeUsd    = round2(Math.max(0, subR(totalPaidUsd, cartTotalUsd)));
+    const totalPaidBs  = sumR(payments.map(p => p.amountBs || (p.amountUsd && effectiveRate ? mulR(p.amountUsd, effectiveRate) : 0)));
+
+    // Si los pagos cubren completamente el total en Bolívares (cartTotalBs) en productos con Bs Fijo/Congelado
+    const isPureBsPayment = payments.length > 0 && payments.every(p => p.currency === 'BS' || (p.amountBs > 0));
+    const totalBsPaidFully = cartTotalBs > 0 && isPureBsPayment && totalPaidBs >= subR(cartTotalBs, 0.5);
+
+    const effectiveCartTotalUsd = totalBsPaidFully ? totalPaidUsd : cartTotalUsd;
+
+    const remainingUsd = totalBsPaidFully ? 0 : round2(Math.max(0, subR(effectiveCartTotalUsd, totalPaidUsd)));
+    const changeUsd    = round2(Math.max(0, subR(totalPaidUsd, effectiveCartTotalUsd)));
 
     const casheaPayment = payments.find(p => p.methodId === 'cashea');
     const casheaUsd = casheaPayment ? round2(casheaPayment.amountUsd) : 0;
