@@ -427,9 +427,9 @@ export const useAuthStore = create(
                 const err = validatePin(String(nuevoPin ?? ''));
                 if (err) return { ok: false, error: err };
 
-                // hashPin es async; delegamos en una acción async interna y devolvemos sync.
-                // Los callers existentes (ConfigView, etc.) no esperan el resultado del hash.
-                (async () => {
+                // hashPin es async; delegamos en una acción async interna y devolvemos done.
+                // Los callers existentes (ConfigView, etc.) que no esperan el resultado ignoran `done`.
+                const done = (async () => {
                     try {
                         const hashedPin = await hashPin(String(nuevoPin));
                         set((state) => ({
@@ -443,7 +443,7 @@ export const useAuthStore = create(
                         console.error('[useAuthStore] cambiarPin falló:', e);
                     }
                 })();
-                return { ok: true };
+                return { ok: true, done };
             },
 
             /**
@@ -451,7 +451,7 @@ export const useAuthStore = create(
              * @param {string} nombre
              * @param {string} rol
              * @param {string} pin - en claro
-             * @returns {{ ok: boolean, error?: string }}
+             * @returns {{ ok: boolean, done?: Promise<void>, error?: string }}
              */
             agregarUsuario: (nombre, rol, pin, bypassPin = false) => {
                 if (!bypassPin) {
@@ -459,7 +459,7 @@ export const useAuthStore = create(
                     if (err) return { ok: false, error: err };
                 }
 
-                (async () => {
+                const done = (async () => {
                     try {
                         const hashedPin = bypassPin ? '' : await hashPin(String(pin));
                         const cleanPlain = bypassPin ? '' : String(pin);
@@ -474,7 +474,7 @@ export const useAuthStore = create(
                         console.error('[useAuthStore] agregarUsuario falló:', e);
                     }
                 })();
-                return { ok: true };
+                return { ok: true, done };
             },
 
             eliminarUsuario: (userId) => {
@@ -501,7 +501,7 @@ export const useAuthStore = create(
                     const err = validatePin(String(datos.pin));
                     if (err) return { ok: false, error: err };
                     // Hash async; el set se hace en la promesa.
-                    (async () => {
+                    const done = (async () => {
                         try {
                             const hashedPin = await hashPin(String(datos.pin));
                             const sinPin = { ...nuevosDatos };
@@ -515,7 +515,7 @@ export const useAuthStore = create(
                             console.error('[useAuthStore] editarUsuario hashPin falló:', e);
                         }
                     })();
-                    return { ok: true };
+                    return { ok: true, done };
                 }
 
                 set((state) => ({
@@ -523,7 +523,7 @@ export const useAuthStore = create(
                         u.id === userId ? { ...u, ...nuevosDatos } : u
                     )
                 }));
-                return { ok: true };
+                return { ok: true, done: Promise.resolve() };
             },
 
             setRequireLogin: (val) => {
