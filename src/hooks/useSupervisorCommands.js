@@ -113,12 +113,12 @@ export function useSupervisorCommands(deviceId) {
                             }
                         }));
 
-                        // Push inmediato a la nube para notificar a los monitores sin esperar el debounce de 3s
+                        // Push inmediato incondicional a la nube para notificar a los monitores
                         try {
                             const { pushCloudSync } = await import('./useCloudSync');
                             const { storageService } = await import('../utils/storageService');
                             const fresh = await storageService.getItem('bodega_products_v1', []);
-                            await pushCloudSync('bodega_products_v1', fresh);
+                            await pushCloudSync('bodega_products_v1', fresh, true);
                         } catch (syncErr) {
                             console.error('[SupervisorCommands] Error en push de sincronización inmediata:', syncErr);
                         }

@@ -12,12 +12,15 @@ const LAST_UPLOAD_HASH_KEY = 'bodega_last_upload_hash';
 
 /** Hash ligero para detectar cambios sin comparar objetos enteros */
 function quickHash(obj) {
-    const str = JSON.stringify(obj) ?? '';
+    const str = typeof obj === 'string' ? obj : (JSON.stringify(obj) ?? '');
+    const len = str.length;
+    if (len === 0) return '0_0';
     let h = 0;
-    for (let i = 0; i < Math.min(str.length, 5000); i++) {
+    const step = Math.max(1, Math.floor(len / 5000));
+    for (let i = 0; i < len; i += step) {
         h = Math.imul(31, h) + str.charCodeAt(i) | 0;
     }
-    return `${str.length}_${h >>> 0}`;
+    return `${len}_${h >>> 0}`;
 }
 
 export function useAutoBackup(isPremium, isDemo, deviceId) {

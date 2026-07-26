@@ -168,15 +168,24 @@ export async function applyInventoryCommand(payload) {
             return { success: true, productName: existing.name, updatedProducts: updated };
         }
 
-        // adjust_stock — misma regla de negativos que adjustStock del ProductContext
+        // adjust_stock — soporta delta relativo o targetStock absoluto (Fijar Stock)
         const delta = Number(data?.delta);
-        if (isNaN(delta) || delta === 0) return { success: false, error: 'Delta de stock inválido' };
+        const hasTargetStock = data?.targetStock !== undefined && data?.targetStock !== null && data?.targetStock !== '';
         const allowNeg = localStorage.getItem('allow_negative_stock') === 'true';
         const current = Number(existing.stock) || 0;
-        const next = allowNeg ? current + delta : Math.max(0, current + delta);
+        let next;
+
+        if (hasTargetStock) {
+            const target = Number(data.targetStock);
+            next = isNaN(target) ? current : (allowNeg ? target : Math.max(0, target));
+        } else {
+            if (isNaN(delta) || delta === 0) return { success: false, error: 'Delta de stock inválido' };
+            next = allowNeg ? current + delta : Math.max(0, current + delta);
+        }
+
         const updated = products.map(p => p.id === productId ? { ...p, stock: next } : p);
         await storageService.setItem(PRODUCTS_KEY, updated);
-        logEvent('INVENTARIO', 'REMOTO_STOCK', `Supervisor ajustó stock de "${existing.name}": ${delta > 0 ? '+' : ''}${delta} (→ ${next})`);
+        logEvent('INVENTARIO', 'REMOTO_STOCK', `Supervisor ajustó stock de "${existing.name}": ${hasTargetStock ? `fijado a ${next}` : `${delta > 0 ? '+' : ''}${delta} (→ ${next})`}`);
         return { success: true, productName: existing.name, updatedProducts: updated };
     });
 

@@ -24,11 +24,14 @@ const LOCAL_KEYS = [...new Set([...LS_KEYS, 'bodega_rate_mode', 'bodega_users_ca
 /** Hash ligero para detectar cambios sin comparar objetos enteros (mismo patrón que useAutoBackup.js) */
 function quickHash(value) {
     const str = typeof value === 'string' ? value : (JSON.stringify(value) ?? '');
+    const len = str.length;
+    if (len === 0) return '0_0';
     let h = 0;
-    for (let i = 0; i < Math.min(str.length, 5000); i++) {
+    const step = Math.max(1, Math.floor(len / 5000));
+    for (let i = 0; i < len; i += step) {
         h = Math.imul(31, h) + str.charCodeAt(i) | 0;
     }
-    return `${str.length}_${h >>> 0}`;
+    return `${len}_${h >>> 0}`;
 }
 
 const LAST_PUSH_HASH_PREFIX = 'bodega_last_periodic_push_hash_';

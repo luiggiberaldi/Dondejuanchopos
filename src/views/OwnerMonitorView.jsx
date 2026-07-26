@@ -3140,7 +3140,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 <StockAdjustModal
                     product={stockAdjustProduct}
                     onClose={() => setStockAdjustProduct(null)}
-                    onConfirm={(productId, delta) => queueInventoryChange('adjust_stock', productId, { delta })}
+                    onConfirm={(productId, delta, extra) => queueInventoryChange('adjust_stock', productId, { delta, ...extra })}
                     triggerHaptic={triggerHaptic}
                 />
             )}
@@ -3330,7 +3330,7 @@ function StockAdjustModal({ product, onClose, onConfirm, triggerHaptic }) {
             return;
         }
         triggerHaptic?.();
-        onConfirm(product.id, delta);
+        onConfirm(product.id, delta, mode === 'set' ? { targetStock } : undefined);
         onClose();
     };
 
