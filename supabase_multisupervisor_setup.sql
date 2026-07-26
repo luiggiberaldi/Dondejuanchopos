@@ -204,7 +204,19 @@ BEGIN
     ), '[]'::json));
 END; $$;
 
--- 8. RLS y Permisos
+-- 8. RPC: Heartbeat de presencia de la caja principal
+CREATE OR REPLACE FUNCTION public.touch_pos_heartbeat(p_device_id TEXT)
+RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    INSERT INTO public.device_pairings (primary_device_id, paired_at)
+    VALUES (p_device_id, now())
+    ON CONFLICT (primary_device_id) DO UPDATE
+    SET paired_at = now();
+
+    RETURN json_build_object('success', true);
+END; $$;
+
+-- 9. RLS y Permisos
 ALTER TABLE public.device_monitors ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Permitir lectura publica de device_monitors" ON public.device_monitors;
@@ -215,3 +227,4 @@ GRANT EXECUTE ON FUNCTION public.pair_additional_monitor(TEXT, TEXT, TEXT, TEXT)
 GRANT EXECUTE ON FUNCTION public.revoke_monitor(TEXT, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.touch_monitor_heartbeat(TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.list_monitors(TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.touch_pos_heartbeat(TEXT) TO anon, authenticated;

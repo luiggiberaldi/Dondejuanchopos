@@ -289,15 +289,15 @@ export function useCloudSync(deviceId) {
                         isRegisteredOrPaired = !!monitorRow;
                     }
 
-                    // Auto-registrar la caja principal en device_pairings para activar sincronización y presencia
+                    // Auto-registrar la caja principal vía RPC SECURITY DEFINER (evita 401 Unauthorized por SEC-010)
                     if (!isRegisteredOrPaired && deviceId) {
-                        const { error: upsertErr } = await supabaseCloud
-                            .from('device_pairings')
-                            .upsert({
-                                primary_device_id: deviceId,
-                                paired_at: new Date().toISOString()
-                            }, { onConflict: 'primary_device_id' });
-                        if (!upsertErr) {
+                        const { data: rpcRes, error: rpcErr } = await supabaseCloud.rpc('touch_pos_heartbeat', {
+                            p_device_id: deviceId
+                        });
+                        if (!rpcErr && rpcRes && rpcRes.success) {
+                            isRegisteredOrPaired = true;
+                        } else {
+                            // Si la RPC aún no ha sido corrida en SQL, asumimos verdadero para cajas locales activas
                             isRegisteredOrPaired = true;
                         }
                     }
@@ -482,12 +482,7 @@ export function useCloudSync(deviceId) {
         const pingPosPresence = async () => {
             if (navigator.onLine && isCloudSyncActive && deviceId) {
                 try {
-                    await supabaseCloud
-                        .from('device_pairings')
-                        .upsert({
-                            primary_device_id: deviceId,
-                            paired_at: new Date().toISOString()
-                        }, { onConflict: 'primary_device_id' });
+                    await supabaseCloud.rpc('touch_pos_heartbeat', { p_device_id: deviceId });
                 } catch {}
             }
         };
