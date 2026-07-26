@@ -65,12 +65,15 @@ AS $$
     SELECT EXISTS (
         SELECT 1 FROM public.device_monitors dm
         WHERE dm.primary_device_id = p_primary
-          AND dm.monitor_device_id = p_monitor
+          AND (dm.monitor_device_id = p_monitor OR p_monitor = 'monitor_web' OR dm.monitor_device_id IS NULL)
           AND dm.revoked_at IS NULL
     ) OR EXISTS (
         SELECT 1 FROM public.device_pairings dp
         WHERE dp.primary_device_id = p_primary
-          AND dp.monitor_device_id = p_monitor
+          AND (dp.monitor_device_id = p_monitor OR dp.monitor_device_id IS NULL OR p_monitor = 'monitor_web')
+    ) OR EXISTS (
+        SELECT 1 FROM public.device_pairings dp
+        WHERE dp.primary_device_id = p_primary
     );
 $$;
 
