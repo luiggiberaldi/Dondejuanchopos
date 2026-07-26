@@ -15,7 +15,7 @@ import {
     RefreshCw, Wifi, WifiOff, Clock, FileText, DollarSign,
     Wallet, CreditCard, Smartphone, Banknote, ArrowDownRight,
     ShieldCheck, Hash, AlertTriangle, Search, X, ChevronLeft, ChevronRight,
-    MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud, Sparkles, Gift
+    MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud, Sparkles, Gift, RotateCcw
 } from 'lucide-react';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
 import { getLocalISODate } from '../utils/dateHelpers';
@@ -25,12 +25,16 @@ import { getPaymentLabel, toTitleCase } from '../config/paymentMethods';
 const PAYMENT_METHOD_ICONS = {
     efectivo_bs: Banknote,
     pago_movil: Smartphone,
-    punto_venta: CreditCard,
+    punto_de_venta: CreditCard,
     efectivo_usd: DollarSign,
+    zelle: Smartphone,
+    binance: Wallet,
     efectivo_cop: Coins,
     transferencia_cop: CreditCard,
     fiado: Clock,
     cashea: Clock,
+    vuelto_bs: RotateCcw,
+    vuelto_usd: RotateCcw,
 };
 
 function getMethodIcon(methodId) {
@@ -884,9 +888,12 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         };
     }, [activeShiftSales, products]);
 
-    // Desglose por método de pago del turno activo
+    // Desglose por método de pago del turno activo (incluye vueltos desglosados en Bs y $)
     const activeShiftPaymentBreakdown = useMemo(() => {
         const breakdown = {};
+        let totalVueltoBs = 0;
+        let totalVueltoUsd = 0;
+
         // Incluye ventas, cobros de deuda, y pagos de proveedor en el flujo de caja
         const activeFlow = sales.filter(s => {
             if (s.status === 'ANULADA') return false;
@@ -901,6 +908,13 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         });
 
         activeFlow.forEach(sale => {
+            if (sale.changeBs && Number(sale.changeBs) > 0) {
+                totalVueltoBs += Number(sale.changeBs);
+            }
+            if (sale.changeUsd && Number(sale.changeUsd) > 0) {
+                totalVueltoUsd += Number(sale.changeUsd);
+            }
+
             if (sale.tipo === 'VENTA_FIADA') {
                 if (!breakdown['fiado']) {
                     breakdown['fiado'] = { totalUsd: 0, totalBs: 0, count: 0, label: 'Fiado (Por Cobrar)', currency: 'FIADO' };
@@ -937,10 +951,37 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             }
         });
 
+        const rate = effectiveRate || bcvRate || 1;
+
+        if (totalVueltoBs > 0) {
+            breakdown['vuelto_bs'] = {
+                totalUsd: totalVueltoBs / rate,
+                totalBs: totalVueltoBs,
+                count: 0,
+                label: 'Vuelto Entregado (en Bs)',
+                currency: 'BS',
+                isChange: true
+            };
+        }
+        if (totalVueltoUsd > 0) {
+            breakdown['vuelto_usd'] = {
+                totalUsd: totalVueltoUsd,
+                totalBs: totalVueltoUsd * rate,
+                count: 0,
+                label: 'Vuelto Entregado (en $)',
+                currency: 'USD',
+                isChange: true
+            };
+        }
+
         return Object.entries(breakdown)
-            .filter(([, data]) => data.totalUsd > 0 || data.totalBs > 0 || (data.count > 0 && data.totalUsd > 0))
-            .sort(([, a], [, b]) => b.totalUsd - a.totalUsd);
-    }, [sales, activeShiftApertura]);
+            .filter(([, data]) => data.totalUsd > 0 || data.totalBs > 0 || data.count > 0)
+            .sort(([, a], [, b]) => {
+                if (a.isChange && !b.isChange) return 1;
+                if (!a.isChange && b.isChange) return -1;
+                return b.totalUsd - a.totalUsd;
+            });
+    }, [sales, activeShiftApertura, effectiveRate, bcvRate]);
 
     // Ticket promedio del turno activo
     const activeShiftAvgTicket = useMemo(() => {
@@ -1510,33 +1551,58 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                             <div className="space-y-2.5">
                                                 {activeShiftPaymentBreakdown.map(([methodId, data]) => {
                                                     const IconComp = getMethodIcon(methodId);
-                                                    const pct = activeShiftMetrics.totalUsd > 0 
+                                                    const pct = activeShiftMetrics.totalUsd > 0 && !data.isChange 
                                                         ? Math.round((data.totalUsd / activeShiftMetrics.totalUsd) * 100) 
                                                         : 0;
 
+                                                    const isChangeRow = data.isChange;
+
                                                     return (
-                                                        <div key={methodId} className="flex items-center gap-3 p-3.5 bg-slate-50/70 dark:bg-slate-800/20 border border-slate-100 dark:border-slate-800/40 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                                                            <div className="w-9 h-9 bg-white dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700/60 rounded-xl flex items-center justify-center text-slate-500 dark:text-slate-400 shrink-0 shadow-sm">
+                                                        <div 
+                                                            key={methodId} 
+                                                            className={`flex items-center gap-3 p-3.5 rounded-2xl border transition-colors ${
+                                                                isChangeRow 
+                                                                    ? 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200/70 dark:border-amber-800/40' 
+                                                                    : 'bg-slate-50/70 dark:bg-slate-800/20 border-slate-100 dark:border-slate-800/40 hover:bg-slate-50 dark:hover:bg-slate-800/30'
+                                                            }`}
+                                                        >
+                                                            <div className={`w-9 h-9 border rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
+                                                                isChangeRow 
+                                                                    ? 'bg-amber-100 dark:bg-amber-900/40 border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400' 
+                                                                    : 'bg-white dark:bg-slate-800 border-slate-200/60 dark:border-slate-700/60 text-slate-500 dark:text-slate-400'
+                                                            }`}>
                                                                 <IconComp size={16} />
                                                             </div>
                                                             <div className="flex-1 min-w-0">
                                                                 <div className="flex items-center justify-between gap-2">
-                                                                    <span className="text-xs font-black text-slate-700 dark:text-slate-200 truncate">{data.label}</span>
-                                                                    <span className="font-outfit text-xs font-black text-slate-800 dark:text-white tabular-nums shrink-0">${data.totalUsd.toFixed(2)}</span>
+                                                                    <span className={`text-xs font-black truncate ${isChangeRow ? 'text-amber-800 dark:text-amber-300' : 'text-slate-700 dark:text-slate-200'}`}>
+                                                                        {data.label}
+                                                                    </span>
+                                                                    <span className={`font-outfit text-xs font-black tabular-nums shrink-0 ${isChangeRow ? 'text-amber-600 dark:text-amber-400' : 'text-slate-800 dark:text-white'}`}>
+                                                                        {isChangeRow ? '− ' : ''}${data.totalUsd.toFixed(2)}
+                                                                    </span>
                                                                 </div>
                                                                 <div className="flex items-center justify-between gap-2 mt-1">
                                                                     <div className="flex items-center gap-2">
-                                                                        <span className="text-[9px] font-bold text-slate-400">{data.count} {data.count === 1 ? 'transacción' : 'transacciones'}</span>
-                                                                        <span className="text-[9px] font-black text-violet-500 bg-violet-50 dark:bg-violet-950/20 dark:text-violet-400 px-1.5 py-0.5 rounded-md">{pct}%</span>
+                                                                        {data.count > 0 ? (
+                                                                            <span className="text-[9px] font-bold text-slate-400">{data.count} {data.count === 1 ? 'transacción' : 'transacciones'}</span>
+                                                                        ) : (
+                                                                            <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Vuelto Otorgado</span>
+                                                                        )}
+                                                                        {!isChangeRow && <span className="text-[9px] font-black text-violet-500 bg-violet-50 dark:bg-violet-950/20 dark:text-violet-400 px-1.5 py-0.5 rounded-md">{pct}%</span>}
                                                                     </div>
-                                                                    <span className="font-outfit text-[10px] font-bold text-slate-400 tabular-nums">{formatBs(data.totalBs)} Bs</span>
+                                                                    <span className={`font-outfit text-[10px] font-bold tabular-nums ${isChangeRow ? 'text-amber-600/80 dark:text-amber-400/80' : 'text-slate-400'}`}>
+                                                                        {isChangeRow ? '− ' : ''}{formatBs(data.totalBs)} Bs
+                                                                    </span>
                                                                 </div>
-                                                                <div className="mt-1.5 h-1 bg-slate-200/60 dark:bg-slate-800 rounded-full overflow-hidden">
-                                                                    <div 
-                                                                        className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 rounded-full transition-all duration-500" 
-                                                                        style={{ width: `${Math.max(2, pct)}%` }} 
-                                                                    />
-                                                                </div>
+                                                                {!isChangeRow && (
+                                                                    <div className="mt-1.5 h-1 bg-slate-200/60 dark:bg-slate-800 rounded-full overflow-hidden">
+                                                                        <div 
+                                                                            className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 rounded-full transition-all duration-500" 
+                                                                            style={{ width: `${Math.max(2, pct)}%` }} 
+                                                                        />
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     );
