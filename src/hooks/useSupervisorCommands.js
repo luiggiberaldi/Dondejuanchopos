@@ -143,13 +143,19 @@ export function useSupervisorCommands(deviceId) {
                         const target = store.usuarios.find(u => u.id === userId);
                         if (!target) {
                             failReason = `Usuario con ID ${userId} no existe en la caja`;
+                        } else if (store.usuarios.some(u => u.id !== userId && (u.plainPin === newPin || u.pin === newPin))) {
+                            failReason = `El PIN ya está asignado a otro usuario en la caja`;
                         } else {
                             res = store.cambiarPin(userId, newPin);
                             applied = true;
                         }
                     } else if (action === 'add' && nombre) {
-                        res = store.agregarUsuario(nombre, rol || 'CAJERO', newPin || '000000', bypassPin);
-                        applied = true;
+                        if (!bypassPin && newPin && store.usuarios.some(u => u.plainPin === newPin || u.pin === newPin)) {
+                            failReason = `El PIN ya está asignado a otro usuario en la caja`;
+                        } else {
+                            res = store.agregarUsuario(nombre, rol || 'CAJERO', newPin || '000000', bypassPin);
+                            applied = true;
+                        }
                     } else if (action === 'edit' && userId) {
                         const target = store.usuarios.find(u => u.id === userId);
                         if (!target) {

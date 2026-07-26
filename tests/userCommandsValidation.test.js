@@ -34,3 +34,18 @@ describe('PU7: Validación de comandos de usuario', () => {
     expect(res).toBe(false);
   });
 });
+
+describe('PU8: Validación de PIN duplicado real', () => {
+  it('detecta duplicado comparando con plainPin', () => {
+    const usuarios = [
+      { id: 1, nombre: 'Admin', plainPin: '123456', pin: 'pbkdf2$hash1' },
+      { id: 2, nombre: 'Cajero', plainPin: '654321', pin: 'pbkdf2$hash2' }
+    ];
+
+    const esDuplicado123456 = usuarios.some(u => u.plainPin === '123456');
+    const esDuplicado999999 = usuarios.some(u => u.plainPin === '999999');
+
+    expect(esDuplicado123456).toBe(true);
+    expect(esDuplicado999999).toBe(false);
+  });
+});

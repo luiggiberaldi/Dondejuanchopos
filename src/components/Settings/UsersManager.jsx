@@ -275,7 +275,7 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
         if (!newName.trim()) return showToast('Ingresa un nombre', 'error');
         if (!newBypassPin) {
             if (newPin.length !== requiredLen) return showToast(`El PIN debe tener ${requiredLen} dígitos`, 'error');
-            if (displayUsers.some(u => u.pin === newPin)) return showToast('Ese PIN ya esta en uso', 'error');
+            if (displayUsers.some(u => u.plainPin === newPin)) return showToast('Ese PIN ya esta en uso por otro usuario', 'error');
         }
 
         const res = agregarUsuario(newName.trim(), newRole, newBypassPin ? '' : newPin, newBypassPin);
@@ -383,6 +383,10 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
 
         if (pinValue.length !== requiredLen) {
             return showToast(`El PIN debe tener ${requiredLen} dígitos`, 'error');
+        }
+
+        if (displayUsers.some(u => u.id !== changePinUser.id && u.plainPin === pinValue)) {
+            return showToast('Ese PIN ya está asignado a otro usuario', 'error');
         }
 
         const res = cambiarPin(changePinUser.id, pinValue);
