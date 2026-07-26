@@ -77,6 +77,21 @@ export function useMonitorSync(pairedDeviceId) {
                 if (pairingMs > maxLastSeenMs) maxLastSeenMs = pairingMs;
             }
 
+            // Consultar también la última presencia en device_monitors
+            try {
+                const { data: monitors } = await supabaseCloud
+                    .from('device_monitors')
+                    .select('last_seen_at')
+                    .eq('primary_device_id', pairedDeviceId)
+                    .order('last_seen_at', { ascending: false })
+                    .limit(1);
+
+                if (monitors && monitors.length > 0 && monitors[0].last_seen_at) {
+                    const monMs = new Date(monitors[0].last_seen_at).getTime();
+                    if (monMs > maxLastSeenMs) maxLastSeenMs = monMs;
+                }
+            } catch (e) {}
+
             if (maxLastSeenMs > 0) {
                 const lastDate = new Date(maxLastSeenMs);
                 setPosLastSeen(lastDate);
