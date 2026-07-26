@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useAuthStore } from '../../hooks/store/useAuthStore';
+import { useAuthStore, _generateRandomPin } from '../../hooks/store/useAuthStore';
 import { showToast } from '../Toast';
 import { verifyPin } from '../../utils/crypto';
 import { PIN_POLICY } from '../../utils/securityConstants';
 import { supabaseCloud } from '../../config/supabaseCloud';
 import {
     UserPlus, Trash2, KeyRound, Shield, ShoppingCart,
-    Crown, X, Check, Eye, EyeOff, AlertTriangle, Edit2
+    Crown, X, Check, Eye, EyeOff, AlertTriangle, Edit2,
+    Copy, MessageCircle, RefreshCw
 } from 'lucide-react';
 
 const ROLE_CONFIG = {
@@ -141,37 +142,26 @@ function UserRow({ user, currentUserId, onChangePin, onDelete, onEditName, onTog
 
             {/* Fila Inferior / Control de PIN (Totalmente Responsiva) */}
             <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
-                {/* Visualizador de PIN */}
+                {/* Indicador de Estado de PIN */}
                 {!user.bypassPin ? (
-                    <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700/80">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">PIN:</span>
-                        <span className="text-xs font-mono font-black text-slate-800 dark:text-slate-100 tracking-wider">
-                            {showUserPin ? (user.plainPin || '000000') : '••••••'}
-                        </span>
-                        <button
-                            type="button"
-                            onClick={() => { triggerHaptic?.(); setShowUserPin(!showUserPin); }}
-                            className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors ml-0.5 cursor-pointer"
-                            title={showUserPin ? "Ocultar PIN" : "Ver PIN actual"}
-                        >
-                            {showUserPin ? <EyeOff size={14} /> : <Eye size={14} />}
-                        </button>
-                    </div>
+                    <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/80 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700/80">
+                        🔒 PIN activo
+                    </span>
                 ) : (
                     <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-xl border border-emerald-200 dark:border-emerald-800">
                         🔓 Sin PIN (Entra directo)
                     </span>
                 )}
 
-                {/* Controles de PIN (Cambiar PIN + Toggle Sin PIN) */}
+                {/* Controles de PIN (Cambiar PIN / Restablecer PIN + Toggle Sin PIN) */}
                 <div className="flex items-center gap-2 ml-auto">
                     {!user.bypassPin && (
                         <button
                             onClick={() => { triggerHaptic?.(); onChangePin(user); }}
                             className="px-2.5 py-1 rounded-xl bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-[10px] font-black uppercase flex items-center gap-1 transition-all active:scale-95 cursor-pointer"
-                            title="Cambiar PIN directamente"
+                            title={isCurrentUser ? "Cambiar mi PIN" : "Restablecer PIN del usuario"}
                         >
-                            <KeyRound size={13} /> Cambiar PIN
+                            <KeyRound size={13} /> {isCurrentUser ? 'Cambiar PIN' : 'Restablecer PIN'}
                         </button>
                     )}
 
@@ -260,6 +250,25 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
     const [editNameUser, setEditNameUser] = useState(null);
     const [editNameValue, setEditNameValue] = useState('');
 
+    const handleStartChangePin = (user) => {
+        setChangePinUser(user);
+        const isSelf = usuarioActivo?.id === user.id;
+        if (isSelf) {
+            setChangePinStep(1);
+            setCurrentPinValue('');
+            setPinValue('');
+            setConfirmPinValue('');
+            setShowPin(false);
+        } else {
+            // Acción de Admin/Supervisor: Restablecimiento en 1 solo paso con PIN sugerido aleatorio
+            setChangePinStep(2);
+            setCurrentPinValue('');
+            setPinValue(_generateRandomPin());
+            setConfirmPinValue('');
+            setShowPin(true);
+        }
+    };
+
     // ─── Handlers ────────────────────────────────────
     const handleAdd = () => {
         const requiredLen = PIN_POLICY.MIN_LENGTH;
@@ -336,12 +345,12 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
                 return showToast('El PIN actual es incorrecto', 'error');
             }
             setChangePinStep(2);
-            setShowPin(false);
+            setShowPin(true);
             triggerHaptic?.();
         } catch (e) {
             if (userInDb?.pin === currentPinValue || userInDb?.plainPin === currentPinValue) {
                 setChangePinStep(2);
-                setShowPin(false);
+                setShowPin(true);
                 triggerHaptic?.();
             } else {
                 showToast('Error al verificar el PIN', 'error');
@@ -366,9 +375,14 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
 
     const handleChangePin = () => {
         const requiredLen = PIN_POLICY.MIN_LENGTH;
+        const isSelf = usuarioActivo?.id === changePinUser?.id;
         
-        if (pinValue !== confirmPinValue) {
+        if (isSelf && pinValue !== confirmPinValue) {
             return showToast('Los PINs no coinciden', 'error');
+        }
+
+        if (pinValue.length !== requiredLen) {
+            return showToast(`El PIN debe tener ${requiredLen} dígitos`, 'error');
         }
 
         const res = cambiarPin(changePinUser.id, pinValue);
@@ -391,7 +405,7 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
             publishUserCatalog(useAuthStore.getState().usuarios);
         });
 
-        showToast(`PIN de ${changePinUser.nombre} actualizado`, 'success');
+        showToast(isSelf ? `Tu PIN ha sido actualizado` : `PIN de ${changePinUser.nombre} restablecido`, 'success');
         triggerHaptic?.();
         
         // Reset
@@ -544,179 +558,253 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
                 </div>
             )}
 
-            {/* ─── Change PIN Modal ────────────────────── */}
-            {changePinUser && (
-                <div 
-                    className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" 
-                    onClick={() => { 
-                        setChangePinUser(null); 
-                        setChangePinStep(1);
-                        setCurrentPinValue(''); 
-                        setPinValue(''); 
-                        setConfirmPinValue(''); 
-                        setShowPin(false);
-                    }}
-                >
+            {/* ─── Change / Reset PIN Modal ────────────────────── */}
+            {changePinUser && (() => {
+                const isSelfChange = usuarioActivo?.id === changePinUser.id;
+                return (
                     <div 
-                        className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95 duration-200 transition-all border border-slate-105 dark:border-slate-800" 
-                        onClick={e => e.stopPropagation()}
+                        className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" 
+                        onClick={() => { 
+                            setChangePinUser(null); 
+                            setChangePinStep(1);
+                            setCurrentPinValue(''); 
+                            setPinValue(''); 
+                            setConfirmPinValue(''); 
+                            setShowPin(false);
+                        }}
                     >
-                        {/* Cabecera */}
-                        <div className="text-center mb-5">
-                            <div className={`w-12 h-12 mx-auto rounded-xl bg-gradient-to-br ${ROLE_CONFIG[changePinUser.rol]?.gradient || 'from-slate-500 to-slate-600'} flex items-center justify-center mb-2 shadow-md`}>
-                                <span className="text-white font-black text-xl">{(changePinUser.nombre || 'U')[0].toUpperCase()}</span>
-                            </div>
-                            <h3 className="text-base font-black text-slate-800 dark:text-white">Cambiar PIN</h3>
-                            <p className="text-xs text-slate-405 mt-0.5">{changePinUser.nombre} · {ROLE_CONFIG[changePinUser.rol]?.label}</p>
-                            
-                            {/* Indicador de pasos visual */}
-                            <div className="flex justify-center gap-1.5 mt-3.5">
-                                {[1, 2, 3].map(step => (
-                                    <div 
-                                        key={step} 
-                                        className={`h-1.5 rounded-full transition-all duration-300 ${
-                                            changePinStep === step 
-                                                ? 'w-6 bg-brand' 
-                                                : changePinStep > step 
-                                                    ? 'w-2 bg-emerald-500' 
-                                                    : 'w-2 bg-slate-200 dark:bg-slate-700'
-                                        }`}
-                                    />
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Contenido según el paso */}
-                        <div className="min-h-[92px] flex flex-col justify-center animate-in fade-in slide-in-from-right-2 duration-200">
-                            {changePinStep === 1 && (
-                                <div className="space-y-2">
-                                    <label className="text-[10px] uppercase font-black text-slate-400 block text-center tracking-wider">PIN Actual</label>
-                                    <PinInput 
-                                        value={currentPinValue} 
-                                        onChange={setCurrentPinValue} 
-                                        label="current" 
-                                        length={PIN_POLICY.MIN_LENGTH}
-                                        showDigits={showPin}
-                                    />
-                                    <div className="flex flex-col items-center gap-1 pt-1">
-                                        <p className="text-[9px] text-slate-400 text-center">Para verificar tu identidad</p>
-                                        <button
-                                            type="button"
-                                            onClick={() => { triggerHaptic?.(); setChangePinStep(2); }}
-                                            className="text-[10px] font-black text-blue-600 dark:text-blue-400 hover:underline cursor-pointer pt-0.5"
-                                        >
-                                            ⚡ Omitir y fijar Nuevo PIN directamente
-                                        </button>
+                        <div 
+                            className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95 duration-200 transition-all border border-slate-105 dark:border-slate-800" 
+                            onClick={e => e.stopPropagation()}
+                        >
+                            {/* Cabecera */}
+                            <div className="text-center mb-5">
+                                <div className={`w-12 h-12 mx-auto rounded-xl bg-gradient-to-br ${ROLE_CONFIG[changePinUser.rol]?.gradient || 'from-slate-500 to-slate-600'} flex items-center justify-center mb-2 shadow-md`}>
+                                    <span className="text-white font-black text-xl">{(changePinUser.nombre || 'U')[0].toUpperCase()}</span>
+                                </div>
+                                <h3 className="text-base font-black text-slate-800 dark:text-white">
+                                    {isSelfChange ? 'Cambiar mi PIN' : 'Restablecer PIN'}
+                                </h3>
+                                <p className="text-xs text-slate-400 mt-0.5">{changePinUser.nombre} · {ROLE_CONFIG[changePinUser.rol]?.label}</p>
+                                
+                                {/* Indicador de pasos visual */}
+                                {isSelfChange ? (
+                                    <div className="flex justify-center gap-1.5 mt-3.5">
+                                        {[1, 2, 3].map(step => (
+                                            <div 
+                                                key={step} 
+                                                className={`h-1.5 rounded-full transition-all duration-300 ${
+                                                    changePinStep === step 
+                                                        ? 'w-6 bg-brand' 
+                                                        : changePinStep > step 
+                                                            ? 'w-2 bg-emerald-500' 
+                                                            : 'w-2 bg-slate-200 dark:bg-slate-700'
+                                                }`}
+                                            />
+                                        ))}
                                     </div>
-                                </div>
-                            )}
+                                ) : (
+                                    <div className="mt-2.5">
+                                        <span className="inline-block text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-2.5 py-0.5 rounded-full border border-blue-200 dark:border-blue-800">
+                                            Restablecimiento directo por Administración
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
 
-                            {changePinStep === 2 && (
-                                <div className="space-y-2">
-                                    <label className="text-[10px] uppercase font-black text-slate-400 block text-center tracking-wider">Nuevo PIN</label>
-                                    <PinInput 
-                                        value={pinValue} 
-                                        onChange={setPinValue} 
-                                        label="change" 
-                                        length={PIN_POLICY.MIN_LENGTH}
-                                        showDigits={showPin}
-                                    />
-                                    <p className="text-[9px] text-slate-400 text-center">Debe tener {PIN_POLICY.MIN_LENGTH} dígitos no secuenciales</p>
-                                </div>
-                            )}
+                            {/* Contenido según el paso */}
+                            <div className="min-h-[92px] flex flex-col justify-center animate-in fade-in slide-in-from-right-2 duration-200">
+                                {changePinStep === 1 && isSelfChange && (
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] uppercase font-black text-slate-400 block text-center tracking-wider">PIN Actual</label>
+                                        <PinInput 
+                                            value={currentPinValue} 
+                                            onChange={setCurrentPinValue} 
+                                            label="current" 
+                                            length={PIN_POLICY.MIN_LENGTH}
+                                            showDigits={showPin}
+                                        />
+                                        <div className="flex flex-col items-center gap-1 pt-1">
+                                            <p className="text-[9px] text-slate-400 text-center">Para verificar tu identidad</p>
+                                            <button
+                                                type="button"
+                                                onClick={() => { triggerHaptic?.(); setChangePinStep(2); }}
+                                                className="text-[10px] font-black text-blue-600 dark:text-blue-400 hover:underline cursor-pointer pt-0.5"
+                                            >
+                                                ⚡ Omitir y fijar Nuevo PIN directamente
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
 
-                            {changePinStep === 3 && (
-                                <div className="space-y-2">
-                                    <label className="text-[10px] uppercase font-black text-slate-400 block text-center tracking-wider">Confirmar Nuevo PIN</label>
-                                    <PinInput 
-                                        value={confirmPinValue} 
-                                        onChange={setConfirmPinValue} 
-                                        label="confirm" 
-                                        length={PIN_POLICY.MIN_LENGTH}
-                                        showDigits={showPin}
-                                    />
-                                    <p className="text-[9px] text-slate-400 text-center">Introduce el PIN de nuevo</p>
-                                </div>
-                            )}
-                        </div>
+                                {changePinStep === 2 && (
+                                    <div className="space-y-3">
+                                        <label className="text-[10px] uppercase font-black text-slate-400 block text-center tracking-wider">
+                                            {isSelfChange ? 'Nuevo PIN' : 'PIN Sugerido / Nuevo PIN'}
+                                        </label>
+                                        <PinInput 
+                                            value={pinValue} 
+                                            onChange={setPinValue} 
+                                            label="change" 
+                                            length={PIN_POLICY.MIN_LENGTH}
+                                            showDigits={showPin}
+                                        />
+                                        
+                                        {!isSelfChange ? (
+                                            <div className="space-y-2 pt-1">
+                                                <p className="text-[9.5px] text-slate-500 dark:text-slate-400 text-center font-medium">
+                                                    PIN generado automáticamente. Se mostrará una sola vez.
+                                                </p>
 
-                        {/* Control de visibilidad */}
-                        <div className="flex items-center justify-center gap-2 my-4">
-                            <button
-                                onClick={() => setShowPin(!showPin)}
-                                className="text-[9px] font-black uppercase tracking-wider text-slate-500 flex items-center gap-1 hover:text-slate-650 transition-colors bg-slate-50 dark:bg-slate-800/40 px-2.5 py-1 rounded-full border border-slate-100 dark:border-slate-850"
-                            >
-                                {showPin ? <EyeOff size={11} className="text-slate-500" /> : <Eye size={11} className="text-slate-500" />}
-                                {showPin ? 'Ocultar PIN' : 'Mostrar PIN'}
-                            </button>
-                        </div>
+                                                {/* Acciones rápidas: Generar / Copiar / WhatsApp */}
+                                                <div className="flex items-center justify-center gap-2 pt-1">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => { setPinValue(_generateRandomPin()); triggerHaptic?.(); }}
+                                                        className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-bold flex items-center gap-1 transition-all active:scale-95 cursor-pointer"
+                                                        title="Generar otro PIN aleatorio"
+                                                    >
+                                                        <RefreshCw size={12} /> Generar
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            navigator.clipboard.writeText(pinValue);
+                                                            showToast('PIN copiado al portapapeles', 'success');
+                                                            triggerHaptic?.();
+                                                        }}
+                                                        className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-bold flex items-center gap-1 transition-all active:scale-95 cursor-pointer"
+                                                        title="Copiar PIN"
+                                                    >
+                                                        <Copy size={12} /> Copiar
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const businessName = localStorage.getItem('business_name') || 'el sistema';
+                                                            const msg = `Tu nuevo PIN de acceso para ${businessName} es: ${pinValue}`;
+                                                            window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+                                                            triggerHaptic?.();
+                                                        }}
+                                                        className="px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-bold flex items-center gap-1 transition-all active:scale-95 cursor-pointer"
+                                                        title="Enviar PIN por WhatsApp"
+                                                    >
+                                                        <MessageCircle size={12} /> WhatsApp
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <p className="text-[9px] text-slate-400 text-center">Debe tener {PIN_POLICY.MIN_LENGTH} dígitos no secuenciales</p>
+                                        )}
+                                    </div>
+                                )}
 
-                        {/* Botones de acción */}
-                        <div className="flex gap-2.5">
-                            {changePinStep === 1 && (
-                                <>
-                                    <button
-                                        onClick={() => { 
-                                            setChangePinUser(null); 
-                                            setChangePinStep(1);
-                                            setCurrentPinValue(''); 
-                                            setPinValue(''); 
-                                            setConfirmPinValue(''); 
-                                            setShowPin(false);
-                                        }}
-                                        className="flex-1 py-2.5 text-xs font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-95 transition-all"
-                                    >
-                                        Cancelar
-                                    </button>
-                                    <button
-                                        onClick={handleNextStep1}
-                                        disabled={currentPinValue.length !== PIN_POLICY.MIN_LENGTH}
-                                        className="flex-1 py-2.5 text-xs font-bold text-white bg-brand rounded-xl hover:bg-brand-dark active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none shadow-md shadow-primary/10"
-                                    >
-                                        Continuar
-                                    </button>
-                                </>
-                            )}
+                                {changePinStep === 3 && isSelfChange && (
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] uppercase font-black text-slate-400 block text-center tracking-wider">Confirmar Nuevo PIN</label>
+                                        <PinInput 
+                                            value={confirmPinValue} 
+                                            onChange={setConfirmPinValue} 
+                                            label="confirm" 
+                                            length={PIN_POLICY.MIN_LENGTH}
+                                            showDigits={showPin}
+                                        />
+                                        <p className="text-[9px] text-slate-400 text-center">Introduce el PIN de nuevo</p>
+                                    </div>
+                                )}
+                            </div>
 
-                            {changePinStep === 2 && (
-                                <>
-                                    <button
-                                        onClick={() => { setChangePinStep(1); setShowPin(false); }}
-                                        className="flex-1 py-2.5 text-xs font-bold text-slate-500 bg-slate-150 dark:bg-slate-800 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-95 transition-all"
-                                    >
-                                        Atrás
-                                    </button>
-                                    <button
-                                        onClick={handleNextStep2}
-                                        disabled={pinValue.length !== PIN_POLICY.MIN_LENGTH}
-                                        className="flex-1 py-2.5 text-xs font-bold text-white bg-brand rounded-xl hover:bg-brand-dark active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none shadow-md shadow-primary/10"
-                                    >
-                                        Continuar
-                                    </button>
-                                </>
-                            )}
+                            {/* Control de visibilidad */}
+                            <div className="flex items-center justify-center gap-2 my-4">
+                                <button
+                                    onClick={() => setShowPin(!showPin)}
+                                    className="text-[9px] font-black uppercase tracking-wider text-slate-500 flex items-center gap-1 hover:text-slate-650 transition-colors bg-slate-50 dark:bg-slate-800/40 px-2.5 py-1 rounded-full border border-slate-100 dark:border-slate-850 cursor-pointer"
+                                >
+                                    {showPin ? <EyeOff size={11} className="text-slate-500" /> : <Eye size={11} className="text-slate-500" />}
+                                    {showPin ? 'Ocultar dígitos' : 'Mostrar dígitos'}
+                                </button>
+                            </div>
 
-                            {changePinStep === 3 && (
-                                <>
-                                    <button
-                                        onClick={() => { setChangePinStep(2); setShowPin(false); }}
-                                        className="flex-1 py-2.5 text-xs font-bold text-slate-500 bg-slate-150 dark:bg-slate-800 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-95 transition-all"
-                                    >
-                                        Atrás
-                                    </button>
-                                    <button
-                                        onClick={handleChangePin}
-                                        disabled={confirmPinValue.length !== PIN_POLICY.MIN_LENGTH}
-                                        className="flex-1 py-2.5 text-xs font-bold text-white bg-brand rounded-xl hover:bg-brand-dark active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none shadow-md shadow-primary/10"
-                                    >
-                                        Guardar
-                                    </button>
-                                </>
-                            )}
+                            {/* Botones de acción */}
+                            <div className="flex gap-2.5">
+                                {changePinStep === 1 && isSelfChange && (
+                                    <>
+                                        <button
+                                            onClick={() => { 
+                                                setChangePinUser(null); 
+                                                setChangePinStep(1);
+                                                setCurrentPinValue(''); 
+                                                setPinValue(''); 
+                                                setConfirmPinValue(''); 
+                                                setShowPin(false);
+                                            }}
+                                            className="flex-1 py-2.5 text-xs font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-95 transition-all cursor-pointer"
+                                        >
+                                            Cancelar
+                                        </button>
+                                        <button
+                                            onClick={handleNextStep1}
+                                            disabled={currentPinValue.length !== PIN_POLICY.MIN_LENGTH}
+                                            className="flex-1 py-2.5 text-xs font-bold text-white bg-brand rounded-xl hover:bg-brand-dark active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none shadow-md shadow-primary/10 cursor-pointer"
+                                        >
+                                            Continuar
+                                        </button>
+                                    </>
+                                )}
+
+                                {changePinStep === 2 && (
+                                    <>
+                                        <button
+                                            onClick={() => {
+                                                if (isSelfChange) {
+                                                    setChangePinStep(1);
+                                                    setShowPin(false);
+                                                } else {
+                                                    setChangePinUser(null);
+                                                    setChangePinStep(1);
+                                                    setCurrentPinValue('');
+                                                    setPinValue('');
+                                                    setConfirmPinValue('');
+                                                    setShowPin(false);
+                                                }
+                                            }}
+                                            className="flex-1 py-2.5 text-xs font-bold text-slate-500 bg-slate-150 dark:bg-slate-800 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-95 transition-all cursor-pointer"
+                                        >
+                                            {isSelfChange ? 'Atrás' : 'Cancelar'}
+                                        </button>
+
+                                        <button
+                                            onClick={isSelfChange ? handleNextStep2 : handleChangePin}
+                                            disabled={pinValue.length !== PIN_POLICY.MIN_LENGTH}
+                                            className="flex-1 py-2.5 text-xs font-bold text-white bg-brand rounded-xl hover:bg-brand-dark active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none shadow-md shadow-primary/10 cursor-pointer"
+                                        >
+                                            {isSelfChange ? 'Continuar' : 'Guardar PIN'}
+                                        </button>
+                                    </>
+                                )}
+
+                                {changePinStep === 3 && isSelfChange && (
+                                    <>
+                                        <button
+                                            onClick={() => { setChangePinStep(2); setShowPin(false); }}
+                                            className="flex-1 py-2.5 text-xs font-bold text-slate-500 bg-slate-150 dark:bg-slate-800 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-95 transition-all cursor-pointer"
+                                        >
+                                            Atrás
+                                        </button>
+                                        <button
+                                            onClick={handleChangePin}
+                                            disabled={confirmPinValue.length !== PIN_POLICY.MIN_LENGTH}
+                                            className="flex-1 py-2.5 text-xs font-bold text-white bg-brand rounded-xl hover:bg-brand-dark active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none shadow-md shadow-primary/10 cursor-pointer"
+                                        >
+                                            Guardar
+                                        </button>
+                                    </>
+                                )}
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
 
             {/* ─── Delete Confirmation ─────────────────── */}
             {deleteUser && (
