@@ -115,12 +115,13 @@ export function useMonitorSync(pairedDeviceId) {
             // Verificar presencia de la caja principal
             await checkPosPresence();
 
-            // 1. Pull inicial o de recuperación (catch-up) usando filtro explícito doc_id para reducir egress
+            // 1. Pull inicial o de recuperación (catch-up) ordenado por fecha más reciente
             const { data: docs, error } = await supabaseCloud
                 .from('sync_documents')
-                .select('collection, doc_id, data')
+                .select('collection, doc_id, data, updated_at')
                 .eq('device_id', pairedDeviceId)
-                .in('doc_id', MONITOR_DOC_IDS);
+                .in('doc_id', MONITOR_DOC_IDS)
+                .order('updated_at', { ascending: true });
 
             if (error) throw error;
 

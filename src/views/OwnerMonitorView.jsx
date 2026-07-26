@@ -1200,7 +1200,6 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             };
         }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     }, [sales]);
-    }, [sales]);
 
     // Establecer primer cierre por defecto si cambia la lista
     useEffect(() => {
