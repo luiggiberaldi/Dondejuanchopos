@@ -279,7 +279,31 @@ export function useCloudSync(deviceId) {
                         .eq('primary_device_id', deviceId)
                         .maybeSingle();
                     isRegisteredOrPaired = !!pairing;
-                } catch (e) {}
+
+                    if (!isRegisteredOrPaired) {
+                        const { data: monitorRow } = await supabaseCloud
+                            .from('device_monitors')
+                            .select('primary_device_id')
+                            .eq('primary_device_id', deviceId)
+                            .maybeSingle();
+                        isRegisteredOrPaired = !!monitorRow;
+                    }
+
+                    // Auto-registrar la caja principal en device_pairings para activar sincronización y presencia
+                    if (!isRegisteredOrPaired && deviceId) {
+                        const { error: upsertErr } = await supabaseCloud
+                            .from('device_pairings')
+                            .upsert({
+                                primary_device_id: deviceId,
+                                paired_at: new Date().toISOString()
+                            }, { onConflict: 'primary_device_id' });
+                        if (!upsertErr) {
+                            isRegisteredOrPaired = true;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('[CloudSync] Error verificando registro de la caja:', e);
+                }
 
                 if (!hasAuth && !isRegisteredOrPaired) {
                     isCloudSyncActive = false;
@@ -460,8 +484,10 @@ export function useCloudSync(deviceId) {
                 try {
                     await supabaseCloud
                         .from('device_pairings')
-                        .update({ paired_at: new Date().toISOString() })
-                        .eq('primary_device_id', deviceId);
+                        .upsert({
+                            primary_device_id: deviceId,
+                            paired_at: new Date().toISOString()
+                        }, { onConflict: 'primary_device_id' });
                 } catch {}
             }
         };
