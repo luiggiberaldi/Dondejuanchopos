@@ -874,9 +874,16 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     useEffect(() => {
         loadLocalData();
 
-        // Escuchar actualizaciones del almacenamiento causadas por la sincronización en tiempo real
-        const handleUpdate = () => {
+        // Escuchar actualizaciones del almacenamiento causadas por la sincronización en tiempo real o encolado de comandos
+        const handleUpdate = (e) => {
             loadLocalData();
+            if (!e?.detail?.key || e.detail.key === PENDING_KEY) {
+                try {
+                    const raw = localStorage.getItem(PENDING_KEY);
+                    const arr = raw ? JSON.parse(raw) : [];
+                    if (Array.isArray(arr)) setPendingChanges(arr);
+                } catch { /* cola corrupta: se ignora */ }
+            }
         };
 
         window.addEventListener('app_storage_update', handleUpdate);
@@ -3258,7 +3265,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                     </div>
                                 </div>
                             )}
-                            <UsersManager triggerHaptic={triggerHaptic} />
+                            <UsersManager triggerHaptic={triggerHaptic} onQueueChange={queueInventoryChange} />
                         </div>
 
                         {/* Footer con botón "Subir al Sistema" si hay cambios pendientes */}

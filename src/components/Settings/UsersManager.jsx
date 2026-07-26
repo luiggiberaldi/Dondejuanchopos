@@ -193,7 +193,7 @@ function UserRow({ user, currentUserId, onChangePin, onDelete, onEditName, onTog
 }
 
 // ═══════════════════════════════════════════════════ MAIN
-export default function UsersManager({ triggerHaptic }) {
+export default function UsersManager({ triggerHaptic, onQueueChange }) {
     const { usuarios, usuarioActivo, agregarUsuario, eliminarUsuario, cambiarPin, editarUsuario } = useAuthStore();
 
     // Catálogo de usuarios sincronizado desde la caja principal si existe
@@ -224,25 +224,10 @@ export default function UsersManager({ triggerHaptic }) {
 
     const displayUsers = syncedUsers && syncedUsers.length > 0 ? syncedUsers : usuarios;
 
-    // Helper para encolar cambios de usuario en la cola de 'Subir al Sistema'
-    const pushRemoteUserCmd = async (userAction, payload) => {
-        try {
-            const PENDING_KEY = 'dj_pending_inventory_changes_v1';
-            const raw = localStorage.getItem(PENDING_KEY);
-            const list = raw ? JSON.parse(raw) : [];
-            const changeItem = {
-                action: 'user_update',
-                productId: 'user_' + (payload.userId || Date.now()),
-                data: { action: userAction, ...payload },
-                queuedAt: new Date().toISOString()
-            };
-            list.push(changeItem);
-            localStorage.setItem(PENDING_KEY, JSON.stringify(list));
-            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: PENDING_KEY } }));
-            window.dispatchEvent(new CustomEvent('storage'));
-        } catch (e) {
-            console.warn('[UsersManager] No se pudo encolar cambio de usuario:', e);
-        }
+    // Helper para encolar cambios de usuario en la cola de 'Subir al Sistema' (solo en modo Monitor via onQueueChange prop)
+    const pushRemoteUserCmd = (userAction, payload) => {
+        if (!onQueueChange) return;
+        onQueueChange('user_update', 'user_' + (payload.userId || Date.now()), { action: userAction, ...payload });
     };
 
     // Helper para publicar el catálogo sanitizado de usuarios en la nube (caja principal)
@@ -287,10 +272,11 @@ export default function UsersManager({ triggerHaptic }) {
         const res = agregarUsuario(newName.trim(), newRole, newBypassPin ? '' : newPin, newBypassPin);
         pushRemoteUserCmd('add', { nombre: newName.trim(), rol: newRole, newPin: newBypassPin ? '' : newPin, bypassPin: newBypassPin });
         
-        // Actualización optimista de estado local y publicación
+        // Actualización optimista de estado local y publicación usando maxId + 1
         setSyncedUsers(prev => {
             const current = prev && prev.length > 0 ? prev : usuarios;
-            const fresh = [...current, { id: Date.now(), nombre: newName.trim(), rol: newRole, plainPin: newBypassPin ? '' : newPin, bypassPin: newBypassPin }];
+            const nextId = current.reduce((max, u) => Math.max(max, Number(u.id) || 0), 0) + 1;
+            const fresh = [...current, { id: nextId, nombre: newName.trim(), rol: newRole, plainPin: newBypassPin ? '' : newPin, bypassPin: newBypassPin }];
             try { localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(fresh)); } catch {}
             publishUserCatalog(fresh);
             return fresh;
