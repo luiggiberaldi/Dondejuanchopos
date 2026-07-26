@@ -414,14 +414,29 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         };
     }, [pairedDeviceId, fetchAllCloudCmds]);
 
-    // Detección de revocación remota emitida por el heartbeat (F4, B4)
+    const wipeMonitorSession = async () => {
+        localStorage.removeItem('dj_pairing_code');
+        localStorage.removeItem('dj_pairing_mode');
+        localStorage.removeItem('dj_paired_device_id');
+        localStorage.removeItem('monitor_last_sync');
+        localStorage.removeItem('business_name');
+        localStorage.removeItem('business_rif');
+        localStorage.removeItem(PENDING_KEY);
+
+        try {
+            const { default: localforage } = await import('localforage');
+            localforage.config({ name: 'BodegaApp', storeName: 'bodega_app_data' });
+            await localforage.clear();
+        } catch (e) {
+            console.warn('[OwnerMonitorView] Error limpiando IndexedDB:', e);
+        }
+    };
+
+    // Detección de revocación remota emitida por el heartbeat (F4, B4, FX4)
     useEffect(() => {
-        const handleRevoked = () => {
+        const handleRevoked = async () => {
             showToast('El acceso de este dispositivo ha sido revocado', 'error');
-            localStorage.removeItem('dj_pairing_code');
-            localStorage.removeItem('dj_pairing_mode');
-            localStorage.removeItem('dj_paired_device_id');
-            localStorage.removeItem('monitor_last_sync');
+            await wipeMonitorSession();
             setTimeout(() => {
                 window.location.reload();
             }, 1500);
@@ -496,17 +511,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             return;
         }
         if (pendingChanges.length === 0 || uploading) return;
-        let monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
-        try {
-            const { data: pairing } = await supabaseCloud
-                .from('device_pairings')
-                .select('monitor_device_id')
-                .eq('primary_device_id', pairedDeviceId)
-                .single();
-            if (pairing?.monitor_device_id) {
-                monitorDeviceId = pairing.monitor_device_id;
-            }
-        } catch { /* fallback local */ }
+        const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
 
         const remaining = [];
         let sent = 0;
@@ -1048,32 +1053,27 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             .slice(0, 10);
     }, [products]);
 
-    // Desvincular Monitor
+    // Desvincular Monitor (FX5)
     const handleDisconnect = async () => {
         triggerHaptic?.();
+        const myDeviceId = localStorage.getItem('dj_device_id');
         
         try {
-            if (supabaseCloud && pairedDeviceId) {
-                await supabaseCloud.rpc('unpair_monitor', { p_device_id: pairedDeviceId });
+            if (supabaseCloud && pairedDeviceId && myDeviceId) {
+                const { data, error } = await supabaseCloud.rpc('revoke_monitor', {
+                    p_requester_id: myDeviceId,
+                    p_target_monitor_id: myDeviceId
+                });
+                if (error || (data && !data.success)) {
+                    // Fallback a unpair_monitor si la RPC revoke_monitor no está disponible (D6)
+                    await supabaseCloud.rpc('unpair_monitor', { p_device_id: pairedDeviceId }).catch(() => {});
+                }
             }
         } catch (err) {
-            console.warn('[OwnerMonitorView] Error al llamar unpair RPC:', err);
+            console.warn('[OwnerMonitorView] Error al revocar vínculo local:', err);
         }
 
-        localStorage.removeItem('dj_paired_device_id');
-        localStorage.removeItem('dj_pairing_mode');
-        localStorage.removeItem('monitor_last_sync');
-        localStorage.removeItem('business_name');
-        localStorage.removeItem('business_rif');
-        
-        try {
-            const { default: localforage } = await import('localforage');
-            localforage.config({ name: 'BodegaApp', storeName: 'bodega_app_data' });
-            await localforage.clear();
-        } catch (e) {
-            console.warn(e);
-        }
-
+        await wipeMonitorSession();
         showToast('Dispositivo desvinculado con éxito', 'success');
         setTimeout(() => window.location.reload(), 1000);
     };
@@ -2701,7 +2701,8 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 copEnabled={copEnabled}
                 tasaCop={tasaCop}
                 onSave={(comboData) => {
-                    queueInventoryChange(editingCombo ? 'edit' : 'add', comboData.id, comboData);
+                    const finalData = editingCombo ? { ...comboData, baseUpdatedAt: editingCombo.updatedAt } : comboData;
+                    queueInventoryChange(editingCombo ? 'edit' : 'add', comboData.id, finalData);
                     setShowComboModal(false);
                     setEditingCombo(null);
                     showToast(editingCombo ? 'Cambio de combo encolado' : 'Combo encolado para enviar a la caja', 'success');

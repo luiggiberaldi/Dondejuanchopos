@@ -195,4 +195,39 @@ describe('applyInventoryCommand — comandos remotos de inventario', () => {
         expect(p.priceUsd).toBe(15);
         expect(p.updatedAt).toBeTruthy();
     });
+    it('adjust_stock no modifica updatedAt del producto (FX3.3)', async () => {
+        const initialIso = new Date('2026-01-01T12:00:00.000Z').toISOString();
+        await storageService.setItem(PRODUCTS_KEY, [{ ...baseProduct, updatedAt: initialIso }]);
+
+        const res = await applyInventoryCommand({
+            action: 'adjust_stock',
+            productId: 'p1',
+            data: { delta: 5 }
+        });
+
+        expect(res.success).toBe(true);
+        const [p] = await storageService.getItem(PRODUCTS_KEY);
+        expect(p.stock).toBe(29);
+        expect(p.updatedAt).toBe(initialIso); // Preservado intacto
+    });
+
+    it('edit encolado antes de un adjust_stock aplica con éxito (no es conflicto de atributos) (FX3.4)', async () => {
+        const initialIso = new Date('2026-01-01T12:00:00.000Z').toISOString();
+        await storageService.setItem(PRODUCTS_KEY, [{ ...baseProduct, updatedAt: initialIso }]);
+
+        // 1. Ocurre movimiento de stock en la caja
+        await applyInventoryCommand({ action: 'adjust_stock', productId: 'p1', data: { delta: -2 } });
+
+        // 2. Llega edición remota encolada previamente con baseUpdatedAt = initialIso
+        const res = await applyInventoryCommand({
+            action: 'edit',
+            productId: 'p1',
+            data: { name: 'Ron Santa Teresa Reserva', priceUsd: 18, baseUpdatedAt: initialIso }
+        });
+
+        expect(res.success).toBe(true);
+        const [p] = await storageService.getItem(PRODUCTS_KEY);
+        expect(p.priceUsd).toBe(18);
+        expect(p.stock).toBe(22); // Conserva el stock actual de la caja
+    });
 });

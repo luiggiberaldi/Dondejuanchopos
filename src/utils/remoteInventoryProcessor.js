@@ -170,8 +170,7 @@ export async function applyInventoryCommand(payload) {
         const allowNeg = localStorage.getItem('allow_negative_stock') === 'true';
         const current = Number(existing.stock) || 0;
         const next = allowNeg ? current + delta : Math.max(0, current + delta);
-        const nowIso = new Date().toISOString();
-        const updated = products.map(p => p.id === productId ? { ...p, stock: next, updatedAt: nowIso } : p);
+        const updated = products.map(p => p.id === productId ? { ...p, stock: next } : p);
         await storageService.setItem(PRODUCTS_KEY, updated);
         logEvent('INVENTARIO', 'REMOTO_STOCK', `Supervisor ajustó stock de "${existing.name}": ${delta > 0 ? '+' : ''}${delta} (→ ${next})`);
         return { success: true, productName: existing.name, updatedProducts: updated };

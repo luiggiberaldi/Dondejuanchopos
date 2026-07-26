@@ -484,10 +484,11 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
             if (url) finalImage = url;
         }
 
+        const nowIso = new Date().toISOString();
         let updatedProducts;
         if (editingId) {
             updatedProducts = products.map(p =>
-                p.id === editingId ? { ...p, ...productData, image: finalImage !== undefined ? finalImage : p.image } : p
+                p.id === editingId ? { ...p, ...productData, image: finalImage !== undefined ? finalImage : p.image, updatedAt: nowIso } : p
             );
             auditLog('INVENTARIO', 'PRODUCTO_EDITADO', `Producto "${name}" editado`);
         } else {
@@ -495,7 +496,8 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 id: productId,
                 ...productData,
                 image: finalImage,
-                createdAt: new Date().toISOString()
+                createdAt: nowIso,
+                updatedAt: nowIso
             }, ...products];
             auditLog('INVENTARIO', 'PRODUCTO_CREADO', `Producto "${name}" creado - $${priceUsd || '0'}`);
         }

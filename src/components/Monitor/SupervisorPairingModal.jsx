@@ -57,20 +57,27 @@ export default function SupervisorPairingModal({ onClose, pairedDeviceId, trigge
         }
     };
 
-    // 2. Cargar dispositivos conectados (FASE 4)
+    // 2. Cargar dispositivos conectados (FASE 4 / FX6)
     const fetchDevices = async () => {
         if (!supabaseCloud || !pairedDeviceId) return;
         setLoadingDevices(true);
         try {
-            const { data, error } = await supabaseCloud
-                .from('device_monitors')
-                .select('*')
-                .eq('primary_device_id', pairedDeviceId)
-                .is('revoked_at', null)
-                .order('paired_at', { ascending: true });
+            const { data, error } = await supabaseCloud.rpc('list_monitors', {
+                p_requester_id: myDeviceId || pairedDeviceId
+            });
 
-            if (error) throw error;
-            setDevices(data || []);
+            if (!error && data && data.success) {
+                setDevices(data.devices || []);
+            } else {
+                // Fallback si la RPC list_monitors aún no fue creada en la BD
+                const { data: directData } = await supabaseCloud
+                    .from('device_monitors')
+                    .select('*')
+                    .eq('primary_device_id', pairedDeviceId)
+                    .is('revoked_at', null)
+                    .order('paired_at', { ascending: true });
+                setDevices(directData || []);
+            }
         } catch (err) {
             console.warn('[SupervisorPairingModal] Error al cargar dispositivos:', err);
         } finally {
@@ -123,16 +130,10 @@ export default function SupervisorPairingModal({ onClose, pairedDeviceId, trigge
         return () => clearInterval(timerRef.current);
     }, [timeLeft > 0]);
 
-    // Renderizar QR Code en Canvas
+    // Renderizar QR Code en Canvas (FX1: token plano)
     useEffect(() => {
         if (token && canvasRef.current && activeTab === 'code') {
-            const qrPayload = JSON.stringify({
-                type: 'dj_pair',
-                token,
-                primaryDeviceId: pairedDeviceId
-            });
-
-            QRCode.toCanvas(canvasRef.current, qrPayload, {
+            QRCode.toCanvas(canvasRef.current, token, {
                 width: 200,
                 margin: 2,
                 color: {
@@ -143,7 +144,7 @@ export default function SupervisorPairingModal({ onClose, pairedDeviceId, trigge
                 if (err) console.error('[SupervisorPairingModal] Error al renderizar QR:', err);
             });
         }
-    }, [token, activeTab, pairedDeviceId]);
+    }, [token, activeTab]);
 
     // Generar token automáticamente al abrir la primera vez
     useEffect(() => {

@@ -202,7 +202,8 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
             };
 
             if (!editingProduct) data.id = crypto.randomUUID();
-            await onSubmit(editingProduct ? 'edit' : 'add', data.id, data);
+            const payloadData = editingProduct ? { ...data, baseUpdatedAt: editingProduct.updatedAt } : data;
+            await onSubmit(editingProduct ? 'edit' : 'add', data.id, payloadData);
             onClose();
         } finally {
             setSending(false);

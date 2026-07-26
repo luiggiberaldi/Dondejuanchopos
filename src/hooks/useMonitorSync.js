@@ -24,7 +24,11 @@ const MONITOR_DOC_IDS = [
     'bodega_custom_rate',
     'street_rate_bs',
     'monitor_rates_v12',
-    'tasa_cop'
+    'tasa_cop',
+    'cop_enabled',
+    'cop_primary',
+    'auto_cop_enabled',
+    'bodega_use_auto_rate'
 ];
 
 let monitorSubscription = null;
@@ -162,6 +166,7 @@ export function useMonitorSync(pairedDeviceId) {
                     }, async (payload) => {
                         const doc = payload.new;
                         if (!doc || !['store', 'local'].includes(doc.collection)) return;
+                        if (!MONITOR_DOC_IDS.includes(doc.doc_id)) return;
                         await applyDocToLocal(doc.doc_id, doc.collection, doc.data.payload);
                         const now = new Date();
                         setLastSync(now);
@@ -260,15 +265,22 @@ export function useMonitorSync(pairedDeviceId) {
         window.addEventListener('offline', handleOffline);
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
-        // 3. Health-check en segundo plano (Re-intento automático cada 15 segundos)
+        const checkCounterRef = { current: 0 };
+        // 3. Health-check en segundo plano: 30s con canal sano, 10s cuando está caído (FX9)
         reconnectTimer = setInterval(() => {
-            if (navigator.onLine) {
+            if (!navigator.onLine) return;
+
+            const isHealthy = isConnectedRef.current && monitorSubscription;
+            checkCounterRef.current += 1;
+
+            if (!isHealthy || checkCounterRef.current % 3 === 0) {
                 checkPosPresence();
-                if (!isConnectedRef.current || !monitorSubscription) {
-                    initMonitor(true);
-                }
             }
-        }, 15000);
+
+            if (!isHealthy) {
+                initMonitor(true);
+            }
+        }, 10000);
 
         // 4. Heartbeat de presencia hacia Supabase (cada 60s)
         const heartbeatTimer = setInterval(() => {

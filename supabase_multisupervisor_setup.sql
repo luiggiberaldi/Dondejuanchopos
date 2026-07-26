@@ -173,15 +173,45 @@ BEGIN
     RETURN json_build_object('success', true, 'is_revoked', false);
 END; $$;
 
--- 7. RLS y Permisos
+-- 7. RPC: Listar monitores activos pertenecientes a la misma caja (FX6)
+CREATE OR REPLACE FUNCTION public.list_monitors(p_requester_id TEXT)
+RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_primary TEXT;
+BEGIN
+    -- Validar que el solicitante sea la caja o un monitor activo de la misma caja
+    SELECT primary_device_id INTO v_primary
+    FROM public.device_monitors
+    WHERE monitor_device_id = p_requester_id AND revoked_at IS NULL
+    LIMIT 1;
+
+    IF v_primary IS NULL THEN
+        SELECT primary_device_id INTO v_primary
+        FROM public.device_pairings WHERE primary_device_id = p_requester_id;
+    END IF;
+
+    IF v_primary IS NULL THEN
+        RETURN json_build_object('success', false, 'devices', '[]'::json);
+    END IF;
+
+    RETURN json_build_object('success', true, 'devices', COALESCE((
+        SELECT json_agg(row_to_json(t) ORDER BY t.paired_at)
+        FROM (
+            SELECT id, monitor_device_id, device_label, user_agent, paired_at, last_seen_at
+            FROM public.device_monitors
+            WHERE primary_device_id = v_primary AND revoked_at IS NULL
+        ) t
+    ), '[]'::json));
+END; $$;
+
+-- 8. RLS y Permisos
 ALTER TABLE public.device_monitors ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Permitir lectura publica de device_monitors" ON public.device_monitors;
-CREATE POLICY "Permitir lectura publica de device_monitors"
-ON public.device_monitors FOR SELECT TO anon, authenticated
-USING (true);
+-- Eliminar acceso directo SELECT de anon sobre device_monitors (FX6: la lectura segura se hace vía list_monitors)
 
 GRANT EXECUTE ON FUNCTION public.generate_monitor_token(TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.pair_additional_monitor(TEXT, TEXT, TEXT, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.revoke_monitor(TEXT, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.touch_monitor_heartbeat(TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.list_monitors(TEXT) TO anon, authenticated;

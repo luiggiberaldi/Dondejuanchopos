@@ -65,6 +65,13 @@ CREATE POLICY "supervisor_commands_monitor_insert" ON public.supervisor_commands
             WHERE dp.primary_device_id = supervisor_commands.primary_device_id
               AND dp.monitor_device_id = supervisor_commands.monitor_device_id
         )
+        OR
+        EXISTS (
+            SELECT 1 FROM public.device_monitors dm
+            WHERE dm.primary_device_id = supervisor_commands.primary_device_id
+              AND dm.monitor_device_id = supervisor_commands.monitor_device_id
+              AND dm.revoked_at IS NULL
+        )
     );
 
 -- Caja y monitor del par leen sus comandos
