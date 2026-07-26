@@ -651,65 +651,39 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         setClosingRemote(true);
         triggerHaptic?.();
         try {
+            const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
             const currentCierreId = Date.now();
-            const existingCloses = sales.filter(s => s.tipo === 'REGISTRO_CIERRE');
-            const cierreNumber = existingCloses.reduce((mx, s) => Math.max(mx, s.cierreNumber || 0), 0) + 1;
-            const validTiposParaCerrar = ['VENTA', 'VENTA_FIADA', 'VENTA_CASHEA', 'COBRO_DEUDA', 'PAGO_PROVEEDOR', 'APERTURA_CAJA'];
 
-            const summaryObj = {
-                todayTotalUsd: activeShiftMetrics.totalUsd,
-                todayTotalBs: activeShiftMetrics.totalBs,
-                todayProfit: activeShiftMetrics.profitUsd,
-                todayItemsSold: activeShiftMetrics.count,
-                copEnabled,
-                tasaCop,
-                cashier: {
-                    nombre: activeCashier?.nombre || 'Supervisión Remota',
-                    rol: 'SUPERVISOR_REMOTO'
-                }
-            };
+            // El monitor NO calcula el cierre: su copia de bodega_sales_v1 puede estar
+            // atrasada y sobrescribir el documento financiero de la caja borraría ventas.
+            // Envía la orden; la caja re-lee fresco bajo lock y publica el resultado.
+            const { error } = await supabaseCloud
+                .from('supervisor_commands')
+                .insert({
+                    primary_device_id: pairedDeviceId,
+                    monitor_device_id: monitorDeviceId,
+                    command_type: 'force_daily_close',
+                    payload: {
+                        cierreId: currentCierreId,
+                        referencia: {
+                            totalUsd: activeShiftMetrics.totalUsd,
+                            totalBs: activeShiftMetrics.totalBs,
+                            count: activeShiftMetrics.count,
+                        },
+                        cashier: { nombre: activeCashier?.nombre || 'Supervisión Remota', rol: 'SUPERVISOR_REMOTO' },
+                        copEnabled,
+                        tasaCop,
+                    },
+                    status: 'pending'
+                });
 
-            const registroCierre = {
-                id: `cierre_${currentCierreId}`,
-                tipo: 'REGISTRO_CIERRE',
-                cierreId: currentCierreId,
-                cierreNumber: cierreNumber,
-                timestamp: new Date().toISOString(),
-                cajaCerrada: true,
-                remoteTriggered: true,
-                summary: summaryObj
-            };
+            if (error) throw error;
 
-            const updatedSales = sales.map(s => {
-                if (!s.cajaCerrada && validTiposParaCerrar.includes(s.tipo || 'VENTA')) {
-                    return { ...s, cajaCerrada: true, cierreId: currentCierreId };
-                }
-                return s;
-            });
-            updatedSales.push(registroCierre);
-
-            // 1. Guardar en Supabase sync_documents para la caja remota
-            const { error: syncErr } = await supabaseCloud
-                .from('sync_documents')
-                .upsert({
-                    device_id: pairedDeviceId,
-                    collection: 'local',
-                    doc_id: 'bodega_sales_v1',
-                    data: { payload: updatedSales },
-                    updated_at: new Date().toISOString()
-                }, { onConflict: 'device_id,collection,doc_id' });
-
-            if (syncErr) throw syncErr;
-
-            // 2. Actualizar memoria local del Monitor y cambiar a pestaña 'cierres'
-            setSales(updatedSales);
-            setSelectedCierreId(currentCierreId);
             setShowRemoteCloseModal(false);
-            setViewTab('cierres');
-            showToast(`Cierre #${cierreNumber} completado exitosamente con éxito`, 'success');
+            showToast('Orden de cierre enviada. Se aplicará en la caja al recibirla.', 'success');
         } catch (err) {
-            console.error('[OwnerMonitor] Error en cierre remoto:', err);
-            showToast('Error al ejecutar el cierre remoto', 'error');
+            console.error('[OwnerMonitor] Error al enviar el cierre remoto:', err);
+            showToast('No se pudo enviar la orden de cierre', 'error');
         } finally {
             setClosingRemote(false);
         }
