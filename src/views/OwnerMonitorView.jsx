@@ -20,6 +20,7 @@ import {
 import { formatBs, formatCop } from '../utils/calculatorUtils';
 import { getLocalISODate } from '../utils/dateHelpers';
 import { getPaymentLabel, toTitleCase } from '../config/paymentMethods';
+import { findOpenApertura, getOpenShiftMovements } from '../utils/shiftScope';
 
 // Helper: icon por método de pago
 const PAYMENT_METHOD_ICONS = {
@@ -904,22 +905,12 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
     // Apertura de caja del turno activo
     const activeShiftApertura = useMemo(() => {
-        const aperturas = sales.filter(s => s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada);
-        if (aperturas.length === 0) return null;
-        return aperturas.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+        return findOpenApertura(sales);
     }, [sales]);
 
     // Estado global del turno (Abierta/Cerrada + Tiempo transcurrido)
     const shiftStatusInfo = useMemo(() => {
-        let openTs = activeShiftApertura?.timestamp;
-
-        if (!openTs) {
-            const unclosed = sales.filter(s => !s.cajaCerrada && s.status !== 'ANULADA' && s.tipo !== 'REGISTRO_CIERRE');
-            if (unclosed.length > 0) {
-                const sorted = [...unclosed].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-                openTs = sorted[0].timestamp;
-            }
-        }
+        const openTs = activeShiftApertura?.timestamp;
 
         if (!openTs) {
             return { isOpen: false, openTime: null, formattedTime: '', elapsedLabel: 'Caja Cerrada' };
@@ -1007,18 +998,8 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         let totalVueltoBs = 0;
         let totalVueltoUsd = 0;
 
-        // Incluye ventas, cobros de deuda, y pagos de proveedor en el flujo de caja
-        const activeFlow = sales.filter(s => {
-            if (s.status === 'ANULADA') return false;
-            if (s.cajaCerrada) return false;
-            if (s.tipo === 'APERTURA_CAJA' || s.tipo === 'REGISTRO_CIERRE') return false;
-            
-            // Restringir a transacciones posteriores a la última apertura activa si existe
-            if (activeShiftApertura) {
-                return new Date(s.timestamp) >= new Date(activeShiftApertura.timestamp);
-            }
-            return true;
-        });
+        // Movimientos del turno activo según shiftScope (incluye GASTO_INTERNO con afectaCaja)
+        const activeFlow = getOpenShiftMovements(sales).movements.filter(s => s.tipo !== 'APERTURA_CAJA');
 
         activeFlow.forEach(sale => {
             if (sale.changeBs && Number(sale.changeBs) > 0) {

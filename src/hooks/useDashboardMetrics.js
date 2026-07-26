@@ -2,6 +2,7 @@ import { useMemo, useCallback } from 'react';
 import { FinancialEngine } from '../core/FinancialEngine';
 import { sumR, mulR } from '../utils/dinero';
 import { getLocalISODate } from '../utils/dateHelpers';
+import { getOpenShiftMovements } from '../utils/shiftScope';
 
 /**
  * Hook de métricas del Dashboard.
@@ -11,6 +12,46 @@ import { getLocalISODate } from '../utils/dateHelpers';
  */
 export function useDashboardMetrics(sales, customers, products, bcvRate) {
     const today = getLocalISODate();
+
+    // Scope del turno activo (independiente del día calendario)
+    const shiftScope = useMemo(() => getOpenShiftMovements(sales), [sales]);
+    const shiftCashFlow = shiftScope.movements;
+    const shiftOrphans = shiftScope.orphans;
+    const shiftApertura = shiftScope.apertura;
+
+    const shiftSales = useMemo(() =>
+        shiftCashFlow.filter(s => ['VENTA', 'VENTA_FIADA', 'VENTA_CASHEA'].includes(s.tipo || 'VENTA')), [shiftCashFlow]);
+    const shiftTotalBs = useMemo(() => sumR(shiftSales.map(s => s.totalBs || 0)), [shiftSales]);
+    const shiftTotalUsd = useMemo(() => sumR(shiftSales.map(s => s.totalUsd || 0)), [shiftSales]);
+    const shiftTotalCop = useMemo(() => sumR(shiftSales.map(s => s.totalCop || 0)), [shiftSales]);
+    const shiftItemsSold = useMemo(() => shiftSales.reduce((sum, s) => sum + (s.items ? s.items.reduce((is, i) => is + i.qty, 0) : 0), 0), [shiftSales]);
+
+    const shiftProfit = useMemo(() =>
+        FinancialEngine.calculateAggregateProfit(shiftSales, bcvRate, products),
+        [shiftSales, bcvRate, products]
+    );
+
+    const shiftPaymentBreakdown = useMemo(() => {
+        return FinancialEngine.calculatePaymentBreakdown(shiftCashFlow);
+    }, [shiftCashFlow]);
+
+    const shiftTopProducts = useMemo(() => {
+        const productMap = {};
+        shiftSales.forEach(s => {
+            if (s.items) {
+                s.items.forEach(item => {
+                    if (!productMap[item.name]) productMap[item.name] = { name: item.name, qty: 0, revenue: 0 };
+                    productMap[item.name].qty += item.qty;
+                    const prod = products.find(p => p.id === item.id || p.name === item.name);
+                    const effectivePrice = (prod && item.priceUsd > 50 && prod.priceUsdt && parseFloat(prod.priceUsdt) < 20)
+                        ? parseFloat(prod.priceUsdt)
+                        : item.priceUsd;
+                    productMap[item.name].revenue = sumR(productMap[item.name].revenue, mulR(effectivePrice, item.qty));
+                });
+            }
+        });
+        return Object.values(productMap).sort((a, b) => b.qty - a.qty).slice(0, 10);
+    }, [shiftSales, products]);
 
     // Memoize sales with pre-calculated local dates to avoid parsing new Date inside nested loops
     const salesWithLocalDate = useMemo(() => {
@@ -185,5 +226,18 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
         topProducts,
         paymentBreakdown,
         todayTopProducts,
+        // Metricas acotadas por turno (shiftScope)
+        shiftScope,
+        shiftCashFlow,
+        shiftSales,
+        shiftTotalBs,
+        shiftTotalUsd,
+        shiftTotalCop,
+        shiftItemsSold,
+        shiftProfit,
+        shiftPaymentBreakdown,
+        shiftTopProducts,
+        shiftOrphans,
+        shiftApertura,
     };
 }

@@ -343,25 +343,21 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
         let summaryObj = null;
         const activeUser = useAuthStore.getState().usuarioActivo;
 
-        if (todayCashFlow.length > 0 || todaySales.length > 0) {
-            const allTodayForReport = sales.filter(s => {
-                const saleLocalDay = s.timestamp ? getLocalISODate(new Date(s.timestamp)) : getLocalISODate(new Date());
-                return saleLocalDay === today && !s.cajaCerrada && s.tipo !== 'APERTURA_CAJA';
-            });
-            const salesForPDF = todayCashFlow.filter(s => s.tipo !== 'APERTURA_CAJA');
+        if (shiftCashFlow.length > 0) {
+            const salesForPDF = shiftCashFlow.filter(s => s.tipo !== 'APERTURA_CAJA');
 
             summaryObj = {
                 sales: salesForPDF,
-                allSales: allTodayForReport,
+                allSales: shiftCashFlow,
                 bcvRate,
-                paymentBreakdown,
-                topProducts: todayTopProducts,
-                todayTotalUsd,
-                todayTotalBs,
-                todayProfit,
-                todayItemsSold,
+                paymentBreakdown: shiftPaymentBreakdown,
+                topProducts: shiftTopProducts,
+                todayTotalUsd: shiftTotalUsd,
+                todayTotalBs: shiftTotalBs,
+                todayProfit: shiftProfit,
+                todayItemsSold: shiftItemsSold,
                 reconData,
-                apertura: todayApertura,
+                apertura: shiftApertura || todayApertura,
                 copEnabled,
                 tasaCop,
             };
@@ -371,7 +367,6 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
         const currentCierreId = new Date().getTime();
         const existingCloses = sales.filter(s => s.tipo === 'REGISTRO_CIERRE');
         const cierreNumber = existingCloses.reduce((mx, s) => Math.max(mx, s.cierreNumber || 0), 0) + 1;
-        const validTiposParaCerrar = ['VENTA', 'VENTA_FIADA', 'VENTA_CASHEA', 'COBRO_DEUDA', 'PAGO_PROVEEDOR', 'APERTURA_CAJA'];
         
         // Registrar el cierre formalmente en el log de transacciones para sincronización con el supervisor
         let registroCierre = null;
@@ -384,10 +379,10 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                 timestamp: new Date().toISOString(),
                 cajaCerrada: true,
                 summary: {
-                    todayTotalUsd,
-                    todayTotalBs,
-                    todayProfit,
-                    todayItemsSold,
+                    todayTotalUsd: shiftTotalUsd,
+                    todayTotalBs: shiftTotalBs,
+                    todayProfit: shiftProfit,
+                    todayItemsSold: shiftItemsSold,
                     reconData,
                     copEnabled,
                     tasaCop,
@@ -399,8 +394,9 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
             };
         }
 
+        const closingIds = new Set(shiftCashFlow.map(s => s.id));
         const updatedSales = sales.map(s => {
-            if (!s.cajaCerrada && validTiposParaCerrar.includes(s.tipo || 'VENTA')) {
+            if (closingIds.has(s.id)) {
                 return { ...s, cajaCerrada: true, cierreId: currentCierreId };
             }
             return s;
