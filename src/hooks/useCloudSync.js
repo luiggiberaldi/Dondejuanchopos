@@ -71,7 +71,7 @@ function _debouncePush(key, value) {
     }, delay);
 }
 
-export const pushCloudSync = async (key, value) => {
+export const pushCloudSync = async (key, value, forceUnconditional = false) => {
     if (!supabaseCloud) return;
     if (isSyncingFromCloud) return;          // Nunca re-emitir lo que llegó de la nube
     const isMonitor = localStorage.getItem('dj_pairing_mode') === 'monitor';
@@ -84,6 +84,14 @@ export const pushCloudSync = async (key, value) => {
 
     // SEC-002: jamás empujar `abasto-auth-storage` aunque accidentalmente lo pidan.
     if (key === 'abasto-auth-storage') return;
+
+    // EGRESS & REQUEST SAVER:
+    // Si el valor a enviar es idéntico al último enviado con éxito a la nube, abortar antes del POST HTTP.
+    const hashKey = LAST_PUSH_HASH_PREFIX + key;
+    const currentHash = quickHash(value);
+    if (!forceUnconditional && localStorage.getItem(hashKey) === currentHash) {
+        return;
+    }
 
     try {
         const collectionType = LOCAL_KEYS.includes(key) ? 'local' : 'store';
@@ -108,8 +116,7 @@ export const pushCloudSync = async (key, value) => {
         }
 
         // Update local hash to prevent periodic push from re-uploading
-        const hashKey = LAST_PUSH_HASH_PREFIX + key;
-        localStorage.setItem(hashKey, quickHash(value));
+        localStorage.setItem(hashKey, currentHash);
 
     } catch (e) {
         // Silencioso en producción
