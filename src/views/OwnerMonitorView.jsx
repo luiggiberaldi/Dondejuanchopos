@@ -700,23 +700,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
             if (syncErr) throw syncErr;
 
-            // 2. Enviar orden a supervisor_commands para que la caja la aplique si reacciona (no bloqueante)
-            try {
-                const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
-                await supabaseCloud
-                    .from('supervisor_commands')
-                    .insert({
-                        primary_device_id: pairedDeviceId,
-                        monitor_device_id: monitorDeviceId,
-                        command_type: 'force_daily_close',
-                        payload: { cierreId: currentCierreId, cierreNumber: cierreNumber, ...summaryObj },
-                        status: 'pending'
-                    });
-            } catch (cmdErr) {
-                console.warn('[OwnerMonitor] Registro secundario en supervisor_commands omitido:', cmdErr);
-            }
-
-            // 3. Actualizar memoria local del Monitor y cambiar a pestaña 'cierres'
+            // 2. Actualizar memoria local del Monitor y cambiar a pestaña 'cierres'
             setSales(updatedSales);
             setSelectedCierreId(currentCierreId);
             setShowRemoteCloseModal(false);
