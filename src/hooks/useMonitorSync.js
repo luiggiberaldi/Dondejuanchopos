@@ -199,6 +199,11 @@ export function useMonitorSync(pairedDeviceId) {
         }
     }, []);
 
+    const isConnectedRef = useRef(isConnected);
+    useEffect(() => {
+        isConnectedRef.current = isConnected;
+    }, [isConnected]);
+
     useEffect(() => {
         if (!supabaseCloud || !pairedDeviceId) {
             setLoading(false);
@@ -238,16 +243,15 @@ export function useMonitorSync(pairedDeviceId) {
         window.addEventListener('offline', handleOffline);
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
-        // 3. Health-check en segundo plano (30s cuando el canal está sano, 10s cuando está caído)
-        const healthCheckInterval = (isConnected && monitorSubscription) ? 30000 : 10000;
+        // 3. Health-check en segundo plano (Re-intento automático cada 15 segundos)
         reconnectTimer = setInterval(() => {
             if (navigator.onLine) {
                 checkPosPresence();
-                if (!isConnected || !monitorSubscription) {
+                if (!isConnectedRef.current || !monitorSubscription) {
                     initMonitor(true);
                 }
             }
-        }, healthCheckInterval);
+        }, 15000);
 
         // 4. Heartbeat de presencia hacia Supabase (cada 60s)
         const heartbeatTimer = setInterval(() => {
@@ -268,7 +272,7 @@ export function useMonitorSync(pairedDeviceId) {
                 monitorSubscription = null;
             }
         };
-    }, [pairedDeviceId, initMonitor, checkPosPresence, sendHeartbeat, isConnected]);
+    }, [pairedDeviceId, initMonitor, checkPosPresence, sendHeartbeat]);
 
     return { isConnected, lastSync, loading, triggerRefresh, posLastSeen, isPosOnline };
 }
