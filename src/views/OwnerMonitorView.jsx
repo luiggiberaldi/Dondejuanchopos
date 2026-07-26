@@ -7,10 +7,11 @@ import { showToast } from '../components/Toast';
 import { calculateComboStock, getEffectiveCostUsd, calculatePricing } from '../utils/productProcessor';
 import SupervisorRateModal from '../components/SupervisorRateModal';
 import RemoteProductFormModal from '../components/Monitor/RemoteProductFormModal';
+import SupervisorPairingModal from '../components/Monitor/SupervisorPairingModal';
 import ComboFormModal from '../components/Products/ComboFormModal';
 import UsersManager from '../components/Settings/UsersManager';
 import {
-    TrendingUp, Package, Coins, Users, LogOut,
+    TrendingUp, Package, Coins, Users, LogOut, QrCode,
     RefreshCw, Wifi, WifiOff, Clock, FileText, DollarSign,
     Wallet, CreditCard, Smartphone, Banknote, ArrowDownRight,
     ShieldCheck, Hash, AlertTriangle, Search, X, ChevronLeft, ChevronRight,
@@ -348,6 +349,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const ITEMS_PER_PAGE_CAMBIOS = 10;
     const [showCloudPendingModal, setShowCloudPendingModal] = useState(false);
     const [showUsersModal, setShowUsersModal] = useState(false);
+    const [showPairingModal, setShowPairingModal] = useState(false);
     const [cancellingCmdId, setCancellingCmdId] = useState(null);
     const [pendingChanges, setPendingChanges] = useState(() => {
         try {
@@ -1107,6 +1109,13 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                 title="Usuarios y PINs"
                             >
                                 <Users size={14} />
+                            </button>
+                            <button 
+                                onClick={() => { triggerHaptic?.(); setShowPairingModal(true); }}
+                                className="p-2 rounded-xl text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 transition-colors"
+                                title="Conectar otro dispositivo supervisor"
+                            >
+                                <QrCode size={14} />
                             </button>
                             <button 
                                 onClick={() => { triggerHaptic?.(); setShowDisconnectConfirm(true); }}
@@ -2865,6 +2874,15 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             return updated;
                         });
                     }}
+                />
+            )}
+
+            {/* Modal de Vinculación de Dispositivos */}
+            {showPairingModal && (
+                <SupervisorPairingModal
+                    onClose={() => setShowPairingModal(false)}
+                    pairedDeviceId={pairedDeviceId}
+                    triggerHaptic={triggerHaptic}
                 />
             )}
 
