@@ -2140,45 +2140,64 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                 <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/60 dark:border-slate-800 p-6 shadow-sm">
                                                     <h3 className="text-xs font-black text-slate-800 dark:text-white mb-4 uppercase tracking-wider">Ventas Cerradas en este Turno</h3>
                                                     <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
-                                                        {activeC.sales.slice().sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).map(sale => (
-                                                            <div 
-                                                                key={sale.id}
-                                                                onClick={() => { triggerHaptic?.(); setSelectedSaleDetail(sale); }}
-                                                                className="p-3.5 border border-slate-100 dark:border-slate-800 rounded-2xl bg-slate-50/50 dark:bg-slate-800/20 hover:bg-white dark:hover:bg-slate-800/50 flex flex-col sm:flex-row justify-between items-start gap-2.5 transition-all duration-200 cursor-pointer active:scale-[0.99] shadow-sm hover:shadow-md group"
-                                                            >
-                                                                <div className="min-w-0 flex-1 w-full space-y-1">
-                                                                    <div className="flex items-center justify-between sm:justify-start gap-2">
-                                                                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800/40">
-                                                                            {getFormattedSaleCode(sale)}
-                                                                        </span>
-                                                                        <span className="text-[9px] text-slate-400 font-bold">{formatTime(sale.timestamp)}</span>
-                                                                        <div className="sm:hidden text-right">
-                                                                            <span className="font-outfit font-black text-slate-850 dark:text-white">${(sale.totalUsd || 0).toFixed(2)}</span>
-                                                                        </div>
-                                                                    </div>
-                                                                    <p className="font-black text-slate-800 dark:text-slate-100 leading-snug break-words pr-1 text-xs">
-                                                                        {sale.items?.map(i => `${i.name} (x${i.qty})`).join(', ') || 'Venta de productos'}
-                                                                    </p>
-                                                                    <div className="flex items-center justify-between pt-1">
-                                                                        <div className="flex gap-2 items-center flex-wrap">
-                                                                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md ${getPaymentBadgeStyle(sale)}`}>
-                                                                                {getFormattedPaymentMethod(sale)}
-                                                                            </span>
-                                                                            {sale.clientName && (
-                                                                                <span className="text-[9px] text-slate-500 dark:text-slate-400 font-bold">• {sale.clientName}</span>
+                                                        {activeC.sales.slice().sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).map(sale => {
+                                                            const isVoided = sale.status === 'ANULADA';
+                                                            return (
+                                                                <div 
+                                                                    key={sale.id}
+                                                                    onClick={() => { triggerHaptic?.(); setSelectedSaleDetail(sale); }}
+                                                                    className={`p-3.5 border rounded-2xl flex flex-col sm:flex-row justify-between items-start gap-2.5 transition-all duration-200 cursor-pointer active:scale-[0.99] shadow-sm hover:shadow-md group ${
+                                                                        isVoided 
+                                                                            ? 'border-rose-200/80 dark:border-rose-900/50 bg-rose-50/40 dark:bg-rose-950/20 opacity-80 hover:bg-rose-50/80 dark:hover:bg-rose-950/40' 
+                                                                            : 'border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20 hover:bg-white dark:hover:bg-slate-800/50'
+                                                                    }`}
+                                                                >
+                                                                    <div className="min-w-0 flex-1 w-full space-y-1">
+                                                                        <div className="flex items-center justify-between sm:justify-start gap-2">
+                                                                            {isVoided ? (
+                                                                                <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900/60 flex items-center gap-1">
+                                                                                    <AlertTriangle size={9} /> {getFormattedSaleCode(sale)} • ANULADA
+                                                                                </span>
+                                                                            ) : (
+                                                                                <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800/40">
+                                                                                    {getFormattedSaleCode(sale)}
+                                                                                </span>
                                                                             )}
+                                                                            <span className="text-[9px] text-slate-400 font-bold">{formatTime(sale.timestamp)}</span>
+                                                                            <div className="sm:hidden text-right">
+                                                                                <span className={`font-outfit font-black ${isVoided ? 'text-rose-600 dark:text-rose-400 line-through' : 'text-slate-850 dark:text-white'}`}>
+                                                                                    ${(sale.totalUsd || 0).toFixed(2)}
+                                                                                </span>
+                                                                            </div>
                                                                         </div>
-                                                                        <span className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5 group-hover:translate-x-0.5 transition-transform">
-                                                                            Ver detalle <ChevronRight size={11} />
+                                                                        <p className={`font-black leading-snug break-words pr-1 text-xs ${isVoided ? 'text-slate-600 dark:text-slate-400 line-through' : 'text-slate-850 dark:text-slate-100'}`}>
+                                                                            {sale.items?.map(i => `${i.name} (x${i.qty})`).join(', ') || 'Venta de productos'}
+                                                                        </p>
+                                                                        <div className="flex items-center justify-between pt-1">
+                                                                            <div className="flex gap-2 items-center flex-wrap">
+                                                                                <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md ${isVoided ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-200/60' : getPaymentBadgeStyle(sale)}`}>
+                                                                                    {isVoided ? 'ANULADA' : getFormattedPaymentMethod(sale)}
+                                                                                </span>
+                                                                                {sale.clientName && (
+                                                                                    <span className="text-[9px] text-slate-500 dark:text-slate-400 font-bold">• {sale.clientName}</span>
+                                                                                )}
+                                                                            </div>
+                                                                            <span className={`text-[9px] font-black flex items-center gap-0.5 group-hover:translate-x-0.5 transition-transform ${isVoided ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                                                                                Ver detalle <ChevronRight size={11} />
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="hidden sm:block text-right shrink-0 space-y-0.5">
+                                                                        <span className={`font-outfit font-black block ${isVoided ? 'text-rose-600 dark:text-rose-400 line-through' : 'text-slate-850 dark:text-white'}`}>
+                                                                            ${(sale.totalUsd || 0).toFixed(2)}
+                                                                        </span>
+                                                                        <span className={`font-outfit text-[9px] block ${isVoided ? 'text-rose-400/80 line-through' : 'text-slate-400'}`}>
+                                                                            {formatBs(sale.totalBs || 0)} Bs
                                                                         </span>
                                                                     </div>
                                                                 </div>
-                                                                <div className="hidden sm:block text-right shrink-0 space-y-0.5">
-                                                                    <span className="font-outfit font-black text-slate-850 dark:text-white block">${(sale.totalUsd || 0).toFixed(2)}</span>
-                                                                    <span className="font-outfit text-[9px] text-slate-400 block">{formatBs(sale.totalBs || 0)} Bs</span>
-                                                                </div>
-                                                            </div>
-                                                        ))}
+                                                            );
+                                                        })}
                                                     </div>
                                                 </div>
                                             </div>
