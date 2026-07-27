@@ -74,6 +74,19 @@ function _debouncePush(key, value) {
     }, delay);
 }
 
+function sanitizePayloadForSync(key, value) {
+    if (key === 'bodega_products_v1' && Array.isArray(value)) {
+        return value.map(p => {
+            if (p && typeof p.image === 'string' && p.image.startsWith('data:')) {
+                const { image, ...rest } = p;
+                return rest;
+            }
+            return p;
+        });
+    }
+    return value;
+}
+
 export const pushCloudSync = async (key, value, forceUnconditional = false) => {
     if (!supabaseCloud) return;
     if (isSyncingFromCloud) return;          // Nunca re-emitir lo que llegó de la nube
@@ -88,10 +101,12 @@ export const pushCloudSync = async (key, value, forceUnconditional = false) => {
     // SEC-002: jamás empujar `abasto-auth-storage` aunque accidentalmente lo pidan.
     if (key === 'abasto-auth-storage') return;
 
+    const payloadToUpload = sanitizePayloadForSync(key, value);
+
     // EGRESS & REQUEST SAVER:
     // Si el valor a enviar es idéntico al último enviado con éxito a la nube, abortar antes del POST HTTP.
     const hashKey = LAST_PUSH_HASH_PREFIX + key;
-    const currentHash = quickHash(value);
+    const currentHash = quickHash(payloadToUpload);
     if (!forceUnconditional && localStorage.getItem(hashKey) === currentHash) {
         return;
     }
@@ -103,7 +118,7 @@ export const pushCloudSync = async (key, value, forceUnconditional = false) => {
             device_id: activeDeviceId,
             collection: collectionType,
             doc_id: key,
-            data: { payload: value },
+            data: { payload: payloadToUpload },
             updated_at: new Date().toISOString()
         }, { onConflict: 'device_id,collection,doc_id' });
 
