@@ -313,6 +313,64 @@ export function useSupervisorCommands(deviceId) {
                     console.error('[SupervisorCommands] Error al ejecutar Cierre Remoto en la caja:', err);
                     await updateCommandStatus(command.id, 'failed', err?.message);
                 }
+            } else if (command.command_type === 'reopen_shift') {
+                try {
+                    appliedIds.add(command.id);
+                    markApplied(command.id);
+                    const { storageService } = await import('../utils/storageService');
+                    const { pushCloudSync } = await import('./useCloudSync');
+                    const { withLock } = await import('../utils/withLock');
+
+                    const result = await withLock('pos_write_lock', async () => {
+                        const sales = await storageService.getItem('bodega_sales_v1', []) || [];
+                        const targetCierreId = command.payload?.cierreId;
+
+                        const explicitCloses = sales.filter(s => s.tipo === 'REGISTRO_CIERRE');
+                        if (explicitCloses.length === 0) {
+                            return { empty: true };
+                        }
+
+                        const targetClose = targetCierreId
+                            ? explicitCloses.find(s => s.cierreId === targetCierreId || s.id === `cierre_${targetCierreId}`)
+                            : explicitCloses[0];
+
+                        const cierreIdToReopen = targetClose?.cierreId || targetCierreId;
+
+                        const reopenedSales = sales
+                            .filter(s => s.id !== targetClose?.id && (s.cierreId !== cierreIdToReopen || s.tipo !== 'REGISTRO_CIERRE'))
+                            .map(s => {
+                                if (!cierreIdToReopen || s.cierreId === cierreIdToReopen) {
+                                    const { cierreId, ...rest } = s;
+                                    return { ...rest, cajaCerrada: false };
+                                }
+                                return s;
+                            });
+
+                        await storageService.setItem('bodega_sales_v1', reopenedSales);
+
+                        try {
+                            const MIRROR_KEY = 'bodega_sales_mirror_v1';
+                            await storageService.setItem(MIRROR_KEY, reopenedSales);
+                        } catch (e) {}
+
+                        return { reopenedSales, cierreId: cierreIdToReopen };
+                    });
+
+                    if (result?.empty) {
+                        await updateCommandStatus(command.id, 'failed', 'No hay cierres de caja para reabrir');
+                        return;
+                    }
+
+                    await pushCloudSync('bodega_sales_v1', result.reopenedSales, true);
+                    await pushCloudSync('bodega_sales_mirror_v1', result.reopenedSales, true);
+                    await updateCommandStatus(command.id, 'applied');
+
+                    window.dispatchEvent(new CustomEvent('supervisor_shift_reopened', { detail: { cierreId: result.cierreId } }));
+                    window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_sales_v1' } }));
+                } catch (err) {
+                    console.error('[SupervisorCommands] Error al reabrir turno remoto:', err);
+                    await updateCommandStatus(command.id, 'failed', err?.message);
+                }
             }
             // Tipos desconocidos: se ignoran (comportamiento histórico)
         };

@@ -15,7 +15,7 @@ import {
     RefreshCw, Wifi, WifiOff, Clock, FileText, DollarSign,
     Wallet, CreditCard, Smartphone, Banknote, ArrowDownRight,
     ShieldCheck, Hash, AlertTriangle, Search, X, ChevronLeft, ChevronRight,
-    MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud, Sparkles, Gift, RotateCcw, Target, Lock
+    MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud, Sparkles, Gift, RotateCcw, Target, Lock, Unlock
 } from 'lucide-react';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
 import { mulR, round2 } from '../utils/dinero';
@@ -726,6 +726,33 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             showToast('No se pudo enviar la orden de cierre', 'error');
         } finally {
             setClosingRemote(false);
+        }
+    };
+
+    const handleReopenRemoteShift = async (targetCierreId = null) => {
+        if (!pairedDeviceId || !supabaseCloud) return;
+        triggerHaptic?.();
+        try {
+            const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
+            const { error } = await supabaseCloud
+                .from('supervisor_commands')
+                .insert({
+                    primary_device_id: pairedDeviceId,
+                    monitor_device_id: monitorDeviceId,
+                    command_type: 'reopen_shift',
+                    payload: {
+                        cierreId: targetCierreId || null,
+                        cashier: { nombre: activeCashier?.nombre || 'Supervisión Remota', rol: 'SUPERVISOR_REMOTO' },
+                    },
+                    status: 'pending'
+                });
+
+            if (error) throw error;
+
+            showToast('🔓 Orden de reapertura de turno enviada a la caja.', 'success');
+        } catch (err) {
+            console.error('[OwnerMonitor] Error enviando comando de reapertura:', err);
+            showToast('No se pudo enviar la orden de reapertura', 'error');
         }
     };
 
@@ -1994,6 +2021,21 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                             {declaredUsd === null ? 'Sin Declarar' : isCuadrado ? 'Cuadrado' : 'Diferencia'}
                                                         </span>
                                                     </div>
+                                                </div>
+
+                                                {/* Botón de Acción Remota: Reabrir / Restaurar Turno */}
+                                                <div className="flex items-center justify-between bg-amber-50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 p-4 rounded-2xl">
+                                                    <div>
+                                                        <h4 className="text-xs font-black text-amber-900 dark:text-amber-400">¿Cierre accidental o error de turno?</h4>
+                                                        <p className="text-[10px] text-amber-700 dark:text-amber-500 font-medium">Reabre este turno en la caja para continuar registrando ventas en él.</p>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => handleReopenRemoteShift(activeC.cierreId)}
+                                                        className="px-4 py-2 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 shrink-0"
+                                                    >
+                                                        <Unlock size={14} />
+                                                        Reabrir Turno
+                                                    </button>
                                                 </div>
 
                                                 {/* Arqueo Detallado de Efectivo */}
