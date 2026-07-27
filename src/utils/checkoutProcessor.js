@@ -270,6 +270,41 @@ export async function processSaleTransaction({
         await storageService.setItem(PRODUCTS_KEY, updatedProducts);
         deepFreeze(updatedProducts);
 
+        // ── Registro inmutable en Kardex ──
+        try {
+            const { recordKardexMovement } = await import('../services/kardexService');
+            for (const item of cart) {
+                let physicalQty = Number(item.qty || item.quantity) || 1;
+                const mode = item._mode || item.mode || 'unit';
+                if (mode === 'box') {
+                    const boxUnits = parseInt(item.boxUnits, 10) || 1;
+                    physicalQty = mulR(physicalQty, boxUnits);
+                } else if (mode === 'halfBox') {
+                    const halfBoxUnits = parseInt(item.halfBoxUnits, 10) || 1;
+                    physicalQty = mulR(physicalQty, halfBoxUnits);
+                }
+                const qtySold = -physicalQty;
+
+                await recordKardexMovement({
+                    productoId: item._originalId || item.id,
+                    productoNombre: item.name,
+                    sku: item.barcode || item.sku || '',
+                    tipo: 'VENTA',
+                    subtipo: 'POS_CHECKOUT',
+                    cantidad: qtySold,
+                    unidad: item.unit || 'unidad',
+                    costoUnitario: Number(item.costUsd || item.cost || 0),
+                    referenciaId: finalPersistedSale.id,
+                    referenciaTipo: 'VENTA',
+                    referenciaNumero: `#${finalPersistedSale.saleNumber || finalPersistedSale.id.slice(0, 8)}`,
+                    usuarioId: activeUser?.id || null,
+                    usuarioNombre: activeUser?.nombre || 'Cajero'
+                });
+            }
+        } catch (kardexErr) {
+            console.error('[checkoutProcessor] Error registrando Kardex de venta:', kardexErr);
+        }
+
         let updatedCustomer = null;
         let updatedCustomers = customers;
 

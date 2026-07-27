@@ -414,18 +414,95 @@ export function ProductProvider({ children, rates }) {
         };
     }, []);
 
+    // ── Buffer de aglomeración inteligente para Kardex (Debounce 800ms) ──────────
+    const pendingKardexBufferRef = useRef(new Map());
+
+    const flushProductKardex = useCallback((productId) => {
+        const entry = pendingKardexBufferRef.current.get(productId);
+        if (!entry) return;
+        pendingKardexBufferRef.current.delete(productId);
+
+        if (entry.accumulatedDelta === 0) return;
+
+        const finalStock = entry.initialStock + entry.accumulatedDelta;
+        import('../services/kardexService').then(({ recordKardexMovement }) => {
+            import('../hooks/store/useAuthStore').then(({ useAuthStore }) => {
+                const user = useAuthStore.getState().usuarioActivo;
+                const isPositive = entry.accumulatedDelta > 0;
+                const sign = isPositive ? '+' : '';
+                recordKardexMovement({
+                    productoId: entry.product.id,
+                    productoNombre: entry.product.name,
+                    sku: entry.product.barcode || entry.product.sku || '',
+                    tipo: isPositive ? 'ENTRADA' : 'SALIDA',
+                    subtipo: 'AJUSTE_RAPIDO',
+                    cantidad: entry.accumulatedDelta,
+                    unidad: entry.product.unit || 'unidad',
+                    stock_antes: entry.initialStock,
+                    stock_despues: finalStock,
+                    costoUnitario: Number(entry.product.costUsd || entry.product.cost || 0),
+                    motivo: isPositive
+                        ? `Aumento directo con botón (${sign}${entry.accumulatedDelta} u)`
+                        : `Disminución / Salida directa con botón (${entry.accumulatedDelta} u)`,
+                    usuarioId: user?.id || null,
+                    usuarioNombre: user?.nombre || 'Administrador'
+                }).catch(e => console.error('[ProductContext] Error registrando Kardex agendado:', e));
+            });
+        });
+    }, []);
+
+    const flushAllPendingKardex = useCallback(() => {
+        for (const [productId, entry] of pendingKardexBufferRef.current.entries()) {
+            if (entry.timer) clearTimeout(entry.timer);
+            flushProductKardex(productId);
+        }
+    }, [flushProductKardex]);
+
+    useEffect(() => {
+        return () => {
+            flushAllPendingKardex();
+        };
+    }, [flushAllPendingKardex]);
+
     // HOOK-005: Memoizar adjustStock para que el objeto `value` del Provider
     // sea estable entre renders cuando los productos no cambian.
     const adjustStock = useCallback((productId, delta) => {
+        const targetProduct = productsRef.current.find(p => p.id === productId || p._originalId === productId);
+        if (!targetProduct) return;
+
+        const actualId = targetProduct.id;
+
+        // 1. Actualizar el estado visual de los productos de forma inmediata (60 FPS)
         setProducts(prevProducts => prevProducts.map(p => {
-            if (p.id === productId) {
+            if (p.id === actualId || p._originalId === actualId) {
                 const allowNeg = localStorage.getItem('allow_negative_stock') === 'true';
                 const newStock = (p.stock ?? 0) + delta;
                 return { ...p, stock: allowNeg ? newStock : Math.max(0, newStock) };
             }
             return p;
         }));
-    }, []);
+
+        // 2. Acumular en el buffer debounced del Kardex
+        let entry = pendingKardexBufferRef.current.get(actualId);
+
+        if (entry) {
+            if (entry.timer) clearTimeout(entry.timer);
+            entry.accumulatedDelta += delta;
+        } else {
+            const initialStock = Number(targetProduct.stock) || 0;
+            entry = {
+                product: targetProduct,
+                initialStock: initialStock,
+                accumulatedDelta: delta,
+                timer: null
+            };
+            pendingKardexBufferRef.current.set(actualId, entry);
+        }
+
+        entry.timer = setTimeout(() => {
+            flushProductKardex(actualId);
+        }, 800);
+    }, [flushProductKardex]);
 
     // HOOK-005: Envolver `value` en useMemo con deps correctas para evitar que
     // TODOS los consumidores se re-rendericen en cada render del Provider.

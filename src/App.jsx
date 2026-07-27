@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, Suspense, lazy } from 'react';
-import { Home, ShoppingCart, Store, Users, Download, FlaskConical, Moon, Sun, BarChart3, WifiOff, X, Settings, Clock } from 'lucide-react';
+import { Home, ShoppingCart, Store, Users, Download, FlaskConical, Moon, Sun, BarChart3, WifiOff, X, Settings, Clock, Layers } from 'lucide-react';
 
 import DashboardView from './views/DashboardView';
 
@@ -9,6 +9,7 @@ const ProductsView = lazy(() => import('./views/ProductsView'));
 const SettingsView = lazy(() => import('./views/SettingsView'));
 const CustomersView = lazy(() => import('./views/CustomersView'));
 const ReportsView = lazy(() => import('./views/ReportsView'));
+const KardexView = lazy(() => import('./views/KardexView'));
 const TesterView = lazy(() => import('./views/TesterView').then(m => ({ default: m.TesterView })));
 
 
@@ -305,6 +306,13 @@ export default function App() {
 
         {/* Lazy views — mount on first access, then stay persistent */}
         <Suspense fallback={<div className="flex-1 p-4 space-y-4"><div className="skeleton h-10 w-40" /><div className="skeleton h-32" /><div className="skeleton h-48" /></div>}>
+          {(activeTab === 'kardex' || mountedViews.kardex) && (
+            <div data-view="kardex" className={`flex-1 flex flex-col ${activeTab === 'kardex' ? '' : 'hidden'}`}>
+              <ErrorBoundary>
+                <KardexView />
+              </ErrorBoundary>
+            </div>
+          )}
           {(activeTab === 'clientes' || mountedViews.clientes) && (
             <div data-view="clientes" className={`flex-1 flex flex-col ${activeTab === 'clientes' ? '' : 'hidden'}`}>
               <ErrorBoundary>

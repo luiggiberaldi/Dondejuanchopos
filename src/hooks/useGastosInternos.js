@@ -140,6 +140,35 @@ export function useGastosInternos({ bcvRate, tasaCop, copEnabled, triggerHaptic,
             const updatedSales = [gasto, ...freshSales];
             await storageService.setItem(SALES_KEY, updatedSales);
 
+            // 5. Registro inmutable en Kardex
+            try {
+                const { recordKardexMovement } = await import('../services/kardexService');
+                const user = useAuthStore.getState().usuarioActivo;
+                for (const item of items) {
+                    const prod = freshProducts.find(p => p.id === item.id);
+                    const stockBefore = Number(prod?.stock) || 0;
+                    const stockAfter = Math.max(0, stockBefore - item.qty);
+                    await recordKardexMovement({
+                        productoId: item.id,
+                        productoNombre: item.name,
+                        sku: prod?.barcode || prod?.sku || '',
+                        tipo: 'SALIDA',
+                        subtipo: 'AUTOCONSUMO',
+                        cantidad: -Math.abs(item.qty),
+                        unidad: prod?.unit || 'unidad',
+                        stock_antes: stockBefore,
+                        stock_despues: stockAfter,
+                        costoUnitario: Number(item.costUsd || prod?.costUsd || 0),
+                        referenciaId: gasto.id,
+                        referenciaTipo: 'GASTO_INTERNO',
+                        referenciaNumero: 'AUTOCONSUMO',
+                        motivo: description.trim() || 'Retiro por autoconsumo / merma',
+                        usuarioId: user?.id || null,
+                        usuarioNombre: user?.nombre || 'Administrador'
+                    });
+                }
+            } catch (kardexErr) { console.error('[useGastosInternos] Error registrando Kardex:', kardexErr); }
+
             return { gasto, updatedSales };
         });
 
@@ -164,7 +193,7 @@ export function useGastosInternos({ bcvRate, tasaCop, copEnabled, triggerHaptic,
         const targetGasto = sales.find(s => s.id === gastoId);
         if (!targetGasto) return;
 
-        // Si es autoconsumo, devolver el stock
+        // Si es autoconsumo, devolver el stock y registrar en Kardex
         if (targetGasto.isAutoconsumo && Array.isArray(targetGasto.items)) {
             await withLock('pos_write_lock', async () => {
                 const freshProducts = await storageService.getItem(PRODUCTS_KEY, []);
@@ -174,6 +203,34 @@ export function useGastosInternos({ bcvRate, tasaCop, copEnabled, triggerHaptic,
                     return { ...p, stock: sumR(p.stock ?? 0, item.qty) };
                 });
                 await storageService.setItem(PRODUCTS_KEY, restored);
+
+                try {
+                    const { recordKardexMovement } = await import('../services/kardexService');
+                    const user = useAuthStore.getState().usuarioActivo;
+                    for (const item of targetGasto.items) {
+                        const prod = freshProducts.find(p => p.id === item.id);
+                        const stockBefore = Number(prod?.stock) || 0;
+                        const stockAfter = stockBefore + item.qty;
+                        await recordKardexMovement({
+                            productoId: item.id,
+                            productoNombre: item.name,
+                            sku: prod?.barcode || prod?.sku || '',
+                            tipo: 'ENTRADA',
+                            subtipo: 'DEVOLUCION_AUTOCONSUMO',
+                            cantidad: Math.abs(item.qty),
+                            unidad: prod?.unit || 'unidad',
+                            stock_antes: stockBefore,
+                            stock_despues: stockAfter,
+                            costoUnitario: Number(item.costUsd || prod?.costUsd || 0),
+                            referenciaId: targetGasto.id,
+                            referenciaTipo: 'ANULACION_GASTO',
+                            referenciaNumero: 'REVERSION',
+                            motivo: 'Restauración de stock por anulación de autoconsumo/merma',
+                            usuarioId: user?.id || null,
+                            usuarioNombre: user?.nombre || 'Administrador'
+                        });
+                    }
+                } catch (e) { console.error('[useGastosInternos] Error registrando Kardex anulación:', e); }
             });
         }
 

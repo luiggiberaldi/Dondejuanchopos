@@ -158,8 +158,37 @@ export async function processVoidSale(sale, currentSales, currentProducts) {
 
         // 4. Guardar todo
         await storageService.setItem(SALES_KEY, updatedSales);
+        await storageService.setItem('bodega_sales_mirror_v1', updatedSales);
         await storageService.setItem(CUSTOMERS_KEY, updatedCustomers);
         await storageService.setItem(PRODUCTS_KEY, updatedProducts);
+
+        // ── Registro de Devolución en Kardex ──
+        try {
+            const { recordKardexMovement } = await import('../services/kardexService');
+            const activeUser = useAuthStore.getState().usuarioActivo;
+            for (const [prodId, restoredQty] of Object.entries(restauracionesMap)) {
+                if (restoredQty > 0) {
+                    const prod = updatedProducts.find(p => p.id === prodId);
+                    await recordKardexMovement({
+                        productoId: prodId,
+                        productoNombre: prod?.name || 'Producto Anulado',
+                        sku: prod?.barcode || prod?.sku || '',
+                        tipo: 'DEVOLUCION',
+                        subtipo: 'ANULACION_VENTA',
+                        cantidad: Number(restoredQty),
+                        costoUnitario: Number(prod?.costUsd || prod?.cost || 0),
+                        referenciaId: sale.id,
+                        referenciaTipo: 'ANULACION',
+                        referenciaNumero: `#${sale.id.slice(0, 8)}`,
+                        motivo: `Anulación de venta #${sale.saleNumber || sale.id.slice(0, 8)}`,
+                        usuarioId: activeUser?.id || null,
+                        usuarioNombre: activeUser?.nombre || 'Usuario'
+                    });
+                }
+            }
+        } catch (kardexErr) {
+            console.error('[voidSaleProcessor] Error registrando Kardex de devolución:', kardexErr);
+        }
 
         // FIN-008: deep-freeze outputs antes de retornar (defensa contra mutaciones posteriores).
         deepFreeze(updatedProducts);

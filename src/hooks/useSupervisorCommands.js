@@ -230,11 +230,13 @@ export function useSupervisorCommands(deviceId) {
                         window.dispatchEvent(new CustomEvent('supervisor_sale_voided', {
                             detail: { saleId, updatedSales: result.updatedSales, updatedProducts: result.updatedProducts }
                         }));
+                        window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_sales_v1' } }));
+                        window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_products_v1' } }));
 
                         try {
-                            if (result.updatedSales) await pushCloudSync('bodega_sales_v1', result.updatedSales);
-                            if (result.updatedProducts) await pushCloudSync('bodega_products_v1', result.updatedProducts);
-                            if (result.updatedCustomers) await pushCloudSync('bodega_customers_v1', result.updatedCustomers);
+                            if (result.updatedSales) await pushCloudSync('bodega_sales_v1', result.updatedSales, true);
+                            if (result.updatedProducts) await pushCloudSync('bodega_products_v1', result.updatedProducts, true);
+                            if (result.updatedCustomers) await pushCloudSync('bodega_customers_v1', result.updatedCustomers, true);
                         } catch (syncErr) {
                             console.error('[SupervisorCommands] Error en push de sincronizacion post-anulacion:', syncErr);
                         }

@@ -122,6 +122,28 @@ export async function applyInventoryCommand(payload) {
             normalized.updatedAt = nowIso;
             const updated = [...products, normalized];
             await storageService.setItem(PRODUCTS_KEY, updated);
+
+            if (normalized.stock > 0) {
+                try {
+                    const { recordKardexMovement } = await import('../services/kardexService');
+                    await recordKardexMovement({
+                        productoId: normalized.id,
+                        productoNombre: normalized.name,
+                        sku: normalized.barcode || normalized.sku || '',
+                        tipo: 'INICIAL',
+                        subtipo: 'CREACION_PRODUCTO',
+                        cantidad: normalized.stock,
+                        unidad: normalized.unit || 'unidad',
+                        stock_antes: 0,
+                        stock_despues: normalized.stock,
+                        costoUnitario: Number(normalized.costUsd || 0),
+                        motivo: 'Registro inicial al crear producto remoto por Supervisor',
+                        usuarioId: payload?.supervisorId || payload?.cajeroId || 'SUPERVISOR_REMOTO',
+                        usuarioNombre: payload?.supervisorNombre || payload?.cajeroNombre || 'Supervisor (Remoto)'
+                    });
+                } catch (e) { console.error('[remoteInventoryProcessor] Error Kardex add:', e); }
+            }
+
             logEvent('INVENTARIO', 'REMOTO_ADD', `Supervisor agregó "${normalized.name}"`);
             return { success: true, productName: normalized.name, updatedProducts: updated };
         }
@@ -183,8 +205,33 @@ export async function applyInventoryCommand(payload) {
             next = allowNeg ? current + delta : Math.max(0, current + delta);
         }
 
+        const actualQtyChange = next - current;
+
         const updated = products.map(p => p.id === productId ? { ...p, stock: next } : p);
         await storageService.setItem(PRODUCTS_KEY, updated);
+
+        if (actualQtyChange !== 0) {
+            try {
+                const { recordKardexMovement } = await import('../services/kardexService');
+                const tipoKardex = actualQtyChange > 0 ? (hasTargetStock ? 'AJUSTE' : (delta > 0 ? 'COMPRA' : 'AJUSTE')) : 'AJUSTE';
+                await recordKardexMovement({
+                    productoId: existing.id,
+                    productoNombre: existing.name,
+                    sku: existing.barcode || existing.sku || '',
+                    tipo: tipoKardex,
+                    subtipo: 'AJUSTE_INVENTARIO',
+                    cantidad: actualQtyChange,
+                    unidad: existing.unit || 'unidad',
+                    stock_antes: current,
+                    stock_despues: next,
+                    costoUnitario: Number(existing.costUsd || existing.cost || 0),
+                    motivo: data?.motivo || (hasTargetStock ? `Stock fijado a ${next} u por Supervisor` : `Ajuste remoto por Supervisor (${actualQtyChange > 0 ? '+' : ''}${actualQtyChange} u)`),
+                    usuarioId: payload?.supervisorId || payload?.cajeroId || 'SUPERVISOR_REMOTO',
+                    usuarioNombre: payload?.supervisorNombre || payload?.cajeroNombre || 'Supervisor (Remoto)'
+                });
+            } catch (e) { console.error('[remoteInventoryProcessor] Error Kardex adjust:', e); }
+        }
+
         logEvent('INVENTARIO', 'REMOTO_STOCK', `Supervisor ajustó stock de "${existing.name}": ${hasTargetStock ? `fijado a ${next}` : `${delta > 0 ? '+' : ''}${delta} (→ ${next})`}`);
         return { success: true, productName: existing.name, updatedProducts: updated };
     });

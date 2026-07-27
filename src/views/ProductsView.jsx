@@ -3,10 +3,11 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useReveal } from '../hooks/useReveal';
 import { storageService } from '../utils/storageService';
 import { showToast } from '../components/Toast';
-import { Package, Plus, Trash2, X, Store, Tag, Pencil, Banknote, Search, ChevronLeft, ChevronRight, AlertTriangle, Box, LayoutGrid, List, Minus, ArrowUpDown, Clock, Percent, Printer, CheckSquare } from 'lucide-react';
+import { Package, Plus, Trash2, X, Store, Tag, Pencil, Banknote, Search, ChevronLeft, ChevronRight, AlertTriangle, Box, LayoutGrid, List, Minus, ArrowUpDown, Clock, Percent, Printer, CheckSquare, Layers } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { ProductShareModal } from '../components/ProductShareModal';
 import { useAuthStore } from '../hooks/store/useAuthStore';
+import KardexView from './KardexView';
 
 import ShareInventoryModal from '../components/ShareInventoryModal';
 import { formatBs, formatUsd, smartCashRounding, getCop, getUsd, compareBarcodes } from '../utils/calculatorUtils';
@@ -39,6 +40,7 @@ import StockBatchModal from '../components/Products/StockBatchModal';
 export const ProductsView = ({ rates, triggerHaptic }) => {
     // v1.2.0: reveal-on-scroll para banners y secciones de cabecera (NO en grid paginado para evitar re-trigger).
     const revealRef = useReveal();
+    const [activeSubtab, setActiveSubtab] = useState('catalogo');
 
     // ─── STATE DEL HOOK ─────────────────────────────────────
     const {
@@ -107,19 +109,19 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
         setEditingCombo(null);
     };
 
-    // Envolver adjustStock para incluir registro de movimiento + haptic
+    // Envolver adjustStock para incluir haptic y delegado de Kardex
     const adjustStock = async (productId, delta) => {
+        const targetProduct = products.find(p => p.id === productId);
         baseAdjustStock(productId, delta);
         triggerHaptic && triggerHaptic();
 
-        // Registro silencioso del ajuste de inventario
+        // Registro silencioso del ajuste de inventario histórico
         try {
-            const product = products.find(p => p.id === productId);
             const record = {
                 id: `adj_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
                 timestamp: new Date().toISOString(),
                 tipo: delta > 0 ? 'AJUSTE_ENTRADA' : 'AJUSTE_SALIDA',
-                items: [{ id: productId, name: product?.name || 'Producto', qty: Math.abs(delta) }],
+                items: [{ id: productId, name: targetProduct?.name || 'Producto', qty: Math.abs(delta) }],
                 totalUsd: 0,
                 totalBs: 0,
                 status: 'COMPLETADA',
@@ -485,13 +487,41 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
         }
 
         const nowIso = new Date().toISOString();
+        const activeUser = useAuthStore.getState().usuarioActivo;
         let updatedProducts;
         if (editingId) {
+            const existing = products.find(p => p.id === editingId);
+            const oldStock = Number(existing?.stock) || 0;
+            const newStock = Number(productData.stock) || 0;
+            const diff = newStock - oldStock;
+
             updatedProducts = products.map(p =>
                 p.id === editingId ? { ...p, ...productData, image: finalImage !== undefined ? finalImage : p.image, updatedAt: nowIso } : p
             );
             auditLog('INVENTARIO', 'PRODUCTO_EDITADO', `Producto "${name}" editado`);
+
+            if (diff !== 0) {
+                try {
+                    const { recordKardexMovement } = await import('../services/kardexService');
+                    await recordKardexMovement({
+                        productoId: editingId,
+                        productoNombre: productData.name || existing?.name || 'Producto',
+                        sku: productData.barcode || productData.sku || existing?.barcode || '',
+                        tipo: diff > 0 ? 'ENTRADA' : 'SALIDA',
+                        subtipo: 'EDICION_PRODUCTO',
+                        cantidad: diff,
+                        unidad: productData.unit || existing?.unit || 'unidad',
+                        stock_antes: oldStock,
+                        stock_despues: newStock,
+                        costoUnitario: Number(productData.costUsd || productData.cost || existing?.costUsd || 0),
+                        motivo: `Ajuste por edición directa de producto (${oldStock} → ${newStock})`,
+                        usuarioId: activeUser?.id || null,
+                        usuarioNombre: activeUser?.nombre || activeUser?.usuario || 'Administrador'
+                    });
+                } catch (e) { console.error('[ProductsView] Error registrando Kardex edicion:', e); }
+            }
         } else {
+            const initialStock = Number(productData.stock) || 0;
             updatedProducts = [{
                 id: productId,
                 ...productData,
@@ -500,6 +530,27 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 updatedAt: nowIso
             }, ...products];
             auditLog('INVENTARIO', 'PRODUCTO_CREADO', `Producto "${name}" creado - $${priceUsd || '0'}`);
+
+            if (initialStock > 0) {
+                try {
+                    const { recordKardexMovement } = await import('../services/kardexService');
+                    await recordKardexMovement({
+                        productoId: productId,
+                        productoNombre: productData.name || 'Producto Nuevo',
+                        sku: productData.barcode || productData.sku || '',
+                        tipo: 'INICIAL',
+                        subtipo: 'CREACION_PRODUCTO',
+                        cantidad: initialStock,
+                        unidad: productData.unit || 'unidad',
+                        stock_antes: 0,
+                        stock_despues: initialStock,
+                        costoUnitario: Number(productData.costUsd || productData.cost || 0),
+                        motivo: 'Inventario inicial al crear nuevo producto',
+                        usuarioId: activeUser?.id || null,
+                        usuarioNombre: activeUser?.nombre || activeUser?.usuario || 'Administrador'
+                    });
+                } catch (e) { console.error('[ProductsView] Error registrando Kardex creacion:', e); }
+            }
         }
 
         storageService.setItem('bodega_products_v1', updatedProducts);
@@ -609,7 +660,31 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
     return (
         <div ref={revealRef} className="flex flex-col h-full bg-surface-50 dark:bg-surface-950 p-3 sm:p-6 overflow-y-auto">
 
-            {/* Header — Toolbar */}
+            {/* Subtab Selector: Catálogo / Kardex */}
+            <div className="flex items-center gap-2 mb-4 bg-slate-200/60 dark:bg-slate-900/60 p-1 rounded-2xl w-fit border border-slate-300/40 dark:border-slate-800/40 shrink-0">
+                <button
+                    onClick={() => { triggerHaptic && triggerHaptic(); setActiveSubtab('catalogo'); }}
+                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${activeSubtab === 'catalogo' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}
+                >
+                    <Package size={15} />
+                    <span>Catálogo</span>
+                </button>
+                <button
+                    onClick={() => { triggerHaptic && triggerHaptic(); setActiveSubtab('kardex'); }}
+                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${activeSubtab === 'kardex' ? 'bg-cyan-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}
+                >
+                    <Layers size={15} />
+                    <span>Kardex</span>
+                </button>
+            </div>
+
+            {activeSubtab === 'kardex' ? (
+                <div className="flex-1 min-h-0 overflow-y-auto">
+                    <KardexView />
+                </div>
+            ) : (
+                <>
+                    {/* Header — Toolbar */}
             <ProductsToolbar
                 products={products}
                 categories={categories}
@@ -1151,6 +1226,8 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 onSave={handleComboSave}
                 editingCombo={editingCombo}
             />
+            </>
+            )}
         </div>
     );
 };

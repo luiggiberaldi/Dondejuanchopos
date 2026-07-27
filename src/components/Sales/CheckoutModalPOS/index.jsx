@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { showToast } from '../../Toast';
 import { useProductContext } from '../../../context/ProductContext';
 import { round2, subR, mulR, divR } from '../../../utils/dinero';
+import { sniperLog } from '../../../utils/sniperPayDiagnostic';
 
 // Hooks portados
 import { usePaymentState } from './hooks/usePaymentState';
@@ -264,21 +265,26 @@ export default function CheckoutModalPOS({
 
     // ─── PROCESAR PAGO ──────────────────────────────────────
     const procesarPago = (imprimir = false) => {
+        sniperLog('1_PROCESAR_PAGO_CLICK', 'Boton PAGAR (LISTO) presionado', { modo, faltaPorPagar, clienteSeleccionado });
         try {
             // Validaciones
             if (modo === 'contado' && faltaPorPagar > 0.01) {
+                sniperLog('1_ABORT', 'Abortado por faltaPorPagar > 0.01', { faltaPorPagar });
                 showToast(`Faltan $${faltaPorPagar.toFixed(2)} por cobrar`, 'error');
                 return;
             }
             if (modo === 'credito' && !clienteSeleccionado) {
+                sniperLog('1_ABORT', 'Abortado por falta clienteSeleccionado en crédito');
                 showToast('Selecciona un cliente para vender a crédito', 'warning');
                 return;
             }
             if (parseFloat(pagoSaldoFavor || 0) > 0 && !clienteSeleccionado) {
+                sniperLog('1_ABORT', 'Abortado por falta clienteSeleccionado en saldo a favor');
                 showToast('Selecciona un cliente para usar saldo a favor', 'error');
                 return;
             }
             if (casheaActive && !clienteSeleccionado) {
+                sniperLog('1_ABORT', 'Abortado por falta clienteSeleccionado en Cashea');
                 showToast('Selecciona un cliente para financiar con Cashea', 'warning');
                 return;
             }
@@ -286,6 +292,7 @@ export default function CheckoutModalPOS({
             // Verificar referencias
             for (const m of metodosNormalizados) {
                 if (val(m.id) > 0 && m.requiereRef && (!referencias[m.id] || referencias[m.id].length < 4)) {
+                    sniperLog('1_ABORT', `Abortado por falta de referencia requerida en ${m.nombre}`, { ref: referencias[m.id] });
                     showToast(`Ingresa la referencia para ${m.nombre}`, 'warning');
                     return;
                 }
