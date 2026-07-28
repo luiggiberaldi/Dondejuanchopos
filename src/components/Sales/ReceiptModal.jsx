@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle, Wallet, Send, X, Printer } from 'lucide-react';
+import { CheckCircle, Wallet, Send, X, Printer, Clock } from 'lucide-react';
 import { formatBs, formatCop } from '../../utils/calculatorUtils';
 import { mulR } from '../../utils/dinero';
 import { calculatePricing } from '../../utils/productProcessor';
@@ -10,6 +10,7 @@ export default function ReceiptModal({ receipt, onClose, onShareWhatsApp, curren
     if (!receipt) return null;
 
     const receiptCurrencyMode = localStorage.getItem('receipt_currency_mode') || 'bs';
+    const isFiado = (receipt.fiadoUsd > 0) || (receipt.tipo === 'VENTA_FIADA');
 
     return (
         <div className="fixed inset-0 z-[60] bg-slate-900/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -78,6 +79,11 @@ export default function ReceiptModal({ receipt, onClose, onShareWhatsApp, curren
                                     <Wallet size={12} /> {p.methodLabel} {i < arr.length - 1 ? ' • ' : ''}
                                 </span>
                             ))}
+                            {isFiado && (
+                                <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-extrabold ml-1">
+                                    <Clock size={12} /> Fiado
+                                </span>
+                            )}
                             {receipt.casheaUsd > 0 && (
                                 <span className="flex items-center gap-1 text-purple-600 dark:text-purple-400 font-extrabold ml-1">
                                     <CasheaIcon size={12} /> Cashea

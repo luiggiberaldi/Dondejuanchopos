@@ -208,15 +208,24 @@ export class FinancialEngine {
 
             // Fiado sales: bucket "fiado" tracks the *outstanding debt* generated (fiadoUsd),
             // NOT the total sale (which may have partial real payments).
-            // FIN-004: usar sale.fiadoUsd || sale.totalUsd para ventas legacy sin fiadoUsd,
-            // y NO hacer `return`: procesar pagos reales abajo.
+            // FIN-004: usar sale.fiadoUsd || sale.totalUsd para ventas legacy sin fiadoUsd.
             if (sale.tipo === 'VENTA_FIADA') {
                 if (!breakdown['fiado']) {
                     breakdown['fiado'] = { total: 0, currency: 'FIADO', label: 'Fiado (Por Cobrar)' };
                 }
                 const fiadoAmount = round2(sale.fiadoUsd != null ? sale.fiadoUsd : (sale.totalUsd || 0));
                 breakdown['fiado'].total = round2(breakdown['fiado'].total + fiadoAmount);
-                // Continuamos abajo para registrar pagos reales (parciales) si los hay.
+            }
+
+            // Cashea sales: bucket "cashea" tracks the cashea financed amount
+            if (sale.tipo === 'VENTA_CASHEA' || (sale.casheaUsd && sale.casheaUsd > 0)) {
+                if (!breakdown['cashea']) {
+                    breakdown['cashea'] = { total: 0, currency: 'FIADO', label: 'Cashea (Por Cobrar)' };
+                }
+                const casheaAmount = round2(sale.casheaUsd || 0);
+                if (casheaAmount > 0) {
+                    breakdown['cashea'].total = round2(breakdown['cashea'].total + casheaAmount);
+                }
             }
 
             // Debt collection reduces the outstanding fiado balance for the period (using USD to prevent exchange rate drift)
@@ -229,6 +238,16 @@ export class FinancialEngine {
             }
 
             if (!sale.payments || sale.payments.length === 0) {
+                // Si la venta es VENTA_FIADA o VENTA_CASHEA y NO tiene payments (es decir, fue 100% fiada o a crédito),
+                // NO se debe sumar sale.totalBs al bucket de efectivo_bs u otros métodos legacy.
+                if (sale.tipo === 'VENTA_FIADA' || sale.tipo === 'VENTA_CASHEA') {
+                    const fiadoAmount = round2(sale.fiadoUsd != null ? sale.fiadoUsd : (sale.casheaUsd != null ? sale.casheaUsd : (sale.totalUsd || 0)));
+                    const remainingUpfrontUsd = round2(subR(sale.totalUsd || 0, fiadoAmount));
+                    if (remainingUpfrontUsd <= 0.009) {
+                        return; // 100% a crédito/fiado, no hay pago al contado que sumar
+                    }
+                }
+
                 // V1 Legacy Sales & Cobro Deudas
                 const method = sale.paymentMethod || 'efectivo_bs';
                 let currency = 'BS';
@@ -249,9 +268,9 @@ export class FinancialEngine {
             } else {
                 // Aggregate incoming payments (V2 sales)
                 sale.payments.forEach(p => {
+                    if (p.methodId === 'fiado' || p.methodId === 'cashea') return;
+
                     if (!breakdown[p.methodId]) {
-                        // Resolver label robusto: usa methodLabel si existe,
-                        // sino consulta FACTORY_LABELS, sino humaniza el methodId.
                         const resolvedLabel = (p.methodLabel && p.methodLabel !== p.methodId)
                             ? p.methodLabel
                             : _resolveMethodLabel(p.methodId);

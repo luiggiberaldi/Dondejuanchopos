@@ -46,8 +46,13 @@ function getMethodIcon(methodId) {
 function getFormattedPaymentMethod(sale) {
     if (!sale) return 'Efectivo (Bs)';
 
+    const isFiado = sale.tipo === 'VENTA_FIADA' || sale.isFiado || (sale.fiadoUsd > 0.009);
+    const isCashea = sale.tipo === 'VENTA_CASHEA' || sale.isCashea || (sale.casheaUsd > 0.009);
+
+    let baseLabel = '';
+
     if (Array.isArray(sale.payments) && sale.payments.length > 0) {
-        return sale.payments.map(p => {
+        baseLabel = sale.payments.map(p => {
             const mId = (p.methodId || p.metodoPago || p.id || '').toLowerCase();
             let label = p.methodLabel || getPaymentLabel(mId);
             if (mId === 'efectivo_usd' || mId === 'efectivo usd') label = 'Efectivo ($)';
@@ -55,19 +60,30 @@ function getFormattedPaymentMethod(sale) {
             else if (mId === 'efectivo_cop' || mId === 'efectivo cop') label = 'Efectivo (COP)';
             return label;
         }).join(' + ');
+    } else if (!isFiado && !isCashea) {
+        const raw = (sale.metodoPago || sale.paymentMethod || 'efectivo_bs').toLowerCase();
+
+        if (raw === 'efectivo_usd' || raw === 'efectivo usd' || raw === 'usd') baseLabel = 'Efectivo ($)';
+        else if (raw === 'efectivo_bs' || raw === 'efectivo bs' || raw === 'efectivo' || raw === 'bs') baseLabel = 'Efectivo (Bs)';
+        else if (raw === 'efectivo_cop' || raw === 'efectivo cop' || raw === 'cop') baseLabel = 'Efectivo (COP)';
+        else baseLabel = getPaymentLabel(raw) || toTitleCase(raw);
     }
 
-    const raw = (sale.metodoPago || sale.paymentMethod || 'efectivo_bs').toLowerCase();
+    if (isFiado) {
+        return baseLabel ? `${baseLabel} + Fiado` : 'Fiado (Por Cobrar)';
+    }
 
-    if (raw === 'efectivo_usd' || raw === 'efectivo usd' || raw === 'usd') return 'Efectivo ($)';
-    if (raw === 'efectivo_bs' || raw === 'efectivo bs' || raw === 'efectivo' || raw === 'bs') return 'Efectivo (Bs)';
-    if (raw === 'efectivo_cop' || raw === 'efectivo cop' || raw === 'cop') return 'Efectivo (COP)';
+    if (isCashea) {
+        return baseLabel ? `${baseLabel} + Cashea` : 'Cashea (Por Cobrar)';
+    }
 
-    return getPaymentLabel(raw) || toTitleCase(raw);
+    return baseLabel || 'Efectivo (Bs)';
 }
 
 function getPaymentBadgeStyle(sale) {
     const formatted = getFormattedPaymentMethod(sale).toLowerCase();
+    if (formatted.includes('fiado') || formatted.includes('por cobrar')) return 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300';
+    if (formatted.includes('cashea')) return 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-300';
     if (formatted.includes('+')) return 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300';
     if (formatted.includes('dólares') || formatted.includes('($)')) return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300';
     if (formatted.includes('pago móvil')) return 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-300';
@@ -1054,14 +1070,37 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 if (!breakdown['fiado']) {
                     breakdown['fiado'] = { totalUsd: 0, totalBs: 0, count: 0, label: 'Fiado (Por Cobrar)', currency: 'FIADO' };
                 }
-                breakdown['fiado'].totalUsd += sale.totalUsd || 0;
-                breakdown['fiado'].totalBs += sale.totalBs || 0;
+                const fiadoAmountUsd = sale.fiadoUsd != null ? sale.fiadoUsd : (sale.totalUsd || 0);
+                const fiadoAmountBs = sale.totalBs || 0;
+                breakdown['fiado'].totalUsd += fiadoAmountUsd;
+                breakdown['fiado'].totalBs += fiadoAmountBs;
                 breakdown['fiado'].count += 1;
-                return;
+
+                const remainingUpfrontUsd = (sale.totalUsd || 0) - fiadoAmountUsd;
+                if (remainingUpfrontUsd <= 0.009 && (!sale.payments || sale.payments.length === 0)) {
+                    return;
+                }
+            }
+
+            if (sale.tipo === 'VENTA_CASHEA' || (sale.casheaUsd && sale.casheaUsd > 0)) {
+                if (!breakdown['cashea']) {
+                    breakdown['cashea'] = { totalUsd: 0, totalBs: 0, count: 0, label: 'Cashea (Por Cobrar)', currency: 'FIADO' };
+                }
+                const casheaAmountUsd = sale.casheaUsd || 0;
+                if (casheaAmountUsd > 0) {
+                    breakdown['cashea'].totalUsd += casheaAmountUsd;
+                    breakdown['cashea'].totalBs += sale.totalBs || 0;
+                    breakdown['cashea'].count += 1;
+                }
+                const remainingUpfrontUsd = (sale.totalUsd || 0) - casheaAmountUsd;
+                if (remainingUpfrontUsd <= 0.009 && (!sale.payments || sale.payments.length === 0)) {
+                    return;
+                }
             }
 
             if (sale.payments && sale.payments.length > 0) {
                 sale.payments.forEach(p => {
+                    if (p.methodId === 'fiado' || p.methodId === 'cashea') return;
                     const methodId = p.methodId || 'efectivo_bs';
                     if (!breakdown[methodId]) {
                         const label = p.methodLabel || getPaymentLabel(methodId) || toTitleCase(methodId.replace(/_/g, ' '));
@@ -1072,6 +1111,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                     breakdown[methodId].count += 1;
                 });
             } else {
+                if (sale.tipo === 'VENTA_FIADA' || sale.tipo === 'VENTA_CASHEA') return;
                 const methodId = sale.paymentMethod || sale.metodoPago || 'efectivo_bs';
                 if (!breakdown[methodId]) {
                     const label = getPaymentLabel(methodId) || toTitleCase(methodId.replace(/_/g, ' '));
@@ -1183,13 +1223,37 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                     if (!breakdown['fiado']) {
                         breakdown['fiado'] = { totalUsd: 0, totalBs: 0, count: 0, label: 'Fiado (Por Cobrar)', currency: 'FIADO' };
                     }
-                    breakdown['fiado'].totalUsd += sale.totalUsd || 0;
-                    breakdown['fiado'].totalBs += sale.totalBs || 0;
+                    const fiadoAmountUsd = sale.fiadoUsd != null ? sale.fiadoUsd : (sale.totalUsd || 0);
+                    const fiadoAmountBs = sale.totalBs || 0;
+                    breakdown['fiado'].totalUsd += fiadoAmountUsd;
+                    breakdown['fiado'].totalBs += fiadoAmountBs;
                     breakdown['fiado'].count += 1;
-                    return;
+
+                    const remainingUpfrontUsd = (sale.totalUsd || 0) - fiadoAmountUsd;
+                    if (remainingUpfrontUsd <= 0.009 && (!sale.payments || sale.payments.length === 0)) {
+                        return;
+                    }
                 }
+
+                if (sale.tipo === 'VENTA_CASHEA' || (sale.casheaUsd && sale.casheaUsd > 0)) {
+                    if (!breakdown['cashea']) {
+                        breakdown['cashea'] = { totalUsd: 0, totalBs: 0, count: 0, label: 'Cashea (Por Cobrar)', currency: 'FIADO' };
+                    }
+                    const casheaAmountUsd = sale.casheaUsd || 0;
+                    if (casheaAmountUsd > 0) {
+                        breakdown['cashea'].totalUsd += casheaAmountUsd;
+                        breakdown['cashea'].totalBs += sale.totalBs || 0;
+                        breakdown['cashea'].count += 1;
+                    }
+                    const remainingUpfrontUsd = (sale.totalUsd || 0) - casheaAmountUsd;
+                    if (remainingUpfrontUsd <= 0.009 && (!sale.payments || sale.payments.length === 0)) {
+                        return;
+                    }
+                }
+
                 if (sale.payments && sale.payments.length > 0) {
                     sale.payments.forEach(p => {
+                        if (p.methodId === 'fiado' || p.methodId === 'cashea') return;
                         const mId = p.methodId || 'efectivo_bs';
                         if (!breakdown[mId]) {
                             breakdown[mId] = { totalUsd: 0, totalBs: 0, count: 0, label: p.methodLabel || getPaymentLabel(mId), currency: p.currency || 'BS' };
@@ -1199,6 +1263,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                         breakdown[mId].count += 1;
                     });
                 } else {
+                    if (sale.tipo === 'VENTA_FIADA' || sale.tipo === 'VENTA_CASHEA') return;
                     const mId = sale.paymentMethod || sale.metodoPago || 'efectivo_bs';
                     if (!breakdown[mId]) {
                         breakdown[mId] = { totalUsd: 0, totalBs: 0, count: 0, label: getPaymentLabel(mId), currency: mId.includes('usd') ? 'USD' : 'BS' };
