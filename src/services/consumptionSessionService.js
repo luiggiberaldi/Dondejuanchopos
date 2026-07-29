@@ -27,6 +27,24 @@ export async function createSessionFromSale(sale, cartItem) {
     }
     totalQuota = totalQuota * (Number(cartItem.quantity) || 1);
 
+    // Selecciones iniciales realizadas en caja al cobrar (si las hay)
+    const initialItems = (cartItem.modularSelections || []).filter(s => s.productId && Number(s.qty) > 0);
+    const initialServedCount = initialItems.reduce((sum, i) => sum + Number(i.qty), 0);
+    const isInitialCompleted = initialServedCount >= totalQuota;
+
+    const initialDispatchId = crypto.randomUUID();
+    const initialDispatches = initialItems.length > 0 ? [{
+        id: initialDispatchId,
+        timestamp: new Date().toISOString(),
+        cashier: sale.cashier || 'Cajero',
+        items: initialItems.map(i => ({
+            productId: i.productId,
+            productName: i.productName || 'Cerveza',
+            qty: Number(i.qty),
+            costUsd: Number(i.costUsd || 0)
+        }))
+    }] : [];
+
     const newSession = {
         id: `session_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         saleId: sale.id,
@@ -35,15 +53,53 @@ export async function createSessionFromSale(sale, cartItem) {
         comboId: cartItem.id,
         comboName: cartItem.name,
         totalQuota,
-        servedCount: 0,
-        status: 'OPEN', // 'OPEN', 'COMPLETED', 'CANCELLED'
+        servedCount: initialServedCount,
+        status: isInitialCompleted ? 'COMPLETED' : 'OPEN', // 'OPEN', 'COMPLETED', 'CANCELLED'
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        dispatches: [] // [{ id, timestamp, cashier, items: [{ productId, productName, qty }] }]
+        completedAt: isInitialCompleted ? new Date().toISOString() : null,
+        dispatches: initialDispatches
     };
 
     return await withLock('pos_write_lock', async () => {
         try {
+            // Descontar inventario físico y registrar en Kardex si hubo selección inicial
+            if (initialItems.length > 0) {
+                const products = await storageService.getItem(PRODUCTS_KEY, []) || [];
+                const updatedProducts = products.map(p => {
+                    const foundSel = initialItems.find(it => it.productId === p.id);
+                    if (foundSel) {
+                        const newStock = Math.max(0, (Number(p.stock) || 0) - Number(foundSel.qty));
+                        return { ...p, stock: newStock };
+                    }
+                    return p;
+                });
+                await storageService.setItem(PRODUCTS_KEY, updatedProducts);
+
+                for (const item of initialItems) {
+                    const targetProd = products.find(p => p.id === item.productId);
+                    await recordKardexMovement({
+                        productoId: item.productId,
+                        productoNombre: targetProd?.name || item.productName || 'Producto Cerveza',
+                        sku: targetProd?.barcode || targetProd?.sku || '',
+                        tipo: 'SALIDA_CONSUMO_DIFERIDO',
+                        subtipo: 'ENTREGA_INICIAL',
+                        cantidad: -Math.abs(Number(item.qty)),
+                        costoUnitario: Number(targetProd?.costUsd || targetProd?.cost || 0),
+                        referenciaId: initialDispatchId,
+                        referenciaTipo: 'CONSUMO_DIFERIDO',
+                        referenciaNumero: newSession.saleNumber,
+                        usuarioNombre: sale.cashier || 'Cajero',
+                        motivo: `Entrega inicial Ficha: ${customerRef} (${item.qty} u)`,
+                        metadata: {
+                            sessionId: newSession.id,
+                            saleId: sale.id,
+                            customerRef
+                        }
+                    });
+                }
+            }
+
             const sessions = await storageService.getItem(CONSUMPTION_SESSIONS_KEY, []) || [];
             const updatedSessions = [newSession, ...sessions];
             await storageService.setItem(CONSUMPTION_SESSIONS_KEY, updatedSessions);
@@ -55,6 +111,7 @@ export async function createSessionFromSale(sale, cartItem) {
             }
 
             window.dispatchEvent(new CustomEvent('consumption-sessions-updated'));
+            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: PRODUCTS_KEY } }));
             return newSession;
         } catch (err) {
             console.error('[ConsumptionService] Error al crear ficha de consumo:', err);

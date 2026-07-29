@@ -453,7 +453,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
         if (editingItem) {
             setCart(prev => prev.map(item => item.id === editingItem.id ? {
                 ...item,
-                modularSelections: isDeferred ? [] : modularSelections,
+                modularSelections: modularSelections,
                 isDeferredConsumption: isDeferred,
                 deferredCustomerRef: deferredRef
             } : item));
@@ -477,7 +477,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
             _originalId: combo.id,
             _mode: 'unit',
             isModular: true,
-            modularSelections: isDeferred ? [] : modularSelections,
+            modularSelections: modularSelections,
             isDeferredConsumption: isDeferred,
             deferredCustomerRef: deferredRef
         }, ...prev]);

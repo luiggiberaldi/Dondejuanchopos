@@ -165,17 +165,6 @@ export default function ModularComboPickerModal({
     };
 
     const handleConfirm = () => {
-        if (isDeferred) {
-            if (!deferredCustomerRef.trim()) return;
-            onConfirm([], {
-                isDeferredConsumption: true,
-                deferredCustomerRef: deferredCustomerRef.trim()
-            });
-            return;
-        }
-
-        if (!isAllFulfilled) return;
-
         const modularSelections = [];
         (combo.modularGroups || []).forEach(g => {
             const groupSel = selections[g.id] || {};
@@ -192,6 +181,17 @@ export default function ModularComboPickerModal({
                 }
             });
         });
+
+        if (isDeferred) {
+            if (!deferredCustomerRef.trim()) return;
+            onConfirm(modularSelections, {
+                isDeferredConsumption: true,
+                deferredCustomerRef: deferredCustomerRef.trim()
+            });
+            return;
+        }
+
+        if (!isAllFulfilled) return;
 
         onConfirm(modularSelections);
     };
