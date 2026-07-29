@@ -28,18 +28,27 @@ function markApplied(commandId) {
     } catch { /* localStorage lleno/bloqueado: el Set en memoria sigue protegiendo la sesión */ }
 }
 
-async function updateCommandStatus(commandId, status, errorReason = null) {
+async function updateCommandStatus(commandId, status, errorReason = null, maxRetries = 3) {
     const fields = { status };
     if (status === 'applied') fields.applied_at = new Date().toISOString();
     if (errorReason) fields.error_reason = String(errorReason).slice(0, 500);
-    try {
-        await supabaseCloud
-            .from('supervisor_commands')
-            .update(fields)
-            .eq('id', commandId);
-    } catch (e) {
-        console.error('[SupervisorCommands] No se pudo actualizar status:', e);
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const { error } = await supabaseCloud
+                .from('supervisor_commands')
+                .update(fields)
+                .eq('id', commandId);
+            if (!error) return true;
+            console.warn(`[SupervisorCommands] Intento ${attempt}/${maxRetries} falló al actualizar status de ${commandId}:`, error);
+        } catch (e) {
+            console.warn(`[SupervisorCommands] Excepción en intento ${attempt}/${maxRetries} al actualizar status:`, e);
+        }
+        if (attempt < maxRetries) {
+            await new Promise(r => setTimeout(r, attempt * 1500));
+        }
     }
+    return false;
 }
 
 async function applyRateChange(command) {
@@ -376,9 +385,13 @@ export function useSupervisorCommands(deviceId) {
         };
 
         // Catch-up: el realtime de Supabase NO re-emite INSERTs perdidos
-        // (caja cerrada u offline). Al montar y en cada (re)suscripción se
-        // consultan los comandos aún pendientes y se procesan en orden.
-        const catchUpPending = async () => {
+        // (caja cerrada u offline/micro-cortes). Al montar, en cada reconexión
+        // y periódicamente se consultan los comandos pendientes y se procesan.
+        let isFetchingPending = false;
+
+        const catchUpPending = async (retryCount = 0) => {
+            if (disposed || isFetchingPending) return;
+            isFetchingPending = true;
             try {
                 const { data, error } = await supabaseCloud
                     .from('supervisor_commands')
@@ -386,12 +399,27 @@ export function useSupervisorCommands(deviceId) {
                     .eq('primary_device_id', deviceId)
                     .eq('status', 'pending')
                     .order('created_at', { ascending: true });
-                if (error || disposed) return;
+
+                if (error) {
+                    console.warn(`[SupervisorCommands] Error en catch-up (intento ${retryCount + 1}):`, error.message);
+                    if (retryCount < 3 && !disposed) {
+                        setTimeout(() => catchUpPending(retryCount + 1), (retryCount + 1) * 3000);
+                    }
+                    return;
+                }
+
+                if (disposed) return;
+
                 for (const command of data || []) {
                     await processCommand(command);
                 }
             } catch (err) {
-                console.error('[SupervisorCommands] Error en catch-up:', err);
+                console.error('[SupervisorCommands] Excepción en catch-up:', err);
+                if (retryCount < 3 && !disposed) {
+                    setTimeout(() => catchUpPending(retryCount + 1), (retryCount + 1) * 3000);
+                }
+            } finally {
+                isFetchingPending = false;
             }
         };
 
@@ -409,8 +437,16 @@ export function useSupervisorCommands(deviceId) {
                 if (status === 'SUBSCRIBED') catchUpPending();
             });
 
+        // Red de seguridad contra micro-cortes: Polling periódico cada 12s
+        const intervalId = setInterval(() => {
+            if (!disposed && navigator.onLine !== false) {
+                catchUpPending();
+            }
+        }, 12000);
+
         return () => {
             disposed = true;
+            clearInterval(intervalId);
             supabaseCloud.removeChannel(channel).catch(() => {});
         };
     }, [deviceId]);
