@@ -181,6 +181,17 @@ export default function CartPanel({
                                                 </div>
                                             )}
 
+                                            {item.isDeferredConsumption && (
+                                                <div className="mb-1 border-l-2 border-amber-500 pl-1.5 py-0.5 bg-amber-50/50 dark:bg-amber-950/20 rounded-r-lg">
+                                                    <div className="text-[10px] font-black text-amber-700 dark:text-amber-300 flex items-center gap-1">
+                                                        <span>🍺 Consumo Diferido en Sitio</span>
+                                                    </div>
+                                                    <div className="text-[9px] font-bold text-amber-900/70 dark:text-amber-400">
+                                                        Ref: {item.deferredCustomerRef || 'Cliente'}
+                                                    </div>
+                                                </div>
+                                            )}
+
                                             <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
                                                 {copEnabled && tasaCop > 0 ? (
                                                     copPrimary ? (

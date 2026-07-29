@@ -10,7 +10,7 @@ import { useVoiceSearch } from '../hooks/useVoiceSearch';
 import { useNotifications } from '../hooks/useNotifications';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { showToast } from '../components/Toast';
-import { ShoppingCart, X, DollarSign, CheckCircle2 } from 'lucide-react';
+import { ShoppingCart, X, DollarSign, CheckCircle2, Beer } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useProductContext } from '../context/ProductContext';
 
@@ -29,6 +29,8 @@ import KeyboardHelpModal from '../components/Sales/KeyboardHelpModal';
 import DiscountModal from '../components/Sales/DiscountModal';
 import CajaCerradaOverlay from '../components/Sales/CajaCerradaOverlay';
 import ModularComboPickerModal from '../components/Sales/ModularComboPickerModal';
+import DeferredConsumptionModal from '../components/Sales/DeferredConsumptionModal';
+import { getActiveSessions } from '../services/consumptionSessionService';
 import { getLocalISODate } from '../utils/dateHelpers';
 import AperturaCajaModal from '../components/Dashboard/AperturaCajaModal';
 
@@ -77,6 +79,23 @@ export default function SalesView({ triggerHaptic, isActive }) {
     const [modularComboPickerOpen, setModularComboPickerOpen] = useState(false);
     const [pendingModularCombo, setPendingModularCombo] = useState(null);
     const [editingCartItem, setEditingCartItem] = useState(null);
+
+    // Consumo Diferido en Sitio (Fichas Activas)
+    const [showDeferredModal, setShowDeferredModal] = useState(false);
+    const [activeSessionsCount, setActiveSessionsCount] = useState(0);
+
+    const updateSessionsCount = useCallback(async () => {
+        try {
+            const active = await getActiveSessions();
+            setActiveSessionsCount(active.length);
+        } catch (e) {}
+    }, []);
+
+    useEffect(() => {
+        updateSessionsCount();
+        window.addEventListener('consumption-sessions-updated', updateSessionsCount);
+        return () => window.removeEventListener('consumption-sessions-updated', updateSessionsCount);
+    }, [updateSessionsCount]);
 
     // Rate config
     const [showRateConfig, setShowRateConfig] = useState(false);
@@ -420,7 +439,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
     });
 
     // ── Callbacks ─────────────────────────────────
-    const handleModularComboConfirm = useCallback((modularSelections) => {
+    const handleModularComboConfirm = useCallback((modularSelections, deferredOpts = null) => {
         setModularComboPickerOpen(false);
         const combo = pendingModularCombo;
         const editingItem = editingCartItem;
@@ -428,8 +447,16 @@ export default function SalesView({ triggerHaptic, isActive }) {
         setEditingCartItem(null);
         if (!combo) return;
 
+        const isDeferred = !!deferredOpts?.isDeferredConsumption;
+        const deferredRef = deferredOpts?.deferredCustomerRef || null;
+
         if (editingItem) {
-            setCart(prev => prev.map(item => item.id === editingItem.id ? { ...item, modularSelections } : item));
+            setCart(prev => prev.map(item => item.id === editingItem.id ? {
+                ...item,
+                modularSelections: isDeferred ? [] : modularSelections,
+                isDeferredConsumption: isDeferred,
+                deferredCustomerRef: deferredRef
+            } : item));
             playAdd();
             return;
         }
@@ -450,7 +477,9 @@ export default function SalesView({ triggerHaptic, isActive }) {
             _originalId: combo.id,
             _mode: 'unit',
             isModular: true,
-            modularSelections
+            modularSelections: isDeferred ? [] : modularSelections,
+            isDeferredConsumption: isDeferred,
+            deferredCustomerRef: deferredRef
         }, ...prev]);
 
         playAdd();
@@ -782,6 +811,8 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 copEnabled={copEnabled} copPrimary={copPrimary} tasaCop={tasaCop}
                 autoCopEnabled={autoCopEnabled} setAutoCopEnabled={setAutoCopEnabled}
                 tasaCopManual={tasaCopManual} setTasaCopManual={setTasaCopManual}
+                onOpenDeferredModal={() => setShowDeferredModal(true)}
+                activeSessionsCount={activeSessionsCount}
             />
 
             {!todayAperturaData ? (
@@ -818,6 +849,34 @@ export default function SalesView({ triggerHaptic, isActive }) {
                                         copEnabled={copEnabled} copPrimary={copPrimary} tasaCop={tasaCop}
                                     />
                                 </div>
+
+                                {/* Botón Consumo en Sitio Flotante (Desktop) */}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        triggerHaptic?.();
+                                        setShowDeferredModal(true);
+                                    }}
+                                    className={`hidden lg:flex shrink-0 flex-col items-center justify-center rounded-2xl sm:rounded-3xl px-3.5 border shadow-xs transition-all min-w-[105px] gap-0.5 relative cursor-pointer active:scale-95 ${
+                                        activeSessionsCount > 0
+                                            ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700/80 text-amber-900 dark:text-amber-200 hover:border-amber-400'
+                                            : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 text-slate-500 hover:border-amber-400 dark:hover:border-amber-600'
+                                    }`}
+                                    title="Ver Fichas Activas de Consumo en Sitio"
+                                >
+                                    <div className="flex items-center gap-1.5 font-black text-xs text-amber-600 dark:text-amber-400">
+                                        <Beer size={15} />
+                                        <span>FICHAS</span>
+                                        {activeSessionsCount > 0 && (
+                                            <span className="flex items-center justify-center min-w-[1.2rem] h-4.5 px-1.5 text-[10px] font-black text-white bg-amber-500 rounded-full shadow-xs animate-pulse">
+                                                {activeSessionsCount}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 leading-none">
+                                        {activeSessionsCount === 0 ? 'Sin consumo' : `${activeSessionsCount} activa${activeSessionsCount > 1 ? 's' : ''}`}
+                                    </span>
+                                </button>
 
                                 {/* Tasa de Referencia Flotante (estilo Listo POS 2026) — solo visible en desktop (lg:flex) */}
                                 <button
@@ -873,6 +932,8 @@ export default function SalesView({ triggerHaptic, isActive }) {
                                     onRestoreHold={handleRestoreHold}
                                     pendingCarts={pendingCarts}
                                     onOpenHelp={() => setShowKeyboardHelp(true)}
+                                    onOpenDeferredModal={() => setShowDeferredModal(true)}
+                                    activeSessionsCount={activeSessionsCount}
                                 />
                     )}
                 </div>
@@ -1065,6 +1126,14 @@ export default function SalesView({ triggerHaptic, isActive }) {
                     onConfirm={handleModularComboConfirm}
                 />
             )}
+
+            {/* Modal de Fichas Activas de Consumo Diferido en Sitio */}
+            <DeferredConsumptionModal
+                isOpen={showDeferredModal}
+                onClose={() => setShowDeferredModal(false)}
+                products={products}
+                triggerHaptic={triggerHaptic}
+            />
         </div>
     );
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, ShoppingCart, Keyboard } from 'lucide-react';
+import { RefreshCw, ShoppingCart, Keyboard, Beer } from 'lucide-react';
 import Tooltip from '../Tooltip';
 import { pushLocalSync } from '../../hooks/useCloudSync';
 import { useAuthStore } from '../../hooks/store/useAuthStore';
@@ -27,6 +27,8 @@ export default function SalesHeader({
     setAutoCopEnabled,
     tasaCopManual,
     setTasaCopManual,
+    onOpenDeferredModal,
+    activeSessionsCount = 0
 }) {
     const isCopMode = copEnabled && copPrimary && tasaCop > 0;
 
@@ -96,8 +98,24 @@ export default function SalesHeader({
                         </div>
                         Punto de Venta
                     </h2>
-                    {/* Tasa Móvil (visible solo en sm) */}
-                    <div>
+                    {/* Botones de Cabecera: Consumo en Sitio + Tasa */}
+                    <div className="flex items-center gap-2">
+                        {onOpenDeferredModal && (
+                            <button
+                                type="button"
+                                onClick={() => { triggerHaptic?.(); onOpenDeferredModal(); }}
+                                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-300/80 dark:border-amber-700/60 active:scale-95 transition-all cursor-pointer font-black text-xs relative"
+                                title="Ver Fichas Activas de Consumo en Sitio"
+                            >
+                                <Beer size={14} className="text-amber-600 dark:text-amber-400" />
+                                <span>Fichas</span>
+                                {activeSessionsCount > 0 && (
+                                    <span className="flex items-center justify-center min-w-[1.25rem] h-5 px-1 text-[10px] font-black text-white bg-amber-500 rounded-full shadow-xs animate-pulse">
+                                        {activeSessionsCount}
+                                    </span>
+                                )}
+                            </button>
+                        )}
                         <button
                             onClick={handleRateToggle}
                             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border transition-all ${

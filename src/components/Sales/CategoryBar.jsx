@@ -26,6 +26,8 @@ export default function CategoryBar({
     onRestoreHold,
     pendingCarts = [],
     onOpenHelp,
+    onOpenDeferredModal,
+    activeSessionsCount = 0,
 }) {
     const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
     const categoryScrollRef = useRef(null);

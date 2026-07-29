@@ -53,10 +53,10 @@ export function filterKardex(kardex, filters = {}) {
 
         if (query && query.trim()) {
             const q = query.toLowerCase().trim();
-            const pNombre = (m.producto_nombre || '').toLowerCase();
-            const ref = (m.referencia_numero || m.referencia_id || '').toLowerCase();
-            const uNombre = (m.usuario_nombre || '').toLowerCase();
-            const mot = (m.motivo || '').toLowerCase();
+            const pNombre = String(m.producto_nombre || '').toLowerCase();
+            const ref = String(m.referencia_numero != null && m.referencia_numero !== '' ? m.referencia_numero : (m.referencia_id || '')).toLowerCase();
+            const uNombre = String(m.usuario_nombre || '').toLowerCase();
+            const mot = String(m.motivo || '').toLowerCase();
             if (!pNombre.includes(q) && !ref.includes(q) && !uNombre.includes(q) && !mot.includes(q)) {
                 return false;
             }

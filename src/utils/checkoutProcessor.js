@@ -126,6 +126,8 @@ export async function processSaleTransaction({
                 forceBcv: i.forceBcv || null,
                 isModular: i.isModular || false,
                 modularSelections: i.modularSelections || [],
+                isDeferredConsumption: i.isDeferredConsumption || false,
+                deferredCustomerRef: i.deferredCustomerRef || null,
                 // Bs exacto al momento de la venta (para recibos e historial)
                 subtotalBs: mulR(_unitBs, i.qty)
             };
@@ -191,6 +193,19 @@ export async function processSaleTransaction({
             { saleId: finalPersistedSale.id, total: cartTotalUsd, items: cart.length }
         );
 
+        // ── Crear Fichas de Consumo Activas para ítems con Consumo Diferido en Sitio ──
+        try {
+            const deferredItems = cart.filter(i => i.isDeferredConsumption);
+            if (deferredItems.length > 0) {
+                const { createSessionFromSale } = await import('../services/consumptionSessionService');
+                for (const dItem of deferredItems) {
+                    await createSessionFromSale(finalPersistedSale, dItem);
+                }
+            }
+        } catch (deferredErr) {
+            console.error('[checkoutProcessor] Error al crear Fichas de Consumo Diferido:', deferredErr);
+        }
+
         // ── Deducir stock con precisión ──
         // FIN-027-pattern: re-leer productos fresco aquí para evitar stale state.
         const freshProducts = await storageService.getItem(PRODUCTS_KEY, products);
@@ -205,6 +220,12 @@ export async function processSaleTransaction({
         };
 
         cart.forEach(item => {
+            // Consumo Diferido en Sitio: NO se descuenta inventario al cobrar el combo.
+            // Las cervezas se irán descontando progresivamente con cada despacho en el local.
+            if (item.isDeferredConsumption) {
+                return;
+            }
+
             const itemId = item._originalId || item.id;
             const itemQty = item.qty;
             const isWeight = item.isWeight;

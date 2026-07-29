@@ -190,6 +190,16 @@ export async function processVoidSale(sale, currentSales, currentProducts) {
             console.error('[voidSaleProcessor] Error registrando Kardex de devolución:', kardexErr);
         }
 
+        // ── Anular Ficha de Consumo Activa si la venta era de consumo diferido ──
+        try {
+            const { cancelSessionBySaleId } = await import('../services/consumptionSessionService');
+            const activeUser = useAuthStore.getState().usuarioActivo;
+            const cajeroNombre = activeUser ? (activeUser.nombre || activeUser.usuario || 'Supervisor') : 'Supervisor';
+            await cancelSessionBySaleId(sale.id, cajeroNombre);
+        } catch (sessionErr) {
+            console.error('[voidSaleProcessor] Error al anular ficha de consumo:', sessionErr);
+        }
+
         // FIN-008: deep-freeze outputs antes de retornar (defensa contra mutaciones posteriores).
         deepFreeze(updatedProducts);
         deepFreeze(updatedCustomers);
