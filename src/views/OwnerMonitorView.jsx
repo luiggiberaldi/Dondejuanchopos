@@ -555,7 +555,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 if (i >= 0) {
                     const newDelta = (Number(next[i].data?.delta) || 0) + (Number(data?.delta) || 0);
                     if (newDelta === 0) next.splice(i, 1);
-                    else next[i] = { ...next[i], data: { delta: newDelta }, queuedAt: new Date().toISOString() };
+                    else next[i] = { ...next[i], data: { ...next[i].data, ...data, delta: newDelta }, queuedAt: new Date().toISOString() };
                 } else {
                     next.push({ action, productId, data, queuedAt: new Date().toISOString() });
                 }
@@ -3445,7 +3445,6 @@ function StockAdjustModal({ product, onClose, onConfirm, triggerHaptic }) {
 
     const handleQuickAdd = (val) => {
         triggerHaptic?.();
-        setMode('add');
         setQuantity(val.toString());
     };
 
@@ -3487,33 +3486,33 @@ function StockAdjustModal({ product, onClose, onConfirm, triggerHaptic }) {
                 </div>
 
                 {/* Selección de Tipo de Ajuste */}
-                <div className="grid grid-cols-3 gap-1.5 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl">
+                <div className="grid grid-cols-3 gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl">
                     <button
                         type="button"
                         onClick={() => { triggerHaptic?.(); setMode('add'); }}
-                        className={`py-2 text-[10px] font-black uppercase rounded-xl transition-all ${
+                        className={`py-2 px-1 text-[10px] font-black uppercase rounded-xl transition-all ${
                             mode === 'add'
                                 ? 'bg-emerald-500 text-white shadow-sm'
                                 : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
                         }`}
                     >
-                        ➕ Entrada (+40)
+                        ➕ Entrada
                     </button>
                     <button
                         type="button"
                         onClick={() => { triggerHaptic?.(); setMode('subtract'); }}
-                        className={`py-2 text-[10px] font-black uppercase rounded-xl transition-all ${
+                        className={`py-2 px-1 text-[10px] font-black uppercase rounded-xl transition-all ${
                             mode === 'subtract'
                                 ? 'bg-rose-500 text-white shadow-sm'
                                 : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
                         }`}
                     >
-                        ➖ Salida (-10)
+                        ➖ Salida
                     </button>
                     <button
                         type="button"
                         onClick={() => { triggerHaptic?.(); setMode('set'); }}
-                        className={`py-2 text-[10px] font-black uppercase rounded-xl transition-all ${
+                        className={`py-2 px-1 text-[10px] font-black uppercase rounded-xl transition-all ${
                             mode === 'set'
                                 ? 'bg-blue-600 text-white shadow-sm'
                                 : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -3536,6 +3535,7 @@ function StockAdjustModal({ product, onClose, onConfirm, triggerHaptic }) {
                             autoFocus
                             value={quantity}
                             onChange={(e) => setQuantity(e.target.value)}
+                            onFocus={(e) => e.target.select()}
                             placeholder={mode === 'add' ? 'Ej: 40' : mode === 'subtract' ? 'Ej: 5' : `${currentStock}`}
                             className="w-full px-4 py-3 text-lg font-outfit font-black rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500 text-center"
                         />
@@ -3552,7 +3552,7 @@ function StockAdjustModal({ product, onClose, onConfirm, triggerHaptic }) {
                                     onClick={() => handleQuickAdd(num)}
                                     className="px-2.5 py-1 text-xs font-outfit font-black rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-slate-700 transition-colors"
                                 >
-                                    +{num}
+                                    {mode === 'subtract' ? `-${num}` : mode === 'add' ? `+${num}` : num}
                                 </button>
                             ))}
                             {product.sellByBox && product.boxUnits > 0 && (
@@ -3561,7 +3561,7 @@ function StockAdjustModal({ product, onClose, onConfirm, triggerHaptic }) {
                                     onClick={() => handleQuickAdd(product.boxUnits)}
                                     className="px-2.5 py-1 text-xs font-outfit font-black rounded-xl bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 hover:bg-blue-100 transition-colors"
                                 >
-                                    +1 Caja ({product.boxUnits}u)
+                                    {mode === 'subtract' ? '-' : mode === 'add' ? '+' : ''}1 Caja ({product.boxUnits}u)
                                 </button>
                             )}
                         </div>
