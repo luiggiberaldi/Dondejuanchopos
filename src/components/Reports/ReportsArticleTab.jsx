@@ -12,7 +12,28 @@ const RANGE_OPTIONS = [
     { id: 'week', label: 'Esta Semana' },
     { id: 'month', label: 'Este Mes' },
     { id: 'lastMonth', label: 'Mes Anterior' },
+    { id: 'custom', label: 'Personalizado' },
 ];
+
+function formatRangeSummary(fromStr, toStr) {
+    if (!fromStr || !toStr) return '';
+    try {
+        const f = new Date(fromStr + 'T00:00:00');
+        const t = new Date(toStr + 'T00:00:00');
+        const diffTime = Math.abs(t - f);
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+        
+        const fFormatted = f.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+        const tFormatted = t.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+        
+        if (fromStr === toStr) {
+            return `Día: ${fFormatted}`;
+        }
+        return `${fFormatted} — ${tFormatted} (${diffDays} días)`;
+    } catch {
+        return `${fromStr} al ${toStr}`;
+    }
+}
 
 export default function ReportsArticleTab({
     salesForStats = [],
@@ -65,9 +86,11 @@ export default function ReportsArticleTab({
         triggerHaptic && triggerHaptic();
         if (setArtRange && setArtFrom && setArtTo) {
             setArtRange(rangeId);
-            const { from: newFrom, to: newTo } = getDateRange(rangeId);
-            setArtFrom(newFrom);
-            setArtTo(newTo);
+            if (rangeId !== 'custom') {
+                const { from: newFrom, to: newTo } = getDateRange(rangeId);
+                setArtFrom(newFrom);
+                setArtTo(newTo);
+            }
         }
     };
 
@@ -221,13 +244,22 @@ export default function ReportsArticleTab({
                 </div>
             </div>
 
-            {/* Selector de Rango si se usa desde Supervisor Mode (Grid 3 cols en Móvil) */}
+            {/* Selector de Rango si se usa desde Supervisor Mode */}
             {setArtRange && (
-                <div className="bg-white dark:bg-surface-900 rounded-2xl p-3 border border-slate-200 dark:border-surface-800 shadow-sm">
-                    <div className="flex items-center gap-2 mb-2">
-                        <Calendar size={14} className="text-brand dark:text-brand" />
-                        <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Período de Consulta:</span>
+                <div className="bg-white dark:bg-surface-900 rounded-2xl p-3 sm:p-4 border border-slate-200 dark:border-surface-800 shadow-sm space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                            <Calendar size={15} className="text-brand dark:text-brand" />
+                            <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Período de Consulta:</span>
+                        </div>
+                        {artRange === 'custom' && from && to && (
+                            <span className="hidden sm:inline-block text-[11px] font-bold text-brand dark:text-brand bg-brand/10 px-2.5 py-0.5 rounded-lg">
+                                📅 {formatRangeSummary(from, to)}
+                            </span>
+                        )}
                     </div>
+
+                    {/* Botones de Selección Rápida de Período */}
                     <div className="grid grid-cols-3 sm:flex sm:flex-wrap gap-1.5">
                         {RANGE_OPTIONS.map(opt => (
                             <button
@@ -243,6 +275,105 @@ export default function ReportsArticleTab({
                             </button>
                         ))}
                     </div>
+
+                    {/* Panel Desplegable de Fecha Personalizada */}
+                    {artRange === 'custom' && setArtFrom && setArtTo && (
+                        <div className="pt-3 border-t border-slate-100 dark:border-surface-800 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                            {/* Inputs Desde / Hasta */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                <div className="space-y-1">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-surface-300 flex items-center gap-1">
+                                        <span>Fecha Inicial (Desde):</span>
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={from || ''}
+                                        max={to || getLocalISODate()}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (!val) return;
+                                            setArtFrom(val);
+                                            if (to && val > to) setArtTo(val);
+                                        }}
+                                        className="w-full px-3 py-2.5 min-h-[44px] bg-slate-50 dark:bg-surface-800 border border-slate-200 dark:border-surface-700 rounded-xl text-xs sm:text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-brand/30 focus:outline-none transition-all"
+                                    />
+                                </div>
+
+                                <div className="space-y-1">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-surface-300 flex items-center gap-1">
+                                        <span>Fecha Final (Hasta):</span>
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={to || ''}
+                                        min={from || ''}
+                                        max={getLocalISODate()}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (!val) return;
+                                            setArtTo(val);
+                                            if (from && val < from) setArtFrom(val);
+                                        }}
+                                        className="w-full px-3 py-2.5 min-h-[44px] bg-slate-50 dark:bg-surface-800 border border-slate-200 dark:border-surface-700 rounded-xl text-xs sm:text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-brand/30 focus:outline-none transition-all"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Accesos Rápidos (Presets) */}
+                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-[10px] font-black uppercase text-slate-400 mr-1">Rápidos:</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            triggerHaptic?.();
+                                            const now = new Date();
+                                            const past = new Date(now);
+                                            past.setDate(past.getDate() - 6);
+                                            setArtFrom(getLocalISODate(past));
+                                            setArtTo(getLocalISODate(now));
+                                        }}
+                                        className="px-2.5 py-1.5 text-[10.5px] font-bold rounded-lg bg-brand/10 text-brand dark:text-brand hover:bg-brand/20 transition-all active:scale-95"
+                                    >
+                                        Últimos 7 días
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            triggerHaptic?.();
+                                            const now = new Date();
+                                            const past = new Date(now);
+                                            past.setDate(past.getDate() - 29);
+                                            setArtFrom(getLocalISODate(past));
+                                            setArtTo(getLocalISODate(now));
+                                        }}
+                                        className="px-2.5 py-1.5 text-[10.5px] font-bold rounded-lg bg-brand/10 text-brand dark:text-brand hover:bg-brand/20 transition-all active:scale-95"
+                                    >
+                                        Últimos 30 días
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            triggerHaptic?.();
+                                            const now = new Date();
+                                            const start = new Date(now.getFullYear(), 0, 1);
+                                            setArtFrom(getLocalISODate(start));
+                                            setArtTo(getLocalISODate(now));
+                                        }}
+                                        className="px-2.5 py-1.5 text-[10.5px] font-bold rounded-lg bg-brand/10 text-brand dark:text-brand hover:bg-brand/20 transition-all active:scale-95"
+                                    >
+                                        Este Año
+                                    </button>
+                                </div>
+
+                                {from && to && (
+                                    <div className="sm:hidden text-[11px] font-bold text-slate-500 dark:text-surface-400 bg-slate-100 dark:bg-surface-800/80 px-2.5 py-1.5 rounded-lg text-center">
+                                        📅 {formatRangeSummary(from, to)}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 
