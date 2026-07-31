@@ -11,6 +11,7 @@ import KardexView from './KardexView';
 
 import ShareInventoryModal from '../components/ShareInventoryModal';
 import { formatBs, formatUsd, smartCashRounding, getCop, getUsd, compareBarcodes } from '../utils/calculatorUtils';
+import { calculatePricing } from '../utils/productProcessor';
 import { generarEtiquetas } from '../utils/ticketGenerator';
 import { useWallet } from '../hooks/useWallet';
 import { BODEGA_CATEGORIES, UNITS, CATEGORY_COLORS } from '../config/categories';
@@ -886,7 +887,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                             <div className="divide-y divide-slate-100 dark:divide-slate-800">
                                 {paginatedProducts.map((p, pIdx) => {
                                     const actualStock = getProductStock(p);
-                                    const valBs = p.priceUsdt * effectiveRate;
+                                    const valBs = calculatePricing(p, effectiveRate, rates?.bcv?.price || effectiveRate).unitPriceBs;
                                     const isLowStock = !p.isCombo && actualStock <= (p.lowStockAlert ?? 5);
                                     const margin = p.costBs > 0 ? ((valBs - p.costBs) / p.costBs * 100) : null;
                                     const catInfo = categories.find(c => c.id === p.category);

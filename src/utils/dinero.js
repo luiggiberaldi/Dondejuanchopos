@@ -66,6 +66,19 @@ export const round3 = (n) => _shiftRound(n, 3);
 export const round0 = (n) => _shiftRound(n, 0);
 
 /**
+ * Redondea un monto en Bolívares al múltiplo de paso especificado (ej: 10 Bs).
+ * Si step <= 0, retorna round2(amount).
+ * @param {number} n
+ * @param {number} step
+ * @returns {number}
+ */
+export const roundBs = (n, step = 10) => {
+    if (!Number.isFinite(n)) return 0;
+    if (!step || step <= 0) return round2(n);
+    return Math.round(n / step) * step;
+};
+
+/**
  * Redondea hacia +infinito (ceil) a entero.
  * Política del POS para precios en Bolívares (siempre redondear Bs hacia arriba).
  * Reemplaza `Math.ceil` en código financiero.

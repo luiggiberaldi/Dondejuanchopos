@@ -150,6 +150,20 @@ export function ProductProvider({ children, rates }) {
         return localStorage.getItem('cop_primary') === 'true';
     });
 
+    // BS ROUNDING STEP — 0: sin redondeo | 1: enteros | 5 | 10 (default de fábrica) | 20 | 50
+    const [bsRoundingStep, setBsRoundingStepState] = useState(() => {
+        const saved = localStorage.getItem('bs_rounding_step');
+        if (saved !== null) return parseInt(saved, 10);
+        // DEFAULT DE FÁBRICA: 10 (múltiplos de 10 Bs)
+        localStorage.setItem('bs_rounding_step', '10');
+        return 10;
+    });
+    const setBsRoundingStep = useCallback((val) => {
+        const numVal = parseInt(val, 10) || 0;
+        setBsRoundingStepState(numVal);
+        localStorage.setItem('bs_rounding_step', String(numVal));
+    }, []);
+
     // CHECKOUT MODE — 'basic' (barras móviles) | 'pos' (2 columnas, estilo Listo POS)
     const [checkoutMode, setCheckoutModeState] = useState(() => {
         const saved = localStorage.getItem('checkout_mode');
@@ -534,7 +548,9 @@ export function ProductProvider({ children, rates }) {
         tasaCop,
         checkoutMode,
         setCheckoutMode,
-        adjustStock
+        adjustStock,
+        bsRoundingStep,
+        setBsRoundingStep
     }), [
         products,
         categories,
@@ -552,6 +568,8 @@ export function ProductProvider({ children, rates }) {
         tasaCop,
         checkoutMode,
         adjustStock,
+        bsRoundingStep,
+        setBsRoundingStep
     ]);
 
     return (

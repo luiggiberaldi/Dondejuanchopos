@@ -48,7 +48,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
     const { notifyLowStock, notifySaleComplete } = useNotifications();
 
     // ── Global Context ──────────────────────────────────────
-    const { products, setProducts, isLoadingProducts, rateMode, setRateMode, useAutoRate, setUseAutoRate, customRate, setCustomRate, effectiveRate, rates, copEnabled, copPrimary, tasaCop, autoCopEnabled, setAutoCopEnabled, tasaCopManual, setTasaCopManual, categories, checkoutMode, setCheckoutMode } = useProductContext();
+    const { products, setProducts, isLoadingProducts, rateMode, setRateMode, useAutoRate, setUseAutoRate, customRate, setCustomRate, effectiveRate, rates, copEnabled, copPrimary, tasaCop, autoCopEnabled, setAutoCopEnabled, tasaCopManual, setTasaCopManual, categories, checkoutMode, setCheckoutMode, bsRoundingStep } = useProductContext();
 
 
 
@@ -305,8 +305,8 @@ export default function SalesView({ triggerHaptic, isActive }) {
         totalBs: cartTotalBs,
         totalCop: cartTotalCop
     } = useMemo(() =>
-        FinancialEngine.buildCartTotals(cart, discount, effectiveRate, copEnabled ? tasaCop : 0, rates?.bcv?.price || effectiveRate)
-    , [cart, discount, effectiveRate, copEnabled, tasaCop, rates]);
+        FinancialEngine.buildCartTotals(cart, discount, effectiveRate, copEnabled ? tasaCop : 0, rates?.bcv?.price || effectiveRate, bsRoundingStep)
+    , [cart, discount, effectiveRate, copEnabled, tasaCop, rates, bsRoundingStep]);
 
     // Variables estáticas para pasar a los componentes hijos
     const discountData = {

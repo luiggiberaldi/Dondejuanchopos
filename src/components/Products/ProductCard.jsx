@@ -44,7 +44,7 @@ export default function ProductCard({
 
     const activeRate = getProductEffectiveRate(p, effectiveRate, bcvRate);
     const effectiveUsd = getUsd(p, tasaCop);
-    const valBs = effectiveUsd * activeRate;
+    const { unitPriceBs: valBs } = calculatePricing(p, effectiveRate, bcvRate);
     const valCop = getCop(p, tasaCop);
     const isLowStock = !p.isCombo && (p.stock ?? 0) <= (p.lowStockAlert ?? 5);
     const margin = p.costBs > 0 ? ((valBs - p.costBs) / p.costBs * 100) : null;

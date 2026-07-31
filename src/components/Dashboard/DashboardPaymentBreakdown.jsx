@@ -8,7 +8,7 @@ export default function DashboardPaymentBreakdown({
 }) {
     if (Object.keys(paymentBreakdown).length === 0) return null;
 
-    const allEntries = Object.entries(paymentBreakdown).filter(([, d]) => d.total > 0);
+    const allEntries = Object.entries(paymentBreakdown).filter(([key, d]) => d && d.total > 0 && key !== '_apertura');
     const fiadoMethods = allEntries.filter(([method, d]) => (d.currency === 'FIADO' || method === 'cashea') && !d.isChange);
     const bsMethods    = allEntries.filter(([, d]) => (d.currency === 'BS' || (!d.currency)) && !d.isChange);
     const usdMethods   = allEntries.filter(([method, d]) => d.currency === 'USD' && method !== 'cashea' && !d.isChange);

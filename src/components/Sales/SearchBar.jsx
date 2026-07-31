@@ -2,6 +2,7 @@ import { forwardRef } from 'react';
 import { Search, Mic, Package, X, Box, Tag } from 'lucide-react';
 import { BODEGA_CATEGORIES, CATEGORY_ICONS, CATEGORY_COLORS } from '../../config/categories';
 import { formatCop, getCop, getUsd } from '../../utils/calculatorUtils';
+import { calculatePricing } from '../../utils/productProcessor';
 
 const formatBs = (n) => new Intl.NumberFormat('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
@@ -147,13 +148,7 @@ const SearchBar = forwardRef(function SearchBar({
                                             <p className="text-[10px] font-medium text-slate-400">
                                                 {copEnabled && tasaCop > 0 
                                                     ? `${formatCop(getCop(p, tasaCop))} COP` 
-                                                    : `${formatBs(
-                                                        p.priceBsUsdRef && !p.forceBcv
-                                                            ? p.priceBsUsdRef * effectiveRate
-                                                            : p.priceBsManual && !p.forceBcv
-                                                                ? Number(p.priceBsManual)
-                                                                : (p.priceUsdt || p.priceUsd || 0) * effectiveRate
-                                                      )} Bs`}
+                                                    : `${formatBs(calculatePricing(p, effectiveRate, null, 'unit').unitPriceBs)} Bs`}
                                             </p>
                                         </>
                                     )}
@@ -192,11 +187,7 @@ const SearchBar = forwardRef(function SearchBar({
                             <div className="flex flex-col">
                                 <span className="text-xs font-black text-emerald-600 dark:text-emerald-400">${hierarchyPending.priceUsd?.toFixed(2)}</span>
                                 <span className="text-[9px] font-bold text-slate-400">
-                                    {hierarchyPending.priceBsUsdRef && !hierarchyPending.forceBcv
-                                        ? `${(hierarchyPending.priceBsUsdRef * effectiveRate).toFixed(2)} Bs`
-                                        : hierarchyPending.priceBsManual && !hierarchyPending.forceBcv
-                                            ? `${Number(hierarchyPending.priceBsManual).toFixed(2)} Bs`
-                                            : `${((hierarchyPending.priceUsd || 0) * effectiveRate).toFixed(2)} Bs`}
+                                    {formatBs(calculatePricing(hierarchyPending, effectiveRate, null, 'unit').unitPriceBs)} Bs
                                 </span>
                             </div>
                         </button>
@@ -210,11 +201,7 @@ const SearchBar = forwardRef(function SearchBar({
                                 <div className="flex flex-col">
                                     <span className="text-xs font-black text-[#193275] dark:text-brand">${hierarchyPending.boxPriceUsd?.toFixed(2)}</span>
                                     <span className="text-[9px] font-bold text-slate-450 dark:text-slate-400">
-                                        {hierarchyPending.boxPriceBsUsdRef && !hierarchyPending.forceBcv
-                                            ? `${(hierarchyPending.boxPriceBsUsdRef * effectiveRate).toFixed(2)} Bs`
-                                            : hierarchyPending.boxPriceBs && !hierarchyPending.forceBcv
-                                                ? `${Number(hierarchyPending.boxPriceBs).toFixed(2)} Bs`
-                                                : `${((hierarchyPending.boxPriceUsd || 0) * effectiveRate).toFixed(2)} Bs`}
+                                        {formatBs(calculatePricing(hierarchyPending, effectiveRate, null, 'box').unitPriceBs)} Bs
                                     </span>
                                 </div>
                             </button>
@@ -229,11 +216,7 @@ const SearchBar = forwardRef(function SearchBar({
                                 <div className="flex flex-col">
                                     <span className="text-xs font-black text-purple-600 dark:text-purple-400">${hierarchyPending.halfBoxPriceUsd?.toFixed(2)}</span>
                                     <span className="text-[9px] font-bold text-slate-400">
-                                        {hierarchyPending.halfBoxPriceBsUsdRef && !hierarchyPending.forceBcv
-                                            ? `${(hierarchyPending.halfBoxPriceBsUsdRef * effectiveRate).toFixed(2)} Bs`
-                                            : hierarchyPending.halfBoxPriceBs && !hierarchyPending.forceBcv
-                                                ? `${Number(hierarchyPending.halfBoxPriceBs).toFixed(2)} Bs`
-                                                : `${((hierarchyPending.halfBoxPriceUsd || 0) * effectiveRate).toFixed(2)} Bs`}
+                                        {formatBs(calculatePricing(hierarchyPending, effectiveRate, null, 'halfBox').unitPriceBs)} Bs
                                     </span>
                                 </div>
                             </button>

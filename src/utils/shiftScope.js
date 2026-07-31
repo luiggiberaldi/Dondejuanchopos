@@ -10,7 +10,14 @@ export const TIPOS_CIERRE = ['VENTA', 'VENTA_FIADA', 'VENTA_CASHEA', 'COBRO_DEUD
 
 /** Apertura que abrió el turno vigente (la única APERTURA_CAJA sin cerrar). */
 export function findOpenApertura(sales) {
-    return (sales || []).find(s => s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada) || null;
+    const list = sales || [];
+    for (let i = list.length - 1; i >= 0; i--) {
+        const s = list[i];
+        if (s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada) {
+            return s;
+        }
+    }
+    return list.find(s => s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada) || null;
 }
 
 /**

@@ -4,7 +4,7 @@ import { processVoidSale } from '../utils/voidSaleProcessor';
 import { storageService } from '../utils/storageService';
 import { withLock } from '../utils/withLock';
 import { showToast } from '../components/Toast';
-import { BarChart3, TrendingUp, Package, AlertTriangle, ShoppingCart, Store, Users, Settings, LogOut, Bell, BellOff, Lock } from 'lucide-react';
+import { BarChart3, TrendingUp, Package, AlertTriangle, ShoppingCart, Store, Users, Settings, LogOut, Bell, BellOff, Lock, Coins, Wallet } from 'lucide-react';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
 import DashboardStats from '../components/Dashboard/DashboardStats';
 import DashboardPaymentBreakdown from '../components/Dashboard/DashboardPaymentBreakdown';
@@ -492,7 +492,7 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
             )}
 
             {/* Header / Top Bar adaptativo */}
-            <div className={`sticky top-0 z-20 flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-3 md:mb-5 py-1.5 md:pb-3 md:pt-2 transition-all duration-200 -mx-3 sm:-mx-5 lg:-mx-6 xl:-mx-8 px-3 sm:px-5 lg:px-6 xl:px-8 bg-surface-50/95 dark:bg-surface-950/95 backdrop-blur-md border-b ${isScrolled ? 'border-slate-200/80 dark:border-slate-800/80 shadow-md' : 'border-slate-100 dark:border-slate-800/60'}`}>
+            <div className={`sticky top-0 z-20 flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-2 md:mb-3 py-2 transition-all duration-200 -mx-3 sm:-mx-5 lg:-mx-6 xl:-mx-8 px-3 sm:px-5 lg:px-6 xl:px-8 bg-surface-50/95 dark:bg-surface-950/95 backdrop-blur-md border-b ${isScrolled ? 'border-slate-200/80 dark:border-slate-800/80 shadow-md' : 'border-slate-100 dark:border-slate-800/60'}`}>
                 {/* Lado Izquierdo: Logo (centrado en móviles con el doble de tamaño, alineado a la izquierda en PC) */}
                 <div className="w-full flex justify-center md:w-auto md:justify-start relative items-center">
                     {/* Botón de Cerrar Sesión — izquierda absoluta en móvil (oculto en PC) */}
@@ -515,7 +515,7 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                         <img 
                             src={theme === 'dark' ? './logodark.png' : './logo.png'} 
                             alt="Donde Juancho" 
-                            className="h-[100px] -my-[21px] md:h-[150px] w-auto object-contain drop-shadow-sm md:-my-[38px] md:translate-y-[4px]" 
+                            className="h-[75px] md:h-[95px] w-auto object-contain drop-shadow-md scale-110 md:scale-130 origin-left -my-2 md:-my-4 transition-transform" 
                         />
                     </div>
                     {/* Estatus Sync a la derecha absoluta en móvil, relativo normal en PC */}
@@ -658,22 +658,78 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
             {/* ── CAJERO: vista simplificada + Botón Prominente de Cierre de Caja ── */}
             {isCajero ? (
                 <div className="space-y-4 mb-5">
+                    {/* Banner de Fondo Inicial para Cajero */}
+                    {(shiftApertura || todayApertura) && (
+                        <div className="card !p-4 !rounded-2xl bg-gradient-to-r from-emerald-500/15 via-emerald-500/5 to-transparent border border-emerald-500/30 relative overflow-hidden shadow-tone-sm">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-emerald-500/20 rounded-xl flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+                                        <Coins size={20} />
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <p className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Fondo Inicial en Caja (Apertura)</p>
+                                            {(shiftApertura?.sellerName || todayApertura?.sellerName) && (
+                                                <span className="text-[10px] text-slate-400 font-medium">· {shiftApertura?.sellerName || todayApertura?.sellerName}</span>
+                                            )}
+                                        </div>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            {/* Zona de Bolívares */}
+                                            <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-500/10 dark:bg-emerald-900/30 border border-emerald-500/30 rounded-xl">
+                                                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Efectivo Bs:</span>
+                                                <span className="font-outfit text-base font-black text-slate-800 dark:text-white">
+                                                    {formatBs((shiftApertura || todayApertura).openingBs || 0)} Bs
+                                                </span>
+                                            </div>
+
+                                            {/* Zona de Dólares ($) */}
+                                            {(shiftApertura || todayApertura).openingUsd > 0 && (
+                                                <div className="flex items-center gap-1.5 px-3 py-1 bg-blue-500/10 dark:bg-blue-900/30 border border-blue-500/30 rounded-xl">
+                                                    <span className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400">Efectivo $:</span>
+                                                    <span className="font-outfit text-base font-black text-blue-700 dark:text-blue-300">
+                                                        ${(shiftApertura || todayApertura).openingUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                                                    </span>
+                                                </div>
+                                            )}
+
+                                            {/* Zona de Pesos COP */}
+                                            {(shiftApertura || todayApertura).openingCop > 0 && (
+                                                <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 dark:bg-amber-900/30 border border-amber-500/30 rounded-xl">
+                                                    <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">Efectivo COP:</span>
+                                                    <span className="font-outfit text-base font-black text-amber-700 dark:text-amber-300">
+                                                        {formatCop((shiftApertura || todayApertura).openingCop)} COP
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/80 px-2.5 py-1 rounded-lg border border-emerald-500/20">
+                                        TURNO ACTIVO
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     <div className="grid grid-cols-2 gap-3">
                         <div className="reveal card !p-4 !rounded-2xl relative overflow-hidden">
                             <div className="absolute -right-4 -top-4 w-16 h-16 bg-brand-light dark:bg-surface-800/10 rounded-full blur-2xl" />
                             <div className="w-9 h-9 bg-brand-light dark:bg-surface-800/30 rounded-xl flex items-center justify-center mb-2">
                                 <ShoppingCart size={18} className="text-brand" />
                             </div>
-                            <p className="font-outfit text-4xl font-semibold text-surface-700 dark:text-surface-100 leading-none">{todaySales.length}</p>
-                            <p className="text-[11px] text-surface-400 mt-1">{todaySales.length === 1 ? 'venta hoy' : 'ventas hoy'}</p>
+                            <p className="font-outfit text-4xl font-semibold text-surface-700 dark:text-surface-100 leading-none">{shiftSales.length}</p>
+                            <p className="text-[11px] font-medium text-surface-400 mt-1">{shiftSales.length === 1 ? 'venta en este turno' : 'ventas en este turno'}</p>
+                            <p className="text-[10px] font-bold text-brand mt-1">${shiftTotalUsd.toFixed(2)} · {formatBs(shiftTotalBs)} Bs</p>
                         </div>
                         <div className="reveal card !p-4 !rounded-2xl relative overflow-hidden">
                             <div className="absolute -right-4 -top-4 w-16 h-16 bg-emerald-50 dark:bg-emerald-900/10 rounded-full blur-2xl" />
                             <div className="w-9 h-9 bg-emerald-100 dark:bg-emerald-900/30 rounded-xl flex items-center justify-center mb-2">
                                 <Package size={18} className="text-emerald-500" />
                             </div>
-                            <p className="font-outfit text-4xl font-semibold text-surface-700 dark:text-surface-100 leading-none">{todayItemsSold}</p>
-                            <p className="text-[11px] text-surface-400 mt-1">{todayItemsSold === 1 ? 'artículo vendido' : 'artículos vendidos'}</p>
+                            <p className="font-outfit text-4xl font-semibold text-surface-700 dark:text-surface-100 leading-none">{shiftItemsSold}</p>
+                            <p className="text-[11px] font-medium text-surface-400 mt-1">{shiftItemsSold === 1 ? 'artículo vendido' : 'artículos vendidos'}</p>
                         </div>
                     </div>
 
@@ -683,7 +739,7 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                         className="w-full py-4 px-6 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-black text-sm uppercase tracking-wider shadow-lg shadow-amber-500/25 flex items-center justify-center gap-3 transition-all active:scale-[0.98] cursor-pointer"
                     >
                         <Lock size={20} />
-                        <span>Cerrar Caja de Hoy</span>
+                        <span>Cerrar Caja (Turno Actual)</span>
                     </button>
                 </div>
             ) : (
@@ -695,17 +751,17 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
             {/* Stats Cards */}
             <DashboardStats
                 deviceId={deviceId}
-                todayTotalUsd={todayTotalUsd}
-                todayTotalBs={todayTotalBs}
-                todayTotalCop={todayTotalCop}
-                todaySales={todaySales}
-                todayItemsSold={todayItemsSold}
+                todayTotalUsd={shiftTotalUsd}
+                todayTotalBs={shiftTotalBs}
+                todayTotalCop={shiftTotalCop}
+                todaySales={shiftSales}
+                todayItemsSold={shiftItemsSold}
                 todayExpenses={todayExpenses}
-                todayExpensesUsd={todayExpensesUsd}
-                todayProfit={todayProfit}
+                todayExpensesUsd={shiftExpensesUsd}
+                todayProfit={shiftProfit}
                 bcvRate={bcvRate}
                 rateMode={rateMode}
-                todayCashFlow={todayCashFlow}
+                todayCashFlow={shiftCashFlow}
                 totalDeudas={totalDeudas}
                 showTopDeudas={showTopDeudas}
                 setShowTopDeudas={setShowTopDeudas}
@@ -715,12 +771,13 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                 copPrimary={copPrimary}
                 tasaCop={tasaCop}
                 onTasaClick={() => setShowMonitor(true)}
+                apertura={shiftApertura || todayApertura}
             />
 
             {/* Pago por Metodo */}
             <DashboardPaymentBreakdown
-                paymentBreakdown={paymentBreakdown}
-                todayTotalBs={todayTotalBs}
+                paymentBreakdown={shiftPaymentBreakdown}
+                todayTotalBs={shiftTotalBs}
                 bcvRate={bcvRate}
                 copEnabled={copEnabled}
                 copPrimary={copPrimary}
@@ -917,6 +974,7 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                 copPrimary={copPrimary}
                 tasaCop={tasaCop}
                 isBlindMode={isBlindMode}
+                apertura={shiftApertura}
             />
             <CierreCajaSummaryModal
                 isOpen={showCierreSummary}

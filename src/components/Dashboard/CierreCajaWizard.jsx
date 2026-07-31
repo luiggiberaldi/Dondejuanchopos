@@ -24,7 +24,8 @@ export default function CierreCajaWizard({
     copEnabled = false,
     copPrimary = false,
     tasaCop = 0,
-    isBlindMode = false
+    isBlindMode = false,
+    apertura = null
 }) {
     const [step, setStep] = useState(1);
     const [actualUsd, setActualUsd] = useState('');
@@ -50,9 +51,14 @@ export default function CierreCajaWizard({
 
     if (!isOpen) return null;
 
-    const expectedUsd = round2((paymentBreakdown['efectivo_usd']?.total || 0) - (paymentBreakdown['_vuelto_usd']?.total || 0));
-    const expectedBs = round2((paymentBreakdown['efectivo_bs']?.total || 0) - (paymentBreakdown['_vuelto_bs']?.total || 0));
-    const expectedCop = paymentBreakdown['efectivo_cop']?.total || 0;
+    const aptData = paymentBreakdown['_apertura'] || {};
+    const openingUsd = aptData.openingUsd || apertura?.openingUsd || apertura?.montoUsd || 0;
+    const openingBs = aptData.openingBs || apertura?.openingBs || apertura?.montoBs || 0;
+    const openingCop = aptData.openingCop || apertura?.openingCop || apertura?.montoCop || 0;
+
+    const expectedUsd = round2((paymentBreakdown['efectivo_usd']?.total || 0) + openingUsd - (paymentBreakdown['_vuelto_usd']?.total || 0));
+    const expectedBs = round2((paymentBreakdown['efectivo_bs']?.total || 0) + openingBs - (paymentBreakdown['_vuelto_bs']?.total || 0));
+    const expectedCop = round2((paymentBreakdown['efectivo_cop']?.total || 0) + openingCop);
 
     const declaredUsd = round2(parseFloat(actualUsd) || 0);
     const declaredBs = round2(parseFloat(actualBs) || 0);

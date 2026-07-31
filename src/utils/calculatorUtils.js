@@ -41,21 +41,66 @@ export const getUsd = (item, tasaCop) => {
 };
 
 /**
+ * Redondea un monto en Bolívares al múltiplo de paso especificado (ej: 10 Bs).
+ * Si step <= 0, retorna round2(amount).
+ */
+export function roundBs(amount, step = 10) {
+    if (!Number.isFinite(amount)) return 0;
+    if (!step || step <= 0) return round2(amount);
+    return Math.round(amount / step) * step;
+}
+
+/**
+ * Calcula el precio real en Bs de un producto respetando su pricingMode:
+ * - 'bs_fijo': mantiene el precio manual en Bs.
+ * - 'dual_usd': calcula sobre priceBsUsdRef * effectiveRate.
+ * - 'bcv': calcula sobre priceUsd * bcvRate SIN redondear.
+ * - 'tasa_dia' (default): calcula priceUsd * effectiveRate y REDONDEA al múltiplo de bsRoundingStep (default 10 Bs).
+ */
+export function getProductBsPrice(item, effectiveRate, bcvRate, bsRoundingStep = 10) {
+    if (!item) return 0;
+    const mode = item.pricingMode || 'tasa_dia';
+
+    if (mode === 'bs_fijo') {
+        return item.priceBsManual != null && item.priceBsManual > 0 ? Number(item.priceBsManual) : 0;
+    }
+    if (mode === 'dual_usd') {
+        return item.priceBsUsdRef != null && item.priceBsUsdRef > 0 ? mulR(item.priceBsUsdRef, effectiveRate) : 0;
+    }
+    if (mode === 'bcv') {
+        const rate = bcvRate > 0 ? bcvRate : effectiveRate;
+        return mulR(item.priceUsdt ?? item.priceUsd ?? 0, rate);
+    }
+
+    // Modo 'tasa_dia': redondeo al múltiplo configurado (default 10 Bs)
+    const rawBs = (item.priceUsdt ?? item.priceUsd ?? 0) * (effectiveRate || 0);
+    return roundBs(rawBs, bsRoundingStep);
+}
+
+/**
  * Format price with correct currency label when COP is enabled.
  * @param {number} usdVal - price in USD
- * @param {object} opts - { copEnabled, tasaCop, showUsd, showBs, effectiveRate }
- * @returns {{ primary: string, secondary: string|null, copVal: number }}
+ * @param {object} opts - { copEnabled, tasaCop, showUsd, showBs, effectiveRate, item, bcvRate, bsRoundingStep, bsVal }
+ * @returns {{ primary: string, secondary: string|null, copVal: number, bsVal: number }}
  */
 export const priceDisplay = (usdVal, opts = {}) => {
-    const { copEnabled, tasaCop, effectiveRate } = opts;
-    // FIN-024-pattern: mulR en vez de multiplicación raw.
+    const { copEnabled, tasaCop, effectiveRate, bsVal: customBsVal, item, bcvRate, bsRoundingStep = 10 } = opts;
     const copVal = copEnabled && tasaCop > 0 ? mulR(usdVal, tasaCop) : 0;
-    const bsVal = effectiveRate > 0 ? mulR(usdVal, effectiveRate) : 0;
+
+    let bsVal = 0;
+    if (customBsVal !== undefined) {
+        bsVal = customBsVal;
+    } else if (item) {
+        bsVal = getProductBsPrice(item, effectiveRate, bcvRate, bsRoundingStep);
+    } else {
+        bsVal = effectiveRate > 0 ? mulR(usdVal, effectiveRate) : 0;
+    }
+
     return {
         usd: `$${formatUsd(usdVal)}`,
         usdLabel: copEnabled ? 'USD' : '$',
         cop: copEnabled && tasaCop > 0 ? `${formatCop(copVal)} COP` : null,
-        bs: effectiveRate > 0 ? `${formatBs(bsVal)} Bs` : null,
+        bs: (effectiveRate > 0 || customBsVal !== undefined || (item && bsVal > 0)) ? `${formatBs(bsVal)} Bs` : null,
         copVal,
         bsVal,
     };

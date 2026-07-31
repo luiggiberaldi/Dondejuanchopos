@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Package, Calculator, ChevronDown, Clock, HelpCircle, Trash2, Gift, Sparkles, SlidersHorizontal } from 'lucide-react';
 import { BODEGA_CATEGORIES, getCategoryIcon, CATEGORY_COLORS } from '../../config/categories';
 import { formatCop, formatBs, getCop, getUsd } from '../../utils/calculatorUtils';
+import { calculatePricing } from '../../utils/productProcessor';
 
 const PAGE_SIZE = 30;
 
@@ -226,13 +227,7 @@ export default function CategoryBar({
 
                                     {/* Precio Bs: pequeño, color brand */}
                                     <p className="text-[10px] font-bold text-brand dark:text-brand mt-0.5 leading-none">
-                                        Bs {formatBs(
-                                            p.priceBsUsdRef && !p.forceBcv
-                                                ? Number(p.priceBsUsdRef) * (effectiveRate || 0)
-                                                : p.priceBsManual && !p.forceBcv
-                                                    ? Number(p.priceBsManual)
-                                                    : getUsd(p, tasaCop) * (effectiveRate || 0)
-                                        )}
+                                        Bs {formatBs(calculatePricing(p, effectiveRate, null, 'unit').unitPriceBs)}
                                     </p>
 
                                     {/* Formatos Caja / ½ Caja */}
@@ -242,13 +237,7 @@ export default function CategoryBar({
                                                 <p className="text-[9.5px] font-black text-[#193275] dark:text-brand flex items-center justify-between leading-tight">
                                                     <span className="flex items-center gap-1"><Package size={10} /> Caja:</span>
                                                     <span>
-                                                        ${(p.boxPriceUsd ? Number(p.boxPriceUsd) : 0).toFixed(2)} | {formatBs(
-                                                            p.boxPriceBsUsdRef && !p.forceBcv
-                                                                ? Number(p.boxPriceBsUsdRef) * (effectiveRate || 0)
-                                                                : p.boxPriceBs && !p.forceBcv
-                                                                    ? Number(p.boxPriceBs)
-                                                                    : (Number(p.boxPriceUsd) || 0) * (effectiveRate || 0)
-                                                        )} Bs
+                                                        ${(p.boxPriceUsd ? Number(p.boxPriceUsd) : 0).toFixed(2)} | {formatBs(calculatePricing(p, effectiveRate, null, 'box').unitPriceBs)} Bs
                                                     </span>
                                                 </p>
                                             )}
@@ -256,13 +245,7 @@ export default function CategoryBar({
                                                 <p className="text-[9.5px] font-black text-purple-600 dark:text-purple-400 flex items-center justify-between leading-tight">
                                                     <span className="flex items-center gap-1"><Package size={10} /> ½ Caja:</span>
                                                     <span>
-                                                        ${(p.halfBoxPriceUsd ? Number(p.halfBoxPriceUsd) : 0).toFixed(2)} | {formatBs(
-                                                            p.halfBoxPriceBsUsdRef && !p.forceBcv
-                                                                ? Number(p.halfBoxPriceBsUsdRef) * (effectiveRate || 0)
-                                                                : p.halfBoxPriceBs && !p.forceBcv
-                                                                    ? Number(p.halfBoxPriceBs)
-                                                                    : (Number(p.halfBoxPriceUsd) || 0) * (effectiveRate || 0)
-                                                        )} Bs
+                                                        ${(p.halfBoxPriceUsd ? Number(p.halfBoxPriceUsd) : 0).toFixed(2)} | {formatBs(calculatePricing(p, effectiveRate, null, 'halfBox').unitPriceBs)} Bs
                                                     </span>
                                                 </p>
                                             )}

@@ -1,4 +1,4 @@
-import { mulR, divR, round2 } from './dinero';
+import { mulR, divR, round2, roundBs } from './dinero';
 
 /**
  * Construye el objeto payload para guardar o actualizar productos en el sistema local
@@ -180,11 +180,15 @@ export function normalizeProduct(raw = {}) {
 /**
  * Calcula la estructura completa de cobro para un producto en el carrito (D1, D3, D5).
  */
-export function calculatePricing(product, effectiveRate, bcvRate, format = null) {
+export function calculatePricing(product, effectiveRate, bcvRate, format = null, bsRoundingStep = null) {
     const p = normalizeProduct(product);
     const targetFormat = format || p._mode || 'unit';
     let baseUsd = p.priceUsd;
     let mode = p.pricingMode;
+
+    const activeStep = bsRoundingStep !== null && bsRoundingStep !== undefined
+        ? bsRoundingStep
+        : parseInt(typeof localStorage !== 'undefined' ? (localStorage.getItem('bs_rounding_step') || '10') : '10', 10);
 
     if (targetFormat === 'box' && (p.sellByBox || p._mode === 'box') && (p.boxPriceUsd > 0 || p.priceUsd > 0)) {
         baseUsd = p.boxPriceUsd || p.priceUsd;
@@ -242,13 +246,8 @@ export function calculatePricing(product, effectiveRate, bcvRate, format = null)
         case 'tasa_dia':
         default: {
             unitPriceUsd = baseUsd;
-            unitPriceBs = mulR(baseUsd, effectiveRate);
-            if (effectiveRate > 0 && unitPriceBs > 0) {
-                const nearestInt = Math.round(unitPriceBs);
-                if (Math.abs(unitPriceBs - nearestInt) <= 0.05 && Math.abs(divR(nearestInt, effectiveRate) - round2(baseUsd)) < 0.01) {
-                    unitPriceBs = nearestInt;
-                }
-            }
+            const rawBs = (baseUsd || 0) * (effectiveRate || 0);
+            unitPriceBs = activeStep > 0 ? roundBs(rawBs, activeStep) : round2(rawBs);
             break;
         }
     }

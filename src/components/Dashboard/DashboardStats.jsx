@@ -1,5 +1,5 @@
 import React from 'react';
-import { TrendingUp, Package, ShoppingBag, ArrowUpRight, Users, ChevronDown, ChevronUp, Key, LockIcon, CheckCircle2 } from 'lucide-react';
+import { TrendingUp, Package, ShoppingBag, ArrowUpRight, Users, ChevronDown, ChevronUp, Key, LockIcon, CheckCircle2, Coins } from 'lucide-react';
 import { formatBs, formatCop } from '../../utils/calculatorUtils';
 import AnimatedCounter from '../AnimatedCounter';
 import CasheaIcon from '../CasheaIcon';
@@ -15,6 +15,7 @@ export default function DashboardStats({
     copEnabled, copPrimary, tasaCop,
     onTasaClick,
     rateMode,
+    apertura = null,
 }) {
     const getRateLabel = () => {
         if (rateMode === 'bcv') return 'Tasa BCV';
@@ -22,8 +23,67 @@ export default function DashboardStats({
         if (rateMode === 'usdt') return 'Tasa Paralelo';
         return 'Tasa Manual';
     };
+
+    const activeApertura = apertura || (todayCashFlow || []).find(s => s.tipo === 'APERTURA_CAJA') || null;
+    const openingBs = activeApertura?.openingBs || activeApertura?.montoBs || 0;
+    const openingUsd = activeApertura?.openingUsd || activeApertura?.montoUsd || 0;
+    const openingCop = activeApertura?.openingCop || activeApertura?.montoCop || 0;
+
     return (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+
+            {/* Banner Fondo Inicial en Caja (Apertura) */}
+            {activeApertura && (
+                <div className="col-span-2 lg:col-span-4 bg-emerald-500/10 dark:bg-emerald-950/40 border border-emerald-500/30 rounded-2xl p-4 relative overflow-hidden shadow-tone-sm">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-emerald-500/20 rounded-xl flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+                                <Coins size={20} />
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-2 mb-1">
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Fondo Inicial en Caja (Apertura)</p>
+                                    {(activeApertura.cajero || activeApertura.sellerName) && (
+                                        <span className="text-[10px] text-slate-400 font-medium">· {activeApertura.cajero || activeApertura.sellerName}</span>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    {/* Zona de Bolívares */}
+                                    <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-500/10 dark:bg-emerald-900/30 border border-emerald-500/30 rounded-xl">
+                                        <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Efectivo Bs:</span>
+                                        <span className="font-outfit text-base font-black text-slate-800 dark:text-white">
+                                            {formatBs(openingBs)} Bs
+                                        </span>
+                                    </div>
+
+                                    {/* Zona de Dólares ($) */}
+                                    {openingUsd > 0 && (
+                                        <div className="flex items-center gap-1.5 px-3 py-1 bg-blue-500/10 dark:bg-blue-900/30 border border-blue-500/30 rounded-xl">
+                                            <span className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400">Efectivo $:</span>
+                                            <span className="font-outfit text-base font-black text-blue-700 dark:text-blue-300">
+                                                ${openingUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                                            </span>
+                                        </div>
+                                    )}
+
+                                    {/* Zona de Pesos COP */}
+                                    {openingCop > 0 && (
+                                        <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 dark:bg-amber-900/30 border border-amber-500/30 rounded-xl">
+                                            <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">Efectivo COP:</span>
+                                            <span className="font-outfit text-base font-black text-amber-700 dark:text-amber-300">
+                                                {formatCop(openingCop)} COP
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/80 px-2.5 py-1 rounded-lg border border-emerald-500/20">
+                            TURNO ACTIVO
+                        </span>
+                    </div>
+                </div>
+            )}
 
             {/* Ventas Hoy */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 shadow-sm relative overflow-hidden">

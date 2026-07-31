@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
-import { Package, CreditCard, FileText } from 'lucide-react';
+import { Package, CreditCard, FileText, Coins } from 'lucide-react';
 import { SectionCard, Toggle } from '../../SettingsShared';
 import PaymentMethodsManager from '../PaymentMethodsManager';
 import CasheaIcon from '../../CasheaIcon';
+import { useProductContext } from '../../../context/ProductContext';
 
 export default function SettingsTabVentas({
     allowNegativeStock, setAllowNegativeStock,
     allowCajeroEditRate, setAllowCajeroEditRate,
     forceHeartbeat, showToast, triggerHaptic
 }) {
+    const { bsRoundingStep, setBsRoundingStep } = useProductContext();
     const [casheaEnabled, setCasheaEnabled] = useState(localStorage.getItem('cashea_enabled') === 'true');
     const [casheaMinAmount, setCasheaMinAmount] = useState(localStorage.getItem('cashea_min_amount') || '0');
     const [receiptCurrency, setReceiptCurrency] = useState(() => localStorage.getItem('receipt_currency_mode') || 'bs');
@@ -52,6 +54,63 @@ export default function SettingsTabVentas({
                             triggerHaptic?.();
                         }}
                     />
+                </div>
+            </SectionCard>
+
+            <SectionCard icon={Coins} title="Redondeo en Bolívares" subtitle="Billetes en circulación" iconColor="text-emerald-500">
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Redondeo en Bs (Tasa Día)</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Adaptar precios a billetes circulantes (múltiplos de 10 Bs por defecto)</p>
+                        </div>
+                        <Toggle
+                            enabled={bsRoundingStep > 0}
+                            onChange={() => {
+                                const newStep = bsRoundingStep > 0 ? 0 : 10;
+                                setBsRoundingStep(newStep);
+                                forceHeartbeat();
+                                showToast(newStep > 0 ? 'Redondeo a 10 Bs activado' : 'Redondeo en Bs desactivado', 'success');
+                                triggerHaptic?.();
+                            }}
+                        />
+                    </div>
+
+                    {bsRoundingStep > 0 && (
+                        <div className="pt-3 border-t border-slate-100 dark:border-slate-800 animate-in fade-in space-y-2">
+                            <p className="text-xs font-bold text-slate-700 dark:text-slate-300">Paso de redondeo en Bs:</p>
+                            <div className="grid grid-cols-2 gap-1.5">
+                                {[
+                                    { id: 1, label: 'Sin centavos (1 Bs)' },
+                                    { id: 5, label: 'Múltiplos de 5 Bs' },
+                                    { id: 10, label: 'Múltiplos de 10 Bs (Fábrica)' },
+                                    { id: 20, label: 'Múltiplos de 20 Bs' },
+                                    { id: 50, label: 'Múltiplos de 50 Bs' },
+                                ].map(stepOpt => {
+                                    const isSelected = bsRoundingStep === stepOpt.id;
+                                    return (
+                                        <button
+                                            key={stepOpt.id}
+                                            type="button"
+                                            onClick={() => {
+                                                setBsRoundingStep(stepOpt.id);
+                                                forceHeartbeat();
+                                                showToast(`Redondeo configurado en ${stepOpt.label}`, 'success');
+                                                triggerHaptic?.();
+                                            }}
+                                            className={`py-2 px-2 rounded-xl text-[11px] font-bold transition-all border ${
+                                                isSelected
+                                                    ? 'bg-emerald-600 text-white border-transparent shadow-sm'
+                                                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:border-emerald-500/40'
+                                            }`}
+                                        >
+                                            {stepOpt.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </SectionCard>
 

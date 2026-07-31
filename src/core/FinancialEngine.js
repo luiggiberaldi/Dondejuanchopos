@@ -143,22 +143,19 @@ export class FinancialEngine {
         const anomalies = [];
 
         salesArray.forEach(sale => {
-            // ── APERTURA DE CAJA: add opening float to cash buckets (not revenue) ──
+            // ── APERTURA DE CAJA: store opening float in _apertura metadata bucket (not as revenue or payment method) ──
             if (sale.tipo === 'APERTURA_CAJA') {
+                if (!breakdown['_apertura']) breakdown['_apertura'] = { openingBs: 0, openingUsd: 0, openingCop: 0, isApertura: true };
                 if (sale.openingUsd > 0) {
-                    if (!breakdown['efectivo_usd']) breakdown['efectivo_usd'] = { total: 0, currency: 'USD', label: 'Efectivo $' };
-                    breakdown['efectivo_usd'].total = round2(breakdown['efectivo_usd'].total + round2(sale.openingUsd));
+                    breakdown['_apertura'].openingUsd = round2(breakdown['_apertura'].openingUsd + round2(sale.openingUsd));
                 }
                 if (sale.openingBs > 0) {
-                    if (!breakdown['efectivo_bs']) breakdown['efectivo_bs'] = { total: 0, currency: 'BS', label: 'Efectivo Bs' };
-                    breakdown['efectivo_bs'].total = round2(breakdown['efectivo_bs'].total + round2(sale.openingBs));
+                    breakdown['_apertura'].openingBs = round2(breakdown['_apertura'].openingBs + round2(sale.openingBs));
                 }
-                // FIN-002: Apertura COP entra al breakdown (antes se ignoraba → "faltante" sistemático).
                 if (sale.openingCop > 0) {
-                    if (!breakdown['efectivo_cop']) breakdown['efectivo_cop'] = { total: 0, currency: 'COP', label: 'Efectivo COP' };
-                    breakdown['efectivo_cop'].total = round2(breakdown['efectivo_cop'].total + round2(sale.openingCop));
+                    breakdown['_apertura'].openingCop = round2(breakdown['_apertura'].openingCop + round2(sale.openingCop));
                 }
-                return; // Do NOT count opening as revenue
+                return; // Do NOT count opening float as sales revenue or payment method receipts
             }
 
             // ── GASTO_INTERNO: egreso de caja chica (o autoconsumo inofensivo para la caja) ──
@@ -390,14 +387,14 @@ export class FinancialEngine {
      * @param {number} realBcvRate - Real official BCV rate
      * @returns {Object} Complete financial summary for the receipt.
      */
-    static buildCartTotals(cartItems, discountData, bcvRate, copRate = 0, realBcvRate = 0) {
+    static buildCartTotals(cartItems, discountData, bcvRate, copRate = 0, realBcvRate = 0, bsRoundingStep = null) {
         // USD: suma directa e independiente de priceUsd (redondear cada línea antes de sumar).
         const lineItemsUsd = cartItems.map(item => mulR(item.priceUsd, item.qty));
         const subtotalUsd = sumR(lineItemsUsd);
 
         // Bs: usa calculatePricing para respetar bs_fijo, bcv, dual_usd, tasa_dia y alineación canónica
         const lineItemsBs = cartItems.map(item => {
-            const { unitPriceBs } = calculatePricing(item, bcvRate, realBcvRate);
+            const { unitPriceBs } = calculatePricing(item, bcvRate, realBcvRate, null, bsRoundingStep);
             return mulR(unitPriceBs, item.qty);
         });
         const subtotalBs = sumR(lineItemsBs);
