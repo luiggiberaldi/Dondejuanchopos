@@ -10,8 +10,9 @@ import RemoteProductFormModal from '../components/Monitor/RemoteProductFormModal
 import SupervisorPairingModal from '../components/Monitor/SupervisorPairingModal';
 import ComboFormModal from '../components/Products/ComboFormModal';
 import UsersManager from '../components/Settings/UsersManager';
+import ReportsArticleTab from '../components/Reports/ReportsArticleTab';
 import {
-    TrendingUp, Package, Coins, Users, LogOut, QrCode,
+    TrendingUp, Package, Coins, Users, LogOut, QrCode, MoreVertical,
     RefreshCw, Wifi, WifiOff, Clock, FileText, DollarSign,
     Wallet, CreditCard, Smartphone, Banknote, ArrowDownRight,
     ShieldCheck, Hash, AlertTriangle, Search, X, ChevronLeft, ChevronRight,
@@ -19,7 +20,7 @@ import {
 } from 'lucide-react';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
 import { mulR, round2 } from '../utils/dinero';
-import { getLocalISODate } from '../utils/dateHelpers';
+import { getLocalISODate, getDateRange } from '../utils/dateHelpers';
 import { getPaymentLabel, toTitleCase } from '../config/paymentMethods';
 import { findOpenApertura, getOpenShiftMovements } from '../utils/shiftScope';
 
@@ -396,6 +397,28 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const [searchTermInventario, setSearchTermInventario] = useState('');
     const [filterStockInventario, setFilterStockInventario] = useState('todos'); // 'todos', 'bajo', 'agotado'
 
+    // ── Estado de Reporte por Artículos ──
+    const [artRange, setArtRange] = useState('week');
+    const [artFrom, setArtFrom] = useState(() => getDateRange('week').from);
+    const [artTo, setArtTo] = useState(() => getDateRange('week').to);
+
+    const artSalesForStats = useMemo(() => {
+        if (viewTab !== 'articulos') return [];
+        return (sales || []).filter(s => {
+            if (s.status === 'ANULADA') return false;
+            if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'VENTA_CASHEA') return false;
+            const ts = s.timestamp || s.created_at || s.date;
+            if (!ts) return false;
+            let dateStr = '';
+            if (typeof ts === 'string' && /^\d{4}-\d{2}-\d{2}/.test(ts.trim())) {
+                dateStr = ts.trim().slice(0, 10);
+            } else {
+                dateStr = getLocalISODate(new Date(ts));
+            }
+            return dateStr >= artFrom && dateStr <= artTo;
+        });
+    }, [sales, artFrom, artTo, viewTab]);
+
     // ── Edición remota de inventario (comandos supervisor → caja) ──
     const [showRemoteForm, setShowRemoteForm] = useState(false);
     const [remoteEditingProduct, setRemoteEditingProduct] = useState(null);
@@ -413,6 +436,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const [showRemoteCloseModal, setShowRemoteCloseModal] = useState(false);
     const [closingRemote, setClosingRemote] = useState(false);
     const [showPairingModal, setShowPairingModal] = useState(false);
+    const [showMobileMenu, setShowMobileMenu] = useState(false);
     const [cancellingCmdId, setCancellingCmdId] = useState(null);
     const [pendingChanges, setPendingChanges] = useState(() => {
         try {
@@ -1002,18 +1026,28 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         };
     }, [sales, activeShiftApertura, nowTick]);
 
-    // Filtrar ventas del turno activo (cajaCerrada !== true)
+    // Filtrar ventas del turno activo con guarda-railes estrictos
     const activeShiftSales = useMemo(() => {
+        // Guarda-rail 1: Si la caja está cerrada, no hay ventas en el turno activo
+        if (!activeShiftApertura || !activeShiftApertura.timestamp) return [];
+
+        const aperturaTs = new Date(activeShiftApertura.timestamp).getTime();
+        if (isNaN(aperturaTs)) return [];
+
         const filtered = sales.filter(s => {
+            // Validar tipos de transacción de venta
             if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'VENTA_CASHEA') return false;
-            if (s.cajaCerrada) return false;
             
-            // Restringir a transacciones posteriores a la última apertura activa si existe
-            if (activeShiftApertura) {
-                return new Date(s.timestamp) >= new Date(activeShiftApertura.timestamp);
-            }
+            // Guarda-rail 4: Ignorar ventas cerradas en arqueos previos
+            if (s.cajaCerrada === true || s.cajaCerrada === 'true') return false;
+            
+            // Guarda-rail 2: Solo transacciones posteriores a la apertura activa
+            const saleTs = s.timestamp ? new Date(s.timestamp).getTime() : 0;
+            if (isNaN(saleTs) || saleTs < aperturaTs) return false;
+
             return true;
         });
+
         return filtered.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
     }, [sales, activeShiftApertura]);
 
@@ -1369,8 +1403,8 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             </div>
                         </div>
 
-                        {/* Botones de Acción en Móvil (Derecha en pantallas pequeñas) */}
-                        <div className="flex md:hidden items-center gap-1 shrink-0">
+                        {/* Acciones Rápidas en Móvil: Refrescar + Menú ... */}
+                        <div className="flex md:hidden items-center gap-1.5 shrink-0 relative">
                             <button 
                                 onClick={async () => { 
                                     triggerHaptic?.(); 
@@ -1378,44 +1412,69 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                     showToast?.('Datos actualizados', 'success');
                                 }}
                                 disabled={syncLoading}
-                                className="p-2 rounded-xl text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 transition-colors disabled:opacity-50"
+                                className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 transition-colors disabled:opacity-50 active:scale-95"
                                 title="Actualizar Datos"
                             >
-                                <RefreshCw size={14} className={syncLoading ? "animate-spin text-emerald-500" : ""} />
+                                <RefreshCw size={15} className={syncLoading ? "animate-spin text-emerald-500" : ""} />
                             </button>
+
                             <button 
-                                onClick={() => { triggerHaptic?.(); setShowRateModal(true); }}
-                                className="p-2 rounded-xl text-slate-400 hover:text-brand hover:bg-brand-light border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 transition-colors"
-                                title="Cambiar Tasa Remota"
+                                onClick={() => { triggerHaptic?.(); setShowMobileMenu(!showMobileMenu); }}
+                                className={`p-2 rounded-xl border transition-colors active:scale-95 ${
+                                    showMobileMenu 
+                                        ? 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-white' 
+                                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900'
+                                }`}
+                                title="Menú de Acciones"
                             >
-                                <TrendingUp size={14} />
+                                <MoreVertical size={16} />
                             </button>
-                            <button 
-                                onClick={() => { triggerHaptic?.(); setShowUsersModal(true); }}
-                                className="p-2 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 transition-colors"
-                                title="Usuarios y PINs"
-                            >
-                                <Users size={14} />
-                            </button>
-                            <button 
-                                onClick={() => { triggerHaptic?.(); setShowPairingModal(true); }}
-                                className="p-2 rounded-xl text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 transition-colors"
-                                title="Conectar otro dispositivo supervisor"
-                            >
-                                <QrCode size={14} />
-                            </button>
-                            <button 
-                                onClick={() => { triggerHaptic?.(); setShowDisconnectConfirm(true); }}
-                                className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 transition-colors"
-                                title="Desvincular Dispositivo"
-                            >
-                                <LogOut size={14} />
-                            </button>
+
+                            {/* Dropdown Menu para Acciones Secundarias en Móvil */}
+                            {showMobileMenu && (
+                                <>
+                                    <div 
+                                        className="fixed inset-0 z-50" 
+                                        onClick={() => setShowMobileMenu(false)} 
+                                    />
+                                    <div className="absolute right-0 top-11 z-50 w-56 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-150">
+                                        <button
+                                            onClick={() => { triggerHaptic?.(); setShowMobileMenu(false); setShowRateModal(true); }}
+                                            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-left"
+                                        >
+                                            <TrendingUp size={15} className="text-amber-500 shrink-0" />
+                                            <span>Cambiar Tasa Remota</span>
+                                        </button>
+                                        <button
+                                            onClick={() => { triggerHaptic?.(); setShowMobileMenu(false); setShowUsersModal(true); }}
+                                            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-left"
+                                        >
+                                            <Users size={15} className="text-blue-500 shrink-0" />
+                                            <span>Gestión de Usuarios / PINs</span>
+                                        </button>
+                                        <button
+                                            onClick={() => { triggerHaptic?.(); setShowMobileMenu(false); setShowPairingModal(true); }}
+                                            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-left"
+                                        >
+                                            <QrCode size={15} className="text-emerald-500 shrink-0" />
+                                            <span>Vincular Dispositivo</span>
+                                        </button>
+                                        <div className="border-t border-slate-100 dark:border-slate-800 my-1" />
+                                        <button
+                                            onClick={() => { triggerHaptic?.(); setShowMobileMenu(false); setShowDisconnectConfirm(true); }}
+                                            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-xl transition-colors text-left"
+                                        >
+                                            <LogOut size={15} className="shrink-0" />
+                                            <span>Desvincular Dispositivo</span>
+                                        </button>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     </div>
 
                     {/* Status Badges y Acciones en PC */}
-                    <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar pb-0.5 md:pb-0">
+                    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pb-0.5 md:pb-0">
                         {/* Status Badge del Supervisor */}
                         <div className={`flex items-center gap-1 sm:gap-1.5 px-2.5 py-1 rounded-full text-[9px] sm:text-[10px] font-black tracking-wider uppercase shadow-xs shrink-0 transition-colors duration-300 ${
                             isConnected 
@@ -1435,33 +1494,18 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             )}
                         </div>
 
-                        {/* Status Badge de la Caja Principal (Online/Offline) con Sniper Auto-Repair */}
+                        {/* Status Badge de la Caja Principal (Online/Offline) con Sniper Auto-Repair Integrado */}
                         <div 
                             onClick={!isPosOnline ? handleAutoRepairPairing : undefined}
                             title={isPosOnline ? `Caja conectada (${posLastSeen ? posLastSeen.toLocaleTimeString() : ''})` : 'Haz clic para Auto-Conectar a la Caja Activa en Supabase'}
-                            className={`flex items-center gap-1 sm:gap-1.5 px-2.5 py-1 rounded-full text-[9px] sm:text-[10px] font-black tracking-wider uppercase shadow-xs shrink-0 transition-colors duration-300 ${
-                                !isPosOnline ? 'cursor-pointer hover:bg-amber-100 hover:scale-105' : ''
-                            } ${
-                                isPosOnline 
-                                    ? 'bg-emerald-50 border border-emerald-200/60 text-emerald-700 dark:bg-emerald-950/30 dark:border-emerald-800/50 dark:text-emerald-400' 
-                                    : 'bg-amber-50 border border-amber-200/60 text-amber-700 dark:bg-amber-950/30 dark:border-amber-800/50 dark:text-amber-400'
+                            className={`flex items-center gap-1 sm:gap-1.5 px-2.5 py-1 rounded-full text-[9px] sm:text-[10px] font-black tracking-wider uppercase shadow-xs shrink-0 transition-all duration-300 ${
+                                !isPosOnline ? 'cursor-pointer bg-amber-500 text-white border border-amber-600 active:scale-95 shadow-tone-sm' : 'bg-emerald-50 border border-emerald-200/60 text-emerald-700 dark:bg-emerald-950/30 dark:border-emerald-800/50 dark:text-emerald-400'
                             }`}
                         >
-                            <span className={`w-2 h-2 rounded-full shrink-0 ${isPosOnline ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-                            <span>Caja: {isPosOnline ? 'En Línea' : 'Offline'}</span>
-                            {!isPosOnline && <Target size={11} className="text-amber-600 animate-pulse ml-0.5" />}
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${isPosOnline ? 'bg-emerald-500 animate-pulse' : 'bg-white'}`} />
+                            <span>{isPosOnline ? 'Caja: En Línea' : 'Caja: Offline (Reconectar)'}</span>
+                            {!isPosOnline && <Target size={11} className="text-white animate-pulse ml-0.5" />}
                         </div>
-
-                        {!isPosOnline && (
-                            <button
-                                onClick={handleAutoRepairPairing}
-                                className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-full text-[9px] font-black tracking-wider uppercase flex items-center gap-1 shadow-xs transition-transform active:scale-95 cursor-pointer shrink-0"
-                                title="Auto-Conectar a la caja más reciente activa en la tienda"
-                            >
-                                <Target size={11} />
-                                <span>Auto-Conectar Caja</span>
-                            </button>
-                        )}
 
                         {/* Status Badge del Estado del Turno (Abierta/Cerrada + Tiempo) */}
                         <div 
@@ -1548,11 +1592,11 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             {/* Contenido Principal */}
             <main className="max-w-7xl mx-auto px-4 mt-6 space-y-6">
                 {/* Selector de Pestañas (100% Responsivo) */}
-                <div className="bg-slate-200/60 dark:bg-slate-900/60 p-1 rounded-2xl w-full sm:max-w-xl shadow-sm">
-                    <div className="grid grid-cols-4 gap-1">
+                <div className="bg-slate-200/60 dark:bg-slate-900/60 p-1 rounded-2xl w-full sm:max-w-2xl shadow-sm overflow-x-auto scrollbar-hide">
+                    <div className="flex items-center gap-1 min-w-max">
                         <button
                             onClick={() => { triggerHaptic?.(); setViewTab('activo'); }}
-                            className={`py-2 px-1 text-center font-black rounded-xl transition-all text-[11px] sm:text-xs truncate ${
+                            className={`py-2 px-2 sm:px-3 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs shrink-0 ${
                                 viewTab === 'activo' 
                                     ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
                                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
@@ -1563,34 +1607,44 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                         </button>
                         <button
                             onClick={() => { triggerHaptic?.(); setViewTab('cierres'); }}
-                            className={`py-2 px-1 text-center font-black rounded-xl transition-all text-[11px] sm:text-xs truncate ${
+                            className={`py-2 px-2 sm:px-3 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs shrink-0 ${
                                 viewTab === 'cierres' 
                                     ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
                                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
                             }`}
                         >
-                            <span className="sm:hidden">Cierres</span>
-                            <span className="hidden sm:inline">Cierres</span>
+                            <span>Cierres</span>
+                        </button>
+                        <button
+                            onClick={() => { triggerHaptic?.(); setViewTab('articulos'); }}
+                            className={`py-2 px-2 sm:px-3 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs shrink-0 ${
+                                viewTab === 'articulos' 
+                                    ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
+                                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                            }`}
+                        >
+                            <span className="sm:hidden">Artículos</span>
+                            <span className="hidden sm:inline">Por Artículo</span>
                         </button>
                         <button
                             onClick={() => { triggerHaptic?.(); setViewTab('inventario'); }}
-                            className={`py-2 px-1 text-center font-black rounded-xl transition-all text-[11px] sm:text-xs truncate ${
+                            className={`py-2 px-2 sm:px-3 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs shrink-0 ${
                                 viewTab === 'inventario' 
                                     ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
                                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
                             }`}
                         >
-                            Inventario
+                            <span>Inventario</span>
                         </button>
                         <button
                             onClick={() => { triggerHaptic?.(); setViewTab('cambios'); }}
-                            className={`relative py-2 px-1 text-center font-black rounded-xl transition-all text-[11px] sm:text-xs truncate ${
+                            className={`relative py-2 px-2 sm:px-3 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs shrink-0 ${
                                 viewTab === 'cambios' 
                                     ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
                                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
                             }`}
                         >
-                            Cambios
+                            <span>Cambios</span>
                             {(pendingChanges.length > 0 || cloudPendingCmds.length > 0) && (
                                 <span className="ml-1 px-1.5 py-0.2 rounded-full bg-amber-500 text-white text-[9px] font-black tabular-nums animate-pulse">
                                     {pendingChanges.length + cloudPendingCmds.length}
@@ -3018,6 +3072,21 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             );
                         })()}
                     </div>
+                )}
+
+                {viewTab === 'articulos' && (
+                    <ReportsArticleTab
+                        salesForStats={artSalesForStats}
+                        products={products}
+                        bcvRate={effectiveRate || bcvRate}
+                        triggerHaptic={triggerHaptic}
+                        from={artFrom}
+                        to={artTo}
+                        artRange={artRange}
+                        setArtRange={setArtRange}
+                        setArtFrom={setArtFrom}
+                        setArtTo={setArtTo}
+                    />
                 )}
             </main>
 

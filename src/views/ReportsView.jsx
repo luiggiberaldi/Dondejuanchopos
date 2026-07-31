@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 // v1.2.0: useReveal hook para animaciones reveal-on-scroll (design system "Precios al Día")
 import { useReveal } from '../hooks/useReveal';
-import { BarChart3, Download, LockIcon, Recycle } from 'lucide-react';
+import { BarChart3, Download, LockIcon, Recycle, Package } from 'lucide-react';
 import { storageService } from '../utils/storageService';
 import { formatBs } from '../utils/calculatorUtils';
 import { useProductContext } from '../context/ProductContext';
@@ -13,6 +13,7 @@ import { processVoidSale } from '../utils/voidSaleProcessor';
 import { useReportExport } from '../hooks/useReportExport';
 import ReportsMetricsTab from '../components/Reports/ReportsMetricsTab';
 import ReportsHistoryTab from '../components/Reports/ReportsHistoryTab';
+import ReportsArticleTab from '../components/Reports/ReportsArticleTab';
 import { printThermalTicket } from '../utils/ticketGenerator';
 
 const SALES_KEY = 'bodega_sales_v1';
@@ -168,23 +169,29 @@ export default function ReportsView({ rates, triggerHaptic, onNavigate, isActive
                 </button>
             </div>
 
-            {/* Tab Selector — 3 tabs */}
-            <div className="flex bg-slate-200 dark:bg-surface-800 p-1 rounded-xl gap-1">
+            {/* Tab Selector — 4 tabs */}
+            <div className="flex bg-slate-200 dark:bg-surface-800 p-1 rounded-xl gap-1 overflow-x-auto">
                 <button
                     onClick={() => { triggerHaptic && triggerHaptic(); setActiveTab('metrics'); }}
-                    className={`flex-1 py-2.5 min-h-[40px] text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 ${activeTab === 'metrics' ? 'bg-white dark:bg-surface-900 text-brand-dark dark:text-brand shadow-tone-sm' : 'text-slate-600 hover:text-slate-800 dark:text-surface-400'}`}
+                    className={`flex-1 py-2.5 min-h-[40px] text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 whitespace-nowrap ${activeTab === 'metrics' ? 'bg-white dark:bg-surface-900 text-brand-dark dark:text-brand shadow-tone-sm' : 'text-slate-600 hover:text-slate-800 dark:text-surface-400'}`}
                 >
                     <BarChart3 size={14} aria-hidden="true"/> Métricas
                 </button>
                 <button
+                    onClick={() => { triggerHaptic && triggerHaptic(); setActiveTab('articles'); }}
+                    className={`flex-1 py-2.5 min-h-[40px] text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 whitespace-nowrap ${activeTab === 'articles' ? 'bg-white dark:bg-surface-900 text-brand-dark dark:text-brand shadow-tone-sm' : 'text-slate-600 hover:text-slate-800 dark:text-surface-400'}`}
+                >
+                    <Package size={14} aria-hidden="true"/> Por Artículo
+                </button>
+                <button
                     onClick={() => { triggerHaptic && triggerHaptic(); setActiveTab('sales_history'); }}
-                    className={`flex-1 py-2.5 min-h-[40px] text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 ${activeTab === 'sales_history' ? 'bg-white dark:bg-surface-900 text-brand-dark dark:text-brand shadow-tone-sm' : 'text-slate-600 hover:text-slate-800 dark:text-surface-400'}`}
+                    className={`flex-1 py-2.5 min-h-[40px] text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 whitespace-nowrap ${activeTab === 'sales_history' ? 'bg-white dark:bg-surface-900 text-brand-dark dark:text-brand shadow-tone-sm' : 'text-slate-600 hover:text-slate-800 dark:text-surface-400'}`}
                 >
                     <Download size={14} aria-hidden="true"/> Historial
                 </button>
                 <button
                     onClick={() => { triggerHaptic && triggerHaptic(); setActiveTab('history'); }}
-                    className={`flex-1 py-2.5 min-h-[40px] text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 ${activeTab === 'history' ? 'bg-white dark:bg-surface-900 text-brand-dark dark:text-brand shadow-tone-sm' : 'text-slate-600 hover:text-slate-800 dark:text-surface-400'}`}
+                    className={`flex-1 py-2.5 min-h-[40px] text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 whitespace-nowrap ${activeTab === 'history' ? 'bg-white dark:bg-surface-900 text-brand-dark dark:text-brand shadow-tone-sm' : 'text-slate-600 hover:text-slate-800 dark:text-surface-400'}`}
                 >
                     <LockIcon size={14} aria-hidden="true"/> Cierres
                 </button>
@@ -265,6 +272,17 @@ export default function ReportsView({ rates, triggerHaptic, onNavigate, isActive
                     setRecycleOffer={setRecycleOffer}
                     hideHistory={true}
                     onPrintTicket={handlePrintTicket}
+                />
+            )}
+
+            {activeTab === 'articles' && (
+                <ReportsArticleTab
+                    salesForStats={salesForStats}
+                    products={products}
+                    bcvRate={bcvRate}
+                    triggerHaptic={triggerHaptic}
+                    from={from}
+                    to={to}
                 />
             )}
 
