@@ -12,7 +12,7 @@ import ComboFormModal from '../components/Products/ComboFormModal';
 import UsersManager from '../components/Settings/UsersManager';
 import ReportsArticleTab from '../components/Reports/ReportsArticleTab';
 import {
-    TrendingUp, Package, Coins, Users, LogOut, QrCode, MoreVertical,
+    TrendingUp, Package, Coins, Users, LogOut, QrCode, MoreVertical, Download,
     RefreshCw, Wifi, WifiOff, Clock, FileText, DollarSign,
     Wallet, CreditCard, Smartphone, Banknote, ArrowDownRight,
     ShieldCheck, Hash, AlertTriangle, Search, X, ChevronLeft, ChevronRight,
@@ -446,6 +446,62 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         } catch { return []; }
     });
     const [uploading, setUploading] = useState(false);
+    const [exportingCierreId, setExportingCierreId] = useState(null);
+
+    // 📄 Generar y Descargar PDF del Cierre Seleccionado
+    const handleDownloadCierrePDF = async (cierreObj, e) => {
+        if (e) e.stopPropagation();
+        triggerHaptic?.();
+        if (!cierreObj) return;
+
+        setExportingCierreId(cierreObj.cierreId);
+        try {
+            const { generateDailyClosePDF } = await import('../utils/dailyCloseGenerator');
+
+            // Agrupar los productos más vendidos del cierre
+            const prodMap = {};
+            (cierreObj.sales || []).forEach(s => {
+                (s.items || []).forEach(item => {
+                    const name = item.name || 'Producto';
+                    if (!prodMap[name]) prodMap[name] = { name, qty: 0, revenue: 0 };
+                    prodMap[name].qty += item.qty || 1;
+                    prodMap[name].revenue += (item.priceUsd || item.price || 0) * (item.qty || 1);
+                });
+            });
+            const topProducts = Object.values(prodMap).sort((a, b) => b.revenue - a.revenue).slice(0, 10);
+
+            // Formatear paymentBreakdown como objeto
+            const paymentBreakdownObj = {};
+            if (Array.isArray(cierreObj.paymentBreakdown)) {
+                cierreObj.paymentBreakdown.forEach(([mId, data]) => {
+                    paymentBreakdownObj[mId] = data;
+                });
+            } else if (typeof cierreObj.paymentBreakdown === 'object' && cierreObj.paymentBreakdown !== null) {
+                Object.assign(paymentBreakdownObj, cierreObj.paymentBreakdown);
+            }
+
+            await generateDailyClosePDF({
+                sales: cierreObj.sales || [],
+                allSales: cierreObj.sales || [],
+                bcvRate: effectiveRate || bcvRate || 1,
+                paymentBreakdown: paymentBreakdownObj,
+                topProducts,
+                todayTotalUsd: cierreObj.totalUsd || 0,
+                todayTotalBs: cierreObj.totalBs || 0,
+                todayProfit: 0,
+                todayItemsSold: cierreObj.totalItems || 0,
+                reconData: cierreObj.reconData || null,
+                apertura: cierreObj.apertura || null,
+                action: 'download',
+            });
+            showToast?.(`PDF del Cierre #${cierreObj.cierreNumber || ''} descargado`, 'success');
+        } catch (err) {
+            console.error('Error generando PDF del cierre:', err);
+            showToast?.('Error al generar PDF del cierre', 'error');
+        } finally {
+            setExportingCierreId(null);
+        }
+    };
 
     // 🎯 Sniper Auto-Repair: Detectar y conectar a la caja activa más reciente en Supabase
     const handleAutoRepairPairing = async () => {
@@ -1623,8 +1679,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
                             }`}
                         >
-                            <span className="sm:hidden">Artículos</span>
-                            <span className="hidden sm:inline">Por Artículo</span>
+                            <span>Reportes</span>
                         </button>
                         <button
                             onClick={() => { triggerHaptic?.(); setViewTab('inventario'); }}
@@ -2072,11 +2127,12 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                         {registerCloses.map(c => {
                                             const dateObj = new Date(c.cierreId);
                                             const isSelected = selectedCierreId === c.cierreId || (!selectedCierreId && registerCloses[0].cierreId === c.cierreId);
+                                            const isExportingThis = exportingCierreId === c.cierreId;
                                             return (
-                                                <button
+                                                <div
                                                     key={c.cierreId}
                                                     onClick={() => setSelectedCierreId(c.cierreId)}
-                                                    className={`w-full text-left p-3.5 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
+                                                    className={`w-full text-left p-3.5 rounded-2xl border transition-all flex items-center justify-between gap-3 cursor-pointer ${
                                                         isSelected 
                                                             ? 'bg-emerald-500/10 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-400' 
                                                             : 'bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/40 dark:hover:bg-slate-800/80 border-slate-200/65 dark:border-slate-800/60 text-slate-600 dark:text-slate-300'
@@ -2090,8 +2146,18 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                             {dateObj.toLocaleDateString()} • {dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                         </span>
                                                     </div>
-                                                    <span className="font-outfit text-xs font-black tabular-nums shrink-0">${c.totalUsd.toFixed(2)}</span>
-                                                </button>
+                                                    <div className="flex items-center gap-2 shrink-0">
+                                                        <span className="font-outfit text-xs font-black tabular-nums">${c.totalUsd.toFixed(2)}</span>
+                                                        <button
+                                                            onClick={(e) => handleDownloadCierrePDF(c, e)}
+                                                            disabled={isExportingThis}
+                                                            className="p-1.5 rounded-xl text-slate-400 hover:text-emerald-600 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/50 transition-colors disabled:opacity-50 active:scale-95"
+                                                            title="Descargar PDF de este Cierre"
+                                                        >
+                                                            <Download size={14} className={isExportingThis ? "animate-spin text-emerald-500" : ""} />
+                                                        </button>
+                                                    </div>
+                                                </div>
                                             );
                                         })}
                                     </div>
@@ -2111,9 +2177,30 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                         
                                         const diffUsd = declaredUsd !== null ? declaredUsd - expectedUsd : null;
                                         const isCuadrado = declaredUsd === null || Math.abs(diffUsd) <= 0.50;
+                                        const isExportingActive = exportingCierreId === activeC.cierreId;
 
                                         return (
                                             <div className="space-y-6 animate-fade-in">
+                                                {/* Header & Botón de Descarga PDF */}
+                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 p-4 rounded-3xl shadow-sm">
+                                                    <div>
+                                                        <h3 className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">
+                                                            <span>Cierre #{activeC.cierreNumber || String(activeC.cierreId).slice(-4)}</span>
+                                                            <span className="text-xs text-slate-400 font-medium">({new Date(activeC.timestamp).toLocaleDateString()} • {new Date(activeC.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})</span>
+                                                        </h3>
+                                                        <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Cajero: {activeC.cashier?.nombre || 'Cajero'}</p>
+                                                    </div>
+
+                                                    <button
+                                                        onClick={(e) => handleDownloadCierrePDF(activeC, e)}
+                                                        disabled={isExportingActive}
+                                                        className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-2xl shadow-sm transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer disabled:opacity-50"
+                                                    >
+                                                        <Download size={15} className={isExportingActive ? "animate-spin" : ""} />
+                                                        <span>{isExportingActive ? 'Generando PDF...' : 'Descargar PDF del Cierre'}</span>
+                                                    </button>
+                                                </div>
+
                                                 {/* Resumen Principal */}
                                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                                                     <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/60 dark:border-slate-800 shadow-sm">
@@ -2801,10 +2888,10 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
                         {/* Barra de Filtros de Cambios y Acciones Masivas */}
                         <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                            <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200/60 dark:border-slate-800 overflow-x-auto custom-scrollbar">
+                            <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200/60 dark:border-slate-800 overflow-x-auto scrollbar-hide gap-1 max-w-full">
                                 <button
                                     onClick={() => { setCmdTabFilter('todos'); setCurrentPageCambios(1); }}
-                                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                                    className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-black transition-all shrink-0 min-h-[36px] ${
                                         cmdTabFilter === 'todos' ? 'bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-xs' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
                                     }`}
                                 >
@@ -2812,7 +2899,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                 </button>
                                 <button
                                     onClick={() => { setCmdTabFilter('pending'); setCurrentPageCambios(1); }}
-                                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                                    className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-black transition-all shrink-0 min-h-[36px] ${
                                         cmdTabFilter === 'pending' ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
                                     }`}
                                 >
@@ -2820,7 +2907,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                 </button>
                                 <button
                                     onClick={() => { setCmdTabFilter('applied'); setCurrentPageCambios(1); }}
-                                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                                    className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-black transition-all shrink-0 min-h-[36px] ${
                                         cmdTabFilter === 'applied' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
                                     }`}
                                 >
@@ -2828,7 +2915,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                 </button>
                                 <button
                                     onClick={() => { setCmdTabFilter('cancelled'); setCurrentPageCambios(1); }}
-                                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                                    className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-black transition-all shrink-0 min-h-[36px] ${
                                         cmdTabFilter === 'cancelled' ? 'bg-rose-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
                                     }`}
                                 >
@@ -2836,7 +2923,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                 </button>
                                 <button
                                     onClick={() => { setCmdTabFilter('failed'); setCurrentPageCambios(1); }}
-                                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                                    className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-black transition-all shrink-0 min-h-[36px] ${
                                         cmdTabFilter === 'failed' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
                                     }`}
                                 >

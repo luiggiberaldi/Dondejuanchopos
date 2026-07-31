@@ -34,8 +34,10 @@ export default function SupervisorPairingModal({ onClose, pairedDeviceId, trigge
         window.open(url, '_blank');
     };
 
+    const hasFetchedRef = useRef(false);
+
     // 1. Generar token de 6 caracteres desde el backend
-    const generateToken = async () => {
+    const generateToken = async (isManual = false) => {
         if (!supabaseCloud) {
             showToast('Sin conexión a la nube', 'error');
             return;
@@ -54,7 +56,9 @@ export default function SupervisorPairingModal({ onClose, pairedDeviceId, trigge
             if (data && data.success && data.token) {
                 setToken(data.token);
                 setTimeLeft(600); // 10 minutos (600 segundos)
-                showToast('Código de vinculación generado', 'success');
+                if (isManual) {
+                    showToast('Nuevo código de vinculación generado', 'success');
+                }
             } else {
                 showToast(data?.message || 'No se pudo generar el código', 'error');
             }
@@ -157,8 +161,11 @@ export default function SupervisorPairingModal({ onClose, pairedDeviceId, trigge
 
     // Generar token automáticamente al abrir la primera vez
     useEffect(() => {
-        generateToken();
-        fetchDevices();
+        if (!hasFetchedRef.current) {
+            hasFetchedRef.current = true;
+            generateToken(false);
+            fetchDevices();
+        }
     }, []);
 
     // Formatear el tiempo restante MM:SS
@@ -270,7 +277,7 @@ export default function SupervisorPairingModal({ onClose, pairedDeviceId, trigge
                                         <span>Expira en: <strong className="font-outfit text-amber-600 dark:text-amber-400 font-black">{formatTimer(timeLeft)}</strong></span>
                                     </div>
                                     <button
-                                        onClick={generateToken}
+                                        onClick={() => generateToken(true)}
                                         className="py-2 px-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors"
                                     >
                                         <RefreshCw size={13} /> Regenerar PIN
@@ -285,7 +292,7 @@ export default function SupervisorPairingModal({ onClose, pairedDeviceId, trigge
                                     <p className="text-[11px] text-slate-400 mt-1">Genera un nuevo código para conectar un dispositivo.</p>
                                 </div>
                                 <button
-                                    onClick={generateToken}
+                                    onClick={() => generateToken(true)}
                                     className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs shadow-md transition-colors"
                                 >
                                     Generar Nuevo Código
