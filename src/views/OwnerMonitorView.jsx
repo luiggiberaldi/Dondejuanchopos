@@ -480,6 +480,26 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 Object.assign(paymentBreakdownObj, cierreObj.paymentBreakdown);
             }
 
+            // Calcular ganancia estimada del cierre
+            let calculatedProfitUsd = 0;
+            (cierreObj.sales || []).forEach(s => {
+                (s.items || []).forEach(it => {
+                    const price = it.priceUsd != null ? it.priceUsd : (it.price || 0);
+                    const cost = it.costUsd != null ? it.costUsd : (it.costPrice != null ? it.costPrice : (it.cost || 0));
+                    calculatedProfitUsd += (price - cost) * (it.qty || 1);
+                });
+            });
+
+            // Normalizar reconData con propiedades unificadas
+            const reconDataFormatted = cierreObj.reconData ? {
+                ...cierreObj.reconData,
+                declaredUsd: cierreObj.reconData.cashUsd ?? cierreObj.reconData.declaredUsd ?? 0,
+                declaredBs: cierreObj.reconData.cashBs ?? cierreObj.reconData.declaredBs ?? 0,
+                declaredCop: cierreObj.reconData.cashCop ?? cierreObj.reconData.declaredCop ?? 0,
+                diffUsd: cierreObj.reconData.diffUsd ?? ((cierreObj.reconData.cashUsd ?? 0) - (cierreObj.reconData.expectedUsd ?? cierreObj.totalUsd ?? 0)),
+                diffBs: cierreObj.reconData.diffBs ?? ((cierreObj.reconData.cashBs ?? 0) - (cierreObj.reconData.expectedBs ?? cierreObj.totalBs ?? 0)),
+            } : null;
+
             await generateDailyClosePDF({
                 sales: cierreObj.sales || [],
                 allSales: cierreObj.sales || [],
@@ -488,9 +508,10 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 topProducts,
                 todayTotalUsd: cierreObj.totalUsd || 0,
                 todayTotalBs: cierreObj.totalBs || 0,
-                todayProfit: 0,
+                todayProfit: calculatedProfitUsd,
+                todayProfitUsd: calculatedProfitUsd,
                 todayItemsSold: cierreObj.totalItems || 0,
-                reconData: cierreObj.reconData || null,
+                reconData: reconDataFormatted,
                 apertura: cierreObj.apertura || null,
                 action: 'download',
             });

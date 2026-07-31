@@ -19,6 +19,7 @@ export async function generateDailyClosePDF({
     todayTotalUsd = 0,
     todayTotalBs = 0,
     todayProfit = 0,
+    todayProfitUsd = 0,
     todayItemsSold = 0,
     reconData = null, // Datos del cuadre físico
     apertura = null,  // Registro de apertura de caja
@@ -203,6 +204,13 @@ export async function generateDailyClosePDF({
         leftY += aptH + 4;
 
         // Tarjeta Resumen Operaciones
+        const profitInUsd = todayProfitUsd > 0 
+            ? todayProfitUsd 
+            : (todayProfit > 0 
+                ? (todayProfit < 1000 ? todayProfit : (bcvRate > 0 ? divR(todayProfit, bcvRate) : 0)) 
+                : 0);
+        const profitInBs = mulR(profitInUsd, bcvRate || 1);
+
         const opsRows = [
             ['Operaciones Realizadas', `${sales.length} ventas`],
             ['Artículos Vendidos', `${todayItemsSold} unidades`],
@@ -212,8 +220,8 @@ export async function generateDailyClosePDF({
         if (isCop && tasaCop > 0) {
             opsRows.push(['Ingresos Brutos COP', `${formatCop(mulR(todayTotalUsd, tasaCop))} COP`]);
         }
-        opsRows.push(['Ganancia Estimada USD', fmtUsd(bcvRate > 0 ? divR(todayProfit, bcvRate) : 0)]);
-        opsRows.push(['Ganancia Estimada Bs', `Bs ${formatBs(todayProfit)}`]);
+        opsRows.push(['Ganancia Estimada USD', fmtUsd(profitInUsd)]);
+        opsRows.push(['Ganancia Estimada Bs', `Bs ${formatBs(profitInBs)}`]);
 
         const opsH = 10 + (opsRows.length * 4.5);
         contentY = drawCard(M, leftY, colW, opsH, 'Resumen de Operaciones');
@@ -235,15 +243,26 @@ export async function generateDailyClosePDF({
 
         // Tarjeta Cuadre Físico (si existe)
         if (reconData) {
+            const decUsd = reconData.declaredUsd ?? reconData.cashUsd ?? 0;
+            const decBs = reconData.declaredBs ?? reconData.cashBs ?? 0;
+            const decCop = reconData.declaredCop ?? reconData.cashCop ?? 0;
+
+            const expUsd = reconData.expectedUsd ?? reconData.expectedCashUsd ?? todayTotalUsd;
+            const expBs = reconData.expectedBs ?? reconData.expectedCashBs ?? todayTotalBs;
+
+            const difUsd = reconData.diffUsd ?? (decUsd - expUsd);
+            const difBs = reconData.diffBs ?? (decBs - expBs);
+            const difCop = reconData.diffCop ?? (decCop - (reconData.expectedCop || 0));
+
             const reRows = [
-                ['Efectivo Declarado USD', fmtUsd(reconData.declaredUsd), 'USD'],
-                ['Efectivo Declarado Bs', `Bs ${formatBs(reconData.declaredBs)}`, 'Bs'],
-                ['Diferencia USD', fmtUsd(reconData.diffUsd), 'diffUSD'],
-                ['Diferencia Bs', `Bs ${formatBs(reconData.diffBs)}`, 'diffBs']
+                ['Efectivo Declarado USD', fmtUsd(decUsd), 'USD'],
+                ['Efectivo Declarado Bs', `Bs ${formatBs(decBs)}`, 'Bs'],
+                ['Diferencia USD', fmtUsd(difUsd), 'diffUSD'],
+                ['Diferencia Bs', `Bs ${formatBs(difBs)}`, 'diffBs']
             ];
-            if (reconData.declaredCop != null && (reconData.declaredCop > 0 || reconData.diffCop !== 0)) {
-                reRows.push(['Efectivo Declarado COP', `${parseInt(round2(reconData.declaredCop), 10).toLocaleString('es-CO')} COP`, 'COP']);
-                reRows.push(['Diferencia COP', `${parseInt(round2(reconData.diffCop), 10).toLocaleString('es-CO')} COP`, 'diffCop']);
+            if (decCop != null && (decCop > 0 || difCop !== 0)) {
+                reRows.push(['Efectivo Declarado COP', `${parseInt(round2(decCop), 10).toLocaleString('es-CO')} COP`, 'COP']);
+                reRows.push(['Diferencia COP', `${parseInt(round2(difCop), 10).toLocaleString('es-CO')} COP`, 'diffCop']);
             }
 
             const reH = 10 + (reRows.length * 4.5);
@@ -256,7 +275,7 @@ export async function generateDailyClosePDF({
 
                 doc.setFont('helvetica', 'bold');
                 if (key.startsWith('diff')) {
-                    const diffVal = key === 'diffUSD' ? reconData.diffUsd : key === 'diffBs' ? reconData.diffBs : reconData.diffCop;
+                    const diffVal = key === 'diffUSD' ? difUsd : key === 'diffBs' ? difBs : difCop;
                     const threshold = key === 'diffUSD' ? 0.05 : key === 'diffBs' ? 1 : 100;
                     if (Math.abs(diffVal) <= threshold) doc.setTextColor(...MUTED);
                     else if (diffVal < 0) doc.setTextColor(...RED);
@@ -272,17 +291,37 @@ export async function generateDailyClosePDF({
         }
 
         // Tarjeta Pagos por Método
-        const paymentEntries = Object.entries(paymentBreakdown);
+        const paymentEntries = Object.entries(paymentBreakdown || {});
         if (paymentEntries.length > 0) {
             const payH = 10 + (paymentEntries.length * 4.5);
             contentY = drawCard(colR_X, rightY, colW, payH, 'Ingresos por Método');
             paymentEntries.forEach(([methodId, data]) => {
-                const label = toTitleCase(getPaymentLabel(methodId, data.label));
-                const val = data.currency === 'USD'
-                    ? fmtUsd(data.total)
-                    : data.currency === 'COP'
-                    ? `${data.total.toLocaleString('es-CO')} COP`
-                    : `Bs ${formatBs(data.total)}`;
+                const label = toTitleCase(getPaymentLabel(methodId, data?.label));
+                let val = '';
+                if (typeof data === 'number') {
+                    val = fmtUsd(data);
+                } else if (data) {
+                    const totalBs = data.totalBs != null ? Number(data.totalBs) : (data.currency === 'BS' ? Number(data.total || 0) : 0);
+                    const totalUsd = data.totalUsd != null ? Number(data.totalUsd) : (data.currency === 'USD' ? Number(data.total || 0) : 0);
+                    const totalCop = data.totalCop != null ? Number(data.totalCop) : (data.currency === 'COP' ? Number(data.total || 0) : 0);
+
+                    if (totalBs > 0) {
+                        val = `Bs ${formatBs(totalBs)}`;
+                        if (totalUsd > 0) {
+                            val += ` ($${formatUsd(totalUsd)})`;
+                        }
+                    } else if (totalUsd > 0) {
+                        val = fmtUsd(totalUsd);
+                    } else if (totalCop > 0) {
+                        val = `${parseInt(round2(totalCop), 10).toLocaleString('es-CO')} COP`;
+                    } else if (data.total > 0) {
+                        val = data.currency === 'USD' ? fmtUsd(data.total) : `Bs ${formatBs(data.total)}`;
+                    } else {
+                        val = fmtUsd(0);
+                    }
+                } else {
+                    val = fmtUsd(0);
+                }
 
                 doc.setFont('helvetica', 'normal');
                 doc.setFontSize(7.5);
@@ -605,12 +644,32 @@ export async function generateDailyClosePDF({
         y = sectionTitle('INGRESOS POR MÉTODO', y);
 
         Object.entries(paymentBreakdown).forEach(([methodId, data]) => {
-            const label = toTitleCase(getPaymentLabel(methodId, data.label));
-            const val = data.currency === 'USD'
-                ? fmtUsd(data.total)
-                : data.currency === 'COP'
-                ? `${data.total.toLocaleString('es-CO')} COP`
-                : `Bs ${formatBs(data.total)}`;
+            const label = toTitleCase(getPaymentLabel(methodId, data?.label));
+            let val = '';
+            if (typeof data === 'number') {
+                val = fmtUsd(data);
+            } else if (data) {
+                const totalBs = data.totalBs != null ? Number(data.totalBs) : (data.currency === 'BS' ? Number(data.total || 0) : 0);
+                const totalUsd = data.totalUsd != null ? Number(data.totalUsd) : (data.currency === 'USD' ? Number(data.total || 0) : 0);
+                const totalCop = data.totalCop != null ? Number(data.totalCop) : (data.currency === 'COP' ? Number(data.total || 0) : 0);
+
+                if (totalBs > 0) {
+                    val = `Bs ${formatBs(totalBs)}`;
+                    if (totalUsd > 0) {
+                        val += ` ($${formatUsd(totalUsd)})`;
+                    }
+                } else if (totalUsd > 0) {
+                    val = fmtUsd(totalUsd);
+                } else if (totalCop > 0) {
+                    val = `${parseInt(round2(totalCop), 10).toLocaleString('es-CO')} COP`;
+                } else if (data.total > 0) {
+                    val = data.currency === 'USD' ? fmtUsd(data.total) : `Bs ${formatBs(data.total)}`;
+                } else {
+                    val = fmtUsd(0);
+                }
+            } else {
+                val = fmtUsd(0);
+            }
 
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(fBody);
