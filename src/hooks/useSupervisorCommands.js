@@ -37,17 +37,31 @@ function unmarkApplied(commandId) {
 }
 
 let cloudSyncTimer = null;
+let cloudSyncPending = false;
+
+export async function flushCloudProductsSync() {
+    if (!cloudSyncPending) return;
+    cloudSyncPending = false;
+    if (cloudSyncTimer) {
+        clearTimeout(cloudSyncTimer);
+        cloudSyncTimer = null;
+    }
+    try {
+        const { pushCloudSync } = await import('./useCloudSync');
+        const { storageService } = await import('../utils/storageService');
+        const fresh = await storageService.getItem('bodega_products_v1', []);
+        await pushCloudSync('bodega_products_v1', fresh, true);
+    } catch (syncErr) {
+        cloudSyncPending = true;
+        console.error('[SupervisorCommands] Error en push de sincronización diferida:', syncErr);
+    }
+}
+
 function scheduleCloudProductsSync() {
+    cloudSyncPending = true;
     if (cloudSyncTimer) clearTimeout(cloudSyncTimer);
-    cloudSyncTimer = setTimeout(async () => {
-        try {
-            const { pushCloudSync } = await import('./useCloudSync');
-            const { storageService } = await import('../utils/storageService');
-            const fresh = await storageService.getItem('bodega_products_v1', []);
-            await pushCloudSync('bodega_products_v1', fresh, true);
-        } catch (syncErr) {
-            console.error('[SupervisorCommands] Error en push de sincronización diferida:', syncErr);
-        }
+    cloudSyncTimer = setTimeout(() => {
+        flushCloudProductsSync();
     }, 400);
 }
 
@@ -477,9 +491,23 @@ export function useSupervisorCommands(deviceId) {
             }
         }, 12000);
 
+        const handleVisibility = () => {
+            if (document.visibilityState === 'hidden') {
+                flushCloudProductsSync();
+            }
+        };
+        const handleUnload = () => {
+            flushCloudProductsSync();
+        };
+
+        window.addEventListener('visibilitychange', handleVisibility);
+        window.addEventListener('beforeunload', handleUnload);
+
         return () => {
             disposed = true;
             clearInterval(intervalId);
+            window.removeEventListener('visibilitychange', handleVisibility);
+            window.removeEventListener('beforeunload', handleUnload);
             supabaseCloud.removeChannel(channel).catch(() => {});
         };
     }, [deviceId]);
