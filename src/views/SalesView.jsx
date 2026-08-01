@@ -572,7 +572,11 @@ export default function SalesView({ triggerHaptic, isActive }) {
 
             if (stockNeeded + otherStockUsed > currentStock) {
                 playError();
-                showToast(`${product.name}: stock máximo alcanzado`, 'warning');
+                if (currentStock <= 0) {
+                    showToast(`⚠️ ${product.name} está sin stock (0 ud). Activa "Ventas sin stock" en Configuración o ingresa inventario.`, 'warning');
+                } else {
+                    showToast(`⚠️ ${product.name}: solo quedan ${currentStock} ud disponibles`, 'warning');
+                }
                 return;
             }
         }

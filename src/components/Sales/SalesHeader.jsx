@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, ShoppingCart, Keyboard, Beer } from 'lucide-react';
+import { RefreshCw, ShoppingCart, Keyboard, Beer, Lock } from 'lucide-react';
 import Tooltip from '../Tooltip';
 import { pushLocalSync } from '../../hooks/useCloudSync';
 import { useAuthStore } from '../../hooks/store/useAuthStore';
+import { useProductContext } from '../../context/ProductContext';
 import { showToast } from '../Toast';
 
 const formatBs = (n) => new Intl.NumberFormat('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
@@ -30,6 +31,7 @@ export default function SalesHeader({
     onOpenDeferredModal,
     activeSessionsCount = 0
 }) {
+    const { openBsCongeladoWizard } = useProductContext();
     const isCopMode = copEnabled && copPrimary && tasaCop > 0;
 
     // Local states to prevent realtime cloud loopbacks from clearing/deleting input values on keystroke,
@@ -231,12 +233,25 @@ export default function SalesHeader({
                                 )}
                             </div>
                         )}
-                        <button
-                            onClick={handleConfirmRate}
-                            className={`w-full py-2.5 text-white font-black text-xs rounded-xl shadow-sm active:scale-95 transition-all ${isCopMode ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20'}`}
-                        >
-                            Aceptar
-                        </button>
+                        <div className="space-y-2 pt-1">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setShowRateConfig(false);
+                                    openBsCongeladoWizard && openBsCongeladoWizard();
+                                }}
+                                className="w-full py-2 px-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-100 text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                            >
+                                <Lock size={14} className="text-amber-500" />
+                                <span>Revisar Precios en Bs Congelado</span>
+                            </button>
+                            <button
+                                onClick={handleConfirmRate}
+                                className={`w-full py-2.5 text-white font-black text-xs rounded-xl shadow-sm active:scale-95 transition-all ${isCopMode ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20'}`}
+                            >
+                                Aceptar
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

@@ -28,6 +28,21 @@ function markApplied(commandId) {
     } catch { /* localStorage lleno/bloqueado: el Set en memoria sigue protegiendo la sesión */ }
 }
 
+let cloudSyncTimer = null;
+function scheduleCloudProductsSync() {
+    if (cloudSyncTimer) clearTimeout(cloudSyncTimer);
+    cloudSyncTimer = setTimeout(async () => {
+        try {
+            const { pushCloudSync } = await import('./useCloudSync');
+            const { storageService } = await import('../utils/storageService');
+            const fresh = await storageService.getItem('bodega_products_v1', []);
+            await pushCloudSync('bodega_products_v1', fresh, true);
+        } catch (syncErr) {
+            console.error('[SupervisorCommands] Error en push de sincronización diferida:', syncErr);
+        }
+    }, 400);
+}
+
 async function updateCommandStatus(commandId, status, errorReason = null, maxRetries = 3) {
     const fields = { status };
     if (status === 'applied') fields.applied_at = new Date().toISOString();
@@ -113,7 +128,12 @@ export function useSupervisorCommands(deviceId) {
                     markApplied(command.id);
                     const result = await applyInventoryCommand(command.payload);
                     if (result.success) {
-                        await updateCommandStatus(command.id, 'applied');
+                        if (result.failedCount > 0) {
+                            const warnMsg = `${result.appliedCount} aplicados, ${result.failedCount} fallaron (${result.failedItems?.map(f => f.productName || f.productId).join(', ')})`;
+                            await updateCommandStatus(command.id, 'applied_with_warnings', warnMsg);
+                        } else {
+                            await updateCommandStatus(command.id, 'applied');
+                        }
                         window.dispatchEvent(new CustomEvent('supervisor_inventory_applied', {
                             detail: {
                                 action: command.payload?.action,
@@ -122,15 +142,8 @@ export function useSupervisorCommands(deviceId) {
                             }
                         }));
 
-                        // Push inmediato incondicional a la nube para notificar a los monitores
-                        try {
-                            const { pushCloudSync } = await import('./useCloudSync');
-                            const { storageService } = await import('../utils/storageService');
-                            const fresh = await storageService.getItem('bodega_products_v1', []);
-                            await pushCloudSync('bodega_products_v1', fresh, true);
-                        } catch (syncErr) {
-                            console.error('[SupervisorCommands] Error en push de sincronización inmediata:', syncErr);
-                        }
+                        // Sincronización diferida (Debounce) a la nube para no estrangular el procesamiento en lote
+                        scheduleCloudProductsSync();
                     } else {
                         await updateCommandStatus(command.id, 'failed', result.error);
                     }

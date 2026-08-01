@@ -11,6 +11,8 @@ import SupervisorPairingModal from '../components/Monitor/SupervisorPairingModal
 import ComboFormModal from '../components/Products/ComboFormModal';
 import UsersManager from '../components/Settings/UsersManager';
 import ReportsArticleTab from '../components/Reports/ReportsArticleTab';
+import BsCongeladoWizardModal from '../components/Products/BsCongeladoWizardModal';
+import BsCongeladoAlertBanner from '../components/Products/BsCongeladoAlertBanner';
 import {
     TrendingUp, Package, Coins, Users, LogOut, QrCode, MoreVertical, Download,
     RefreshCw, Wifi, WifiOff, Clock, FileText, DollarSign,
@@ -382,7 +384,7 @@ const PENDING_KEY = 'dj_pending_inventory_changes_v1';
 
 export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) {
     const pairedDeviceId = localStorage.getItem('dj_paired_device_id');
-    const { products, setProducts, effectiveRate, copEnabled, tasaCop, rates, categories } = useProductContext();
+    const { products, setProducts, effectiveRate, copEnabled, tasaCop, rates, categories, isBsWizardOpen, openBsCongeladoWizard, closeBsCongeladoWizard, bsCongeladoAlert, previousRate, bsRoundingStep, rateMode } = useProductContext();
     const bcvRate = rates?.bcv?.price || effectiveRate;
     const { isConnected, lastSync, loading: syncLoading, triggerRefresh, posLastSeen, isPosOnline } = useMonitorSync(pairedDeviceId);
 
@@ -600,6 +602,21 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
                     showToast(`Otro supervisor ${actionText}`, 'info');
                 }
+
+                // Notificar confirmación / error de aplicación en la caja principal para comandos emitidos por este monitor
+                if (payload.eventType === 'UPDATE' && newCmd && newCmd.monitor_device_id === myDeviceId) {
+                    const oldCmd = payload.old;
+                    if (oldCmd?.status === 'pending' && (newCmd.status === 'applied' || newCmd.status === 'applied_with_warnings')) {
+                        const count = newCmd.payload?.data?.items?.length || 1;
+                        if (newCmd.status === 'applied_with_warnings') {
+                            showToast(`⚠️ Caja aplicó cambios con advertencias: ${newCmd.error_reason || ''}`, 'info');
+                        } else {
+                            showToast(`✅ Caja principal confirmó actualización de ${count} precio(s)`, 'success');
+                        }
+                    } else if (oldCmd?.status === 'pending' && newCmd.status === 'failed') {
+                        showToast(`❌ La caja rechazó los cambios: ${newCmd.error_reason || 'Error desconocido'}`, 'error');
+                    }
+                }
             })
             .subscribe();
 
@@ -699,63 +716,64 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     // fusionados. Reutiliza toda la infraestructura existente (dedup, catch-up,
     // validación y estado por comando en la caja). Los que fallen al insertar
     // permanecen en la cola.
-    const uploadPendingChanges = async () => {
+    const uploadPendingChanges = async (overrideList = null) => {
         if (!supabaseCloud || !pairedDeviceId) {
             showToast('Sin conexión con la caja', 'error');
             return;
         }
-        if (pendingChanges.length === 0 || uploading) return;
+        const listToProcess = overrideList || pendingChanges;
+        if (!listToProcess || listToProcess.length === 0 || (!overrideList && uploading)) return;
         setUploading(true);
         const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
 
-        const remaining = [];
-        let sent = 0;
         try {
-            for (const change of pendingChanges) {
-                try {
-                    const commandType = change.action === 'user_update' ? 'user_update' : 'inventory_update';
-                    const payload = change.action === 'user_update'
-                        ? (change.data || {})
-                        : {
-                            action: change.action,
-                            productId: change.productId,
-                            data: change.data,
-                            issuedAt: change.queuedAt,
-                        };
+            const rowsToInsert = listToProcess.map(change => {
+                const commandType = change.action === 'user_update' ? 'user_update' : 'inventory_update';
+                const payload = change.action === 'user_update'
+                    ? (change.data || {})
+                    : {
+                        action: change.action,
+                        productId: change.productId,
+                        data: change.data,
+                        issuedAt: change.queuedAt || new Date().toISOString(),
+                    };
 
-                    const { error } = await supabaseCloud
-                        .from('supervisor_commands')
-                        .insert({
-                            primary_device_id: pairedDeviceId,
-                            monitor_device_id: monitorDeviceId,
-                            command_type: commandType,
-                            payload: payload,
-                            status: 'pending'
-                        });
-                    if (error) throw error;
-                    sent += 1;
-                } catch (err) {
-                    console.error('[OwnerMonitor] Error al subir cambio:', err);
-                    remaining.push(change);
-                }
+                return {
+                    primary_device_id: pairedDeviceId,
+                    monitor_device_id: monitorDeviceId,
+                    command_type: commandType,
+                    payload: payload,
+                    status: 'pending'
+                };
+            });
+
+            const { error } = await supabaseCloud
+                .from('supervisor_commands')
+                .insert(rowsToInsert);
+
+            if (error) {
+                console.error('[OwnerMonitor] Error al subir lote de cambios:', error);
+                showToast('Error al enviar lote a la caja: ' + error.message, 'error');
+                return;
             }
-            if (sent > 0) {
-                // Actualización optimista SÓLO en memoria: la copia durable de bodega_products_v1
-                // debe venir siempre del eco de la caja (fuente de verdad). Persistir la proyección
-                // guardaba stock calculado, costUsd efectivo y un updatedAt viejo que hacía
-                // rechazar la siguiente edición por conflicto de versión (FS5).
+
+            const sent = rowsToInsert.length;
+            if (sent > 0 && !overrideList) {
                 const updatedLocal = projectedProducts.map(p => {
                     const { _rawStock, _stockDelta, _isQueuedDelete, _isQueuedEdit, _isQueuedNew, _isCombo, _effectiveCost, ...clean } = p;
                     return clean;
                 });
                 if (setProducts) setProducts(updatedLocal);
             }
-            persistPending(remaining);
-            if (remaining.length === 0) {
+            if (!overrideList) {
+                persistPending([]);
                 showToast(`${sent} cambio${sent !== 1 ? 's' : ''} enviado${sent !== 1 ? 's' : ''} a la caja`, 'success');
             } else {
-                showToast(`${sent} enviados · ${remaining.length} fallaron y siguen en cola`, 'warning');
+                showToast(`${sent} cambio${sent !== 1 ? 's' : ''} enviado${sent !== 1 ? 's' : ''} con éxito a la caja principal`, 'success');
             }
+        } catch (err) {
+            console.error('[OwnerMonitor] Excepción al subir lote:', err);
+            showToast('Error de conexión al enviar cambios', 'error');
         } finally {
             setUploading(false);
         }
@@ -1835,7 +1853,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                         {formatBs(activeShiftMetrics.totalBs)} Bs
                                     </span>
                                     <span className="text-[9px] text-slate-400 block font-medium mt-1">
-                                        Tasa: {bcvRate ? `${bcvRate.toFixed(2)} Bs/$` : 'N/D'}
+                                        Tasa ({rateMode === 'manual' ? 'Manual' : rateMode === 'usdt' ? 'USDT' : rateMode === 'euro' ? 'Euro' : 'BCV'}): {effectiveRate ? `${effectiveRate.toFixed(2)} Bs/$` : 'N/D'}
                                     </span>
                                 </div>
                             </div>
@@ -3317,6 +3335,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 rates={rates}
                 primaryDeviceId={pairedDeviceId}
                 triggerHaptic={triggerHaptic}
+                onOpenBsWizard={openBsCongeladoWizard}
             />
 
             {/* Formulario remoto de producto (encola add/edit) */}
@@ -3671,6 +3690,52 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                     </div>
                 </div>
             )}
+            {/* Banner y Wizard para productos en Bs Congelado en Modo Supervisor */}
+            <BsCongeladoAlertBanner />
+            <BsCongeladoWizardModal
+                isOpen={isBsWizardOpen}
+                onClose={closeBsCongeladoWizard}
+                prevRate={bsCongeladoAlert?.prevRate || previousRate || 0}
+                newRate={effectiveRate}
+                products={products}
+                onSaveProducts={async (updatedList) => {
+                    if (!updatedList || updatedList.length === 0) return;
+
+                    const batchItems = updatedList.map(p => {
+                        const changes = {
+                            name: p.name,
+                            priceUsd: p.priceUsd,
+                            pricingMode: p.pricingMode || 'bs_fijo',
+                            forceBcv: false,
+                        };
+                        if (p.priceBsManual !== undefined) changes.priceBsManual = p.priceBsManual;
+                        if (p.boxPriceBsManual !== undefined) {
+                            changes.boxPriceBsManual = p.boxPriceBsManual;
+                            changes.boxPricingMode = p.boxPricingMode || 'bs_fijo';
+                        }
+                        if (p.halfBoxPriceBsManual !== undefined) {
+                            changes.halfBoxPriceBsManual = p.halfBoxPriceBsManual;
+                            changes.halfBoxPricingMode = p.halfBoxPricingMode || 'bs_fijo';
+                        }
+
+                        return {
+                            productId: p.id,
+                            data: changes
+                        };
+                    });
+
+                    const batchCommand = {
+                        action: 'batch_edit',
+                        productId: 'batch_update',
+                        data: { items: batchItems },
+                        queuedAt: new Date().toISOString()
+                    };
+
+                    await uploadPendingChanges([batchCommand]);
+                }}
+                triggerHaptic={triggerHaptic}
+                bsRoundingStep={bsRoundingStep}
+            />
         </div>
     );
 }

@@ -143,7 +143,7 @@ export default function CategoryBar({
                     <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
                         {visibleProducts.map(p => {
                             const isOut = (p.stock ?? 0) <= 0;
-                            const isDisabled = isOut && !allowNegativeStock;
+                            const isDisallowed = isOut && !allowNegativeStock;
                             const CatIcon = getCategoryIcon(p.category) || Package;
                             const isModularCombo = p.isCombo && (p.isModular || (p.modularGroups && p.modularGroups.length > 0));
 
@@ -151,14 +151,15 @@ export default function CategoryBar({
                                 ? isModularCombo
                                     ? 'border-purple-300 dark:border-purple-900/60 bg-purple-50/20 dark:bg-purple-950/10 shadow-sm shadow-purple-500/10 hover:border-purple-500 hover:shadow-purple-500/20'
                                     : 'border-violet-200 dark:border-violet-900/40 bg-violet-50/20 dark:bg-violet-950/10 hover:border-violet-400'
-                                : 'border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-brand/40 hover:shadow-md';
+                                : isOut
+                                    ? 'border-red-200/80 dark:border-red-900/40 bg-red-50/10 dark:bg-red-950/10 hover:border-red-300'
+                                    : 'border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-brand/40 hover:shadow-md';
 
                             return (
                                 <button
                                     key={p.id}
                                     onClick={() => addToCart(p)}
-                                    disabled={isDisabled}
-                                    className={`relative border rounded-2xl p-2.5 flex flex-col text-left transition-all active:scale-95 ${comboBorderClass} ${isDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+                                    className={`relative border rounded-2xl p-2.5 flex flex-col text-left transition-all active:scale-95 cursor-pointer ${comboBorderClass} ${isDisallowed ? 'opacity-70' : ''}`}
                                 >
                                     {/* Badge identificador de combo — esquina superior izquierda */}
                                     {p.isCombo && (

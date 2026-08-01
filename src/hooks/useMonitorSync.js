@@ -85,7 +85,11 @@ export function useMonitorSync(pairedDeviceId) {
         // Usamos runWithoutEco para estar seguros de que no se gatille ningún eco de sincronización
         await runWithoutEco(async () => {
             if (collection === 'local') {
-                const stringPayload = typeof payload === 'string' ? payload : JSON.stringify(payload);
+                let stringPayload = typeof payload === 'string' ? payload : JSON.stringify(payload);
+                if (docId === 'bodega_rate_mode') {
+                    const { sanitizeRateMode } = await import('../context/ProductContext');
+                    stringPayload = sanitizeRateMode(payload);
+                }
                 localStorage.setItem(docId, stringPayload);
                 window.dispatchEvent(new StorageEvent('storage', {
                     key: docId,

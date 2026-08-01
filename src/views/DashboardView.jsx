@@ -335,8 +335,22 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
     // Handler: Cierre de Caja
     const handleDailyClose = () => {
         triggerHaptic && triggerHaptic();
-        if (todayCashFlow.length === 0 && todaySales.length === 0) {
-            showToast('No hay movimientos hoy para cerrar caja', 'error');
+
+        console.log('[CIERRE_CAJA_DEBUG] Evaluando movimientos para cierre de caja:', {
+            todayCashFlow_count: todayCashFlow?.length || 0,
+            todaySales_count: todaySales?.length || 0,
+            shiftCashFlow_count: shiftCashFlow?.length || 0,
+            shiftSales_count: shiftSales?.length || 0,
+            shiftCashFlow,
+            todayCashFlow,
+            sales_total_in_memory: sales?.length || 0
+        });
+
+        const hasShiftMovements = (shiftCashFlow && shiftCashFlow.length > 0) || (shiftSales && shiftSales.length > 0);
+        const hasTodayMovements = (todayCashFlow && todayCashFlow.length > 0) || (todaySales && todaySales.length > 0);
+
+        if (!hasShiftMovements && !hasTodayMovements) {
+            showToast('No hay movimientos abiertos para cerrar caja', 'error');
             return;
         }
         setIsCashReconOpen(true);

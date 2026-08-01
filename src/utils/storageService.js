@@ -125,6 +125,30 @@ export const storageService = {
      */
     async setItem(key, value) {
         try {
+            // ── PROTECCIÓN DE INVENTARIO: Circuit Breaker & Shadow Snapshot ──
+            if (key === 'bodega_products_v1' && Array.isArray(value)) {
+                try {
+                    const existing = await localforage.getItem('bodega_products_v1');
+                    if (Array.isArray(existing) && existing.length > 5) {
+                        // 1. Shadow Snapshot: Respaldar catálogo existente antes de sobrescribir
+                        await localforage.setItem('bodega_products_shadow_backup_v1', existing);
+                        localStorage.setItem('bodega_shadow_backup_ts', new Date().toISOString());
+
+                        // 2. Circuit Breaker: Bloquear si se intenta reducir el inventario drásticamente sin confirmación explícita
+                        const isBulkDeleteAllowed = localStorage.getItem('confirm_bulk_delete_catalog_flag') === 'true';
+                        if (!isBulkDeleteAllowed && value.length < Math.min(existing.length * 0.3, 5)) {
+                            console.error(`[CIRCUIT BREAKER INVENTARIO] Intento de reducción anómala detectado: de ${existing.length} a ${value.length} productos. Escritura bloqueada para proteger el inventario.`);
+                            throw new Error(`[CircuitBreaker] Sobrescritura anómala bloqueada: de ${existing.length} a ${value.length} productos.`);
+                        }
+                    }
+                } catch (guardErr) {
+                    if (guardErr.message?.includes('[CircuitBreaker]')) {
+                        throw guardErr;
+                    }
+                    console.warn('[StorageGuard] Advertencia al verificar shadow snapshot:', guardErr);
+                }
+            }
+
             await localforage.setItem(key, value);
             // Anti-zombie: purgar localStorage para que el fallback nunca resucite datos viejos
             localStorage.removeItem(key);
@@ -154,6 +178,10 @@ export const storageService = {
                     console.error(`[Storage CRÍTICO] Ni IndexedDB ni LocalStorage aceptan ${key}. Operación encolada para reintento.`, lsErr);
                     return;
                 }
+            }
+            // Re-lanzar el Circuit Breaker para que el caller sepa que fue bloqueado
+            if (error.message?.includes('[CircuitBreaker]')) {
+                throw error;
             }
             console.error(`[Storage Error] Guardando ${key}:`, error);
             // Fallback de emergencia a localStorage si falla algo catastrófico

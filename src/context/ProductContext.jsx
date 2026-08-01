@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import localforage from 'localforage';
 import { storageService } from '../utils/storageService';
 import { BODEGA_CATEGORIES } from '../config/categories';
 // HOOK-011: Tras la eliminación del monkeypatch global de localStorage por el Agente B
@@ -6,6 +7,8 @@ import { BODEGA_CATEGORIES } from '../config/categories';
 // explícitamente para que el cambio se propague a `sync_documents` (colección 'local').
 import { pushLocalSync } from '../hooks/useCloudSync';
 import { calculateComboStock } from '../utils/productProcessor';
+import { showToast } from '../components/Toast';
+import { formatBs } from '../utils/calculatorUtils';
 
 const ProductContext = createContext();
 
@@ -58,6 +61,21 @@ const sanitizeProducts = (productsList) => {
         return item;
     });
 };
+
+export function sanitizeRateMode(raw) {
+    if (!raw) {
+        const oldAuto = typeof localStorage !== 'undefined' ? localStorage.getItem('bodega_use_auto_rate') : null;
+        return oldAuto === 'false' ? 'manual' : 'bcv';
+    }
+    let clean = String(raw).trim();
+    try {
+        const parsed = JSON.parse(clean);
+        if (typeof parsed === 'string') clean = parsed.trim();
+    } catch { /* mantener string no JSON */ }
+    clean = clean.replace(/^["']|["']$/g, '').toLowerCase();
+    if (['bcv', 'euro', 'usdt', 'manual'].includes(clean)) return clean;
+    return 'bcv';
+}
 
 export function ProductProvider({ children, rates }) {
     const [rawProducts, setProductsState] = useState([]);
@@ -116,11 +134,7 @@ export function ProductProvider({ children, rates }) {
     // GLOBAL RATE LOGIC — rateMode: 'bcv' | 'euro' | 'usdt' | 'manual'
     // Backward-compat: si existía bodega_use_auto_rate=false se migra a 'manual'
     const [rateMode, setRateMode] = useState(() => {
-        const saved = localStorage.getItem('bodega_rate_mode');
-        if (saved && ['bcv', 'euro', 'usdt', 'manual'].includes(saved)) return saved;
-        // Migrar desde el toggle antiguo
-        const oldAuto = localStorage.getItem('bodega_use_auto_rate');
-        return (oldAuto === 'false') ? 'manual' : 'bcv';
+        return sanitizeRateMode(localStorage.getItem('bodega_rate_mode'));
     });
     const [customRate, setCustomRate] = useState(() => {
         const saved = localStorage.getItem('bodega_custom_rate');
@@ -189,6 +203,74 @@ export function ProductProvider({ children, rates }) {
     const tasaCop = autoCopEnabled && rates?.autoCopRate?.price 
         ? rates.autoCopRate.price 
         : (parseFloat(tasaCopManual) > 0 ? parseFloat(tasaCopManual) : 4150);
+
+    // Detección automática de cambio de tasa para productos en Bs Congelado
+    const [bsCongeladoAlert, setBsCongeladoAlert] = useState(null); // { prevRate, newRate, count }
+    const [isBsWizardOpen, setIsBsWizardOpen] = useState(false);
+    const [previousRate, setPreviousRate] = useState(() => {
+        const saved = localStorage.getItem('dj_prev_rate');
+        return saved ? parseFloat(saved) : 0;
+    });
+
+    useEffect(() => {
+        // Guarda-raíl: La alerta y revisión de Bs Congelado SOLO aplica si la tasa está en modo MANUAL
+        if (rateMode !== 'manual') {
+            if (bsCongeladoAlert) setBsCongeladoAlert(null);
+            if (effectiveRate > 0) localStorage.setItem('dj_last_effective_rate', String(effectiveRate));
+            return;
+        }
+
+        if (effectiveRate > 0) {
+            const lastKnown = parseFloat(localStorage.getItem('dj_last_effective_rate') || '0');
+
+            if (lastKnown > 0 && Math.abs(lastKnown - effectiveRate) > 0.05) {
+                const isFrozenMode = (mode, bsManual, forceBcv, bsUsdRef) => {
+                    if (['bs_fijo', 'fijo', 'bs_manual'].includes(mode)) return true;
+                    if (['tasa_dia', 'bcv', 'dual_usd'].includes(mode) || forceBcv || Number(bsUsdRef) > 0) return false;
+                    return Number(bsManual) > 0;
+                };
+
+                const frozenCount = (products || []).reduce((acc, p) => {
+                    let c = 0;
+                    if (isFrozenMode(p.pricingMode, p.priceBsManual, p.forceBcv, p.priceBsUsdRef)) c++;
+                    const boxMode = p.boxPricingMode === 'inherit' ? p.pricingMode : p.boxPricingMode;
+                    if (p.hasBox && isFrozenMode(boxMode, p.boxPriceBsManual || p.boxPriceBs, p.forceBcv, p.boxPriceBsUsdRef)) c++;
+                    const halfBoxMode = p.halfBoxPricingMode === 'inherit' ? p.pricingMode : p.halfBoxPricingMode;
+                    if (p.hasHalfBox && isFrozenMode(halfBoxMode, p.halfBoxPriceBsManual || p.halfBoxPriceBs, p.forceBcv, p.halfBoxPriceBsUsdRef)) c++;
+                    return acc + c;
+                }, 0);
+
+                localStorage.setItem('dj_prev_rate', String(lastKnown));
+                setPreviousRate(lastKnown);
+
+                if (frozenCount > 0) {
+                    setBsCongeladoAlert({
+                        prevRate: lastKnown,
+                        newRate: effectiveRate,
+                        count: frozenCount,
+                        timestamp: Date.now()
+                    });
+                    showToast(`⚡ Tasa cambiada de ${formatBs(lastKnown)} a ${formatBs(effectiveRate)} Bs (${frozenCount} productos congelados por revisar)`, 'info');
+                } else {
+                    showToast(`⚡ Tasa de cambio actualizada a ${formatBs(effectiveRate)} Bs`, 'success');
+                }
+            }
+
+            localStorage.setItem('dj_last_effective_rate', String(effectiveRate));
+        }
+    }, [effectiveRate, rateMode, products]);
+
+    const openBsCongeladoWizard = useCallback(() => {
+        setIsBsWizardOpen(true);
+    }, []);
+
+    const closeBsCongeladoWizard = useCallback(() => {
+        setIsBsWizardOpen(false);
+    }, []);
+
+    const dismissBsCongeladoAlert = useCallback(() => {
+        setBsCongeladoAlert(null);
+    }, []);
 
     // Initial Load
     useEffect(() => {
@@ -313,7 +395,7 @@ export function ProductProvider({ children, rates }) {
                 if (e.newValue && parseFloat(e.newValue) > 0) setCustomRate(e.newValue);
             }
             if (e.key === 'bodega_rate_mode') {
-                if (e.newValue) setRateMode(e.newValue);
+                if (e.newValue) setRateMode(sanitizeRateMode(e.newValue));
             }
             if (e.key === 'bodega_use_auto_rate') {
                 // HOOK-022: antes catch silencioso; loguear en dev para detectar corrupción.
@@ -518,6 +600,28 @@ export function ProductProvider({ children, rates }) {
         }, 800);
     }, [flushProductKardex]);
 
+    // Restauración de Copia de Sombra de Emergencia
+    const restoreShadowBackup = useCallback(async () => {
+        try {
+            const shadow = await localforage.getItem('bodega_products_shadow_backup_v1');
+            if (Array.isArray(shadow) && shadow.length > 0) {
+                localStorage.setItem('confirm_bulk_delete_catalog_flag', 'true');
+                await storageService.setItem('bodega_products_v1', shadow);
+                localStorage.removeItem('confirm_bulk_delete_catalog_flag');
+                setProducts(shadow);
+                showToast(`¡Se restauraron ${shadow.length} productos desde la Copia de Sombra Local!`, 'success');
+                return true;
+            } else {
+                showToast('No hay copia de sombra guardada aún', 'info');
+                return false;
+            }
+        } catch (err) {
+            console.error('Error restaurando copia de sombra:', err);
+            showToast('Error al restaurar copia de sombra', 'error');
+            return false;
+        }
+    }, []);
+
     // HOOK-005: Envolver `value` en useMemo con deps correctas para evitar que
     // TODOS los consumidores se re-rendericen en cada render del Provider.
     // Las setters de useState son estables y no necesitan estar en deps.
@@ -550,7 +654,14 @@ export function ProductProvider({ children, rates }) {
         setCheckoutMode,
         adjustStock,
         bsRoundingStep,
-        setBsRoundingStep
+        setBsRoundingStep,
+        bsCongeladoAlert,
+        dismissBsCongeladoAlert,
+        previousRate,
+        isBsWizardOpen,
+        openBsCongeladoWizard,
+        closeBsCongeladoWizard,
+        restoreShadowBackup,
     }), [
         products,
         categories,
@@ -569,7 +680,13 @@ export function ProductProvider({ children, rates }) {
         checkoutMode,
         adjustStock,
         bsRoundingStep,
-        setBsRoundingStep
+        setBsRoundingStep,
+        bsCongeladoAlert,
+        dismissBsCongeladoAlert,
+        previousRate,
+        isBsWizardOpen,
+        openBsCongeladoWizard,
+        closeBsCongeladoWizard,
     ]);
 
     return (

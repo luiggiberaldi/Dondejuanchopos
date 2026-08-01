@@ -15,7 +15,7 @@ import { withLock } from './withLock';
 import { logEvent } from '../services/auditService';
 
 const PRODUCTS_KEY = 'bodega_products_v1';
-const VALID_ACTIONS = ['add', 'edit', 'delete', 'adjust_stock'];
+const VALID_ACTIONS = ['add', 'edit', 'delete', 'adjust_stock', 'batch_edit'];
 
 // Los 3 códigos que deben ser únicos en todo el inventario (lógica de formatos)
 const BARCODE_FIELDS = ['barcode', 'boxBarcode', 'halfBoxBarcode'];
@@ -46,7 +46,7 @@ function validateProductData(data) {
     if (!data.name || !String(data.name).trim()) return 'El nombre es obligatorio';
     const price = Number(data.priceUsd);
     if (isNaN(price) || price < 0) return 'Precio USD inválido';
-    for (const f of ['priceBsManual', 'boxPriceUsd', 'boxPriceBs', 'halfBoxPriceUsd', 'halfBoxPriceBs', 'costUsd', 'costBs']) {
+    for (const f of ['priceBsManual', 'boxPriceUsd', 'boxPriceBs', 'boxPriceBsManual', 'halfBoxPriceUsd', 'halfBoxPriceBs', 'halfBoxPriceBsManual', 'costUsd', 'costBs']) {
         if (data[f] != null && data[f] !== '' && (isNaN(Number(data[f])) || Number(data[f]) < 0)) {
             return `Campo ${f} inválido`;
         }
@@ -66,6 +66,10 @@ function normalizeProduct(data) {
     normalized.priceUsd = Number(data.priceUsd) || 0;
     normalized.priceUsdt = normalized.priceUsd; // alias canónico legacy — SIEMPRE espejo
     normalized.priceBsManual = data.priceBsManual != null && data.priceBsManual !== '' ? Number(data.priceBsManual) : null;
+    normalized.boxPriceBsManual = data.boxPriceBsManual != null && data.boxPriceBsManual !== '' ? Number(data.boxPriceBsManual) : (data.boxPriceBs != null && data.boxPriceBs !== '' ? Number(data.boxPriceBs) : null);
+    normalized.halfBoxPriceBsManual = data.halfBoxPriceBsManual != null && data.halfBoxPriceBsManual !== '' ? Number(data.halfBoxPriceBsManual) : (data.halfBoxPriceBs != null && data.halfBoxPriceBs !== '' ? Number(data.halfBoxPriceBs) : null);
+    if (data.boxPricingMode) normalized.boxPricingMode = data.boxPricingMode;
+    if (data.halfBoxPricingMode) normalized.halfBoxPricingMode = data.halfBoxPricingMode;
     normalized.stock = Number(data.stock) || 0;
     for (const f of BARCODE_FIELDS) {
         normalized[f] = (data[f] ?? '').toString().trim() || null;
@@ -78,11 +82,13 @@ function normalizeProduct(data) {
 
     // D4: si el payload trae pricingMode, limpiar los campos Bs que no corresponden
     // (mismo contrato que buildProductPayload — evita priceBsManual basura en modo bcv)
-    const VALID_MODES = ['tasa_dia', 'bcv', 'dual_usd', 'bs_fijo'];
+    const VALID_MODES = ['tasa_dia', 'bcv', 'dual_usd', 'bs_fijo', 'bs_manual', 'fijo'];
     if (VALID_MODES.includes(data.pricingMode)) {
         normalized.pricingMode = data.pricingMode;
         normalized.forceBcv = data.pricingMode === 'bcv';
-        if (data.pricingMode !== 'bs_fijo') normalized.priceBsManual = null;
+        if (data.pricingMode !== 'bs_fijo' && data.pricingMode !== 'bs_manual' && data.pricingMode !== 'fijo' && (data.priceBsManual == null || data.priceBsManual === '')) {
+            normalized.priceBsManual = null;
+        }
         if (data.pricingMode !== 'dual_usd') normalized.priceBsUsdRef = null;
     }
 
@@ -99,13 +105,67 @@ export async function applyInventoryCommand(payload) {
         return { success: false, error: `Acción inválida: ${payload?.action}` };
     }
     const { action, productId, data } = payload;
-    if (action !== 'add' && !productId) {
+    if (action !== 'add' && action !== 'batch_edit' && !productId) {
         return { success: false, error: 'productId requerido' };
     }
 
     // withLock retorna directamente el valor del callback (mismo contrato que checkoutProcessor)
     const lockResult = await withLock('pos_write_lock', async () => {
         const products = await storageService.getItem(PRODUCTS_KEY, []) || [];
+
+        if (action === 'batch_edit') {
+            const items = data?.items;
+            if (!Array.isArray(items) || items.length === 0) {
+                return { success: false, error: 'Lista de lote vacía' };
+            }
+
+            let updatedList = [...products];
+            const nowIso = new Date().toISOString();
+            let appliedCount = 0;
+            const failedItems = [];
+
+            for (const item of items) {
+                const pId = item.productId;
+                const pData = item.data;
+                const existingProd = updatedList.find(p => p.id === pId);
+                if (!existingProd || !pData) {
+                    failedItems.push({ productId: pId, reason: 'Producto no encontrado en la caja' });
+                    continue;
+                }
+
+                const mergedPayload = { ...existingProd, ...pData };
+                const valErr = validateProductData(mergedPayload);
+                if (valErr) {
+                    failedItems.push({ productId: pId, productName: existingProd.name, reason: valErr });
+                    continue;
+                }
+
+                const normalized = normalizeProduct(mergedPayload);
+                normalized.id = pId;
+                if (normalized.image === undefined) normalized.image = existingProd.image;
+                normalized.stock = existingProd.stock;
+                normalized.updatedAt = nowIso;
+
+                updatedList = updatedList.map(p => p.id === pId ? { ...existingProd, ...normalized } : p);
+                appliedCount++;
+            }
+
+            if (appliedCount > 0) {
+                await storageService.setItem(PRODUCTS_KEY, updatedList);
+                logEvent('INVENTARIO', 'REMOTO_BATCH_EDIT', `Supervisor editó lote de ${appliedCount} productos (${failedItems.length} fallidos)`);
+                return {
+                    success: true,
+                    productName: `Lote de ${appliedCount} productos`,
+                    updatedProducts: updatedList,
+                    appliedCount,
+                    failedCount: failedItems.length,
+                    failedItems
+                };
+            } else {
+                const firstErr = failedItems[0]?.reason || 'No se pudo aplicar ningún cambio del lote';
+                return { success: false, error: firstErr, failedItems };
+            }
+        }
 
         if (action === 'add') {
             const validationError = validateProductData(data);
@@ -164,9 +224,10 @@ export async function applyInventoryCommand(payload) {
                 }
             }
 
-            const validationError = validateProductData(data);
+            const mergedPayload = { ...existing, ...data };
+            const validationError = validateProductData(mergedPayload);
             if (validationError) return { success: false, error: validationError };
-            const normalized = normalizeProduct(data);
+            const normalized = normalizeProduct(mergedPayload);
             normalized.id = productId;
             // D8: preservar imagen local si el comando no la trae (nunca viaja base64)
             if (normalized.image === undefined) normalized.image = existing.image;

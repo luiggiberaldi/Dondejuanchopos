@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, TrendingUp, DollarSign, Loader2 } from 'lucide-react';
+import { X, TrendingUp, DollarSign, Loader2, Lock } from 'lucide-react';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { showToast } from './Toast';
 
-export default function SupervisorRateModal({ isOpen, onClose, rates, primaryDeviceId, triggerHaptic }) {
+export default function SupervisorRateModal({ isOpen, onClose, rates, primaryDeviceId, triggerHaptic, onOpenBsWizard }) {
     const [rateMode, setRateMode] = useState('bcv'); // 'bcv', 'euro', 'usdt', 'manual'
     const [customRate, setCustomRate] = useState('');
     const [loading, setLoading] = useState(false);
@@ -186,6 +186,22 @@ export default function SupervisorRateModal({ isOpen, onClose, rates, primaryDev
                         )}
                     </div>
                 </div>
+
+                {/* Botón Revisar Precios en Bs Congelado */}
+                {onOpenBsWizard && (
+                    <button
+                        type="button"
+                        onClick={() => {
+                            triggerHaptic?.();
+                            onClose();
+                            onOpenBsWizard();
+                        }}
+                        className="w-full py-3 px-4 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer shadow-sm"
+                    >
+                        <Lock size={16} className="text-amber-500" />
+                        <span>Revisar Precios en Bs Congelado</span>
+                    </button>
+                )}
 
                 {/* Footer */}
                 <div className="flex gap-3">

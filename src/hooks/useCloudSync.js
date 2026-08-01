@@ -347,31 +347,31 @@ export function useCloudSync(deviceId) {
                     console.log('[CloudSync] Detectado backup importado localmente. Subiendo datos locales a la nube...');
                     const lf = localforage.createInstance({ name: 'BodegaApp', storeName: 'bodega_app_data' });
                     
-                    // Subir datos de IndexedDB
+                    // Subir datos de IndexedDB con empuje incondicional
                     for (const key of IDB_KEYS) {
                         const localValue = await lf.getItem(key);
                         if (localValue !== null) {
-                            await pushCloudSync(key, localValue);
+                            await pushCloudSync(key, localValue, true);
                             const hashKey = LAST_PUSH_HASH_PREFIX + key;
                             localStorage.setItem(hashKey, quickHash(localValue));
                         }
                     }
                     
-                    // Subir datos de localStorage
+                    // Subir datos de localStorage con empuje incondicional
                     for (const key of LOCAL_KEYS) {
                         const localVal = localStorage.getItem(key);
                         if (localVal !== null) {
                             let parsed = localVal;
                             try { parsed = JSON.parse(localVal); } catch {}
-                            await pushCloudSync(key, parsed);
+                            await pushCloudSync(key, parsed, true);
                             const hashKey = LAST_PUSH_HASH_PREFIX + key;
                             localStorage.setItem(hashKey, quickHash(parsed));
                         }
                     }
 
                     localStorage.removeItem('dj_backup_imported_flag');
-                    localStorage.removeItem('dj_cloud_sync_ts');
-                    console.log('[CloudSync] Sincronización de importación completada de todas las llaves.');
+                    localStorage.setItem('dj_cloud_sync_ts', new Date().toISOString());
+                    console.log('[CloudSync] Sincronización de importación completada e incondicional de todas las llaves.');
                 } else {
                     const lastSyncIso = localStorage.getItem('dj_cloud_sync_ts');
                     const lastFullPullTs = parseInt(localStorage.getItem('dj_last_full_pull_ts') || '0', 10);

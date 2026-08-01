@@ -3,6 +3,7 @@ import { storageService } from '../utils/storageService';
 import localforage from 'localforage';
 import { showToast } from '../components/Toast';
 import { IDB_KEYS, LS_KEYS, PROTECTED_KEYS } from '../config/backupKeys';
+import { pushCloudSync } from './useCloudSync';
 
 /**
  * Hook that encapsulates JSON import/export and delete-all-data logic.
@@ -105,10 +106,14 @@ export function useDataImportExport({
                 if (json.version === '2.0' && json.data.idb) {
                     for (const [key, value] of Object.entries(json.data.idb)) {
                         await localforage.setItem(key, value);
+                        try { await pushCloudSync(key, value, true); } catch (_) {}
                     }
                     if (json.data.ls) {
                         for (const [key, value] of Object.entries(json.data.ls)) {
                             localStorage.setItem(key, value);
+                            let parsed = value;
+                            try { parsed = JSON.parse(value); } catch {}
+                            try { await pushCloudSync(key, parsed, true); } catch (_) {}
                         }
                     }
                 } else {
@@ -122,19 +127,24 @@ export function useDataImportExport({
                         if (!value) continue;
                         const parsed = typeof value === 'string' ? JSON.parse(value) : value;
                         await localforage.setItem(key, parsed);
+                        try { await pushCloudSync(key, parsed, true); } catch (_) {}
                     }
                     const legacyLsKeys = [
                         'street_rate_bs', 'catalog_use_auto_usdt', 'catalog_custom_usdt_price',
                         'catalog_show_cash_price', 'monitor_rates_v12', 'business_name', 'business_rif'
                     ];
                     for (const key of legacyLsKeys) {
-                        if (json.data[key]) localStorage.setItem(key, json.data[key]);
+                        if (json.data[key]) {
+                            localStorage.setItem(key, json.data[key]);
+                            try { await pushCloudSync(key, json.data[key], true); } catch (_) {}
+                        }
                     }
                 }
 
                 setImportStatus('success');
-                setStatusMessage('Restauracion completa. Sincronizando con la nube...');
+                setStatusMessage('Restauración completa. Sincronizando con la nube...');
                 localStorage.setItem('dj_backup_imported_flag', 'true');
+                localStorage.setItem('dj_cloud_sync_ts', new Date().toISOString());
                 auditLog('SISTEMA', 'BACKUP_IMPORTADO', `Backup restaurado (${json.source || 'archivo'}) — ${Object.keys(json.data.idb || {}).join(', ')}`);
                 triggerHaptic?.();
 

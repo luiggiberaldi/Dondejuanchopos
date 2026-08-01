@@ -31,9 +31,46 @@ import { purgeOldEntries } from './services/auditService';
 import { useCloudSync } from './hooks/useCloudSync';
 import SupervisorRateNotification from './components/SupervisorRateNotification';
 import SupervisorInventoryNotification from './components/SupervisorInventoryNotification';
+import BsCongeladoAlertBanner from './components/Products/BsCongeladoAlertBanner';
+import BsCongeladoWizardModal from './components/Products/BsCongeladoWizardModal';
+import { useProductContext } from './context/ProductContext';
 
 const OwnerMonitorView = lazy(() => import('./views/OwnerMonitorView'));
 import PairingScanScreen from './components/PairingScanScreen';
+
+function GlobalBsCongeladoHandler({ triggerHaptic }) {
+  const {
+    isBsWizardOpen,
+    closeBsCongeladoWizard,
+    bsCongeladoAlert,
+    previousRate,
+    products,
+    setProducts,
+    effectiveRate,
+    bsRoundingStep,
+  } = useProductContext();
+
+  return (
+    <>
+      <BsCongeladoAlertBanner />
+      <BsCongeladoWizardModal
+        isOpen={isBsWizardOpen}
+        onClose={closeBsCongeladoWizard}
+        prevRate={bsCongeladoAlert?.prevRate || previousRate || 0}
+        newRate={effectiveRate}
+        products={products}
+        onSaveProducts={async (updatedProductsList) => {
+          if (!updatedProductsList || updatedProductsList.length === 0) return;
+          const updatedMap = new Map(updatedProductsList.map(p => [p.id, p]));
+          const mergedCatalog = (products || []).map(p => updatedMap.get(p.id) || p);
+          setProducts(mergedCatalog);
+        }}
+        triggerHaptic={triggerHaptic}
+        bsRoundingStep={bsRoundingStep}
+      />
+    </>
+  );
+}
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('inicio');
@@ -264,6 +301,7 @@ export default function App() {
 
       <CartProvider>
       <ProductProvider rates={rates}>
+        <GlobalBsCongeladoHandler triggerHaptic={triggerHaptic} />
         <main className={`flex-1 min-h-0 w-full max-w-full px-0 lg:px-6 xl:px-8 mx-auto relative ${isKeyboardOpen ? 'pb-4' : 'pb-24'} flex flex-col overflow-y-auto`}>
 
           {/* Hidden Admin Trigger Area */}
