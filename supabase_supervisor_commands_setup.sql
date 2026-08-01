@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS public.supervisor_commands (
     monitor_device_id  TEXT NOT NULL,          -- El celular del supervisor que lo emite
     command_type       TEXT NOT NULL,          -- 'rate_change' | 'inventory_update'
     payload            JSONB NOT NULL DEFAULT '{}'::jsonb,
-    status             TEXT NOT NULL DEFAULT 'pending',  -- 'pending' | 'applied' | 'failed'
+    status             TEXT NOT NULL DEFAULT 'pending',  -- 'pending' | 'applied' | 'applied_with_warnings' | 'failed'
     error_reason       TEXT,                   -- Razón cuando status='failed'
     created_at         TIMESTAMPTZ DEFAULT now(),
     applied_at         TIMESTAMPTZ
@@ -33,17 +33,9 @@ ALTER TABLE public.supervisor_commands DROP CONSTRAINT IF EXISTS supervisor_comm
 ALTER TABLE public.supervisor_commands ADD CONSTRAINT supervisor_commands_command_type_check
     CHECK (command_type IN ('rate_change', 'inventory_update', 'void_sale', 'user_update', 'force_daily_close'));
 
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint
-        WHERE conname = 'supervisor_commands_status_check'
-    ) THEN
-        ALTER TABLE public.supervisor_commands
-            ADD CONSTRAINT supervisor_commands_status_check
-            CHECK (status IN ('pending', 'applied', 'failed'));
-    END IF;
-END $$;
+ALTER TABLE public.supervisor_commands DROP CONSTRAINT IF EXISTS supervisor_commands_status_check;
+ALTER TABLE public.supervisor_commands ADD CONSTRAINT supervisor_commands_status_check
+    CHECK (status IN ('pending', 'applied', 'applied_with_warnings', 'failed'));
 
 -- 4. Índice para el catch-up de la caja (pendientes por dispositivo)
 CREATE INDEX IF NOT EXISTS idx_supervisor_commands_pending

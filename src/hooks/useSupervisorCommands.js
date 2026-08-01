@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { applyInventoryCommand } from '../utils/remoteInventoryProcessor';
+import { COMMAND_STATUS, VALID_COMMAND_STATUSES } from '../constants/commandStatus';
 
 // ── Deduplicación por ID de comando ─────────────────────────────────────────
 // El catch-up (select de pendientes) y el stream realtime pueden entregar el
@@ -28,6 +29,13 @@ function markApplied(commandId) {
     } catch { /* localStorage lleno/bloqueado: el Set en memoria sigue protegiendo la sesión */ }
 }
 
+function unmarkApplied(commandId) {
+    try {
+        const arr = loadAppliedIds().filter(id => id !== commandId);
+        localStorage.setItem(APPLIED_IDS_KEY, JSON.stringify(arr));
+    } catch { /* ignore */ }
+}
+
 let cloudSyncTimer = null;
 function scheduleCloudProductsSync() {
     if (cloudSyncTimer) clearTimeout(cloudSyncTimer);
@@ -44,8 +52,14 @@ function scheduleCloudProductsSync() {
 }
 
 async function updateCommandStatus(commandId, status, errorReason = null, maxRetries = 3) {
+    if (import.meta.env.DEV && !VALID_COMMAND_STATUSES.includes(status)) {
+        throw new Error(`[SupervisorCommands] Status "${status}" no está en VALID_COMMAND_STATUSES — la BD lo va a rechazar.`);
+    }
+
     const fields = { status };
-    if (status === 'applied') fields.applied_at = new Date().toISOString();
+    if (status === COMMAND_STATUS.APPLIED || status === COMMAND_STATUS.APPLIED_WITH_WARNINGS) {
+        fields.applied_at = new Date().toISOString();
+    }
     if (errorReason) fields.error_reason = String(errorReason).slice(0, 500);
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -55,6 +69,10 @@ async function updateCommandStatus(commandId, status, errorReason = null, maxRet
                 .update(fields)
                 .eq('id', commandId);
             if (!error) return true;
+            if (error.code && ['23514', '23503', '22P02'].includes(error.code)) {
+                console.error(`[SupervisorCommands] Error de esquema al fijar status="${status}" — no se reintenta:`, error);
+                return false;
+            }
             console.warn(`[SupervisorCommands] Intento ${attempt}/${maxRetries} falló al actualizar status de ${commandId}:`, error);
         } catch (e) {
             console.warn(`[SupervisorCommands] Excepción en intento ${attempt}/${maxRetries} al actualizar status:`, e);
@@ -128,11 +146,13 @@ export function useSupervisorCommands(deviceId) {
                     markApplied(command.id);
                     const result = await applyInventoryCommand(command.payload);
                     if (result.success) {
-                        if (result.failedCount > 0) {
-                            const warnMsg = `${result.appliedCount} aplicados, ${result.failedCount} fallaron (${result.failedItems?.map(f => f.productName || f.productId).join(', ')})`;
-                            await updateCommandStatus(command.id, 'applied_with_warnings', warnMsg);
-                        } else {
-                            await updateCommandStatus(command.id, 'applied');
+                        const nextStatus = result.failedCount > 0 ? COMMAND_STATUS.APPLIED_WITH_WARNINGS : COMMAND_STATUS.APPLIED;
+                        const warnMsg = result.failedCount > 0 ? `${result.appliedCount} aplicados, ${result.failedCount} fallaron (${result.failedItems?.map(f => f.productName || f.productId).join(', ')})` : null;
+                        const ok = await updateCommandStatus(command.id, nextStatus, warnMsg);
+                        if (!ok) {
+                            console.error(`[SupervisorCommands] El comando ${command.id} se aplicó localmente pero no se pudo marcar en la nube.`);
+                            unmarkApplied(command.id);
+                            appliedIds.delete(command.id);
                         }
                         window.dispatchEvent(new CustomEvent('supervisor_inventory_applied', {
                             detail: {

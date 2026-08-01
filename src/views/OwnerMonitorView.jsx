@@ -13,6 +13,7 @@ import UsersManager from '../components/Settings/UsersManager';
 import ReportsArticleTab from '../components/Reports/ReportsArticleTab';
 import BsCongeladoWizardModal from '../components/Products/BsCongeladoWizardModal';
 import BsCongeladoAlertBanner from '../components/Products/BsCongeladoAlertBanner';
+import { COMMAND_STATUS } from '../constants/commandStatus';
 import {
     TrendingUp, Package, Coins, Users, LogOut, QrCode, MoreVertical, Download,
     RefreshCw, Wifi, WifiOff, Clock, FileText, DollarSign,
@@ -606,14 +607,14 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 // Notificar confirmación / error de aplicación en la caja principal para comandos emitidos por este monitor
                 if (payload.eventType === 'UPDATE' && newCmd && newCmd.monitor_device_id === myDeviceId) {
                     const oldCmd = payload.old;
-                    if (oldCmd?.status === 'pending' && (newCmd.status === 'applied' || newCmd.status === 'applied_with_warnings')) {
+                    if (oldCmd?.status === COMMAND_STATUS.PENDING && (newCmd.status === COMMAND_STATUS.APPLIED || newCmd.status === COMMAND_STATUS.APPLIED_WITH_WARNINGS)) {
                         const count = newCmd.payload?.data?.items?.length || 1;
-                        if (newCmd.status === 'applied_with_warnings') {
+                        if (newCmd.status === COMMAND_STATUS.APPLIED_WITH_WARNINGS) {
                             showToast(`⚠️ Caja aplicó cambios con advertencias: ${newCmd.error_reason || ''}`, 'info');
                         } else {
                             showToast(`✅ Caja principal confirmó actualización de ${count} precio(s)`, 'success');
                         }
-                    } else if (oldCmd?.status === 'pending' && newCmd.status === 'failed') {
+                    } else if (oldCmd?.status === COMMAND_STATUS.PENDING && newCmd.status === COMMAND_STATUS.FAILED) {
                         showToast(`❌ La caja rechazó los cambios: ${newCmd.error_reason || 'Error desconocido'}`, 'error');
                     }
                 }
