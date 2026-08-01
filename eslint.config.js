@@ -69,13 +69,15 @@ export default defineConfig([
       'no-new-func': 'error',
       // react-refresh: warn (no bloquea build).
       'react-refresh/only-export-components': 'warn',
-      // No document.write (SEC-020).
+      // No document.write (SEC-020) ni uso de propiedades prohibidas/obsoletas.
       'no-restricted-syntax': [
-        'warn',
+        'error',
         { selector: "CallExpression[callee.object.name='document'][callee.property.name='write']",
           message: 'No uses document.write (SEC-020). Usa DOM API.' },
         { selector: "MemberExpression[property.name=/^(hasBox|hasHalfBox)$/]",
           message: 'Campo inexistente. Usa sellByBox / sellByHalfBox (ver productProcessor.js).' },
+        { selector: "CallExpression[callee.object.name='window'][callee.property.name='addEventListener'][arguments.0.value='visibilitychange']",
+          message: 'visibilitychange se emite en document, no en window. Usa document.addEventListener.' },
       ],
     },
   },
