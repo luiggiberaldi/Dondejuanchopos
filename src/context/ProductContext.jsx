@@ -9,6 +9,7 @@ import { pushLocalSync } from '../hooks/useCloudSync';
 import { calculateComboStock } from '../utils/productProcessor';
 import { showToast } from '../components/Toast';
 import { formatBs } from '../utils/calculatorUtils';
+import { getFrozenFormats } from '../utils/frozenPrices';
 
 const ProductContext = createContext();
 
@@ -224,21 +225,7 @@ export function ProductProvider({ children, rates }) {
             const lastKnown = parseFloat(localStorage.getItem('dj_last_effective_rate') || '0');
 
             if (lastKnown > 0 && Math.abs(lastKnown - effectiveRate) > 0.05) {
-                const isFrozenMode = (mode, bsManual, forceBcv, bsUsdRef) => {
-                    if (['bs_fijo', 'fijo', 'bs_manual'].includes(mode)) return true;
-                    if (['tasa_dia', 'bcv', 'dual_usd'].includes(mode) || forceBcv || Number(bsUsdRef) > 0) return false;
-                    return Number(bsManual) > 0;
-                };
-
-                const frozenCount = (products || []).reduce((acc, p) => {
-                    let c = 0;
-                    if (isFrozenMode(p.pricingMode, p.priceBsManual, p.forceBcv, p.priceBsUsdRef)) c++;
-                    const boxMode = p.boxPricingMode === 'inherit' ? p.pricingMode : p.boxPricingMode;
-                    if (p.hasBox && isFrozenMode(boxMode, p.boxPriceBsManual || p.boxPriceBs, p.forceBcv, p.boxPriceBsUsdRef)) c++;
-                    const halfBoxMode = p.halfBoxPricingMode === 'inherit' ? p.pricingMode : p.halfBoxPricingMode;
-                    if (p.hasHalfBox && isFrozenMode(halfBoxMode, p.halfBoxPriceBsManual || p.halfBoxPriceBs, p.forceBcv, p.halfBoxPriceBsUsdRef)) c++;
-                    return acc + c;
-                }, 0);
+                const frozenCount = (products || []).reduce((acc, p) => acc + getFrozenFormats(p).length, 0);
 
                 localStorage.setItem('dj_prev_rate', String(lastKnown));
                 setPreviousRate(lastKnown);

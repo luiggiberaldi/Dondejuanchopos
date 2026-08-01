@@ -74,6 +74,8 @@ export default defineConfig([
         'warn',
         { selector: "CallExpression[callee.object.name='document'][callee.property.name='write']",
           message: 'No uses document.write (SEC-020). Usa DOM API.' },
+        { selector: "MemberExpression[property.name=/^(hasBox|hasHalfBox)$/]",
+          message: 'Campo inexistente. Usa sellByBox / sellByHalfBox (ver productProcessor.js).' },
       ],
     },
   },

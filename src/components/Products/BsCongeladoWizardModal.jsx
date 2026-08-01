@@ -5,6 +5,7 @@ import { roundBs, round2 } from '../../utils/dinero';
 import { useAuthStore } from '../../hooks/store/useAuthStore';
 import { showToast } from '../Toast';
 import { logEvent } from '../../services/auditService';
+import { getFrozenFormats } from '../../utils/frozenPrices';
 
 // Subcomponente de Fila Optimizado con React.memo para CERO LAG (60 FPS)
 const BsCongeladoRow = React.memo(function BsCongeladoRow({
@@ -189,17 +190,11 @@ export default function BsCongeladoWizardModal({
         if (!products || products.length === 0) return [];
         const list = [];
 
-        const isFrozenMode = (mode, bsManual, forceBcv, bsUsdRef) => {
-            if (['bs_fijo', 'fijo', 'bs_manual'].includes(mode)) return true;
-            if (['tasa_dia', 'bcv', 'dual_usd'].includes(mode) || forceBcv || Number(bsUsdRef) > 0) return false;
-            return Number(bsManual) > 0;
-        };
-
         products.forEach(p => {
-            // 1. Unidad
-            if (isFrozenMode(p.pricingMode, p.priceBsManual, p.forceBcv, p.priceBsUsdRef)) {
-                const currentBs = p.priceBsManual || 0;
-                const currentUsd = p.priceUsdt || p.priceUsd || 0;
+            const formats = getFrozenFormats(p);
+            formats.forEach(f => {
+                const currentBs = f.currentBs;
+                const currentUsd = f.currentUsd;
                 const usdBefore = prevRate > 0 ? round2(currentBs / prevRate) : round2(currentUsd);
                 const usdNow = newRate > 0 ? round2(currentBs / newRate) : 0;
                 const baseUsdCalc = currentUsd > 0 ? currentUsd : (usdBefore > 0 ? usdBefore : usdNow);
@@ -207,13 +202,23 @@ export default function BsCongeladoWizardModal({
                 const rawSuggestedBs = suggestedUsd > 0 ? (suggestedUsd * newRate) : currentBs;
                 const suggestedBs = roundBs(rawSuggestedBs, bsRoundingStep);
 
+                let label = 'Unidad';
+                let keySuffix = 'unit';
+                if (f.type === 'caja') {
+                    label = `Caja (${p.boxUnits || 1} ud)`;
+                    keySuffix = 'box';
+                } else if (f.type === 'medioBulto') {
+                    label = `Medio Bulto (${p.halfBoxUnits || 1} ud)`;
+                    keySuffix = 'halfBox';
+                }
+
                 list.push({
-                    key: `${p.id}_unit`,
+                    key: `${p.id}_${keySuffix}`,
                     productId: p.id,
                     productName: p.name,
                     image: p.image,
-                    type: 'unidad',
-                    label: 'Unidad',
+                    type: f.type,
+                    label,
                     currentBs,
                     currentUsd,
                     usdBefore,
@@ -222,65 +227,7 @@ export default function BsCongeladoWizardModal({
                     suggestedBs,
                     rawProduct: p
                 });
-            }
-
-            // 2. Caja / Bulto
-            const boxMode = p.boxPricingMode === 'inherit' ? p.pricingMode : p.boxPricingMode;
-            if (p.hasBox && isFrozenMode(boxMode, p.boxPriceBsManual || p.boxPriceBs, p.forceBcv, p.boxPriceBsUsdRef)) {
-                const currentBs = p.boxPriceBsManual || p.boxPriceBs || 0;
-                const currentUsd = p.boxPriceUsdt || p.boxPriceUsd || 0;
-                const usdBefore = prevRate > 0 ? round2(currentBs / prevRate) : round2(currentUsd);
-                const usdNow = newRate > 0 ? round2(currentBs / newRate) : 0;
-                const baseUsdCalc = currentUsd > 0 ? currentUsd : (usdBefore > 0 ? usdBefore : usdNow);
-                const suggestedUsd = baseUsdCalc >= 1 ? Math.round(baseUsdCalc) : round2(baseUsdCalc);
-                const rawSuggestedBs = suggestedUsd > 0 ? (suggestedUsd * newRate) : currentBs;
-                const suggestedBs = roundBs(rawSuggestedBs, bsRoundingStep);
-
-                list.push({
-                    key: `${p.id}_box`,
-                    productId: p.id,
-                    productName: p.name,
-                    image: p.image,
-                    type: 'caja',
-                    label: `Caja (${p.boxUnits || 1} ud)`,
-                    currentBs,
-                    currentUsd,
-                    usdBefore,
-                    usdNow,
-                    suggestedUsd,
-                    suggestedBs,
-                    rawProduct: p
-                });
-            }
-
-            // 3. Medio Bulto
-            const halfBoxMode = p.halfBoxPricingMode === 'inherit' ? p.pricingMode : p.halfBoxPricingMode;
-            if (p.hasHalfBox && isFrozenMode(halfBoxMode, p.halfBoxPriceBsManual || p.halfBoxPriceBs, p.forceBcv, p.halfBoxPriceBsUsdRef)) {
-                const currentBs = p.halfBoxPriceBsManual || p.halfBoxPriceBs || 0;
-                const currentUsd = p.halfBoxPriceUsdt || p.halfBoxPriceUsd || 0;
-                const usdBefore = prevRate > 0 ? round2(currentBs / prevRate) : round2(currentUsd);
-                const usdNow = newRate > 0 ? round2(currentBs / newRate) : 0;
-                const baseUsdCalc = currentUsd > 0 ? currentUsd : (usdBefore > 0 ? usdBefore : usdNow);
-                const suggestedUsd = baseUsdCalc >= 1 ? Math.round(baseUsdCalc) : round2(baseUsdCalc);
-                const rawSuggestedBs = suggestedUsd > 0 ? (suggestedUsd * newRate) : currentBs;
-                const suggestedBs = roundBs(rawSuggestedBs, bsRoundingStep);
-
-                list.push({
-                    key: `${p.id}_halfBox`,
-                    productId: p.id,
-                    productName: p.name,
-                    image: p.image,
-                    type: 'medioBulto',
-                    label: `Medio Bulto (${p.halfBoxUnits || 1} ud)`,
-                    currentBs,
-                    currentUsd,
-                    usdBefore,
-                    usdNow,
-                    suggestedUsd,
-                    suggestedBs,
-                    rawProduct: p
-                });
-            }
+            });
         });
 
         return list;
