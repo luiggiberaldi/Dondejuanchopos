@@ -214,6 +214,9 @@ export function ProductProvider({ children, rates }) {
     });
 
     useEffect(() => {
+        // No evaluar ni mover el baseline de tasa mientras el catálogo esté cargando (products = [])
+        if (isLoadingProducts) return;
+
         // Guarda-raíl: La alerta y revisión de Bs Congelado SOLO aplica si la tasa está en modo MANUAL
         if (rateMode !== 'manual') {
             if (bsCongeladoAlert) setBsCongeladoAlert(null);
@@ -245,7 +248,7 @@ export function ProductProvider({ children, rates }) {
 
             localStorage.setItem('dj_last_effective_rate', String(effectiveRate));
         }
-    }, [effectiveRate, rateMode, products]);
+    }, [effectiveRate, rateMode, products, isLoadingProducts]);
 
     const openBsCongeladoWizard = useCallback(() => {
         setIsBsWizardOpen(true);
