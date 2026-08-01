@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { supabaseCloud } from '../config/supabaseCloud';
-import { applyInventoryCommand } from '../utils/remoteInventoryProcessor';
+import { applyInventoryCommand, isReappliableCommand } from '../utils/remoteInventoryProcessor';
 import { COMMAND_STATUS, VALID_COMMAND_STATUSES } from '../constants/commandStatus';
 
 // ── Deduplicación por ID de comando ─────────────────────────────────────────
@@ -164,9 +164,13 @@ export function useSupervisorCommands(deviceId) {
                         const warnMsg = result.failedCount > 0 ? `${result.appliedCount} aplicados, ${result.failedCount} fallaron (${result.failedItems?.map(f => f.productName || f.productId).join(', ')})` : null;
                         const ok = await updateCommandStatus(command.id, nextStatus, warnMsg);
                         if (!ok) {
-                            console.error(`[SupervisorCommands] El comando ${command.id} se aplicó localmente pero no se pudo marcar en la nube.`);
-                            unmarkApplied(command.id);
-                            appliedIds.delete(command.id);
+                            if (isReappliableCommand(command.payload)) {
+                                console.error(`[SupervisorCommands] El comando ${command.id} se aplicó localmente pero no se pudo marcar en la nube. Se desmarca para reintento.`);
+                                unmarkApplied(command.id);
+                                appliedIds.delete(command.id);
+                            } else {
+                                console.error(`[SupervisorCommands] ${command.id} se aplicó localmente pero no se pudo marcar, y no es re-aplicable: se deja marcado. Quedará 'pending' en la nube.`);
+                            }
                         }
                         window.dispatchEvent(new CustomEvent('supervisor_inventory_applied', {
                             detail: {

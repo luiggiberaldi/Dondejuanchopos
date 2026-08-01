@@ -18,6 +18,22 @@ import { PRICING_MODES, FROZEN_MODES } from '../constants/pricingModes';
 const PRODUCTS_KEY = 'bodega_products_v1';
 const VALID_ACTIONS = ['add', 'edit', 'delete', 'adjust_stock', 'batch_edit'];
 
+/**
+ * ¿Es seguro que el catch-up vuelva a aplicar este comando?
+ * Sólo lo es si repetirlo deja el mismo estado. `adjust_stock` con delta es
+ * aditivo y duplicaría el stock; 'add'/'edit'/'delete' no corrompen pero el
+ * reintento falla y marcaría como 'failed' algo que sí se aplicó.
+ */
+export function isReappliableCommand(payload) {
+    const action = payload?.action;
+    if (action === 'batch_edit') return true;
+    if (action === 'adjust_stock') {
+        const t = payload?.data?.targetStock;
+        return t !== undefined && t !== null && t !== '';
+    }
+    return false;
+}
+
 // Los 3 códigos que deben ser únicos en todo el inventario (lógica de formatos)
 const BARCODE_FIELDS = ['barcode', 'boxBarcode', 'halfBoxBarcode'];
 
