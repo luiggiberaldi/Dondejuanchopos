@@ -491,6 +491,9 @@ export function useSupervisorCommands(deviceId) {
             }
         }, 12000);
 
+        // Nota: visibilitychange pertenece al objeto `document` y NO burbujea a `window`.
+        // `visibilitychange → hidden` corre ANTES de congelar la app en móviles (garantía de tiempo).
+        // `pagehide` y `beforeunload` corren al cerrar pestaña (best-effort).
         const handleVisibility = () => {
             if (document.visibilityState === 'hidden') {
                 flushCloudProductsSync();
@@ -500,13 +503,15 @@ export function useSupervisorCommands(deviceId) {
             flushCloudProductsSync();
         };
 
-        window.addEventListener('visibilitychange', handleVisibility);
+        document.addEventListener('visibilitychange', handleVisibility);
+        window.addEventListener('pagehide', handleUnload);
         window.addEventListener('beforeunload', handleUnload);
 
         return () => {
             disposed = true;
             clearInterval(intervalId);
-            window.removeEventListener('visibilitychange', handleVisibility);
+            document.removeEventListener('visibilitychange', handleVisibility);
+            window.removeEventListener('pagehide', handleUnload);
             window.removeEventListener('beforeunload', handleUnload);
             supabaseCloud.removeChannel(channel).catch(() => {});
         };
