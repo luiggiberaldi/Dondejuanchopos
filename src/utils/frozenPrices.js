@@ -1,11 +1,8 @@
-/**
- * Utilidades centralizadas para precios en Bs congelado.
- * Los nombres de campo son los canónicos de productProcessor: sellByBox / sellByHalfBox.
- */
+import { FROZEN_MODES, PRICING_MODES } from '../constants/pricingModes';
 
 export function isFrozenMode(mode, bsManual, forceBcv, bsUsdRef) {
-    if (['bs_fijo', 'fijo', 'bs_manual'].includes(mode)) return true;
-    if (['tasa_dia', 'bcv', 'dual_usd'].includes(mode) || forceBcv || Number(bsUsdRef) > 0) return false;
+    if (FROZEN_MODES.includes(mode)) return true;
+    if (PRICING_MODES.includes(mode) || forceBcv || Number(bsUsdRef) > 0) return false;
     return Number(bsManual) > 0;
 }
 

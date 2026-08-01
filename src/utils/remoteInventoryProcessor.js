@@ -13,6 +13,7 @@
 import { storageService } from './storageService';
 import { withLock } from './withLock';
 import { logEvent } from '../services/auditService';
+import { PRICING_MODES, FROZEN_MODES } from '../constants/pricingModes';
 
 const PRODUCTS_KEY = 'bodega_products_v1';
 const VALID_ACTIONS = ['add', 'edit', 'delete', 'adjust_stock', 'batch_edit'];
@@ -82,14 +83,23 @@ function normalizeProduct(data) {
 
     // D4: si el payload trae pricingMode, limpiar los campos Bs que no corresponden
     // (mismo contrato que buildProductPayload — evita priceBsManual basura en modo bcv)
-    const VALID_MODES = ['tasa_dia', 'bcv', 'dual_usd', 'bs_fijo', 'bs_manual', 'fijo'];
-    if (VALID_MODES.includes(data.pricingMode)) {
+    if (PRICING_MODES.includes(data.pricingMode)) {
         normalized.pricingMode = data.pricingMode;
         normalized.forceBcv = data.pricingMode === 'bcv';
-        if (data.pricingMode !== 'bs_fijo' && data.pricingMode !== 'bs_manual' && data.pricingMode !== 'fijo' && (data.priceBsManual == null || data.priceBsManual === '')) {
+        if (!FROZEN_MODES.includes(data.pricingMode)) {
             normalized.priceBsManual = null;
         }
         if (data.pricingMode !== 'dual_usd') normalized.priceBsUsdRef = null;
+    }
+
+    const boxMode = data.boxPricingMode === 'inherit' ? data.pricingMode : data.boxPricingMode;
+    if (boxMode && !FROZEN_MODES.includes(boxMode)) {
+        normalized.boxPriceBsManual = null;
+    }
+
+    const halfBoxMode = data.halfBoxPricingMode === 'inherit' ? data.pricingMode : data.halfBoxPricingMode;
+    if (halfBoxMode && !FROZEN_MODES.includes(halfBoxMode)) {
+        normalized.halfBoxPriceBsManual = null;
     }
 
     return normalized;
