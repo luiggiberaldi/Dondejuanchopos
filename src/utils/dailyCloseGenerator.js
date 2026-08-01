@@ -396,7 +396,7 @@ export async function generateDailyClosePDF({
                 doc.setFontSize(7.5);
                 doc.setTextColor(...BLUE);
                 doc.text('Hora', M + 4, yy + 0.2);
-                doc.text('Cliente / Estado', M + 18, yy + 0.2);
+                doc.text('Venta / Cliente / Estado', M + 18, yy + 0.2);
                 doc.text('Artículos / Desglose de Pago', M + 54, yy + 0.2);
                 doc.text('Total (USD / Bs)', RIGHT - 4, yy + 0.2, { align: 'right' });
             };
@@ -408,6 +408,8 @@ export async function generateDailyClosePDF({
                 const isCanceled = s.status === 'ANULADA';
                 const hora = new Date(s.timestamp).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' });
                 const cliente = s.customerName || 'Consumidor Final';
+                const saleNum = s.saleNumber || s.sale_number;
+                const numVentaStr = saleNum ? `Venta #${saleNum}` : (s.id ? `#${String(s.id).slice(-4)}` : '');
 
                 // Items
                 let itemsText = '';
@@ -423,22 +425,24 @@ export async function generateDailyClosePDF({
                 if (s.payments && s.payments.length > 0) {
                     paymentsText = 'Pagos: ' + s.payments.map(p => {
                         const label = toTitleCase(p.methodLabel || getPaymentLabel(p.methodId) || 'Pago');
-                        const val = p.currency === 'USD' ? fmtUsd(p.amountUsd) : `Bs ${formatBs(p.amountBs)}`;
+                        const val = p.currency === 'USD' ? fmtUsd(p.amountUsd || p.amount) : (p.currency === 'COP' ? `${formatCop(p.amountCop || p.amount)} COP` : `Bs ${formatBs(p.amountBs || p.amount)}`);
                         return `${label} (${val})`;
                     }).join(' • ');
                 }
 
-                // Vuelto
-                if (s.changeUsd > 0 || s.changeBs > 0) {
-                    let changeStr = 'Vuelto: ';
-                    if (s.changeUsd > 0) changeStr += fmtUsd(s.changeUsd);
-                    if (s.changeBs > 0) changeStr += `${s.changeUsd > 0 ? ' + ' : ''}Bs ${formatBs(s.changeBs)}`;
-                    paymentsText += ` | ${changeStr}`;
+                // Vuelto desglosado (Bs, USD, COP)
+                const changeParts = [];
+                if (s.changeBs > 0) changeParts.push(`Bs ${formatBs(s.changeBs)}`);
+                if (s.changeUsd > 0) changeParts.push(fmtUsd(s.changeUsd));
+                if (s.changeCop > 0) changeParts.push(`${formatCop(s.changeCop)} COP`);
+
+                if (changeParts.length > 0) {
+                    paymentsText += ` | Vuelto: ${changeParts.join(' + ')}`;
                 }
 
                 const fullDetail = `${itemsText}\n${paymentsText}`;
                 const detailLines = doc.splitTextToSize(fullDetail, 96);
-                const clienteText = isCanceled ? `${cliente}\n(ANULADA)` : cliente;
+                const clienteText = `${numVentaStr ? numVentaStr + '\n' : ''}${cliente}${isCanceled ? '\n(ANULADA)' : ''}`;
                 const clienteLines = doc.splitTextToSize(clienteText, 32);
                 const rowHeight = Math.max(12, detailLines.length * 4.2 + 3, clienteLines.length * 4.2 + 3);
 
