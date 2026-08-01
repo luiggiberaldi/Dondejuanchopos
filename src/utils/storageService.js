@@ -130,13 +130,23 @@ export const storageService = {
                 try {
                     const existing = await localforage.getItem('bodega_products_v1');
                     if (Array.isArray(existing) && existing.length > 5) {
-                        // 1. Shadow Snapshot: Respaldar catálogo existente antes de sobrescribir
-                        await localforage.setItem('bodega_products_shadow_backup_v1', existing);
-                        localStorage.setItem('bodega_shadow_backup_ts', new Date().toISOString());
+                        // 1. Shadow Snapshot: Respaldar por tiempo (30 min) y NUNCA si el catálogo encoge
+                        const SHADOW_MIN_INTERVAL_MS = 30 * 60 * 1000;
+                        const lastTs = Date.parse(localStorage.getItem('bodega_shadow_backup_ts') || '') || 0;
+                        const shrinks = value.length < existing.length;
 
-                        // 2. Circuit Breaker: Bloquear si se intenta reducir el inventario drásticamente sin confirmación explícita
-                        const isBulkDeleteAllowed = localStorage.getItem('confirm_bulk_delete_catalog_flag') === 'true';
-                        if (!isBulkDeleteAllowed && value.length < Math.min(existing.length * 0.3, 5)) {
+                        if (!shrinks && Date.now() - lastTs > SHADOW_MIN_INTERVAL_MS) {
+                            await localforage.setItem('bodega_products_shadow_backup_v1', existing);
+                            localStorage.setItem('bodega_shadow_backup_ts', new Date().toISOString());
+                        }
+
+                        // 2. Circuit Breaker: Bloquear si se intenta reducir el inventario drásticamente sin confirmación explícita válida (<60s)
+                        const flagRaw = localStorage.getItem('confirm_bulk_delete_catalog_flag');
+                        const flagTs = parseInt(localStorage.getItem('confirm_bulk_delete_catalog_ts') || '0', 10);
+                        const isBulkDeleteAllowed = flagRaw === 'true' && (flagTs === 0 || Date.now() - flagTs < 60000);
+
+                        const floor = Math.max(existing.length * 0.3, 5);
+                        if (!isBulkDeleteAllowed && value.length < floor) {
                             console.error(`[CIRCUIT BREAKER INVENTARIO] Intento de reducción anómala detectado: de ${existing.length} a ${value.length} productos. Escritura bloqueada para proteger el inventario.`);
                             throw new Error(`[CircuitBreaker] Sobrescritura anómala bloqueada: de ${existing.length} a ${value.length} productos.`);
                         }

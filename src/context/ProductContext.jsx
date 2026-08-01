@@ -593,8 +593,13 @@ export function ProductProvider({ children, rates }) {
             const shadow = await localforage.getItem('bodega_products_shadow_backup_v1');
             if (Array.isArray(shadow) && shadow.length > 0) {
                 localStorage.setItem('confirm_bulk_delete_catalog_flag', 'true');
-                await storageService.setItem('bodega_products_v1', shadow);
-                localStorage.removeItem('confirm_bulk_delete_catalog_flag');
+                localStorage.setItem('confirm_bulk_delete_catalog_ts', Date.now().toString());
+                try {
+                    await storageService.setItem('bodega_products_v1', shadow);
+                } finally {
+                    localStorage.removeItem('confirm_bulk_delete_catalog_flag');
+                    localStorage.removeItem('confirm_bulk_delete_catalog_ts');
+                }
                 setProducts(shadow);
                 showToast(`¡Se restauraron ${shadow.length} productos desde la Copia de Sombra Local!`, 'success');
                 return true;
