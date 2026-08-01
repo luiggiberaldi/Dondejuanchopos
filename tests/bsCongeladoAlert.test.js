@@ -50,4 +50,28 @@ describe('bsCongeladoAlert initial load guard tests', () => {
         expect(alertPayload.newRate).toBe(120);
         expect(localStorage.getItem('dj_last_effective_rate')).toBe('120');
     });
+
+    test('When rate does NOT change (Math.abs <= 0.05), product evaluation reduce is SKIPPED and baseline is preserved', () => {
+        localStorage.setItem('dj_last_effective_rate', '120');
+        const isLoadingProducts = false;
+        const effectiveRate = 120;
+        let reduceEvaluated = false;
+
+        const products = [
+            { id: 'p1', name: 'Harina', pricingMode: 'bs_fijo', priceBsManual: 40 }
+        ];
+
+        if (!isLoadingProducts && effectiveRate > 0) {
+            const lastKnown = parseFloat(localStorage.getItem('dj_last_effective_rate') || '0');
+            if (!(lastKnown > 0 && Math.abs(lastKnown - effectiveRate) > 0.05)) {
+                localStorage.setItem('dj_last_effective_rate', String(effectiveRate));
+            } else {
+                reduceEvaluated = true;
+                products.reduce((acc, p) => acc + getFrozenFormats(p).length, 0);
+            }
+        }
+
+        expect(reduceEvaluated).toBe(false);
+        expect(localStorage.getItem('dj_last_effective_rate')).toBe('120');
+    });
 });

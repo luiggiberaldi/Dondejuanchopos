@@ -227,23 +227,26 @@ export function ProductProvider({ children, rates }) {
         if (effectiveRate > 0) {
             const lastKnown = parseFloat(localStorage.getItem('dj_last_effective_rate') || '0');
 
-            if (lastKnown > 0 && Math.abs(lastKnown - effectiveRate) > 0.05) {
-                const frozenCount = (products || []).reduce((acc, p) => acc + getFrozenFormats(p).length, 0);
+            if (!(lastKnown > 0 && Math.abs(lastKnown - effectiveRate) > 0.05)) {
+                localStorage.setItem('dj_last_effective_rate', String(effectiveRate));
+                return;
+            }
 
-                localStorage.setItem('dj_prev_rate', String(lastKnown));
-                setPreviousRate(lastKnown);
+            const frozenCount = (products || []).reduce((acc, p) => acc + getFrozenFormats(p).length, 0);
 
-                if (frozenCount > 0) {
-                    setBsCongeladoAlert({
-                        prevRate: lastKnown,
-                        newRate: effectiveRate,
-                        count: frozenCount,
-                        timestamp: Date.now()
-                    });
-                    showToast(`⚡ Tasa cambiada de ${formatBs(lastKnown)} a ${formatBs(effectiveRate)} Bs (${frozenCount} productos congelados por revisar)`, 'info');
-                } else {
-                    showToast(`⚡ Tasa de cambio actualizada a ${formatBs(effectiveRate)} Bs`, 'success');
-                }
+            localStorage.setItem('dj_prev_rate', String(lastKnown));
+            setPreviousRate(lastKnown);
+
+            if (frozenCount > 0) {
+                setBsCongeladoAlert({
+                    prevRate: lastKnown,
+                    newRate: effectiveRate,
+                    count: frozenCount,
+                    timestamp: Date.now()
+                });
+                showToast(`⚡ Tasa cambiada de ${formatBs(lastKnown)} a ${formatBs(effectiveRate)} Bs (${frozenCount} productos congelados por revisar)`, 'info');
+            } else {
+                showToast(`⚡ Tasa de cambio actualizada a ${formatBs(effectiveRate)} Bs`, 'success');
             }
 
             localStorage.setItem('dj_last_effective_rate', String(effectiveRate));
