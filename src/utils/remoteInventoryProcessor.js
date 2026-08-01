@@ -129,7 +129,7 @@ export async function applyInventoryCommand(payload) {
                 return { success: false, error: 'Lista de lote vacía' };
             }
 
-            let updatedList = [...products];
+            const byId = new Map(products.map(p => [p.id, p]));
             const nowIso = new Date().toISOString();
             let appliedCount = 0;
             const failedItems = [];
@@ -137,7 +137,7 @@ export async function applyInventoryCommand(payload) {
             for (const item of items) {
                 const pId = item.productId;
                 const pData = item.data;
-                const existingProd = updatedList.find(p => p.id === pId);
+                const existingProd = byId.get(pId);
                 if (!existingProd || !pData) {
                     failedItems.push({ productId: pId, reason: 'Producto no encontrado en la caja' });
                     continue;
@@ -156,11 +156,12 @@ export async function applyInventoryCommand(payload) {
                 normalized.stock = existingProd.stock;
                 normalized.updatedAt = nowIso;
 
-                updatedList = updatedList.map(p => p.id === pId ? { ...existingProd, ...normalized } : p);
+                byId.set(pId, { ...existingProd, ...normalized });
                 appliedCount++;
             }
 
             if (appliedCount > 0) {
+                const updatedList = products.map(p => byId.get(p.id) || p);
                 await storageService.setItem(PRODUCTS_KEY, updatedList);
                 logEvent('INVENTARIO', 'REMOTO_BATCH_EDIT', `Supervisor editó lote de ${appliedCount} productos (${failedItems.length} fallidos)`);
                 return {

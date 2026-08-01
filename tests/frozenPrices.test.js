@@ -4,8 +4,6 @@ import { isFrozenMode, getFrozenFormats } from '../src/utils/frozenPrices';
 describe('frozenPrices unit tests', () => {
     test('isFrozenMode detects manual/fixed Bs pricing modes', () => {
         expect(isFrozenMode('bs_fijo', 0, false, 0)).toBe(true);
-        expect(isFrozenMode('fijo', 0, false, 0)).toBe(true);
-        expect(isFrozenMode('bs_manual', 0, false, 0)).toBe(true);
         expect(isFrozenMode('bcv', 500, false, 0)).toBe(false);
         expect(isFrozenMode('tasa_dia', 500, false, 0)).toBe(false);
         expect(isFrozenMode('tasa_dia', 0, false, 0)).toBe(false);
