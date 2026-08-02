@@ -26,14 +26,45 @@
  * @param {number} decimals
  * @returns {number}
  */
+// ── GR-5: Tripwire de resultado no finito ────────────────────────────────────
+// Un `NaN` no lanza: se propaga. `calculatePaymentBreakdown` filtra por
+// `total !== 0`, que es `true` para `NaN`, así que un bucket corrupto sobrevive
+// hasta el PDF de cierre sin que nadie lo note. Si una entrada finita produce una
+// salida no finita, es un bug de la primitiva y debe ser ruidoso, nunca silencioso.
+let _nanReportCount = 0;
+const _NAN_REPORT_CAP = 5; // evita inundar la auditoría si el fallo es sistemático
+
+function _tripwire(n, decimals, out) {
+    if (Number.isFinite(out)) return out;
+
+    const msg = `[dinero] Resultado no finito: _shiftRound(${n}, ${decimals}) → ${out}`;
+
+    if (import.meta.env?.DEV) {
+        throw new Error(msg);
+    }
+
+    console.error(msg);
+    if (_nanReportCount < _NAN_REPORT_CAP) {
+        _nanReportCount++;
+        // Import diferido: dinero.js es una hoja y no debe crear un ciclo estático.
+        import('../services/auditService')
+            .then(({ logEvent }) => logEvent('CONFIG', 'DINERO_NON_FINITE', msg, null, { input: String(n), decimals }))
+            .catch(() => { /* la auditoría nunca puede tumbar un cálculo */ });
+    }
+    return 0;
+}
+
 function _shiftRound(n, decimals) {
     if (!Number.isFinite(n)) return 0;
     const sign = n < 0 ? -1 : 1;
     const abs = Math.abs(n);
-    // Si es extremadamente pequeño, redondea a 0 de forma segura
     if (abs < 1e-12) return 0;
-    const shifted = Number(`${abs}e${decimals}`);
-    return sign * Number(`${Math.round(shifted)}e-${decimals}`);
+    const [mantissa, exp = '0'] = abs.toExponential().split('e');
+    const shifted = Number(`${mantissa}e${Number(exp) + decimals}`);
+    const rounded = Math.round(shifted);
+    const [rm, re = '0'] = Math.abs(rounded).toExponential().split('e');
+    const out = sign * Math.sign(rounded) * Number(`${rm}e${Number(re) - decimals}`);
+    return _tripwire(n, decimals, out + 0);   // `+ 0` normaliza -0 → 0
 }
 
 /**
@@ -66,8 +97,14 @@ export const round3 = (n) => _shiftRound(n, 3);
 export const round0 = (n) => _shiftRound(n, 0);
 
 /**
- * Redondea un monto en Bolívares al múltiplo de paso especificado (ej: 10 Bs).
- * Si step <= 0, retorna round2(amount).
+ * Redondea un monto en Bolívares al múltiplo MÁS CERCANO del paso indicado (ej: 10 Bs).
+ *
+ * POLÍTICA OFICIAL de precios en Bs del POS (decisión D-2, confirmada 2026-08-01).
+ * Es bidireccional a propósito: `45 → 50` (+5) pero `44 → 40` (−4). El diferencial
+ * resultante es de signo variable, así que lo que importa es el ACUMULADO del turno,
+ * no el de cada línea — se expone como `bsRoundingDiffBs` en `buildCartTotals`.
+ *
+ * Si step <= 0, retorna round2(amount) sin redondeo de múltiplo.
  * @param {number} n
  * @param {number} step
  * @returns {number}
@@ -79,9 +116,16 @@ export const roundBs = (n, step = 10) => {
 };
 
 /**
- * Redondea hacia +infinito (ceil) a entero.
- * Política del POS para precios en Bolívares (siempre redondear Bs hacia arriba).
- * Reemplaza `Math.ceil` en código financiero.
+ * Redondea hacia +infinito (ceil) a entero. Reemplaza `Math.ceil` en código financiero.
+ *
+ * ⚠️ NO es la política de precios en Bolívares. Esta función existe para los casos
+ * puntuales que sí requieren techo; el redondeo de precios en Bs lo hace `roundBs`,
+ * al múltiplo MÁS CERCANO (decisión D-2, confirmada 2026-08-01).
+ *
+ * El JSDoc anterior afirmaba "siempre redondear Bs hacia arriba", que describe una
+ * política que el sistema no aplica: el camino `tasa_dia` de `calculatePricing` usa
+ * `roundBs`, no `ceilR`. La documentación era el defecto, no el código.
+ *
  * @param {number} n
  * @returns {number}
  */

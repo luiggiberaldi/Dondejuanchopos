@@ -352,12 +352,20 @@ export default function CheckoutModalPOS({
                 });
             }
 
+            // Determinar moneda predominantemente recibida en efectivo para el valor por defecto del vuelto
+            const cashPaidBs = payments.reduce((sum, p) => sum + ((p.methodId === 'efectivo_bs' || p.currency === 'BS') ? (Number(p.amountBs) || 0) : 0), 0);
+            const cashPaidUsdInBs = payments.reduce((sum, p) => sum + ((p.methodId === 'efectivo_usd' || p.currency === 'USD') ? (mulR(Number(p.amountUsd) || 0, tasaSegura)) : 0), 0);
+            const vueltoEnBs = cashPaidBs > cashPaidUsdInBs;
+
+            const defaultChangeUsd = distVueltoUSD ? parseFloat(distVueltoUSD) : (vueltoEnBs ? 0 : cambioUSD);
+            const defaultChangeBs = distVueltoBS ? parseFloat(distVueltoBS) : (vueltoEnBs ? round2(mulR(cambioUSD, tasaSegura)) : 0);
+
             // Total a REGISTRAR: los totales del carrito provienen directamente de
             // FinancialEngine.buildCartTotals (que respeta precios duales y manuales en Bs).
             // Pasar originalTotalUsd y originalTotalBs tal cual garantiza consistencia matemática 100%.
             onConfirmSale(payments, {
-                changeUsdGiven: distVueltoUSD ? parseFloat(distVueltoUSD) : cambioUSD,
-                changeBsGiven: distVueltoBS ? parseFloat(distVueltoBS) : 0,
+                changeUsdGiven: defaultChangeUsd,
+                changeBsGiven: defaultChangeBs,
                 esCredito: modo === 'credito',
                 clienteId: clienteSeleccionado || null,
                 esCashea: casheaActive,

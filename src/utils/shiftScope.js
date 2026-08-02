@@ -8,6 +8,16 @@
 // (el autoconsumo no toca la gaveta), así que aquí no hay que filtrarlo.
 export const TIPOS_CIERRE = ['VENTA', 'VENTA_FIADA', 'VENTA_CASHEA', 'COBRO_DEUDA', 'PAGO_PROVEEDOR', 'GASTO_INTERNO', 'APERTURA_CAJA'];
 
+/**
+ * Predicado oficial para determinar si un movimiento forma parte del flujo de caja.
+ * Excluye movimientos ya cerrados o anulados.
+ */
+export function isCashFlowMovement(sale) {
+    if (!sale || sale.status === 'ANULADA') return false;
+    const tipo = sale.tipo || 'VENTA';
+    return TIPOS_CIERRE.includes(tipo);
+}
+
 /** Apertura que abrió el turno vigente (la única APERTURA_CAJA sin cerrar). */
 export function findOpenApertura(sales) {
     const list = sales || [];

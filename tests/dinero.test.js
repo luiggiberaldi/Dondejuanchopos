@@ -31,6 +31,37 @@ describe('round2 — round-half-away-from-zero con epsilon', () => {
     expect(round2(10.55)).toBe(10.55);
     expect(round2(0)).toBe(0);
   });
+
+  it('F3: no devuelve NaN en fronteras de notación exponencial [1e-12, 1e-6) y abs >= 1e19', () => {
+    // Fronteras bajas
+    expect(round2(1e-13)).toBe(0);
+    expect(round2(1e-12)).toBe(0);
+    expect(round2(1e-7)).toBe(0);
+    expect(round2(5e-7)).toBe(0);
+    expect(round2(1e-6)).toBe(0);
+    expect(round2(0.000005)).toBe(0);
+    expect(round2(-5e-7)).toBe(0);
+
+    // DivR con números pequeños no produce NaN
+    expect(divR(0.05, 100000)).toBe(0);
+    expect(Number.isNaN(divR(0.05, 100000))).toBe(false);
+
+    // Fronteras altas
+    expect(round2(1e18)).toBe(1e18);
+    expect(round2(1e19)).toBe(1e19);
+    expect(round2(1e21)).toBe(1e21);
+    expect(round2(1e22)).toBe(1e22);
+    expect(Number.isNaN(round2(1e21))).toBe(false);
+  });
+
+  it('F3: barrido de no-regresión en rango 1..200.000 con offset .005', () => {
+    for (let i = 1; i <= 2000; i++) {
+      const val = i + 0.005;
+      const rounded = round2(val);
+      expect(Number.isNaN(rounded)).toBe(false);
+      expect(rounded).toBe(round2(i + 0.01));
+    }
+  });
 });
 
 describe('round4 — para tasas y precios unitarios', () => {

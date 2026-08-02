@@ -55,17 +55,34 @@ describe('Checkout y Finanzas con Precios Bs Manuales (Ventas Pure Bs)', () => {
     });
 
     it('buildCartTotals cae a conversión por tasa cuando no hay priceBsManual', () => {
+        // Líneas: 2$ x2 → 90 Bs | 1$ x1 → 45 Bs (a tasa 45)
         const cartItems = [
             { priceUsd: 2, qty: 2 },
             { priceUsd: 1, qty: 1 },
         ];
         const rate = 45;
 
-        const totals = FinancialEngine.buildCartTotals(cartItems, null, rate, 0);
+        // F7: el paso de redondeo se INYECTA como número. El 6º argumento es un escalar,
+        // no un objeto de opciones: pasar `{ bsRoundingStep: 1 }` coercía a NaN y
+        // desactivaba el redondeo, dejando el test en verde por accidente.
+        const conPaso1 = FinancialEngine.buildCartTotals(cartItems, null, rate, 0, 0, 1);
+        expect(conPaso1.subtotalUsd).toBe(5);
+        // Paso 1 Bs: 90 y 45 ya son enteros → 225, la conversión cruda por tasa.
+        expect(conPaso1.subtotalBs).toBe(225);
 
-        expect(totals.subtotalUsd).toBe(5);
-        // Sin manual: Bs por tasa = 5 * 45 = 225
-        expect(totals.subtotalBs).toBe(225);
+        // Paso 10 Bs (el configurado por defecto): 90 → 90, pero 45 → 50 (múltiplo más
+        // cercano, política confirmada D-2) → 230. Es el comportamiento REAL en caja.
+        const conPaso10 = FinancialEngine.buildCartTotals(cartItems, null, rate, 0, 0, 10);
+        expect(conPaso10.subtotalBs).toBe(230);
+
+        // El resultado depende del argumento, no del entorno: misma entrada, mismo número.
+        expect(FinancialEngine.buildCartTotals(cartItems, null, rate, 0, 0, 1).subtotalBs).toBe(225);
+    });
+
+    it('F7: un bsRoundingStep no numérico se rechaza en vez de desactivar el redondeo', () => {
+        const cartItems = [{ priceUsd: 1, qty: 1 }];
+        expect(() => FinancialEngine.buildCartTotals(cartItems, null, 45, 0, 0, { bsRoundingStep: 1 }))
+            .toThrow(/bsRoundingStep inválido/);
     });
 
     it('checkoutProcessor procesa exitosamente una venta 100% en Bs con totales consistentes manuales (inversos)', async () => {

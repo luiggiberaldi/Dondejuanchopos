@@ -83,12 +83,9 @@ export function isLocksSupported() {
  *     return next;
  *   });
  */
-const _activeLocksInThread = new Set();
-
 /**
  * Ejecuta `fn` bajo un lock nombrado. Si navigator.locks no está disponible,
  * cae a un mutex en memoria (con advertencia en consola en dev).
- * Es seguro contra llamadas reentrantes (anidadas) dentro del mismo hilo.
  *
  * @param {string} name - Nombre del lock (ej: 'pos_write_lock').
  * @param {() => Promise<T>} fn - Trabajo crítico a ejecutar bajo exclusión mutua.
@@ -104,40 +101,30 @@ export async function withLock(name, fn, opts = {}) {
     throw new TypeError('[withLock] fn debe ser una función');
   }
 
-  // ── REENTRANCIA: Si este hilo ya posee el cerrojo, ejecutar directamente sin re-bloquear ──
-  if (_activeLocksInThread.has(name)) {
-    return await fn();
-  }
+  const mode = opts.mode === 'shared' ? 'shared' : 'exclusive';
 
-  _activeLocksInThread.add(name);
-  try {
-    const mode = opts.mode === 'shared' ? 'shared' : 'exclusive';
-
-    // Camino rápido: navigator.locks soportado.
-    if (isLocksSupported()) {
-      try {
-        return await navigator.locks.request(name, { mode }, async () => {
-          return await fn();
-        });
-      } catch (err) {
-        if (import.meta.env?.DEV) {
-          console.warn(`[withLock] navigator.locks falló para "${name}", usando fallback:`, err);
-        }
-        return await _memoryMutex(name, fn);
+  // Camino rápido: navigator.locks soportado.
+  if (isLocksSupported()) {
+    try {
+      return await navigator.locks.request(name, { mode }, async () => {
+        return await fn();
+      });
+    } catch (err) {
+      if (import.meta.env?.DEV) {
+        console.warn(`[withLock] navigator.locks falló para "${name}", usando fallback:`, err);
       }
+      return await _memoryMutex(name, fn);
     }
-
-    // Fallback: mutex en memoria.
-    if (opts.fallbackWarning !== false && import.meta.env?.DEV) {
-      console.warn(
-        `[withLock] navigator.locks NO soportado. Usando mutex en memoria para "${name}". ` +
-        `La exclusión mutua NO aplica entre tabs/navegadores.`
-      );
-    }
-    return await _memoryMutex(name, fn);
-  } finally {
-    _activeLocksInThread.delete(name);
   }
+
+  // Fallback: mutex en memoria.
+  if (opts.fallbackWarning !== false && import.meta.env?.DEV) {
+    console.warn(
+      `[withLock] navigator.locks NO soportado. Usando mutex en memoria para "${name}". ` +
+      `La exclusión mutua NO aplica entre tabs/navegadores.`
+    );
+  }
+  return await _memoryMutex(name, fn);
 }
 
 export default withLock;

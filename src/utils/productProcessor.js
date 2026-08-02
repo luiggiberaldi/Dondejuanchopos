@@ -177,6 +177,40 @@ export function normalizeProduct(raw = {}) {
     };
 }
 
+/** Paso de redondeo de Bs por defecto cuando no hay configuración guardada. */
+export const DEFAULT_BS_ROUNDING_STEP = 10;
+
+/**
+ * F7 — Punto ÚNICO donde se resuelve el paso de redondeo de Bs.
+ *
+ * Antes esto vivía embebido en `calculatePricing`, que está documentado como motor
+ * puro pero leía `localStorage` en cada ítem de cada llamada: el resultado dependía
+ * del entorno, no de los argumentos, y por eso los tests no eran reproducibles.
+ *
+ * Además valida el tipo. Un objeto (`{ bsRoundingStep: 1 }`) pasaba antes la guarda
+ * `!== null && !== undefined`, se colaba hasta `activeStep > 0`, coercía a `NaN` y
+ * DESACTIVABA el redondeo en silencio — un test podía quedar en verde por accidente
+ * mientras el parámetro estaba mal.
+ *
+ * @param {number|null|undefined} explicit - Paso inyectado por el llamante.
+ * @returns {number} Paso efectivo (>= 0).
+ */
+export function resolveBsRoundingStep(explicit) {
+    if (explicit !== null && explicit !== undefined) {
+        const n = Number(explicit);
+        if (Number.isFinite(n) && n >= 0) return n;
+
+        const msg = `[productProcessor] bsRoundingStep inválido: ${JSON.stringify(explicit)} (se esperaba un número >= 0)`;
+        if (import.meta.env?.DEV) throw new TypeError(msg);
+        console.error(msg);
+        // En producción NO se adivina: se cae a la configuración guardada.
+    }
+
+    if (typeof localStorage === 'undefined') return DEFAULT_BS_ROUNDING_STEP;
+    const saved = parseInt(localStorage.getItem('bs_rounding_step') || String(DEFAULT_BS_ROUNDING_STEP), 10);
+    return Number.isFinite(saved) && saved >= 0 ? saved : DEFAULT_BS_ROUNDING_STEP;
+}
+
 /**
  * Calcula la estructura completa de cobro para un producto en el carrito (D1, D3, D5).
  */
@@ -186,9 +220,7 @@ export function calculatePricing(product, effectiveRate, bcvRate, format = null,
     let baseUsd = p.priceUsd;
     let mode = p.pricingMode;
 
-    const activeStep = bsRoundingStep !== null && bsRoundingStep !== undefined
-        ? bsRoundingStep
-        : parseInt(typeof localStorage !== 'undefined' ? (localStorage.getItem('bs_rounding_step') || '10') : '10', 10);
+    const activeStep = resolveBsRoundingStep(bsRoundingStep);
 
     if (targetFormat === 'box' && (p.sellByBox || p._mode === 'box') && (p.boxPriceUsd > 0 || p.priceUsd > 0)) {
         baseUsd = p.boxPriceUsd || p.priceUsd;

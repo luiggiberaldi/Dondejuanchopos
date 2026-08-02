@@ -212,8 +212,8 @@ export async function applyInventoryCommand(payload) {
 
             if (normalized.stock > 0) {
                 try {
-                    const { recordKardexMovement } = await import('../services/kardexService');
-                    await recordKardexMovement({
+                    const { recordKardexMovementUnlocked } = await import('../services/kardexService');
+                    await recordKardexMovementUnlocked({
                         productoId: normalized.id,
                         productoNombre: normalized.name,
                         sku: normalized.barcode || normalized.sku || '',
@@ -300,9 +300,9 @@ export async function applyInventoryCommand(payload) {
 
         if (actualQtyChange !== 0) {
             try {
-                const { recordKardexMovement } = await import('../services/kardexService');
+                const { recordKardexMovementUnlocked } = await import('../services/kardexService');
                 const tipoKardex = actualQtyChange > 0 ? (hasTargetStock ? 'AJUSTE' : (delta > 0 ? 'COMPRA' : 'AJUSTE')) : 'AJUSTE';
-                await recordKardexMovement({
+                await recordKardexMovementUnlocked({
                     productoId: existing.id,
                     productoNombre: existing.name,
                     sku: existing.barcode || existing.sku || '',

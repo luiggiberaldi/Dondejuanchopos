@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { findOpenApertura, getOpenShiftMovements, TIPOS_CIERRE } from '../src/utils/shiftScope';
 import { FinancialEngine } from '../src/core/FinancialEngine';
+import { calculateReportsData } from '../src/utils/reportsProcessor';
 
 describe('CC1: shiftScope (Alcance único del turno)', () => {
   it('incluye transacciones antes y después de medianoche dentro del mismo turno', () => {
@@ -38,10 +39,10 @@ describe('CC1: shiftScope (Alcance único del turno)', () => {
 
     const { movements } = getOpenShiftMovements(sales);
     const breakdown = FinancialEngine.calculatePaymentBreakdown(movements);
+    const expectedCash = FinancialEngine.computeExpectedCash(breakdown);
 
-    expect(breakdown['efectivo_usd']).toBeDefined();
     // 100 apertura + 50 venta - 20 gasto = 130 efectivo esperado
-    expect(breakdown['efectivo_usd'].total).toBe(130);
+    expect(expectedCash.usd).toBe(130);
   });
 
   it('GASTO_INTERNO con afectaCaja: false (autoconsumo) entra en movements pero no altera el desglose de efectivo', () => {
@@ -62,7 +63,8 @@ describe('CC1: shiftScope (Alcance único del turno)', () => {
     expect(movements.map(m => m.id)).toContain('2');
 
     const breakdown = FinancialEngine.calculatePaymentBreakdown(movements);
-    expect(breakdown['efectivo_usd'].total).toBe(100);
+    const expectedCash = FinancialEngine.computeExpectedCash(breakdown);
+    expect(expectedCash.usd).toBe(100);
   });
 
   it('separa adecuadamente movimientos huérfanos anteriores a la apertura vigente', () => {
@@ -76,5 +78,21 @@ describe('CC1: shiftScope (Alcance único del turno)', () => {
 
     expect(orphans.map(o => o.id)).toEqual(['old_1']);
     expect(movements.map(m => m.id)).toEqual(['ap_1', 'new_1']);
+  });
+
+  it('F6: dashboard en vivo y reporte histórico producen exactamente el mismo desglose de caja', () => {
+    const sales = [
+      { id: '1', tipo: 'APERTURA_CAJA', timestamp: '2026-07-26T08:00:00.000Z', openingUsd: 100, cajaCerrada: false },
+      { id: '2', tipo: 'VENTA', timestamp: '2026-07-26T09:00:00.000Z', totalUsd: 50, cajaCerrada: false, payments: [{ methodId: 'efectivo_usd', amountUsd: 50, currency: 'USD' }] },
+      { id: '3', tipo: 'GASTO_INTERNO', timestamp: '2026-07-26T10:00:00.000Z', afectaCaja: true, cajaCerrada: false, totalUsd: -20, payments: [{ methodId: 'efectivo_usd', amountUsd: -20, currency: 'USD' }] }
+    ];
+
+    const { movements } = getOpenShiftMovements(sales);
+    const liveBreakdown = FinancialEngine.calculatePaymentBreakdown(movements);
+
+    const reportData = calculateReportsData(sales, '2026-07-26', '2026-07-26', 45, []);
+    const historicalBreakdown = reportData.paymentBreakdown;
+
+    expect(FinancialEngine.computeExpectedCash(liveBreakdown)).toEqual(FinancialEngine.computeExpectedCash(historicalBreakdown));
   });
 });

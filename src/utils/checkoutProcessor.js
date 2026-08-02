@@ -146,8 +146,16 @@ export async function processSaleTransaction({
         copEnabled: copEnabled,
         rateSource: useAutoRate ? 'BCV Auto' : 'Manual',
         timestamp: new Date().toISOString(),
-        changeUsd: tipoVenta !== 'VENTA' ? 0 : round2(changeBreakdown?.changeUsdGiven || 0),
-        changeBs:  tipoVenta !== 'VENTA' ? 0 : round2(changeBreakdown?.changeBsGiven  || 0),
+        changeUsd: round2(changeBreakdown?.changeUsdGiven || 0),
+        changeBs:  round2(changeBreakdown?.changeBsGiven  || 0),
+        changeGiven: {
+            usd: round2(changeBreakdown?.changeUsdGiven || 0),
+            bs:  round2(changeBreakdown?.changeBsGiven  || 0),
+        },
+        // F7: divergencia Bs-vs-USD de esta venta (redondeo al múltiplo más cercano +
+        // precios manuales en Bs). Se persiste para poder sumarla en el cierre: de signo
+        // variable por línea, pero el acumulado del turno sí es una cifra auditable.
+        bsVsUsdDiffBs: round2(totals.bsVsUsdDiffBs || 0),
         // FIN-012: Guardar vueltoParaMonedero para revertir al anular.
         // Por ahora el flujo de checkout no enruta vuelto a favor (siempre 0),
         // pero dejamos el campo para ventas futuras y abonos manuales.
@@ -197,9 +205,9 @@ export async function processSaleTransaction({
         try {
             const deferredItems = cart.filter(i => i.isDeferredConsumption);
             if (deferredItems.length > 0) {
-                const { createSessionFromSale } = await import('../services/consumptionSessionService');
+                const { createSessionFromSaleUnlocked } = await import('../services/consumptionSessionService');
                 for (const dItem of deferredItems) {
-                    await createSessionFromSale(finalPersistedSale, dItem);
+                    await createSessionFromSaleUnlocked(finalPersistedSale, dItem);
                 }
             }
         } catch (deferredErr) {
@@ -293,7 +301,7 @@ export async function processSaleTransaction({
 
         // ── Registro inmutable en Kardex ──
         try {
-            const { recordKardexMovement } = await import('../services/kardexService');
+            const { recordKardexMovementUnlocked } = await import('../services/kardexService');
             for (const item of cart) {
                 let physicalQty = Number(item.qty || item.quantity) || 1;
                 const mode = item._mode || item.mode || 'unit';
@@ -306,7 +314,7 @@ export async function processSaleTransaction({
                 }
                 const qtySold = -physicalQty;
 
-                await recordKardexMovement({
+                await recordKardexMovementUnlocked({
                     productoId: item._originalId || item.id,
                     productoNombre: item.name,
                     sku: item.barcode || item.sku || '',

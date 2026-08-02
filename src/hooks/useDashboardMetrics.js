@@ -48,8 +48,8 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
                     if (!productMap[item.name]) productMap[item.name] = { name: item.name, qty: 0, revenue: 0 };
                     productMap[item.name].qty += item.qty;
                     const prod = products.find(p => p.id === item.id || p.name === item.name);
-                    const effectivePrice = (prod && item.priceUsd > 50 && prod.priceUsdt && parseFloat(prod.priceUsdt) < 20)
-                        ? parseFloat(prod.priceUsdt)
+                    const effectivePrice = (prod && item.priceUsd > 50 && prod.priceUsdt && Number(prod.priceUsdt) < 20)
+                        ? Number(prod.priceUsdt)
                         : item.priceUsd;
                     productMap[item.name].revenue = sumR(productMap[item.name].revenue, mulR(effectivePrice, item.qty));
                 });
@@ -175,8 +175,8 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
                     if (!productSalesMap[item.name]) productSalesMap[item.name] = { name: item.name, qty: 0, revenue: 0 };
                     productSalesMap[item.name].qty += item.qty;
                     const prod = products.find(p => p.id === item.id || p.name === item.name);
-                    const effectivePrice = (prod && item.priceUsd > 50 && prod.priceUsdt && parseFloat(prod.priceUsdt) < 20)
-                        ? parseFloat(prod.priceUsdt)
+                    const effectivePrice = (prod && item.priceUsd > 50 && prod.priceUsdt && Number(prod.priceUsdt) < 20)
+                        ? Number(prod.priceUsdt)
                         : item.priceUsd;
                     productSalesMap[item.name].revenue = sumR(productSalesMap[item.name].revenue, mulR(effectivePrice, item.qty));
                 });
@@ -201,8 +201,8 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
                     if (!todayProductMap[item.name]) todayProductMap[item.name] = { name: item.name, qty: 0, revenue: 0 };
                     todayProductMap[item.name].qty += item.qty;
                     const prod = products.find(p => p.id === item.id || p.name === item.name);
-                    const effectivePrice = (prod && item.priceUsd > 50 && prod.priceUsdt && parseFloat(prod.priceUsdt) < 20)
-                        ? parseFloat(prod.priceUsdt)
+                    const effectivePrice = (prod && item.priceUsd > 50 && prod.priceUsdt && Number(prod.priceUsdt) < 20)
+                        ? Number(prod.priceUsdt)
                         : item.priceUsd;
                     todayProductMap[item.name].revenue = sumR(todayProductMap[item.name].revenue, mulR(effectivePrice, item.qty));
                 });

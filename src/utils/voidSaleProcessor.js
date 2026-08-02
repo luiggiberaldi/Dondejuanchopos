@@ -164,12 +164,12 @@ export async function processVoidSale(sale, currentSales, currentProducts) {
 
         // ── Registro de Devolución en Kardex ──
         try {
-            const { recordKardexMovement } = await import('../services/kardexService');
+            const { recordKardexMovementUnlocked } = await import('../services/kardexService');
             const activeUser = useAuthStore.getState().usuarioActivo;
             for (const [prodId, restoredQty] of Object.entries(restauracionesMap)) {
                 if (restoredQty > 0) {
                     const prod = updatedProducts.find(p => p.id === prodId);
-                    await recordKardexMovement({
+                    await recordKardexMovementUnlocked({
                         productoId: prodId,
                         productoNombre: prod?.name || 'Producto Anulado',
                         sku: prod?.barcode || prod?.sku || '',
@@ -192,10 +192,10 @@ export async function processVoidSale(sale, currentSales, currentProducts) {
 
         // ── Anular Ficha de Consumo Activa si la venta era de consumo diferido ──
         try {
-            const { cancelSessionBySaleId } = await import('../services/consumptionSessionService');
+            const { cancelSessionBySaleIdUnlocked } = await import('../services/consumptionSessionService');
             const activeUser = useAuthStore.getState().usuarioActivo;
             const cajeroNombre = activeUser ? (activeUser.nombre || activeUser.usuario || 'Supervisor') : 'Supervisor';
-            await cancelSessionBySaleId(sale.id, cajeroNombre);
+            await cancelSessionBySaleIdUnlocked(sale.id, cajeroNombre);
         } catch (sessionErr) {
             console.error('[voidSaleProcessor] Error al anular ficha de consumo:', sessionErr);
         }

@@ -130,6 +130,35 @@ export class FinancialEngine {
     }
 
     /**
+     * Integrates opening float (_apertura), change given (_vuelto_*), and gross cash receipts (efectivo_*)
+     * into a single unified expected cash amount per currency.
+     *
+     * @param {Object} breakdown - Breakdown produced by calculatePaymentBreakdown
+     * @returns {{ bs: number, usd: number, cop: number }} Expected physical cash in drawer per currency
+     */
+    static computeExpectedCash(breakdown) {
+        if (!breakdown || typeof breakdown !== 'object') return { bs: 0, usd: 0, cop: 0 };
+
+        const aperturaUsd = round2(breakdown['_apertura']?.openingUsd || breakdown['_apertura']?.usd || 0);
+        const aperturaBs  = round2(breakdown['_apertura']?.openingBs  || breakdown['_apertura']?.bs  || 0);
+        const aperturaCop = round2(breakdown['_apertura']?.openingCop || breakdown['_apertura']?.cop || 0);
+
+        const brutoUsd = round2(breakdown['efectivo_usd']?.total || 0);
+        const brutoBs  = round2(breakdown['efectivo_bs']?.total || 0);
+        const brutoCop = round2(breakdown['efectivo_cop']?.total || 0);
+
+        const vueltoUsd = round2(breakdown['_vuelto_usd']?.total || 0);
+        const vueltoBs  = round2(breakdown['_vuelto_bs']?.total || 0);
+        const vueltoCop = round2(breakdown['_vuelto_cop']?.total || 0);
+
+        return {
+            usd: round2(aperturaUsd + brutoUsd - vueltoUsd),
+            bs:  round2(aperturaBs + brutoBs - vueltoBs),
+            cop: round2(aperturaCop + brutoCop - vueltoCop)
+        };
+    }
+
+    /**
      * Calculates the breakdown of payments received across multiple sales,
      * deducting the change returned (`changeUsd` or `changeBs`) to find the True Net Receipts.
      *
@@ -313,8 +342,21 @@ export class FinancialEngine {
             }
 
             // Deduct outgoing change to find True Net Income
-            let safeChangeUsd = round2(sale.changeUsd || 0);
-            let safeChangeBs = round2(sale.changeBs || 0);
+            let safeChangeUsd = sale.changeGiven ? round2(sale.changeGiven.usd || 0) : round2(sale.changeUsd || 0);
+            let safeChangeBs  = sale.changeGiven ? round2(sale.changeGiven.bs  || 0) : round2(sale.changeBs  || 0);
+
+            // GR-7b: COP guardrail
+            const copEnabledInSale = sale.copEnabled === true;
+            const hasCopPayment = (sale.payments || []).some(p => p.currency === 'COP' || (p.methodId && p.methodId.includes('cop')));
+            const hasCopChange = (sale.changeGiven?.cop > 0) || (sale.changeCop > 0);
+            if (!copEnabledInSale && (hasCopPayment || hasCopChange)) {
+                anomalies.push({
+                    saleId: sale.id,
+                    type: 'UNSUPPORTED_COP_PAYMENT',
+                    severity: 'warning',
+                    message: `Anomalía COP en venta ${sale.id || '(sin id)'}: pago/vuelto en COP detectado con copEnabled=false`
+                });
+            }
 
             // ── ANOMALY DETECTION (FIN-005): collect into array, no mutation of sale ──
             const saleRateForAnomaly = sale.rate
@@ -360,11 +402,17 @@ export class FinancialEngine {
             }
         });
 
-        // Final pass: round all totals strictly and filter out zeroes
+        // Final pass: round all totals strictly and filter out zeroes (preserving metadata buckets starting with _)
         const finalBreakdown = {};
         Object.keys(breakdown).forEach(k => {
+            if (k.startsWith('_')) {
+                finalBreakdown[k] = { ...breakdown[k] };
+                if (typeof breakdown[k].total === 'number') {
+                    finalBreakdown[k].total = round2(breakdown[k].total);
+                }
+                return;
+            }
             const roundedTotal = round2(breakdown[k].total);
-            // Keep vuelto entries even if they are negative (they represent outgoing cash)
             if (roundedTotal !== 0) {
                 finalBreakdown[k] = { ...breakdown[k], total: roundedTotal };
             }
@@ -438,6 +486,20 @@ export class FinancialEngine {
                 : mulR(totalUsd, copRate))
             : 0;
 
+        // ── F7: divergencia entre lo cobrado en Bs y la conversión directa desde USD ──
+        // Con redondeo al múltiplo más cercano (política D-2) esta diferencia es de signo
+        // variable: `45 → 50` suma, `44 → 40` resta. Hasta ahora no se contabilizaba en
+        // ninguna parte, así que era dinero real sin cuenta contable donde caer.
+        //
+        // OJO con el nombre: NO es sólo redondeo. Incluye también los precios manuales en
+        // Bs (`bs_fijo`), que divergen de la tasa a propósito. Se llama por lo que contiene
+        // — la divergencia Bs-vs-USD — y no "diferencial de redondeo", que sería engañoso
+        // en un carrito con precios manuales. Para el arqueo lo que importa es el
+        // ACUMULADO del turno, no el de cada línea.
+        const bsVsUsdDiffBs = bcvRate > 0
+            ? round2(subR(totalBs, mulR(totalUsd, bcvRate)))
+            : 0;
+
         return {
             subtotalUsd,
             subtotalBs,
@@ -445,7 +507,8 @@ export class FinancialEngine {
             discountAmountBs,
             totalUsd,
             totalBs,
-            totalCop
+            totalCop,
+            bsVsUsdDiffBs
         };
     }
 }

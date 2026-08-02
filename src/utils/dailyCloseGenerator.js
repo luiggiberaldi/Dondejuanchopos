@@ -436,15 +436,16 @@ export async function generateDailyClosePDF({
                 if (s.changeUsd > 0) changeParts.push(fmtUsd(s.changeUsd));
                 if (s.changeCop > 0) changeParts.push(`${formatCop(s.changeCop)} COP`);
 
-                if (changeParts.length > 0) {
-                    paymentsText += ` | Vuelto: ${changeParts.join(' + ')}`;
-                }
+                const vueltoText = changeParts.length > 0 ? `↩ Vuelto Entregado: ${changeParts.join(' + ')}` : '';
 
-                const fullDetail = `${itemsText}\n${paymentsText}`;
-                const detailLines = doc.splitTextToSize(fullDetail, 96);
+                const itemsLines = itemsText ? doc.splitTextToSize(itemsText, 96) : [];
+                const paymentsLines = paymentsText ? doc.splitTextToSize(paymentsText, 96) : [];
+                const vueltoLines = vueltoText ? doc.splitTextToSize(vueltoText, 96) : [];
+
+                const totalDetailLinesCount = itemsLines.length + paymentsLines.length + vueltoLines.length;
                 const clienteText = `${numVentaStr ? numVentaStr + '\n' : ''}${cliente}${isCanceled ? '\n(ANULADA)' : ''}`;
                 const clienteLines = doc.splitTextToSize(clienteText, 32);
-                const rowHeight = Math.max(12, detailLines.length * 4.2 + 3, clienteLines.length * 4.2 + 3);
+                const rowHeight = Math.max(12, totalDetailLinesCount * 4.2 + 3, clienteLines.length * 4.2 + 3);
 
                 checkPageBreak(rowHeight);
 
@@ -477,10 +478,28 @@ export async function generateDailyClosePDF({
                     doc.text(clienteLines, M + 18, y);
                 }
 
-                // Detalle
-                doc.setFont('helvetica', 'normal');
-                doc.setTextColor(...MUTED);
-                doc.text(detailLines, M + 54, y);
+                // Renderizar Detalle por secciones con colores diferenciados
+                let currentY = y;
+                if (itemsLines.length > 0) {
+                    doc.setFont('helvetica', 'normal');
+                    doc.setFontSize(7.5);
+                    doc.setTextColor(...BODY);
+                    doc.text(itemsLines, M + 54, currentY);
+                    currentY += itemsLines.length * 4.2;
+                }
+                if (paymentsLines.length > 0) {
+                    doc.setFont('helvetica', 'normal');
+                    doc.setFontSize(7.5);
+                    doc.setTextColor(...MUTED);
+                    doc.text(paymentsLines, M + 54, currentY);
+                    currentY += paymentsLines.length * 4.2;
+                }
+                if (vueltoLines.length > 0) {
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(7.5);
+                    doc.setTextColor(217, 119, 6); // Naranja Ámbar destellante para destacar el Vuelto
+                    doc.text(vueltoLines, M + 54, currentY);
+                }
 
                 // Total
                 doc.setFont('helvetica', 'bold');

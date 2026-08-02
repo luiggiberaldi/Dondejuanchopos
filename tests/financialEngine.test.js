@@ -52,7 +52,7 @@ function resetMockStore() {
 // ════════════════════════════════════════════════════════════════════════
 describe('FinancialEngine.calculatePaymentBreakdown', () => {
 
-    it('FIN-002: apertura COP entra al bucket efectivo_cop', () => {
+    it('FIN-002: apertura entra al bucket metadata _apertura y computeExpectedCash la integra', () => {
         const apertura = {
             id: 'ap1',
             tipo: 'APERTURA_CAJA',
@@ -62,11 +62,15 @@ describe('FinancialEngine.calculatePaymentBreakdown', () => {
             timestamp: new Date().toISOString(),
         };
         const breakdown = FinancialEngine.calculatePaymentBreakdown([apertura]);
-        expect(breakdown['efectivo_usd'].total).toBe(50);
-        expect(breakdown['efectivo_bs'].total).toBe(1000);
-        // FIN-002: antes este bucket no existía. Ahora sí.
-        expect(breakdown['efectivo_cop']).toBeDefined();
-        expect(breakdown['efectivo_cop'].total).toBe(50000);
+        expect(breakdown['_apertura']).toBeDefined();
+        expect(breakdown['_apertura'].openingUsd).toBe(50);
+        expect(breakdown['_apertura'].openingBs).toBe(1000);
+        expect(breakdown['_apertura'].openingCop).toBe(50000);
+
+        const expectedCash = FinancialEngine.computeExpectedCash(breakdown);
+        expect(expectedCash.usd).toBe(50);
+        expect(expectedCash.bs).toBe(1000);
+        expect(expectedCash.cop).toBe(50000);
     });
 
     it('FIN-004: VENTA_FIADA usa sale.fiadoUsd (no totalUsd) y procesa pagos reales', () => {

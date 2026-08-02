@@ -141,14 +141,17 @@ export function useGastosInternos({ bcvRate, tasaCop, copEnabled, triggerHaptic,
             await storageService.setItem(SALES_KEY, updatedSales);
 
             // 5. Registro inmutable en Kardex
+            // F1: ya estamos DENTRO de withLock('pos_write_lock'); usar la variante sin
+            // cerrojo. La fachada `recordKardexMovement` volvería a pedir el mismo cerrojo
+            // y, al no existir ya el guard de reentrancia, produciría un auto-deadlock.
             try {
-                const { recordKardexMovement } = await import('../services/kardexService');
+                const { recordKardexMovementUnlocked } = await import('../services/kardexService');
                 const user = useAuthStore.getState().usuarioActivo;
                 for (const item of items) {
                     const prod = freshProducts.find(p => p.id === item.id);
                     const stockBefore = Number(prod?.stock) || 0;
                     const stockAfter = Math.max(0, stockBefore - item.qty);
-                    await recordKardexMovement({
+                    await recordKardexMovementUnlocked({
                         productoId: item.id,
                         productoNombre: item.name,
                         sku: prod?.barcode || prod?.sku || '',
@@ -204,14 +207,15 @@ export function useGastosInternos({ bcvRate, tasaCop, copEnabled, triggerHaptic,
                 });
                 await storageService.setItem(PRODUCTS_KEY, restored);
 
+                // F1: dentro de withLock('pos_write_lock') → variante sin cerrojo.
                 try {
-                    const { recordKardexMovement } = await import('../services/kardexService');
+                    const { recordKardexMovementUnlocked } = await import('../services/kardexService');
                     const user = useAuthStore.getState().usuarioActivo;
                     for (const item of targetGasto.items) {
                         const prod = freshProducts.find(p => p.id === item.id);
                         const stockBefore = Number(prod?.stock) || 0;
                         const stockAfter = stockBefore + item.qty;
-                        await recordKardexMovement({
+                        await recordKardexMovementUnlocked({
                             productoId: item.id,
                             productoNombre: item.name,
                             sku: prod?.barcode || prod?.sku || '',

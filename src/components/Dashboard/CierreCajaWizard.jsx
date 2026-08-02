@@ -3,6 +3,7 @@ import { X, ChevronRight, DollarSign, Wallet, CheckCircle2, AlertTriangle, Trend
 import { formatBs, formatCop } from '../../utils/calculatorUtils';
 import { getPaymentLabel, getPaymentIcon, toTitleCase } from '../../config/paymentMethods';
 import { round2, subR, mulR } from '../../utils/dinero';
+import { FinancialEngine } from '../../core/FinancialEngine';
 // FIN-028: semáforo de cierre ahora considera las tres monedas con tolerancias explícitas.
 import { FINANCIAL_EPSILON } from '../../utils/securityConstants';
 
@@ -51,14 +52,10 @@ export default function CierreCajaWizard({
 
     if (!isOpen) return null;
 
-    const aptData = paymentBreakdown['_apertura'] || {};
-    const openingUsd = aptData.openingUsd || apertura?.openingUsd || apertura?.montoUsd || 0;
-    const openingBs = aptData.openingBs || apertura?.openingBs || apertura?.montoBs || 0;
-    const openingCop = aptData.openingCop || apertura?.openingCop || apertura?.montoCop || 0;
-
-    const expectedUsd = round2((paymentBreakdown['efectivo_usd']?.total || 0) + openingUsd - (paymentBreakdown['_vuelto_usd']?.total || 0));
-    const expectedBs = round2((paymentBreakdown['efectivo_bs']?.total || 0) + openingBs - (paymentBreakdown['_vuelto_bs']?.total || 0));
-    const expectedCop = round2((paymentBreakdown['efectivo_cop']?.total || 0) + openingCop);
+    const expectedCash = FinancialEngine.computeExpectedCash(paymentBreakdown);
+    const expectedUsd = expectedCash.usd;
+    const expectedBs = expectedCash.bs;
+    const expectedCop = expectedCash.cop;
 
     const declaredUsd = round2(parseFloat(actualUsd) || 0);
     const declaredBs = round2(parseFloat(actualBs) || 0);

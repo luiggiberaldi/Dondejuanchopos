@@ -1,6 +1,7 @@
 import { FinancialEngine } from '../core/FinancialEngine';
 import { getLocalISODate } from './dateHelpers';
 import { mulR, sumR, round2 } from './dinero';
+import { isCashFlowMovement } from './shiftScope';
 
 export function calculateReportsData(allSales, from, to, bcvRate, products) {
     // Ventas de Mercancía (para Totales, Profit, Top Productos)
@@ -10,12 +11,10 @@ export function calculateReportsData(allSales, from, to, bcvRate, products) {
         return dateStr >= from && dateStr <= to;
     });
 
-    // Flujo de Dinero (para Desglose de Pagos, incluye pagos de deudas)
+    // Flujo de Dinero (para Desglose de Pagos, usa el predicado unificado isCashFlowMovement)
     const salesForCashFlow = allSales.filter(s => {
-        if (s.status === 'ANULADA') return false;
-        if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'VENTA_CASHEA' && s.tipo !== 'COBRO_DEUDA' && s.tipo !== 'PAGO_PROVEEDOR') return false;
         const dateStr = getLocalISODate(new Date(s.timestamp));
-        return dateStr >= from && dateStr <= to;
+        return dateStr >= from && dateStr <= to && isCashFlowMovement(s);
     });
 
     const historySales = allSales.filter(s => {
@@ -103,7 +102,7 @@ export function groupSalesByCierreId(allSales, from, to) {
 
             // Filtrar para métricas generales (stats) y flujo de caja (cashflow)
             const salesForStats = c.sales.filter(s => s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA');
-            const salesForCashFlow = c.sales.filter(s => s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA' || s.tipo === 'COBRO_DEUDA' || s.tipo === 'PAGO_PROVEEDOR');
+            const salesForCashFlow = c.sales.filter(s => isCashFlowMovement(s));
 
             const totalUsd = sumR(salesForStats.map(s => s.totalUsd || 0));
             const totalBs = sumR(salesForStats.map(s => s.totalBs || 0));

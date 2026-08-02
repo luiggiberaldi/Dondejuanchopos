@@ -32,6 +32,7 @@ import ModularComboPickerModal from '../components/Sales/ModularComboPickerModal
 import DeferredConsumptionModal from '../components/Sales/DeferredConsumptionModal';
 import { getActiveSessions } from '../services/consumptionSessionService';
 import { getLocalISODate } from '../utils/dateHelpers';
+import { getOpenShiftMovements } from '../utils/shiftScope';
 import AperturaCajaModal from '../components/Dashboard/AperturaCajaModal';
 
 import ConfirmModal from '../components/ConfirmModal';
@@ -319,17 +320,9 @@ export default function SalesView({ triggerHaptic, isActive }) {
 
     // ── Current cash float (for soft change warning in CheckoutModal) ──
     const currentFloat = useMemo(() => {
-        const todayStr = getLocalISODate(new Date());
-        const todayOpen = salesData.filter(s => {
-            if (s.cajaCerrada) return false;
-            const saleDay = s.timestamp ? getLocalISODate(new Date(s.timestamp)) : todayStr;
-            return saleDay === todayStr;
-        });
-        const bd = FinancialEngine.calculatePaymentBreakdown(todayOpen);
-        return {
-            usd: bd['efectivo_usd']?.total ?? 0,
-            bs:  bd['efectivo_bs']?.total  ?? 0,
-        };
+        const { movements } = getOpenShiftMovements(salesData);
+        const bd = FinancialEngine.calculatePaymentBreakdown(movements);
+        return FinancialEngine.computeExpectedCash(bd);
     }, [salesData]);
 
     const cartItemCount = cart.reduce((sum, item) => sum + item.qty, 0);

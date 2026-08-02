@@ -11,11 +11,11 @@ const KARDEX_SNAPSHOTS_KEY = 'bodega_kardex_snapshots_v1';
 const PRODUCTS_KEY = 'bodega_products_v1';
 
 /**
- * Registra un nuevo movimiento de Kardex en IndexedDB dentro del cerrojo de concurrencia withLock.
+ * Registra un nuevo movimiento de Kardex en IndexedDB (versión interna sin cerrojo para evitar reentrancia).
  * @param {Object} params - Datos del movimiento
  * @returns {Promise<{ success: boolean, movement?: Object, error?: string, duplicated?: boolean }>}
  */
-export async function recordKardexMovement(params) {
+export async function recordKardexMovementUnlocked(params) {
     const {
         deviceId = localStorage.getItem('dj_device_id') || 'CAJA_PRINCIPAL',
         sucursalId = 'principal',
@@ -46,77 +46,86 @@ export async function recordKardexMovement(params) {
     const numQty = Number(cantidad);
     if (isNaN(numQty) || numQty === 0) return { success: false, error: 'cantidad inválida (debe ser distinta de 0)' };
 
-    return await withLock('pos_write_lock', async () => {
-        try {
-            const kardex = await storageService.getItem(KARDEX_KEY, []) || [];
-            const products = await storageService.getItem(PRODUCTS_KEY, []) || [];
+    try {
+        const kardex = await storageService.getItem(KARDEX_KEY, []) || [];
+        const products = await storageService.getItem(PRODUCTS_KEY, []) || [];
 
-            // ── Guardián de Idempotencia por Referencia ──────────────────
-            if (referenciaId && referenciaTipo) {
-                const existing = kardex.find(m =>
-                    m &&
-                    m.referencia_id === referenciaId &&
-                    m.referencia_tipo === referenciaTipo &&
-                    m.producto_id === productoId
-                );
-                if (existing) {
-                    console.log(`[KardexService] Movimiento duplicado omitido por idempotencia (${referenciaTipo}:${referenciaId}:${productoId})`);
-                    return { success: true, movement: existing, duplicated: true };
-                }
+        // ── Guardián de Idempotencia por Referencia ──────────────────
+        if (referenciaId && referenciaTipo) {
+            const existing = kardex.find(m =>
+                m &&
+                m.referencia_id === referenciaId &&
+                m.referencia_tipo === referenciaTipo &&
+                m.producto_id === productoId
+            );
+            if (existing) {
+                console.log(`[KardexService] Movimiento duplicado omitido por idempotencia (${referenciaTipo}:${referenciaId}:${productoId})`);
+                return { success: true, movement: existing, duplicated: true };
             }
-
-            const targetProd = products.find(p => p.id === productoId);
-            const pName = productoNombre || targetProd?.name || 'Producto Desconocido';
-            const pSku = sku || targetProd?.barcode || targetProd?.sku || '';
-            const pUnit = unidad || targetProd?.unit || 'unidad';
-            const unitCost = Number(costoUnitario || targetProd?.costUsd || targetProd?.cost || 0);
-
-            // Re-leer stock actual fresco desde el producto
-            const stockAntes = Number(targetProd?.stock) || 0;
-            const stockDespues = stockAntes + numQty;
-
-            const movement = {
-                id: crypto.randomUUID(),
-                device_id: deviceId,
-                sucursal_id: sucursalId,
-                producto_id: productoId,
-                sku: pSku,
-                producto_nombre: pName,
-                tipo,
-                subtipo,
-                cantidad: numQty,
-                unidad: pUnit,
-                stock_antes: stockAntes,
-                stock_despues: stockDespues,
-                costo_unitario: unitCost,
-                costo_total: Math.round(Math.abs(numQty) * unitCost * 100) / 100,
-                moneda,
-                referencia_id: referenciaId,
-                referencia_tipo: referenciaTipo,
-                referencia_numero: referenciaNumero,
-                cierre_id: cierreId,
-                turno_id: turnoId,
-                usuario_id: usuarioId,
-                usuario_nombre: usuarioNombre,
-                supervisor_id: supervisorId,
-                motivo,
-                observaciones,
-                metadata,
-                created_at: new Date().toISOString()
-            };
-
-            const updatedKardex = [movement, ...kardex];
-            await storageService.setItem(KARDEX_KEY, updatedKardex);
-            queueCloudSync(KARDEX_KEY, updatedKardex);
-
-            window.dispatchEvent(new CustomEvent('kardex_movement_recorded', { detail: movement }));
-            logEvent('KARDEX', `MOVIMIENTO_${tipo}`, `${tipo} de ${numQty > 0 ? '+' : ''}${numQty} u en "${pName}" (Stock: ${stockAntes} → ${stockDespues})`);
-
-            return { success: true, movement };
-        } catch (err) {
-            console.error('[KardexService] Error al registrar movimiento:', err);
-            return { success: false, error: err?.message || 'Error al guardar movimiento de Kardex' };
         }
+
+        const targetProd = products.find(p => p.id === productoId);
+        const pName = productoNombre || targetProd?.name || 'Producto Desconocido';
+        const pSku = sku || targetProd?.barcode || targetProd?.sku || '';
+        const pUnit = unidad || targetProd?.unit || 'unidad';
+        const unitCost = Number(costoUnitario || targetProd?.costUsd || targetProd?.cost || 0);
+
+        // Re-leer stock actual fresco desde el producto
+        const stockAntes = Number(targetProd?.stock) || 0;
+        const stockDespues = stockAntes + numQty;
+
+        const movement = {
+            id: crypto.randomUUID(),
+            device_id: deviceId,
+            sucursal_id: sucursalId,
+            producto_id: productoId,
+            sku: pSku,
+            producto_nombre: pName,
+            tipo,
+            subtipo,
+            cantidad: numQty,
+            unidad: pUnit,
+            stock_antes: stockAntes,
+            stock_despues: stockDespues,
+            costo_unitario: unitCost,
+            costo_total: Math.round(Math.abs(numQty) * unitCost * 100) / 100,
+            moneda,
+            referencia_id: referenciaId,
+            referencia_tipo: referenciaTipo,
+            referencia_numero: referenciaNumero,
+            cierre_id: cierreId,
+            turno_id: turnoId,
+            usuario_id: usuarioId,
+            usuario_nombre: usuarioNombre,
+            supervisor_id: supervisorId,
+            motivo,
+            observaciones,
+            metadata,
+            created_at: new Date().toISOString()
+        };
+
+        const updatedKardex = [movement, ...kardex];
+        await storageService.setItem(KARDEX_KEY, updatedKardex);
+        queueCloudSync(KARDEX_KEY, updatedKardex);
+
+        window.dispatchEvent(new CustomEvent('kardex_movement_recorded', { detail: movement }));
+        logEvent('KARDEX', `MOVIMIENTO_${tipo}`, `${tipo} de ${numQty > 0 ? '+' : ''}${numQty} u en "${pName}" (Stock: ${stockAntes} → ${stockDespues})`);
+
+        return { success: true, movement };
+    } catch (err) {
+        console.error('[KardexService] Error al registrar movimiento:', err);
+        return { success: false, error: err?.message || 'Error al guardar movimiento de Kardex' };
+    }
+}
+
+/**
+ * Registra un nuevo movimiento de Kardex en IndexedDB dentro del cerrojo de concurrencia withLock.
+ * @param {Object} params - Datos del movimiento
+ * @returns {Promise<{ success: boolean, movement?: Object, error?: string, duplicated?: boolean }>}
+ */
+export async function recordKardexMovement(params) {
+    return await withLock('pos_write_lock', async () => {
+        return await recordKardexMovementUnlocked(params);
     });
 }
 

@@ -57,7 +57,7 @@ export function useCheckoutCalculations({
     const [casheaPercent, setCasheaPercent] = useState(60);
 
     const casheaEnabled = localStorage.getItem('cashea_enabled') === 'true';
-    const casheaMinAmount = parseFloat(localStorage.getItem('cashea_min_amount') || '0') || 0;
+    const casheaMinAmount = CurrencyService.safeParse(localStorage.getItem('cashea_min_amount') || '0') || 0;
     const casheaMeetsMinimum = casheaMinAmount <= 0 || dynamicTotalUsd >= casheaMinAmount;
 
     // FIN-009 / FIN-033: detectar tasa inválida y exponer flag para que la UI bloquee.
@@ -170,8 +170,11 @@ export function useCheckoutCalculations({
             });
         }
 
-        const defaultUsdChange = (!changeUsdGiven && !changeBsGiven) ? changeUsd : round2(CurrencyService.safeParse(changeUsdGiven));
-        const defaultBsChange  = (!changeUsdGiven && !changeBsGiven) ? changeBs  : round2(CurrencyService.safeParse(changeBsGiven));
+        const hasCustomUsd = changeUsdGiven !== undefined && changeUsdGiven !== null && changeUsdGiven !== '';
+        const hasCustomBs  = changeBsGiven !== undefined && changeBsGiven !== null && changeBsGiven !== '';
+
+        const defaultUsdChange = hasCustomUsd ? round2(CurrencyService.safeParse(changeUsdGiven)) : (isPureBsPayment ? 0 : changeUsd);
+        const defaultBsChange  = hasCustomBs  ? round2(CurrencyService.safeParse(changeBsGiven))  : (isPureBsPayment ? changeBs : 0);
         
         onConfirmSale(payments, {
             changeUsdGiven: Math.min(defaultUsdChange, changeUsd),
