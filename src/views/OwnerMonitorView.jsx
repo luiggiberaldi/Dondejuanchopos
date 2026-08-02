@@ -1426,7 +1426,10 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         });
 
         // Formatear cada grupo combinando datos explícitos de arqueo si existen
-        return Object.values(groups).map(g => {
+        return Object.values(groups).filter(g => {
+            const explicit = explicitCloses.find(ec => ec.cierreId === g.cierreId || ec.timestamp === g.timestamp);
+            return explicit || g.sales.some(s => s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA');
+        }).map(g => {
             const explicit = explicitCloses.find(ec => ec.cierreId === g.cierreId || ec.timestamp === g.timestamp);
             
             // Filtrar para métricas generales y de caja
