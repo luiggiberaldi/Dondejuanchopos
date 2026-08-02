@@ -1274,12 +1274,9 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         const activeFlow = getOpenShiftMovements(sales).movements.filter(s => s.tipo !== 'APERTURA_CAJA');
 
         activeFlow.forEach(sale => {
-            if (sale.changeBs && Number(sale.changeBs) > 0) {
-                totalVueltoBs += Number(sale.changeBs);
-            }
-            if (sale.changeUsd && Number(sale.changeUsd) > 0) {
-                totalVueltoUsd += Number(sale.changeUsd);
-            }
+            const { changeUsd, changeBs } = getSaleChangeDetails(sale, products, effectiveRate, bcvRate);
+            if (changeBs > 0) totalVueltoBs += changeBs;
+            if (changeUsd > 0) totalVueltoUsd += changeUsd;
 
             if (sale.tipo === 'VENTA_FIADA') {
                 if (!breakdown['fiado']) {
