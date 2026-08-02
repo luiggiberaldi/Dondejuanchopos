@@ -26,6 +26,7 @@ import { mulR, round2 } from '../utils/dinero';
 import { getLocalISODate, getDateRange } from '../utils/dateHelpers';
 import { getPaymentLabel, toTitleCase } from '../config/paymentMethods';
 import { findOpenApertura, getOpenShiftMovements } from '../utils/shiftScope';
+import { FinancialEngine } from '../core/FinancialEngine';
 
 // Helper: icon por método de pago
 const PAYMENT_METHOD_ICONS = {
@@ -1289,6 +1290,19 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             });
     }, [sales, activeShiftApertura, effectiveRate, bcvRate]);
 
+    // Cálculo exacto del Efectivo Físico Esperado en Gaveta mediante FinancialEngine (Arqueo Teórico de Caja en Vivo)
+    const activeShiftExpectedCash = useMemo(() => {
+        const openMovements = getOpenShiftMovements(sales).movements;
+        const breakdown = FinancialEngine.calculatePaymentBreakdown(openMovements);
+        const expected = FinancialEngine.computeExpectedCash(breakdown);
+
+        return {
+            expectedBs: Math.max(0, round2(expected.bs || 0)),
+            expectedUsd: Math.max(0, round2(expected.usd || 0)),
+            expectedCop: Math.max(0, round2(expected.cop || 0))
+        };
+    }, [sales]);
+
     // Ticket promedio del turno activo
     const activeShiftAvgTicket = useMemo(() => {
         if (activeShiftSales.length === 0) return 0;
@@ -1800,6 +1814,57 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                     </button>
                                 </div>
                             )}
+                        </div>
+
+                        {/* Banner de Efectivo Esperado en Gaveta (Cuadre Teórico de Caja en Vivo) */}
+                        <div className="bg-white dark:bg-slate-900 border border-emerald-500/30 dark:border-emerald-800/60 p-3.5 sm:p-4 rounded-2xl shadow-sm flex flex-col gap-2.5">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-black shrink-0">
+                                        <Wallet size={18} />
+                                    </div>
+                                    <div>
+                                        <h4 className="font-black text-xs sm:text-sm text-slate-800 dark:text-white leading-tight">
+                                            Efectivo Esperado en Gaveta
+                                        </h4>
+                                        <p className="text-[10px] sm:text-[11px] text-slate-400 font-medium leading-none mt-0.5">
+                                            Saldo físico teórico que debe existir en billetes para el cuadre de caja
+                                        </p>
+                                    </div>
+                                </div>
+                                <span className="text-[9px] font-black uppercase text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-300 dark:border-emerald-800">
+                                    Arqueo en Vivo
+                                </span>
+                            </div>
+
+                            {/* Cajas de Saldo Físico Teórico */}
+                            <div className="grid grid-cols-2 gap-2.5 pt-1">
+                                {/* Efectivo Esperado en Bs */}
+                                <div className="bg-emerald-50/70 dark:bg-emerald-950/30 p-2.5 sm:p-3 rounded-xl border border-emerald-200/80 dark:border-emerald-800/40 flex flex-col justify-between">
+                                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
+                                        En Billetes Bs
+                                    </span>
+                                    <span className="font-outfit text-base sm:text-lg lg:text-xl font-black text-emerald-700 dark:text-emerald-400 tabular-nums leading-tight mt-1">
+                                        {formatBs(activeShiftExpectedCash.expectedBs)} Bs
+                                    </span>
+                                    <span className="text-[8.5px] text-emerald-600/80 dark:text-emerald-400/70 font-bold block mt-1">
+                                        Apertura + Cobros Bs - Vueltos
+                                    </span>
+                                </div>
+
+                                {/* Efectivo Esperado en USD ($) */}
+                                <div className="bg-blue-50/70 dark:bg-blue-950/30 p-2.5 sm:p-3 rounded-xl border border-blue-200/80 dark:border-blue-800/40 flex flex-col justify-between">
+                                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-blue-800 dark:text-blue-300">
+                                        En Billetes ($)
+                                    </span>
+                                    <span className="font-outfit text-base sm:text-lg lg:text-xl font-black text-blue-700 dark:text-blue-400 tabular-nums leading-tight mt-1">
+                                        ${activeShiftExpectedCash.expectedUsd.toFixed(2)}
+                                    </span>
+                                    <span className="text-[8.5px] text-blue-600/80 dark:text-blue-400/70 font-bold block mt-1">
+                                        Apertura + Cobros $ - Vueltos
+                                    </span>
+                                </div>
+                            </div>
                         </div>
 
                         {/* Fila 1: Tarjetas de Métricas de Turno Activo */}
