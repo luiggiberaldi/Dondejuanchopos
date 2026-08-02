@@ -104,15 +104,21 @@ function getFormattedSaleCode(sale) {
     return `#${sale.id ? sale.id.slice(-6).toUpperCase() : ''}`;
 }
 
-export function getSaleChangeDetails(sale) {
+export function getSaleChangeDetails(sale, products = [], effectiveRate = 1, bcvRate = 1) {
     if (!sale) return { changeUsd: 0, changeBs: 0, hasChange: false };
+
+    // 1. Si los campos de vuelto vienen explícitos en el objeto de venta, usarlos directamente
+    const hasExplicitChangeUsd = sale.changeUsd !== undefined || sale.changeGiven?.usd !== undefined;
+    const hasExplicitChangeBs = sale.changeBs !== undefined || sale.changeGiven?.bs !== undefined;
 
     let changeUsd = Number(sale.changeUsd) || Number(sale.changeGiven?.usd) || 0;
     let changeBs = Number(sale.changeBs) || Number(sale.changeGiven?.bs) || 0;
 
-    if (changeUsd === 0 && changeBs === 0 && Array.isArray(sale.payments)) {
+    // 2. Si no vienen explícitos y hay desglose de pagos, verificar si algún pago individual o suma supera el total real
+    if (!hasExplicitChangeUsd && !hasExplicitChangeBs && Array.isArray(sale.payments) && sale.payments.length > 0) {
         let totalPaidUsd = 0;
         let totalPaidBs = 0;
+
         sale.payments.forEach(p => {
             if (p.currency === 'USD' || (p.methodId && p.methodId.includes('usd'))) {
                 totalPaidUsd += Number(p.amountUsd || p.amountInput || 0);
@@ -121,11 +127,14 @@ export function getSaleChangeDetails(sale) {
             }
         });
 
-        if (totalPaidUsd > (sale.totalUsd || 0) + 0.009) {
-            changeUsd = round2(totalPaidUsd - (sale.totalUsd || 0));
+        const effectiveTotalBs = getEffectiveSaleTotalBs(sale, products, effectiveRate, bcvRate);
+        const totalUsd = Number(sale.totalUsd) || 0;
+
+        if (totalPaidUsd > totalUsd + 0.009) {
+            changeUsd = round2(totalPaidUsd - totalUsd);
         }
-        if (totalPaidBs > (sale.totalBs || 0) + 0.5) {
-            changeBs = round2(totalPaidBs - (sale.totalBs || 0));
+        if (effectiveTotalBs > 0 && totalPaidBs > effectiveTotalBs + 0.5) {
+            changeBs = round2(totalPaidBs - effectiveTotalBs);
         }
     }
 
