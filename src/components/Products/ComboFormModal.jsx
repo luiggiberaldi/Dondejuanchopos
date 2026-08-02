@@ -6,6 +6,7 @@ import { calculateComboStock } from '../../utils/productProcessor';
 import PricingModeSelector from './PricingModeSelector';
 import { derivePricingMode } from '../../hooks/useProductForm';
 import { calcUsdFromBs } from '../../utils/calculatorUtils';
+import { matchProductSearch } from '../../utils/searchUtils';
 
 export default function ComboFormModal({
     isOpen,
@@ -74,9 +75,8 @@ export default function ComboFormModal({
     // ── Búsqueda de productos ──
     const searchResults = useMemo(() => {
         if (!debouncedSearch.trim()) return [];
-        const term = debouncedSearch.toLowerCase();
         return nonComboProducts
-            .filter(p => !alreadyAddedIds.has(p.id) && p.name.toLowerCase().includes(term))
+            .filter(p => !alreadyAddedIds.has(p.id) && matchProductSearch(p, debouncedSearch))
             .slice(0, 8);
     }, [debouncedSearch, nonComboProducts, alreadyAddedIds]);
 
@@ -705,7 +705,7 @@ export default function ComboFormModal({
                                             const filteredAvailable = nonComboProducts.filter(p => {
                                                 if (allowedIds.includes(p.id)) return false;
                                                 if (!groupSearch) return true;
-                                                return p.name.toLowerCase().includes(groupSearch);
+                                                return matchProductSearch(p, groupSearch);
                                             });
 
                                             return (

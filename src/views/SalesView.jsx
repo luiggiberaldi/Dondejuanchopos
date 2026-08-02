@@ -5,6 +5,7 @@ import { FinancialEngine } from '../core/FinancialEngine';
 import { storageService } from '../utils/storageService';
 import { CurrencyService } from '../services/CurrencyService';
 import { round2, divR } from '../utils/dinero';
+import { matchProductSearch } from '../utils/searchUtils';
 import { useSounds } from '../hooks/useSounds';
 import { useVoiceSearch } from '../hooks/useVoiceSearch';
 import { useNotifications } from '../hooks/useNotifications';
@@ -281,16 +282,10 @@ export default function SalesView({ triggerHaptic, isActive }) {
     const deferredSearchTerm = useDeferredValue(searchTerm);
 
     const searchResults = useMemo(() => {
-        if (deferredSearchTerm.length < 1) return [];
-        const normalizedTerm = deferredSearchTerm.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-
-        return products.filter(p => {
-            if (p.barcode?.includes(deferredSearchTerm)) return true;
-            if (p.sellByBox && p.boxBarcode?.includes(deferredSearchTerm)) return true;
-            if (p.sellByHalfBox && p.halfBoxBarcode?.includes(deferredSearchTerm)) return true;
-            const normalizedName = p.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-            return normalizedName.includes(normalizedTerm);
-        }).slice(0, 6);
+        if (!deferredSearchTerm || !deferredSearchTerm.trim()) return [];
+        return products
+            .filter(p => matchProductSearch(p, deferredSearchTerm))
+            .slice(0, 6);
     }, [deferredSearchTerm, products]);
 
     const filteredByCategory = useMemo(() => selectedCategory === 'todos'

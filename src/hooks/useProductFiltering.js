@@ -1,15 +1,13 @@
 import { useMemo, useDeferredValue } from 'react';
+import { matchProductSearch } from '../utils/searchUtils';
 
 export function useProductFiltering(products, searchTerm, activeCategory, sortField, sortDir, effectiveRate) {
     const deferredSearchTerm = useDeferredValue(searchTerm);
 
     const filteredProducts = useMemo(() => {
         let result = products.filter(p => {
-            const term = deferredSearchTerm.toLowerCase();
-            const matchesSearch = p.name.toLowerCase().includes(term) || 
-                (p.barcode && p.barcode.toLowerCase().includes(term)) ||
-                (p.sellByBox && p.boxBarcode && p.boxBarcode.toLowerCase().includes(term)) ||
-                (p.sellByHalfBox && p.halfBoxBarcode && p.halfBoxBarcode.toLowerCase().includes(term));
+            const hasTerm = Boolean(deferredSearchTerm && deferredSearchTerm.trim());
+            const matchesSearch = hasTerm ? matchProductSearch(p, deferredSearchTerm) : true;
             if (activeCategory === 'bajo-stock') {
                 return matchesSearch && (p.stock ?? 0) <= (p.lowStockAlert ?? 5);
             }
