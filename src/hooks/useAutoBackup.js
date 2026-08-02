@@ -64,7 +64,7 @@ export function useAutoBackup(isPremium, isDemo, deviceId) {
                 const fullBackup = {
                     timestamp: new Date().toISOString(),
                     version: '2.0',
-                    appName: 'TasasAlDia_Bodegas',
+                    appName: 'Donde_Juancho_POS',
                     device: navigator.userAgent?.substring(0, 80),
                     data: { idb: idbData, ls: lsData }
                 };

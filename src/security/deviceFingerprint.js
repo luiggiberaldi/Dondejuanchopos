@@ -17,8 +17,8 @@
  */
 
 const FP_HASH_LENGTH = 32; // 32 hex chars = 128 bits (antes 8 = 32 bits).
-const FP_PREFIX = 'PDA-';
-const FP_PREFIX_V2 = 'PDA-V2-';
+const FP_PREFIX = 'DJ-';
+const FP_PREFIX_V2 = 'DJ-V2-';
 
 /**
  * Genera una representación estable del User Agent (OS y Navegador, sin versiones de parche/menor).
@@ -57,7 +57,7 @@ function _getSalt() {
     const envSalt = (typeof import.meta !== 'undefined'
         && import.meta.env
         && import.meta.env.VITE_LICENSE_SALT) || '';
-    return envSalt || 'PDA_FP_SALT_2026_DEFAULT';
+    return envSalt || 'DONDE_JUANCHO_FP_SALT_2026';
 }
 
 /**

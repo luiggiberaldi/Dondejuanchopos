@@ -7,8 +7,8 @@ import { useLicenseMonitoring } from './useLicenseMonitoring';
 import { useDemoCountdown } from './useDemoCountdown';
 import { LICENSE_POLICY } from '../utils/securityConstants';
 
-const APP_VERSION = '1.0.0';
-const PRODUCT_ID = 'bodega';
+const APP_VERSION = '1.1.0';
+const PRODUCT_ID = 'donde_juancho';
 
 const DEMO_DURATION_MS = 72 * 60 * 60 * 1000; // 72 horas (3 dias)
 
