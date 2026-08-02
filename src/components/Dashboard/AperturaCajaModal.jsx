@@ -79,7 +79,22 @@ export default function AperturaCajaModal({ isOpen, onClose, onConfirm, copEnabl
 
                     {/* USD Opening */}
                     <div>
-                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1.5">Efectivo en Dólares ($)</label>
+                        <div className="flex justify-between items-center mb-1.5">
+                            <label className="text-[10px] uppercase font-bold text-slate-400">Efectivo en Dólares ($)</label>
+                            {usd && bs && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const tempUsd = usd;
+                                        setUsd(bs);
+                                        setBs(tempUsd);
+                                    }}
+                                    className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
+                                >
+                                    ⇄ Invertir $ y Bs
+                                </button>
+                            )}
+                        </div>
                         <div className="relative">
                             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-500 font-bold text-sm">$</span>
                             <input
@@ -109,6 +124,30 @@ export default function AperturaCajaModal({ isOpen, onClose, onConfirm, copEnabl
                             />
                         </div>
                     </div>
+
+                    {/* Alerta inteligente de Inversión de Moneda (ej. 3000$ y 10Bs) */}
+                    {(parseFloat(usd) > 100 && (parseFloat(bs) < 50 || parseFloat(usd) > parseFloat(bs))) && (
+                        <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl space-y-2 text-rose-800 dark:text-rose-300 text-xs">
+                            <div className="flex items-center justify-between font-black">
+                                <span>⚠️ ¿Revisaste los montos?</span>
+                                <span className="text-[10px] bg-rose-200 dark:bg-rose-900 px-1.5 py-0.5 rounded font-mono">Posible Error</span>
+                            </div>
+                            <p className="text-[11px] leading-tight opacity-90">
+                                Ingresaste <strong className="font-black text-rose-700 dark:text-rose-300">${usd} USD</strong> y <strong className="font-black text-rose-700 dark:text-rose-300">{bs || '0'} Bs</strong>. ¿No quisiste decir <strong>${bs || '0'} USD</strong> y <strong>{usd} Bs</strong>?
+                            </p>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const tempUsd = usd;
+                                    setUsd(bs);
+                                    setBs(tempUsd);
+                                }}
+                                className="w-full py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-lg text-[11px] uppercase tracking-wider transition-colors cursor-pointer shadow-xs"
+                            >
+                                ⇄ Invertir Valores (${bs || '0'} USD / {usd} Bs)
+                            </button>
+                        </div>
+                    )}
 
                     {/* COP Opening - at the end when NOT copPrimary */}
                     {copEnabled && !copPrimary && (
