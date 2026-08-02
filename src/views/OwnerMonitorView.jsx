@@ -104,6 +104,35 @@ function getFormattedSaleCode(sale) {
     return `#${sale.id ? sale.id.slice(-6).toUpperCase() : ''}`;
 }
 
+export function getSaleChangeDetails(sale) {
+    if (!sale) return { changeUsd: 0, changeBs: 0, hasChange: false };
+
+    let changeUsd = Number(sale.changeUsd) || Number(sale.changeGiven?.usd) || 0;
+    let changeBs = Number(sale.changeBs) || Number(sale.changeGiven?.bs) || 0;
+
+    if (changeUsd === 0 && changeBs === 0 && Array.isArray(sale.payments)) {
+        let totalPaidUsd = 0;
+        let totalPaidBs = 0;
+        sale.payments.forEach(p => {
+            if (p.currency === 'USD' || (p.methodId && p.methodId.includes('usd'))) {
+                totalPaidUsd += Number(p.amountUsd || p.amountInput || 0);
+            } else if (p.currency === 'BS' || (p.methodId && (p.methodId.includes('bs') || p.methodId === 'efectivo'))) {
+                totalPaidBs += Number(p.amountBs || p.amountInput || 0);
+            }
+        });
+
+        if (totalPaidUsd > (sale.totalUsd || 0) + 0.009) {
+            changeUsd = round2(totalPaidUsd - (sale.totalUsd || 0));
+        }
+        if (totalPaidBs > (sale.totalBs || 0) + 0.5) {
+            changeBs = round2(totalPaidBs - (sale.totalBs || 0));
+        }
+    }
+
+    const hasChange = changeUsd > 0.009 || changeBs > 0.09;
+    return { changeUsd, changeBs, hasChange };
+}
+
 export function getEffectiveSaleTotalBs(sale, products = [], effectiveRate = 1, bcvRate = 1) {
     if (!sale) return 0;
     if (!sale.items || sale.items.length === 0) return sale.totalBs || 0;
@@ -300,6 +329,32 @@ function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId, onVoidSaleSuc
                         </div>
                     </div>
 
+                    {/* Desglose de Pagos Recibidos */}
+                    {Array.isArray(sale.payments) && sale.payments.length > 0 && (
+                        <div className="space-y-1.5 p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-150 dark:border-slate-800 rounded-2xl text-xs">
+                            <span className="text-[9.5px] font-black uppercase tracking-wider text-slate-400 block mb-1">
+                                Forma(s) de Pago Recibida(s)
+                            </span>
+                            {sale.payments.map((p, idx) => {
+                                const mId = (p.methodId || p.metodoPago || '').toLowerCase();
+                                const label = p.methodLabel || getPaymentLabel(mId) || mId;
+                                const isUsd = p.currency === 'USD' || mId.includes('usd');
+                                const amtUsd = p.amountUsd || p.amountInput || 0;
+                                const amtBs = p.amountBs || p.amountInput || 0;
+                                return (
+                                    <div key={idx} className="flex justify-between items-center text-xs">
+                                        <span className="font-bold text-slate-700 dark:text-slate-200">
+                                            • {label}
+                                        </span>
+                                        <span className="font-outfit font-black text-slate-800 dark:text-white">
+                                            {isUsd ? `$${Number(amtUsd).toFixed(2)} USD` : `${formatBs(amtBs)} Bs`}
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+
                     {/* Resumen Total */}
                     <div className="p-4 bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/40 rounded-2xl space-y-2">
                         <div className="flex items-center justify-between text-xs">
@@ -310,6 +365,25 @@ function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId, onVoidSaleSuc
                             <span className="font-bold text-slate-600 dark:text-slate-300">Total Venta (Bs)</span>
                             <span className={`font-outfit text-sm font-black ${isVoided ? 'line-through text-slate-400' : 'text-emerald-700 dark:text-emerald-400'}`}>{formatBs(getEffectiveSaleTotalBs(sale, products, effectiveRate, bcvRate))} Bs</span>
                         </div>
+
+                        {/* Vuelto Entregado */}
+                        {(() => {
+                            const { changeUsd, changeBs, hasChange } = getSaleChangeDetails(sale);
+                            if (!hasChange) return null;
+                            return (
+                                <div className="flex items-center justify-between text-xs pt-2 border-t border-emerald-200/50 dark:border-emerald-900/40 text-amber-800 dark:text-amber-300">
+                                    <span className="flex items-center gap-1 font-black uppercase tracking-wider text-[10px]">
+                                        <RotateCcw size={12} className="text-amber-600 dark:text-amber-400" /> Vuelto Entregado
+                                    </span>
+                                    <span className="font-outfit font-black text-sm text-amber-700 dark:text-amber-400">
+                                        {changeUsd > 0 ? `$${changeUsd.toFixed(2)} USD` : ''}
+                                        {changeUsd > 0 && changeBs > 0 ? ' + ' : ''}
+                                        {changeBs > 0 ? `${formatBs(changeBs)} Bs` : ''}
+                                    </span>
+                                </div>
+                            );
+                        })()}
+
                         {(sale.rate || sale.bcvRate || bcvRate) && (
                             <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1">
                                 <span>Tasa Aplicada</span>
@@ -2149,6 +2223,16 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                                         <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${getPaymentBadgeStyle(sale)}`}>
                                                                             {getFormattedPaymentMethod(sale)}
                                                                         </span>
+                                                                        {(() => {
+                                                                            const { changeUsd, changeBs, hasChange } = getSaleChangeDetails(sale);
+                                                                            if (!hasChange) return null;
+                                                                            return (
+                                                                                <span className="text-[9.5px] font-black uppercase px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1 shadow-xs">
+                                                                                    <RotateCcw size={10} />
+                                                                                    Vuelto: {changeUsd > 0 ? `$${changeUsd.toFixed(2)}` : `${formatBs(changeBs)} Bs`}
+                                                                                </span>
+                                                                            );
+                                                                        })()}
                                                                         {sale.clientName && (
                                                                             <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">• {sale.clientName}</span>
                                                                         )}
@@ -2546,6 +2630,16 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                                                 <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md ${isVoided ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-200/60' : getPaymentBadgeStyle(sale)}`}>
                                                                                     {isVoided ? 'ANULADA' : getFormattedPaymentMethod(sale)}
                                                                                 </span>
+                                                                                {!isVoided && (() => {
+                                                                                     const { changeUsd, changeBs, hasChange } = getSaleChangeDetails(sale);
+                                                                                     if (!hasChange) return null;
+                                                                                     return (
+                                                                                         <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1 shadow-xs">
+                                                                                             <RotateCcw size={9} />
+                                                                                             Vuelto: {changeUsd > 0 ? `$${changeUsd.toFixed(2)}` : `${formatBs(changeBs)} Bs`}
+                                                                                         </span>
+                                                                                     );
+                                                                                 })()}
                                                                                 {sale.clientName && (
                                                                                     <span className="text-[9px] text-slate-500 dark:text-slate-400 font-bold">• {sale.clientName}</span>
                                                                                 )}
