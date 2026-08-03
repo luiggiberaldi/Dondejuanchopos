@@ -312,13 +312,18 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
         // Actualización optimista instantánea (0ms de lag)
         setSyncedUsers(prev => {
             const current = prev && prev.length > 0 ? prev : usuarios;
-            const fresh = current.map(u => u.id === user.id ? { ...u, bypassPin: newVal } : u);
+            const fresh = current.map(u => u.id === user.id ? {
+                ...u,
+                nombre: u.nombre || (u.id === 1 ? 'Administrador' : 'Cajero'),
+                rol: u.rol || (u.id === 1 ? 'ADMIN' : 'CAJERO'),
+                bypassPin: newVal
+            } : u);
             try { localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(fresh)); } catch {}
             publishUserCatalog(fresh);
             return fresh;
         });
 
-        showToast(newVal ? `"${user.nombre}" ahora entra sin PIN` : `"${user.nombre}" ahora requiere PIN`, 'success');
+        showToast(newVal ? `"${user.nombre || 'Usuario'}" ahora entra sin PIN` : `"${user.nombre || 'Usuario'}" ahora requiere PIN`, 'success');
     };
 
     const handleNextStep1 = async () => {
@@ -441,17 +446,18 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
     };
 
     const handleEditName = () => {
-        if (!editNameValue.trim()) return showToast('Ingresa un nombre válido', 'error');
-        editarUsuario(editNameUser.id, { nombre: editNameValue.trim() });
-        pushRemoteUserCmd('edit', { userId: editNameUser.id, nombre: editNameValue.trim() });
+        const safeName = (editNameValue || '').trim();
+        if (!safeName) return showToast('Ingresa un nombre válido', 'error');
+        editarUsuario(editNameUser.id, { nombre: safeName });
+        pushRemoteUserCmd('edit', { userId: editNameUser.id, nombre: safeName });
         setSyncedUsers(prev => {
             const current = prev && prev.length > 0 ? prev : usuarios;
-            const fresh = current.map(u => u.id === editNameUser.id ? { ...u, nombre: editNameValue.trim() } : u);
+            const fresh = current.map(u => u.id === editNameUser.id ? { ...u, nombre: safeName } : u);
             try { localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(fresh)); } catch {}
             publishUserCatalog(fresh);
             return fresh;
         });
-        showToast(`Nombre actualizado a ${editNameValue.trim()}`, 'success');
+        showToast(`Nombre actualizado a ${safeName}`, 'success');
         triggerHaptic?.();
         setEditNameUser(null);
         setEditNameValue('');
@@ -554,7 +560,7 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
                     {/* Submit */}
                     <button
                         onClick={handleAdd}
-                        disabled={!newName.trim() || (!newBypassPin && newPin.length !== PIN_POLICY.MIN_LENGTH)}
+                        disabled={!(newName || '').trim() || (!newBypassPin && newPin.length !== PIN_POLICY.MIN_LENGTH)}
                         className="w-full flex items-center justify-center gap-2 py-3 bg-brand hover:bg-brand-dark disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all active:scale-[0.98] shadow-md shadow-primary/20 disabled:shadow-none"
                     >
                         <Check size={16} /> Crear Usuario
@@ -872,7 +878,7 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
                             </button>
                             <button
                                 onClick={handleEditName}
-                                disabled={!editNameValue.trim()}
+                                disabled={!(editNameValue || '').trim()}
                                 className="flex-1 py-3 text-sm font-bold text-white bg-brand rounded-xl hover:bg-brand-dark active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 Guardar

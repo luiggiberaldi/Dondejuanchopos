@@ -57,7 +57,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
         tasaCop,
         adjustStock: baseAdjustStock
     } = useProductContext();
-    const isCajero = useAuthStore(s => s.requireLogin && s.usuarioActivo?.rol === 'CAJERO');
+    const isCajero = useAuthStore(s => s.usuarioActivo?.rol === 'CAJERO');
     const { log: auditLog } = useAudit();
 
     // ─── FUNCIONES DE COMBOS VIRTUALES ────────────────────────

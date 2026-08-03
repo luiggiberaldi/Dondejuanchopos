@@ -115,14 +115,27 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
         [todaySales, bcvRate, products]
     );
 
-    // Últimas ventas (por defecto las ventas del turno activo shiftSales, o filtradas por la fecha seleccionada en la gráfica)
+    const allShiftSales = useMemo(() => {
+        const list = sales || [];
+        const apertura = shiftApertura;
+        const from = apertura?.timestamp ? new Date(apertura.timestamp).getTime() : null;
+        return list.filter(s => {
+            if (s.cajaCerrada === true) return false;
+            if (!['VENTA', 'VENTA_FIADA', 'VENTA_CASHEA'].includes(s.tipo || 'VENTA')) return false;
+            const ts = s.timestamp ? new Date(s.timestamp).getTime() : null;
+            if (from !== null && ts !== null && ts < from) return false;
+            return true;
+        });
+    }, [sales, shiftApertura]);
+
+    // Últimas ventas (incluye las ventas ANULADAS del turno para la lista del inicio)
     const getRecentSales = useCallback((selectedChartDate) => {
         if (selectedChartDate) {
             const filteredSales = salesWithLocalDate.filter(s => (s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA') && s.localDate === selectedChartDate);
             return [...filteredSales].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         }
-        return [...shiftSales].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-    }, [salesWithLocalDate, shiftSales]);
+        return [...allShiftSales].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    }, [salesWithLocalDate, allShiftSales]);
 
     // Datos últimos 7 días (para gráfica)
     // FIN-013: unificar criterio — INCLUIR VENTA_FIADA como todayTotalUsd hace.

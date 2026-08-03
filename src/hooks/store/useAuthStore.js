@@ -290,8 +290,8 @@ export const useAuthStore = create(
                     // SEC-013: persistir SOLO { id, nombre, rol }. Nunca el hash.
                     const session = {
                         id: userEncontrado.id,
-                        nombre: userEncontrado.nombre,
-                        rol: userEncontrado.rol,
+                        nombre: userEncontrado.nombre || (userEncontrado.id === 1 ? 'Administrador' : 'Cajero'),
+                        rol: userEncontrado.rol || (userEncontrado.id === 1 ? 'ADMIN' : 'CAJERO'),
                     };
                     set({
                         usuarioActivo: session,

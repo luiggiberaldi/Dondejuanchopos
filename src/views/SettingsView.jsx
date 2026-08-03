@@ -48,7 +48,7 @@ export default function SettingsView({ onClose, theme, toggleTheme, triggerHapti
     const { requireLogin, setRequireLogin, usuarioActivo, blindModeEnabled, setBlindModeEnabled } = useAuthStore();
     const [autoLockMinutes, setAutoLockMinutes] = useState(() => localStorage.getItem('admin_auto_lock_minutes') || '3');
 
-    const isAdmin = !requireLogin || !usuarioActivo || usuarioActivo.rol === 'ADMIN';
+    const isAdmin = usuarioActivo ? usuarioActivo.rol === 'ADMIN' : !requireLogin;
 
     const { deviceId, forceHeartbeat } = useSecurity();
     const { log: auditLog } = useAudit();

@@ -92,12 +92,14 @@ export default function App() {
   const { logout } = useAuthStore();
   useAutoLock();
 
-  // Forzar siempre la pestaña de inicio al iniciar sesión
+  // Forzar pestaña 'inicio' al iniciar sesión y redirigir si es Cajero e intenta acceder a Admin
   useEffect(() => {
     if (usuarioActivo) {
-      setActiveTab('inicio');
+      if (usuarioActivo.rol === 'CAJERO' && (activeTab === 'reportes' || activeTab === 'ajustes' || activeTab === 'kardex')) {
+        setActiveTab('ventas');
+      }
     }
-  }, [usuarioActivo]);
+  }, [usuarioActivo, activeTab]);
 
   // Al recargar la página, cerrar sesión si el login está activado
   useEffect(() => {
@@ -238,7 +240,7 @@ export default function App() {
     };
   }, []);
 
-  const isCajero = requireLogin && usuarioActivo?.rol === 'CAJERO';
+  const isCajero = usuarioActivo?.rol === 'CAJERO';
 
   const ALL_TABS = [
     { id: 'inicio', label: 'Inicio', icon: Home },
@@ -360,7 +362,7 @@ export default function App() {
               </ErrorBoundary>
             </div>
           )}
-          {(activeTab === 'reportes' || mountedViews.reportes) && (
+          {!isCajero && (activeTab === 'reportes' || mountedViews.reportes) && (
             <div data-view="reportes" className={`flex-1 flex flex-col ${activeTab === 'reportes' ? '' : 'hidden'}`}>
               <ErrorBoundary>
                 <PremiumGuard featureName="Reportes Históricos" isShop={true}>
@@ -369,7 +371,7 @@ export default function App() {
               </ErrorBoundary>
             </div>
           )}
-          {(activeTab === 'ajustes' || mountedViews.ajustes) && (
+          {!isCajero && (activeTab === 'ajustes' || mountedViews.ajustes) && (
             <div data-view="ajustes" className={`flex-1 flex flex-col ${activeTab === 'ajustes' ? '' : 'hidden'}`}>
               <ErrorBoundary>
                 <SettingsView
