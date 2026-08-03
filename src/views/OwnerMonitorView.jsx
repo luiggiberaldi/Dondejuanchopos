@@ -144,12 +144,11 @@ export function getSaleChangeDetails(sale, products = [], effectiveRate = 1, bcv
     const isEquivalent = changeUsd > 0 && changeBs > 0 && Math.abs(convertedBsFromUsd - changeBs) < 1.5;
 
     if (isEquivalent) {
-        // Son la misma cifra expresada en dos monedas. Si el pago principal fue en USD, mostrar USD; si no, Bs.
-        const primaryPaymentIsUsd = !sale.payments || sale.payments.some(p => p.currency === 'USD' || (p.methodId && p.methodId.includes('usd')));
-        if (primaryPaymentIsUsd) {
-            changeBs = 0; // Ocultar el duplicado en Bs para no renderizar '+'
+        // Si el vuelto fue entregado en Bs (o viene en changeBs), mostrar en Bs y ocultar el equivalente en USD
+        if (sale.changeGiven?.bs !== undefined || sale.changeBs !== undefined) {
+            changeUsd = 0; // Ocultar USD para mostrar 595,00 Bs
         } else {
-            changeUsd = 0; // Ocultar el duplicado en USD
+            changeBs = 0; // Ocultar Bs
         }
     }
 
