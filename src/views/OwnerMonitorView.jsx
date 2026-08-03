@@ -138,8 +138,23 @@ export function getSaleChangeDetails(sale, products = [], effectiveRate = 1, bcv
         }
     }
 
+    // 3. Detectar si changeUsd y changeBs son equivalentes de la misma cifra (ej. 0.70 USD y 595 Bs a tasa 850)
+    const rate = sale.rate || effectiveRate || 1;
+    const convertedBsFromUsd = changeUsd * rate;
+    const isEquivalent = changeUsd > 0 && changeBs > 0 && Math.abs(convertedBsFromUsd - changeBs) < 1.5;
+
+    if (isEquivalent) {
+        // Son la misma cifra expresada en dos monedas. Si el pago principal fue en USD, mostrar USD; si no, Bs.
+        const primaryPaymentIsUsd = !sale.payments || sale.payments.some(p => p.currency === 'USD' || (p.methodId && p.methodId.includes('usd')));
+        if (primaryPaymentIsUsd) {
+            changeBs = 0; // Ocultar el duplicado en Bs para no renderizar '+'
+        } else {
+            changeUsd = 0; // Ocultar el duplicado en USD
+        }
+    }
+
     const hasChange = changeUsd > 0.009 || changeBs > 0.09;
-    return { changeUsd, changeBs, hasChange };
+    return { changeUsd, changeBs, hasChange, isEquivalent };
 }
 
 export function getEffectiveSaleTotalBs(sale, products = [], effectiveRate = 1, bcvRate = 1) {
