@@ -363,3 +363,25 @@ CREATE POLICY "supervisor_commands_monitor_insert" ON public.supervisor_commands
 
 GRANT SELECT, INSERT, UPDATE ON public.supervisor_commands TO anon, authenticated;
 
+-- ═════════════════════════════════════════════════════════════════════════════
+-- D5 — `updated_at` lo escribe el servidor, no el cliente.
+--      Antes lo enviaba la caja con su propio reloj mientras el monitor filtraba
+--      con el suyo: cualquier desfase descartaba una ventana de escrituras.
+--      Con el trigger, ambos lados comparten la referencia temporal de Postgres.
+-- ═════════════════════════════════════════════════════════════════════════════
+CREATE OR REPLACE FUNCTION public.sync_documents_set_updated_at()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+    NEW.updated_at := now();
+    RETURN NEW;
+END; $$;
+
+DROP TRIGGER IF EXISTS trg_sync_documents_updated_at ON public.sync_documents;
+CREATE TRIGGER trg_sync_documents_updated_at
+    BEFORE INSERT OR UPDATE ON public.sync_documents
+    FOR EACH ROW EXECUTE FUNCTION public.sync_documents_set_updated_at();
+
+ALTER TABLE public.sync_documents
+    ALTER COLUMN updated_at SET DEFAULT now();
+
+

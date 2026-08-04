@@ -114,12 +114,15 @@ export const pushCloudSync = async (key, value, forceUnconditional = false) => {
     try {
         const collectionType = LOCAL_KEYS.includes(key) ? 'local' : 'store';
 
+        // D5: `updated_at` lo pone el trigger `trg_sync_documents_updated_at`
+        // (supabase_sync_supervisor_hardening.sql). Enviarlo desde el cliente
+        // mezclaba dos relojes: el de quien escribe y el de quien lee el cursor,
+        // y cualquier desfase descartaba escrituras en silencio.
         const { error } = await supabaseCloud.from('sync_documents').upsert({
             device_id: activeDeviceId,
             collection: collectionType,
             doc_id: key,
-            data: { payload: payloadToUpload },
-            updated_at: new Date().toISOString()
+            data: { payload: payloadToUpload }
         }, { onConflict: 'device_id,collection,doc_id' });
 
         if (error) {
