@@ -2864,3 +2864,310 @@ npx vitest run 2>&1 | tail -20   # timeout >= 600 s
 `fix(monitor): atribuir el cierre remoto a supervision y versionar todo inventory_update (R6,F5)`
 
 ---
+
+## 6. Arneses nuevos
+
+Resumen de todo lo que este plan añade a `tests/`. Estos archivos **son el valor duradero del trabajo**: los arreglos puntuales se pueden volver a romper; los arneses avisan cuando ocurre.
+
+| Archivo | Fase | Qué protege | Cómo falla si se rompe |
+|---|---|---|---|
+| `tests/commandType.test.js` | FX04 | `VALID_COMMAND_TYPES` es espejo 1-a-1 del CHECK `command_type` | El array de constantes y el CHECK del `.sql` divergen |
+| `tests/commandStatus.test.js` (ampliado) | FX04 | Ningún `status:` literal del código queda fuera del enum | Aparece un `'cancelled'`-like nuevo sin registrar |
+| `tests/egressHashOwnership.test.js` | FX07 | `pushCloudSync` es el único que escribe el hash de egress | Alguien vuelve a poner `localStorage.setItem(hashKey, …)` tras un `await pushCloudSync` |
+| `tests/userSanitization.test.js` (ampliado) | FX05 | `bodega_users_catalog_v1` solo se escribe saneado | Aparece una escritura sin `sanitizeUserCatalog` |
+
+### 6.1 Por qué estos cuatro y no más
+
+Cada arnés cubre un **invariante estructural verificable leyendo el código fuente**, sin necesidad de simular Supabase. Eso los hace rápidos, deterministas y ejecutables por un LLM sin infraestructura. Los hallazgos que **no** llevan arnés (D3, D4, R1–R6) requerirían mocks de red que este plan no introduce; su verificación es la sección `VERIFICACIÓN MANUAL` de cada fase.
+
+### 6.2 Verificación de que un arnés sirve
+
+Un test que no falla cuando el defecto está presente es peor que ningún test. Para cada arnés nuevo, ejecuta el ciclo **romper → confirmar fallo → restaurar**:
+
+```bash
+# Ejemplo con FX07
+git stash                                    # guarda el arreglo
+npx vitest run tests/egressHashOwnership.test.js   # DEBE FALLAR
+git stash pop                                # restaura
+npx vitest run tests/egressHashOwnership.test.js   # DEBE PASAR
+```
+
+Si el test pasa en ambos estados, **no sirve**: repórtalo.
+
+---
+
+## 7. Guardarraíles — qué NO tocar
+
+Estas afirmaciones se **verificaron** durante la auditoría. Son correctas. Modificarlas es una regresión, no una mejora.
+
+### 7.1 Barreras de seguridad ya correctas
+
+| Elemento | Archivo | Por qué es correcto |
+|---|---|---|
+| `CLOUD_SYNC_EXCLUDE` | `useCloudSync.js` | `['bodega_sales_mirror_v1','abasto_audit_log_v1','bodega_pos_heartbeat']` — el guard `if (!SYNC_KEYS.includes(key)) return;` de `pushCloudSync` lo hace efectivo también para `forceSyncAllPOSData` y `forcePushLocalData` |
+| Bloqueo de `abasto-auth-storage` | 3 sitios | `pushCloudSync`, `_applyFromCloud` y `applyDocToLocal`. **Los tres son necesarios**: cubren egress, ingress en la caja e ingress en el monitor |
+| `sanitizeUserCatalog` | `userCatalog.js` | Elimina `pin` y `plainPin`. La función es correcta; el problema (S4) era que se **esquivaba** |
+| `sanitizeRateMode` | aplicado en `applyDocToLocal` | Impide que un `bodega_rate_mode` corrupto llegue al monitor |
+| `withLock('pos_write_lock')` | `remoteInventoryProcessor.js` | Serializa el read-modify-write. **No lo quites ni lo anides** — `tests/lockNesting.guard.test.js` lo vigila |
+| `isReappliableCommand` | `remoteInventoryProcessor.js` | Idempotencia de los comandos. Cubierto por `tests/commandReapply.test.js` |
+| `REPLICA IDENTITY DEFAULT` | `supabase_egress_optimization.sql` | **No lo cambies a `FULL`**: duplicaría el payload de cada mensaje de realtime |
+| Circuit Breaker de inventario | `storageService.js` | Protege contra escrituras que vacíen el inventario. Cubierto por `tests/storageGuard.test.js` |
+| Dedup `dj_applied_supervisor_cmds_v1` | `useSupervisorCommands.js` | Tope de 200 ids; evita reaplicar comandos |
+
+### 7.2 Deuda técnica preexistente, fuera de alcance
+
+- **`react-hooks/preserve-manual-memoization`** en `OwnerMonitorView.jsx`, ancla `const projectedProducts = useMemo(() => {`. Preexistente. **No lo arregles en este plan.**
+- La política contradictoria `sync_documents_device_isolation` de `supabase_rls_hardening.sql` (solo `authenticated`, usa `payload->>'owner_id'`, y hace `REVOKE ... FROM anon`) **contradice** `sync_documents_anon_access` de `supabase_pairing_setup.sql`. Si ambas se despliegan, el orden decide qué gana. **Esto merece un plan propio** (migrar la app a Supabase Auth) y queda **explícitamente fuera de alcance**. Anótalo en el reporte.
+- La duplicidad `useCloudSync.isSyncingFromCloud` vs `syncFlags.js`: FX11 los **conecta**, no los unifica. Unificarlos es un refactor mayor, fuera de alcance.
+
+### 7.3 Prohibiciones absolutas
+
+1. **No ejecutes SQL contra Supabase.** Las fases SQL solo escriben archivos.
+2. **No toques** `supabase_rls_hardening.sql` ni `supabase_cloud_schema.sql`.
+3. **No conviertas finales de línea** masivamente (ver R-0.2).
+4. **No amplíes `MONITOR_DOC_IDS`** — cada entrada es egress recurrente y ya está afinada.
+5. **No elimines** `bodega_pending_cart_v1` de `MONITOR_DOC_IDS`: el monitor lo consume.
+6. **No cambies** `DEBOUNCE_HEAVY_MS` ni el contenido de `HEAVY_KEYS` — están en el diff sin commitear de FX00 y **su ajuste es una decisión aparte** (ver seguimiento en la [sección 9.3](#93-seguimiento-pendiente)).
+7. **No introduzcas dependencias nuevas.** Ninguna fase lo requiere.
+
+---
+
+## 8. Despliegue SQL y verificación manual
+
+> Esta sección la ejecuta **una persona**, no el LLM. El LLM la deja escrita y se detiene.
+
+### 8.1 Orden obligatorio
+
+```
+1. Diagnóstico previo (8.3)  ← NO SALTAR
+2. supabase_supervisor_commands_setup.sql       (FX03: CHECKs ampliados)
+3. supabase_sync_supervisor_hardening.sql       (FX01+FX02+FX10: nuevo)
+4. Despliegue del bundle JS
+```
+
+**El paso 3 va antes que el 4.** Motivo: FX10 elimina `updated_at` del upsert del cliente y el `DEFAULT now()` + trigger deben existir ya. Si `sync_documents.updated_at` es `NOT NULL` sin default, invertir el orden **rompe todos los upserts**.
+
+### 8.2 Ventana y reversibilidad
+
+- Los pasos 2 y 3 son **idempotentes** y no bloquean tablas de forma prolongada (`ALTER TABLE ... ADD CONSTRAINT` sobre un CHECK ampliado no revalida filas).
+- No hace falta ventana de mantenimiento, pero **sí** conviene hacerlo con la tienda cerrada: FX01 cambia el comportamiento de emparejamiento.
+
+### 8.3 Diagnóstico previo (obligatorio)
+
+Ejecuta en el SQL Editor de Supabase (proyecto `sodgzkablshladvbtnes`) y **guarda la salida** antes de aplicar nada:
+
+```sql
+-- (a) ¿updated_at admite nulos? Decide el orden de despliegue de FX10.
+SELECT column_name, is_nullable, column_default
+FROM information_schema.columns
+WHERE table_name = 'sync_documents' AND column_name = 'updated_at';
+
+-- (b) ¿Hay filas que FX02 dejaría ilegibles? (monitor_device_id nulo o comodín)
+SELECT monitor_device_id, status, count(*)
+FROM public.supervisor_commands
+WHERE monitor_device_id IS NULL OR monitor_device_id = 'monitor_web'
+GROUP BY 1, 2;
+
+-- (c) ¿Cuántas filas de device_pairings NO tienen monitor?
+--     Estas son las candidatas a haberse creado por el vector S1.
+SELECT count(*) AS sin_monitor
+FROM public.device_pairings
+WHERE monitor_device_id IS NULL;
+
+-- (d) ¿Hay monitores activos que quedarían fuera tras S2?
+SELECT dp.primary_device_id, dp.monitor_device_id,
+       EXISTS (SELECT 1 FROM public.device_monitors dm
+               WHERE dm.primary_device_id = dp.primary_device_id
+                 AND dm.monitor_device_id = dp.monitor_device_id
+                 AND dm.revoked_at IS NULL) AS en_device_monitors
+FROM public.device_pairings dp
+WHERE dp.monitor_device_id IS NOT NULL;
+
+-- (e) Cajas registradas y su última presencia.
+SELECT primary_device_id, monitor_device_id, last_seen_at, paired_at
+FROM public.device_pairings
+ORDER BY last_seen_at DESC NULLS LAST;
+```
+
+**Reglas de decisión:**
+- Si **(b)** devuelve filas → esos comandos dejarán de ser legibles tras FX02. Decide si migrarlos (asignándoles el `monitor_device_id` real) o darlos por cerrados. **No apliques FX02 sin resolver esto.**
+- Si **(c)** devuelve un número mayor que el de tus cajas reales → hay filas creadas por el vector S1. Investígalas antes de continuar.
+- Si **(d)** muestra `en_device_monitors = false` para un monitor en uso → tras FX01 ese monitor dejará de estar autorizado. Vuelve a emparejarlo, o inserta su fila en `device_monitors` **antes** de aplicar.
+
+### 8.4 Verificación posterior al despliegue
+
+Con el SQL aplicado y el bundle desplegado, comprueba cada mitigación:
+
+```sql
+-- S1: el heartbeat NO crea filas.
+SELECT public.touch_pos_heartbeat('dispositivo_inexistente_xyz');
+--   → { "success": false, "registered": false, ... }
+SELECT count(*) FROM public.device_pairings WHERE primary_device_id = 'dispositivo_inexistente_xyz';
+--   → 0
+
+-- S2: la autorización exige un monitor real.
+SELECT public.is_authorized_monitor('<caja_real>', 'atacante_xyz');
+--   → false
+SELECT public.is_authorized_monitor('<caja_real>', 'monitor_web');
+--   → false   (el comodín desapareció)
+SELECT public.is_authorized_monitor('<caja_real>', '<monitor_real>');
+--   → true
+
+-- S3: sin fallback global.
+SELECT public.generate_monitor_token('solicitante_no_autorizado_xyz');
+--   → { "success": false, "message": "No autorizado para generar códigos..." }
+
+-- S7: desconocido = revocado.
+SELECT public.touch_monitor_heartbeat('monitor_inexistente_xyz');
+--   → { "success": true, "is_revoked": true }
+
+-- F1/F2: los nuevos valores se aceptan.
+SELECT conname, pg_get_constraintdef(oid)
+FROM pg_constraint
+WHERE conname IN ('supervisor_commands_status_check',
+                  'supervisor_commands_command_type_check');
+--   → deben incluir 'cancelled' y 'reopen_shift'
+
+-- D5: el trigger está activo.
+SELECT tgname, tgenabled FROM pg_trigger WHERE tgname = 'trg_sync_documents_updated_at';
+--   → 1 fila, tgenabled = 'O'
+```
+
+### 8.5 Prueba de humo funcional (con dispositivos reales)
+
+Ejecútalas **en este orden**. Cada una valida un hallazgo distinto.
+
+| # | Prueba | Resultado esperado | Valida |
+|---|---|---|---|
+| 1 | Emparejar un monitor limpio con un QR nuevo | Trae **todos** los datos, no una pantalla vacía | E1, D1 |
+| 2 | Caja: poner el navegador offline, editar un producto, volver online | El cambio llega al monitor en ≤ 60 s | **D1** |
+| 3 | Monitor: pulsar "Cancelar" en un comando pendiente | El comando pasa a `cancelled`, sin error en consola | F1 |
+| 4 | Monitor: "Reabrir turno" | El comando se inserta y la caja lo aplica | F2 |
+| 5 | Monitor: cambiar el PIN de un usuario | Funciona, y en `supervisor_commands.payload` **no** aparece el PIN en claro | **S5** |
+| 6 | Consultar `sync_documents` con `doc_id='bodega_users_catalog_v1'` | Ningún objeto contiene `pin` ni `plainPin` | **S4** |
+| 7 | Monitor: revocarlo desde la caja | El monitor queda expulsado en ≤ 60 s | S7 |
+| 8 | Monitor: 5 cambios de inventario, uno inválido | Se suben 4 y el toast dice **cuál** falló | R2 |
+| 9 | Monitor: cortar la red y forzar refresco | Mensaje de error, **no** "Caja fuera de línea", y `dj_monitor_last_full_pull_ts` sin cambiar | R1, D3 |
+| 10 | Restaurar un backup en la caja | El monitor refleja el estado restaurado | D7 |
+| 11 | Adelantar el reloj del monitor 5 min y editar un producto en la caja | El cambio llega igualmente | **D5** |
+
+Las pruebas **2**, **5**, **6** y **11** son las que cubren los defectos más graves y difíciles de detectar. No las omitas.
+
+---
+
+## 9. Checklist final
+
+### 9.1 Por fase
+
+Marca cada fase solo cuando **las cuatro** condiciones se cumplan.
+
+| Fase | Hallazgos | Arnés OK | Sin fallos nuevos vs FALLOS-BASE | Sin lint nuevo vs LINT-BASE | Commit hecho |
+|---|---|---|---|---|---|
+| FX00 | — (línea base) | n/a | ☐ | ☐ | ☐ |
+| FX01 | S1 S2 S3 S7 | ☐ | ☐ | n/a (SQL) | ☐ |
+| FX02 | S6 | ☐ | ☐ | n/a (SQL) | ☐ |
+| FX03 | F1 F2 | ☐ (falla a propósito) | n/a | n/a (SQL) | ☐ |
+| FX04 | F3 F4 | ☐ | ☐ | ☐ | ☐ |
+| FX05 | S4 | ☐ | ☐ | ☐ | ☐ |
+| FX06 | S5 | ☐ | ☐ | ☐ | ☐ |
+| FX07 | D1 | ☐ | ☐ | ☐ | ☐ |
+| FX08 | D2 D6 | ☐ | ☐ | ☐ | ☐ |
+| FX09 | D3 D4 | ☐ | ☐ | ☐ | ☐ |
+| FX10 | D5 | ☐ | ☐ | ☐ | ☐ |
+| FX11 | D7 | ☐ | ☐ | ☐ | ☐ |
+| FX12 | E1 E2 | ☐ | ☐ | ☐ | ☐ |
+| FX13 | E3 | ☐ | ☐ | ☐ | ☐ |
+| FX14 | R1 | ☐ | ☐ | ☐ | ☐ |
+| FX15 | R2 | ☐ | ☐ | ☐ | ☐ |
+| FX16 | R3 R5 | ☐ | ☐ | ☐ | ☐ |
+| FX17 | R4 | ☐ | ☐ | ☐ | ☐ |
+| FX18 | R6 F5 | ☐ | ☐ | ☐ | ☐ |
+
+**Cobertura: 28 / 28 hallazgos.**
+
+### 9.2 Cierre global
+
+```bash
+# 1. Suite completa (timeout >= 600 s)
+npx vitest run --reporter=dot --testTimeout=30000 2>&1 | tail -30
+
+# 2. Lint del conjunto afectado
+npx eslint --no-cache \
+  src/hooks/useCloudSync.js \
+  src/hooks/useMonitorSync.js \
+  src/hooks/useSupervisorCommands.js \
+  src/hooks/useCloudBackup.js \
+  src/hooks/store/useAuthStore.js \
+  src/components/Settings/UsersManager.jsx \
+  src/components/Settings/PairingManager.jsx \
+  src/components/PairingScanScreen.jsx \
+  src/constants/commandStatus.js \
+  src/constants/commandType.js \
+  src/views/OwnerMonitorView.jsx 2>&1 | tail -30
+
+# 3. Build
+npm run build 2>&1 | tail -10
+
+# 4. Tipos (informativo, no bloqueante)
+npm run typecheck 2>&1 | tail -10
+
+# 5. Invariantes estructurales — TODOS deben cumplirse
+grep -c "localStorage.setItem(hashKey" src/hooks/useCloudSync.js          # → 1
+grep -rn "eq('doc_id', 'bodega_sales_v1')" src/                            # → vacío
+grep -rn "newPin:" src/components/ src/views/                              # → vacío
+grep -rn "localStorage.setItem('bodega_users_catalog_v1'" src/ | grep -v sanitizeUserCatalog   # → vacío
+grep -n "const { data: docs } = await query" src/hooks/*.js                # → vacío
+grep -n "updated_at: new Date().toISOString()" src/hooks/useCloudSync.js   # → vacío
+grep -c '\$\$' supabase_sync_supervisor_hardening.sql                      # → PAR
+
+# 6. Historial: 19 commits, uno por fase
+git log --oneline fix/sync-supervisor-audit ^main | wc -l                  # → 19
+```
+
+### 9.3 Seguimiento pendiente
+
+Deja constancia de estos puntos en el reporte final. **Ninguno se resuelve en este plan.**
+
+1. **`sync_documents_device_isolation` contradice `sync_documents_anon_access`.** El arreglo real es migrar la app a Supabase Auth y derivar la autorización de `auth.uid()` en vez de la existencia de filas. Es el único cambio que cierra S1–S6 de raíz en lugar de mitigarlos. **Requiere su propio plan.**
+2. **`HEAVY_KEYS` y `DEBOUNCE_HEAVY_MS`.** El diff sin commitear quitó `bodega_sales_v1` de `HEAVY_KEYS` y bajó el debounce de 3000 a 2000 ms. Ambos cambios **aumentan** el egress. Este plan no los revierte porque son una decisión de producto (latencia frente a coste), pero deben decidirse explícitamente.
+3. **La compuerta de autenticación eliminada.** FX12 la sustituye por `register_pos_device` + tope por documento, no por la compuerta original. Si el egress sigue siendo alto tras FX12, el siguiente paso es reintroducir una compuerta con reintento.
+4. **UI de `presenceError`.** FX14 expone el dato; `OwnerMonitorView` todavía no lo muestra. Es una mejora de UX de una sola línea, pendiente.
+5. **`newPin` legacy.** FX06 lo mantiene por compatibilidad de una versión. Elimínalo en el despliegue siguiente, junto con su `console.warn`.
+6. **Purga `dj_egress_hash_purge_v1`.** Es de un solo uso y su bandera queda en `localStorage` para siempre. Si en el futuro hace falta otra purga, usa `_v2`.
+7. **Dos banderas anti-eco.** FX11 las conecta; unificarlas en un único módulo sigue pendiente.
+
+### 9.4 Formato del reporte final
+
+Al terminar, entrega **exactamente** esto:
+
+```
+LÍNEA BASE
+  HEAD:            <sha>
+  FALLOS-BASE:     <N passed | M failed>  (o "ninguno")
+  LINT-BASE:       <lista de errores preexistentes>
+
+FASES
+  FX00 … FX18: APLICADA | OMITIDA (motivo) | DETENIDA (ancla que no coincidió + texto real)
+
+INVARIANTES (sección 9.2, punto 5)
+  <cada comando y su salida>
+
+RESULTADO FINAL
+  Tests:  <N passed | M failed>   ← comparado con FALLOS-BASE
+  Lint:   <errores>               ← comparado con LINT-BASE
+  Build:  OK | FALLO
+
+PENDIENTE PARA UNA PERSONA
+  - Desplegar los .sql en el orden de la sección 8.1
+  - Ejecutar el diagnóstico previo de 8.3 ANTES de aplicar
+  - Ejecutar la prueba de humo de 8.5
+
+SEGUIMIENTO
+  <los 7 puntos de 9.3 que sigan abiertos>
+```
+
+**No declares nada como terminado que no hayas ejecutado y verificado.** Si una fase quedó detenida, dilo con esas palabras y con el ancla exacta que falló. Un reporte honesto de 14 fases aplicadas y 5 detenidas es útil; uno que dice "todo listo" sin haberlo comprobado, no.
+
+---
+
+*Fin del plan. 28 hallazgos, 19 fases, 4 arneses nuevos.*
