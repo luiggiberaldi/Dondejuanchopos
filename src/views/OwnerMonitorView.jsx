@@ -1166,23 +1166,18 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     // 1. Cargar datos locales (que son actualizados por useMonitorSync)
     const loadLocalData = async () => {
         try {
-            const [savedSales, savedAuth, savedSession] = await Promise.all([
-                storageService.getItem('bodega_sales_v1', []),
-                storageService.getItem('abasto-auth-storage', null),
-                storageService.getItem('abasto-device-session', null)
+            // R4: `abasto-auth-storage` y `abasto-device-session` NUNCA se sincronizan
+            // (la primera está bloqueada por SEC-002 en pushCloudSync, _applyFromCloud
+            // y applyDocToLocal). En el monitor contienen su PROPIA sesión, no la de la
+            // caja, así que leerlas mostraba datos de operador vacíos o ajenos.
+            // La fuente correcta es `bodega_users_catalog_v1`, que sí se sincroniza y
+            // va saneada (sin `pin` ni `plainPin`) desde FX05.
+            const [savedSales] = await Promise.all([
+                storageService.getItem('bodega_sales_v1', [])
             ]);
 
             setSales(savedSales);
-            
-            const activeUser = savedSession?.nombre || savedAuth?.state?.usuarioActivo?.nombre;
-            if (activeUser) {
-                setActiveCashier({
-                    nombre: activeUser,
-                    rol: savedSession?.rol || savedAuth?.state?.usuarioActivo?.rol || 'CAJERO'
-                });
-            } else {
-                setActiveCashier({ nombre: 'Ninguno', rol: '' });
-            }
+            setActiveCashier({ nombre: 'Ninguno', rol: '' });
         } catch (e) {
             console.error('[OwnerMonitorView] Error cargando datos locales:', e);
         } finally {
