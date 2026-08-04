@@ -88,18 +88,18 @@ function sanitizePayloadForSync(key, value) {
 }
 
 export const pushCloudSync = async (key, value, forceUnconditional = false) => {
-    if (!supabaseCloud) return;
-    if (isSyncingFromCloud) return;          // Nunca re-emitir lo que llegó de la nube
+    if (!supabaseCloud) return false;
+    if (isSyncingFromCloud) return false;          // Nunca re-emitir lo que llegó de la nube
     const isMonitor = localStorage.getItem('dj_pairing_mode') === 'monitor';
-    if (isMonitor) return;                  // Omitir si este dispositivo es un Monitor visor
-    if (!isCloudSyncActive) return;          // Omitir si el dispositivo no está autenticado o emparejado en la nube
+    if (isMonitor) return false;                  // Omitir si este dispositivo es un Monitor visor
+    if (!isCloudSyncActive) return false;          // Omitir si el dispositivo no está autenticado o emparejado en la nube
 
-    if (!SYNC_KEYS.includes(key)) return;
+    if (!SYNC_KEYS.includes(key)) return false;
     const activeDeviceId = _currentDeviceId || localStorage.getItem('dj_device_id');
-    if (!activeDeviceId) return;
+    if (!activeDeviceId) return false;
 
     // SEC-002: jamás empujar `abasto-auth-storage` aunque accidentalmente lo pidan.
-    if (key === 'abasto-auth-storage') return;
+    if (key === 'abasto-auth-storage') return false;
 
     const payloadToUpload = sanitizePayloadForSync(key, value);
 
@@ -108,7 +108,7 @@ export const pushCloudSync = async (key, value, forceUnconditional = false) => {
     const hashKey = LAST_PUSH_HASH_PREFIX + key;
     const currentHash = quickHash(payloadToUpload);
     if (!forceUnconditional && localStorage.getItem(hashKey) === currentHash) {
-        return;
+        return true;
     }
 
     try {
@@ -130,14 +130,18 @@ export const pushCloudSync = async (key, value, forceUnconditional = false) => {
             } else {
                 console.warn(`[CloudSync] Error ${error.code || error.status} al subir ${key}:`, error.message);
             }
-            return; // No guardar hash para reintentar cuando Supabase responda
+            return false; // No guardar hash para reintentar cuando Supabase responda
         }
 
-        // Update local hash to prevent periodic push from re-uploading
+        // D1: `pushCloudSync` es el ÚNICO punto que escribe el hash de egress.
+        // Los llamadores NO deben escribirlo: si lo hacen, una subida fallida
+        // queda marcada como completada y esa clave no se reintenta nunca más.
         localStorage.setItem(hashKey, currentHash);
+        return true;
 
     } catch (e) {
         // Silencioso en producción
+        return false;
     }
 };
 
@@ -166,8 +170,8 @@ export const forceSyncAllPOSData = async (overrideDeviceId, forceUnconditional =
                 const hashKey = LAST_PUSH_HASH_PREFIX + key;
                 const currentHash = quickHash(val);
                 if (!forceUnconditional && localStorage.getItem(hashKey) === currentHash) continue;
-                await pushCloudSync(key, val);
-                localStorage.setItem(hashKey, currentHash);
+                // D1: el hash lo escribe pushCloudSync solo si el upsert tuvo éxito.
+                await pushCloudSync(key, val, forceUnconditional);
             }
         }
         for (const key of LOCAL_KEYS) {
@@ -179,8 +183,8 @@ export const forceSyncAllPOSData = async (overrideDeviceId, forceUnconditional =
                 if (!forceUnconditional && localStorage.getItem(hashKey) === currentHash) continue;
                 let parsed = val;
                 try { parsed = JSON.parse(val); } catch {}
-                await pushCloudSync(key, parsed);
-                localStorage.setItem(hashKey, currentHash);
+                // D1: el hash lo escribe pushCloudSync solo si el upsert tuvo éxito.
+                await pushCloudSync(key, parsed, forceUnconditional);
             }
         }
         console.log('[CloudSync] Sincronización POS verificada/completada para device_id:', activeDeviceId);
@@ -252,9 +256,9 @@ async function _applyFromCloud(docId, collection, payload) {
             window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: docId } }));
         }
 
-        // Update local hash to prevent periodic push from re-uploading what we just downloaded
-        const hashKey = LAST_PUSH_HASH_PREFIX + docId;
-        localStorage.setItem(hashKey, quickHash(payload));
+        // D1: no es un push. Sella el valor recién recibido de la
+        // nube para que el ciclo periódico no lo re-suba en eco.
+        localStorage.setItem(LAST_PUSH_HASH_PREFIX + docId, quickHash(payload));
     } finally {
         isSyncingFromCloud = false;
     }
@@ -338,9 +342,8 @@ export function useCloudSync(deviceId) {
                     for (const key of IDB_KEYS) {
                         const localValue = await lf.getItem(key);
                         if (localValue !== null) {
+                            // D1: el hash lo escribe pushCloudSync solo si el upsert tuvo éxito.
                             await pushCloudSync(key, localValue, true);
-                            const hashKey = LAST_PUSH_HASH_PREFIX + key;
-                            localStorage.setItem(hashKey, quickHash(localValue));
                         }
                     }
                     
@@ -350,9 +353,8 @@ export function useCloudSync(deviceId) {
                         if (localVal !== null) {
                             let parsed = localVal;
                             try { parsed = JSON.parse(localVal); } catch {}
+                            // D1: el hash lo escribe pushCloudSync solo si el upsert tuvo éxito.
                             await pushCloudSync(key, parsed, true);
-                            const hashKey = LAST_PUSH_HASH_PREFIX + key;
-                            localStorage.setItem(hashKey, quickHash(parsed));
                         }
                     }
 
@@ -415,8 +417,8 @@ export function useCloudSync(deviceId) {
                         const currentHash = quickHash(localValue);
                         if (localStorage.getItem(hashKey) === currentHash) continue;
 
+                        // D1: el hash lo escribe pushCloudSync solo si el upsert tuvo éxito.
                         await pushCloudSync(key, localValue);
-                        localStorage.setItem(hashKey, currentHash);
                     }
 
                     // Procesar localStorage
@@ -430,8 +432,8 @@ export function useCloudSync(deviceId) {
 
                         let parsed = localVal;
                         try { parsed = JSON.parse(localVal); } catch {}
+                        // D1: el hash lo escribe pushCloudSync solo si el upsert tuvo éxito.
                         await pushCloudSync(key, parsed);
-                        localStorage.setItem(hashKey, currentHash);
                     }
                 } catch (e) {
                     // Silencioso
@@ -479,8 +481,8 @@ export function useCloudSync(deviceId) {
                     const currentHash = quickHash(localValue);
                     if (localStorage.getItem(hashKey) === currentHash) continue;
 
+                    // D1: el hash lo escribe pushCloudSync solo si el upsert tuvo éxito.
                     await pushCloudSync(key, localValue);
-                    localStorage.setItem(hashKey, currentHash);
                 }
 
                 // Procesar localStorage
@@ -494,8 +496,8 @@ export function useCloudSync(deviceId) {
 
                     let parsed = localVal;
                     try { parsed = JSON.parse(localVal); } catch {}
+                    // D1: el hash lo escribe pushCloudSync solo si el upsert tuvo éxito.
                     await pushCloudSync(key, parsed);
-                    localStorage.setItem(hashKey, currentHash);
                 }
             } catch (e) {
                 // Silencioso
