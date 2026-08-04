@@ -272,6 +272,12 @@ END; $$;
 
 -- S7b — unpair_monitor marca revoked_at para que device_monitors no siga
 --       autorizando al dispositivo desvinculado.
+--
+-- La versión de supabase_pairing_setup.sql era RETURNS VOID y Postgres no permite
+-- cambiar el tipo de retorno con CREATE OR REPLACE (42P13). El DROP es obligatorio
+-- y va antes del GRANT de más abajo, que vuelve a conceder EXECUTE a anon.
+DROP FUNCTION IF EXISTS public.unpair_monitor(TEXT);
+
 CREATE OR REPLACE FUNCTION public.unpair_monitor(p_device_id TEXT)
 RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public
