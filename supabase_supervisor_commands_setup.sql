@@ -31,11 +31,11 @@ ALTER TABLE public.supervisor_commands ADD COLUMN IF NOT EXISTS error_reason TEX
 -- 3. CHECK constraints (idempotentes)
 ALTER TABLE public.supervisor_commands DROP CONSTRAINT IF EXISTS supervisor_commands_command_type_check;
 ALTER TABLE public.supervisor_commands ADD CONSTRAINT supervisor_commands_command_type_check
-    CHECK (command_type IN ('rate_change', 'inventory_update', 'void_sale', 'user_update', 'force_daily_close'));
+    CHECK (command_type IN ('rate_change', 'inventory_update', 'void_sale', 'user_update', 'force_daily_close', 'reopen_shift'));
 
 ALTER TABLE public.supervisor_commands DROP CONSTRAINT IF EXISTS supervisor_commands_status_check;
 ALTER TABLE public.supervisor_commands ADD CONSTRAINT supervisor_commands_status_check
-    CHECK (status IN ('pending', 'applied', 'applied_with_warnings', 'failed'));
+    CHECK (status IN ('pending', 'applied', 'applied_with_warnings', 'failed', 'cancelled'));
 
 -- 4. Índice para el catch-up de la caja (pendientes por dispositivo)
 CREATE INDEX IF NOT EXISTS idx_supervisor_commands_pending
