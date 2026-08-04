@@ -308,3 +308,58 @@ GRANT EXECUTE ON FUNCTION public.touch_monitor_heartbeat(TEXT)  TO anon, authent
 GRANT EXECUTE ON FUNCTION public.unpair_monitor(TEXT)           TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.pair_additional_monitor(TEXT, TEXT, TEXT, TEXT)
     TO anon, authenticated;
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- S6 — RLS de supervisor_commands ligada al par caja↔monitor real.
+--      Antes bastaba que existiera la caja en device_pairings; ahora se exige
+--      que el lector/escritor sea la propia caja o un monitor vigente de ella.
+--      is_authorized_monitor ya está endurecida por S2 y es SECURITY DEFINER,
+--      así que puede leer device_monitors aunque anon no tenga SELECT directo.
+-- ═════════════════════════════════════════════════════════════════════════════
+
+-- Lectura: la caja lee lo suyo; el monitor lee lo que él mismo emitió.
+DROP POLICY IF EXISTS "supervisor_commands_pair_select" ON public.supervisor_commands;
+CREATE POLICY "supervisor_commands_pair_select" ON public.supervisor_commands
+    FOR SELECT
+    TO anon, authenticated
+    USING (
+        public.is_authorized_monitor(
+            supervisor_commands.primary_device_id,
+            supervisor_commands.monitor_device_id
+        )
+    );
+
+-- Escritura de status: solo la caja destinataria cierra sus comandos.
+-- El monitor NO puede marcar 'applied'; solo puede cancelar los suyos (FX03).
+DROP POLICY IF EXISTS "supervisor_commands_pair_update" ON public.supervisor_commands;
+CREATE POLICY "supervisor_commands_pair_update" ON public.supervisor_commands
+    FOR UPDATE
+    TO anon, authenticated
+    USING (
+        public.is_authorized_monitor(
+            supervisor_commands.primary_device_id,
+            supervisor_commands.monitor_device_id
+        )
+    )
+    WITH CHECK (
+        public.is_authorized_monitor(
+            supervisor_commands.primary_device_id,
+            supervisor_commands.monitor_device_id
+        )
+    );
+
+-- Inserción: solo un monitor vigente emite comandos hacia su caja.
+DROP POLICY IF EXISTS "supervisor_commands_monitor_insert" ON public.supervisor_commands;
+CREATE POLICY "supervisor_commands_monitor_insert" ON public.supervisor_commands
+    FOR INSERT
+    TO anon, authenticated
+    WITH CHECK (
+        public.is_authorized_monitor(
+            supervisor_commands.primary_device_id,
+            supervisor_commands.monitor_device_id
+        )
+        AND supervisor_commands.status = 'pending'
+    );
+
+GRANT SELECT, INSERT, UPDATE ON public.supervisor_commands TO anon, authenticated;
+
