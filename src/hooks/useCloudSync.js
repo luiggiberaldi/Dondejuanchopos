@@ -4,6 +4,7 @@ import { supabaseCloud } from '../config/supabaseCloud';
 import { useAuthStore } from './store/useAuthStore';
 import { useSupervisorCommands } from './useSupervisorCommands';
 import { IDB_KEYS, LS_KEYS } from '../config/backupKeys';
+import { registerCloudSyncSetter } from '../utils/syncFlags';
 
 // EGRESS: claves que se respaldan pero NO se sincronizan a la nube.
 // Cada upsert a sync_documents se retransmite por Realtime a CADA monitor
@@ -39,6 +40,13 @@ const LAST_PUSH_HASH_PREFIX = 'bodega_last_periodic_push_hash_';
 // ─── Estado Global del Motor ───────────────────────────────────────────────
 let globalSubscription = null;
 let isSyncingFromCloud = false; // true mientras aplicamos cambios de la nube → evita eco
+
+// D7: conectar la bandera local del módulo con `runWithoutEco` de syncFlags.
+// Sin este registro había DOS banderas anti-eco independientes: la de este
+// módulo y la de syncFlags.js, y `runWithoutEco` no silenciaba a esta.
+// La única llamada existente estaba en tests/hooks.test.js — nunca en producción.
+registerCloudSyncSetter((v) => { isSyncingFromCloud = v; });
+
 let pendingPush = {};           // Debounce: { [key]: timeoutId }
 let _currentDeviceId = '';      // Device ID activo para pushCloudSync
 let isCloudSyncActive = false;   // Evita empujar a la nube si el dispositivo no está autenticado/emparejado

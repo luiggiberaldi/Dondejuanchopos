@@ -57,13 +57,27 @@ export function useCloudBackup({
                 console.warn('[applyCloudBackup] Formato no reconocido, intentando restauración legacy...');
             }
             if (backup.data.ls) {
+                // D7: el interceptor de localStorage.setItem fue eliminado en
+                // SEC-009/HOOK-011; el comentario anterior describía un mecanismo
+                // que ya no existe. Escribir aquí NO republicaba nada, así que tras
+                // restaurar un backup el monitor conservaba el estado anterior.
                 for (const [key, value] of Object.entries(backup.data.ls)) {
-                    // localStorage.setItem pasa por el interceptor de useCloudSync;
-                    // el flag global también lo silencia (doble protección).
                     localStorage.setItem(key, value);
+                    window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key } }));
                 }
             }
         });
+
+        // D7: la restauración es un cambio de estado legítimo que DEBE propagarse
+        // a los monitores. Se hace fuera de runWithoutEco (el anti-eco solo debe
+        // cubrir la escritura, no la publicación) y de forma incondicional, porque
+        // los hashes de egress corresponden al estado previo a la restauración.
+        try {
+            const { forceSyncAllPOSData } = await import('./useCloudSync');
+            await forceSyncAllPOSData(undefined, true);
+        } catch (e) {
+            console.warn('[applyCloudBackup] No se pudo republicar tras la restauración:', e);
+        }
     };
 
     // ─── HELPER: Collect local backup payload ────────────────────────────────
@@ -125,8 +139,7 @@ export function useCloudBackup({
                     device_id: deviceId,
                     collection: 'store',
                     doc_id: key,
-                    data: { payload: value },
-                    updated_at: new Date().toISOString()
+                    data: { payload: value }
                 });
             }
             for (const [key, value] of Object.entries(backupData.data.ls || {})) {
@@ -136,8 +149,7 @@ export function useCloudBackup({
                     device_id: deviceId,
                     collection: 'local',
                     doc_id: key,
-                    data: { payload: finalVal },
-                    updated_at: new Date().toISOString()
+                    data: { payload: finalVal }
                 });
             }
             if (syncPayloads.length > 0) {
