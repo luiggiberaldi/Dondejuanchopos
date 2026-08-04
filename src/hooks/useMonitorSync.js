@@ -44,6 +44,8 @@ export function useMonitorSync(pairedDeviceId) {
     const [loading, setLoading] = useState(true);
     const [posLastSeen, setPosLastSeen] = useState(null);
     const [isPosOnline, setIsPosOnline] = useState(false);
+    // R1: distingue "la caja está apagada" de "no pudimos averiguarlo".
+    const [presenceError, setPresenceError] = useState(null);
     const isSyncingRef = useRef(false);
     const lastSyncRef = useRef(lastSync);
     const initMonitorRef = useRef(null);
@@ -59,13 +61,32 @@ export function useMonitorSync(pairedDeviceId) {
     const checkPosPresence = useCallback(async () => {
         if (!supabaseCloud || !pairedDeviceId) return;
         try {
-            const { data: pairing } = await supabaseCloud
+            // R1: antes se descartaba `error`, así que un fallo de red o de RLS se
+            // pintaba como "Caja fuera de línea" — indistinguible de un corte real.
+            const { data: pairing, error } = await supabaseCloud
                 .from('device_pairings')
                 .select('last_seen_at, paired_at')
                 .eq('primary_device_id', pairedDeviceId)
                 .maybeSingle();
 
-            const stamp = pairing?.last_seen_at || pairing?.paired_at || null;
+            if (error) {
+                console.warn('[useMonitorSync] No se pudo consultar la presencia de la caja:', error.message);
+                // No es "la caja está apagada": es "no lo sabemos". Se conserva el
+                // último estado conocido y se marca el motivo para la UI.
+                setPresenceError(error.message || 'Error consultando presencia');
+                return;
+            }
+            setPresenceError(null);
+
+            if (!pairing) {
+                // R1: el emparejamiento no existe. Es un fallo de configuración,
+                // no una caja apagada, y la UI debe poder distinguirlo.
+                setPresenceError('Este monitor no está vinculado a ninguna caja.');
+                setIsPosOnline(false);
+                return;
+            }
+
+            const stamp = pairing.last_seen_at || pairing.paired_at || null;
 
             if (stamp) {
                 const lastDate = new Date(stamp);
@@ -76,8 +97,9 @@ export function useMonitorSync(pairedDeviceId) {
             } else {
                 setIsPosOnline(false);
             }
-        } catch {
-            setIsPosOnline(false);
+        } catch (e) {
+            console.warn('[useMonitorSync] checkPosPresence lanzó:', e?.message ?? e);
+            setPresenceError(e?.message || 'Error de red');
         }
     }, [pairedDeviceId]);
 
@@ -404,5 +426,5 @@ export function useMonitorSync(pairedDeviceId) {
         };
     }, [pairedDeviceId, initMonitor, sendHeartbeat, checkPosPresence]);
 
-    return { isConnected, lastSync, loading, triggerRefresh, posLastSeen, isPosOnline };
+    return { isConnected, lastSync, loading, triggerRefresh, posLastSeen, isPosOnline, presenceError };
 }
