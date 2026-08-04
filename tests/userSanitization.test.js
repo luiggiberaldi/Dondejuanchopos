@@ -1,4 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, test, expect } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 import { sanitizeUserCatalog } from '../src/utils/userCatalog';
 import { useAuthStore } from '../src/hooks/store/useAuthStore';
 
@@ -18,6 +20,34 @@ describe('PU4.1: Sanitización de catálogo de usuarios para la nube', () => {
 
     expect(sanitized[0].pin).toBeUndefined();
     expect(sanitized[0].plainPin).toBeUndefined();
+  });
+
+  // S4: `bodega_users_catalog_v1` viaja a sync_documents y lo lee el rol anon.
+  // Solo `publishUserCatalog` puede escribirlo, y siempre saneado.
+  test('bodega_users_catalog_v1 tiene un unico escritor y siempre saneado', () => {
+      const files = [
+          'src/components/Settings/UsersManager.jsx',
+          'src/hooks/store/useAuthStore.js',
+      ];
+      for (const rel of files) {
+          const src = fs.readFileSync(path.resolve(__dirname, '..', rel), 'utf-8');
+          const writes = [...src.matchAll(
+              /localStorage\.setItem\(\s*'bodega_users_catalog_v1'\s*,\s*([^)]*)\)/g
+          )];
+          for (const w of writes) {
+              expect(w[1]).toContain('sanitizeUserCatalog');
+          }
+      }
+  });
+
+  test('sanitizeUserCatalog elimina pin y plainPin', async () => {
+      const { sanitizeUserCatalog: sanitizeFn } = await import('../src/utils/userCatalog');
+      const out = sanitizeFn([
+          { id: 1, nombre: 'Admin', rol: 'ADMIN', pin: 'pbkdf2$x', plainPin: '123456' },
+      ]);
+      expect(out[0]).not.toHaveProperty('pin');
+      expect(out[0]).not.toHaveProperty('plainPin');
+      expect(out[0].nombre).toBe('Admin');
   });
 });
 

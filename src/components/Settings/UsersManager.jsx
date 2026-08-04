@@ -220,12 +220,20 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
         onQueueChange('user_update', 'user_' + (payload.userId || Date.now()), { action: userAction, ...payload });
     };
 
-    // Helper para publicar el catálogo sanitizado de usuarios en la nube (caja principal)
+    // S4/SEC-002: ÚNICO escritor de `bodega_users_catalog_v1`.
+    // Esta clave viaja a sync_documents y es legible por anon, así que solo
+    // puede contener la forma saneada (sin `pin` ni `plainPin`). Cualquier
+    // escritura de 'bodega_users_catalog_v1' fuera de aquí es
+    // una fuga; `tests/userSanitization.test.js` lo impide.
     const publishUserCatalog = async (users) => {
         try {
-            const { pushLocalSync } = await import('../../hooks/useCloudSync');
             const { sanitizeUserCatalog } = await import('../../utils/userCatalog');
-            pushLocalSync('bodega_users_catalog_v1', sanitizeUserCatalog(users));
+            const safe = sanitizeUserCatalog(users);
+            try {
+                localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(sanitizeUserCatalog(users)));
+            } catch {}
+            const { pushLocalSync } = await import('../../hooks/useCloudSync');
+            pushLocalSync('bodega_users_catalog_v1', safe);
         } catch (e) {
             console.warn('[UsersManager] No se pudo publicar el catálogo de usuarios:', e);
         }
@@ -286,7 +294,6 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
             const current = prev && prev.length > 0 ? prev : usuarios;
             const nextId = current.reduce((max, u) => Math.max(max, Number(u.id) || 0), 0) + 1;
             const fresh = [...current, { id: nextId, nombre: newName.trim(), rol: newRole, plainPin: newBypassPin ? '' : newPin, bypassPin: newBypassPin }];
-            try { localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(fresh)); } catch {}
             publishUserCatalog(fresh);
             return fresh;
         });
@@ -318,7 +325,6 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
                 rol: u.rol || (u.id === 1 ? 'ADMIN' : 'CAJERO'),
                 bypassPin: newVal
             } : u);
-            try { localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(fresh)); } catch {}
             publishUserCatalog(fresh);
             return fresh;
         });
@@ -405,7 +411,6 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
         setSyncedUsers(prev => {
             const current = prev && prev.length > 0 ? prev : usuarios;
             const fresh = current.map(u => u.id === changePinUser.id ? { ...u, plainPin: pinValue } : u);
-            try { localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(fresh)); } catch {}
             publishUserCatalog(fresh);
             return fresh;
         });
@@ -435,7 +440,6 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
             setSyncedUsers(prev => {
                 const current = prev && prev.length > 0 ? prev : usuarios;
                 const fresh = current.filter(u => u.id !== deleteUser.id);
-                try { localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(fresh)); } catch {}
                 publishUserCatalog(fresh);
                 return fresh;
             });
@@ -453,7 +457,6 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
         setSyncedUsers(prev => {
             const current = prev && prev.length > 0 ? prev : usuarios;
             const fresh = current.map(u => u.id === editNameUser.id ? { ...u, nombre: safeName } : u);
-            try { localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(fresh)); } catch {}
             publishUserCatalog(fresh);
             return fresh;
         });

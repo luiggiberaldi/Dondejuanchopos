@@ -26,6 +26,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { logEvent } from '../../services/auditService';
 import { hashPin, verifyPin } from '../../utils/crypto';
+import { sanitizeUserCatalog } from '../../utils/userCatalog';
 import {
     PIN_POLICY,
     LOGIN_RATE_LIMIT,
@@ -609,9 +610,17 @@ export const useAuthStore = create(
                 },
                 setItem: (name, value) => {
                     localStorage.setItem(name, JSON.stringify(value));
+                    // S4/SEC-002: `bodega_users_catalog_v1` se publica en
+                    // sync_documents y es legible por el rol anon. Escribir aquí
+                    // `state.usuarios` en crudo filtraba el hash PBKDF2 y el PIN
+                    // en claro (`plainPin`). El catálogo se escribe SANEADO y en
+                    // un único lugar: `publishUserCatalog` en UsersManager.jsx.
                     if (value && value.state && Array.isArray(value.state.usuarios)) {
                         try {
-                            localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(value.state.usuarios));
+                            localStorage.setItem(
+                                'bodega_users_catalog_v1',
+                                JSON.stringify(sanitizeUserCatalog(value.state.usuarios))
+                            );
                         } catch {}
                     }
                 },
