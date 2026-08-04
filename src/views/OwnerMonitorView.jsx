@@ -784,8 +784,10 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                     next.push({ action, productId, data, queuedAt: new Date().toISOString() });
                 }
             } else if (action === 'edit') {
-                // F5: enviar la versión base (baseUpdatedAt) únicamente en edits para versionado optimista
-                const targetProd = projectedProducts.find(p => p.id === productId);
+                // F5: enviar la versión base (baseUpdatedAt) únicamente en edits para versionado optimista.
+                // Se lee de `products` (lo sincronizado desde la caja), no de la proyección
+                // local: la versión base es la que la caja tiene, no la que el monitor pinta.
+                const targetProd = (products || []).find(p => p.id === productId);
                 const editData = (targetProd?.updatedAt && !data?.baseUpdatedAt)
                     ? { ...data, baseUpdatedAt: targetProd.updatedAt }
                     : data;
@@ -814,7 +816,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         // No mostramos toast flotante ruidoso en cada clic individual;
         // la UI responde instantáneamente y la barra flotante inferior muestra los cambios pendientes.
         return true;
-    }, [projectedProducts]);
+    }, [products]);
 
     // Delta de stock pendiente por producto (para proyectar en la fila)
     const pendingStockDelta = (productId) =>
@@ -1332,14 +1334,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         // Movimientos del turno activo según shiftScope (incluye GASTO_INTERNO con afectaCaja)
         const activeFlow = getOpenShiftMovements(sales).movements.filter(s => s.tipo !== 'APERTURA_CAJA');
 
-        let totalTipDonatedUsd = 0;
-        let totalTipDonatedBs = 0;
-
         activeFlow.forEach(sale => {
-            if (sale.tipDonated) {
-                totalTipDonatedUsd += (sale.tipDonated.amountUsd || 0);
-                totalTipDonatedBs += (sale.tipDonated.amountBs || 0);
-            }
 
             const { changeUsd, changeBs } = getSaleChangeDetails(sale, products, effectiveRate, bcvRate);
             if (changeBs > 0) totalVueltoBs += changeBs;
@@ -1428,17 +1423,6 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             };
         }
 
-        if (totalTipDonatedUsd > 0 || totalTipDonatedBs > 0) {
-            breakdown['_propina_donada'] = {
-                totalUsd: totalTipDonatedUsd,
-                totalBs: totalTipDonatedBs,
-                count: activeFlow.filter(s => s.tipDonated).length,
-                label: 'Cambios Dejados en Caja (Propinas)',
-                currency: 'USD',
-                isTip: true
-            };
-        }
-
         return Object.entries(breakdown)
             .filter(([, data]) => data.totalUsd > 0 || data.totalBs > 0 || data.count > 0)
             .sort(([, a], [, b]) => {
@@ -1447,6 +1431,18 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 return b.totalUsd - a.totalUsd;
             });
     }, [sales, activeShiftApertura, effectiveRate, bcvRate]);
+
+    // Base de los porcentajes del desglose: SOLO los cobros reales.
+    // Los vueltos (isChange) y las propinas (isTip) son disposiciones de ese mismo
+    // dinero, no ingresos adicionales. Antes se dividía entre el total NETO de
+    // ventas mientras los numeradores eran importes BRUTOS, así que un pago de
+    // $26.00 sobre un neto de $19.24 se mostraba como 135% y la suma pasaba de 100.
+    const activeShiftGrossUsd = useMemo(
+        () => activeShiftPaymentBreakdown
+            .filter(([, d]) => !d.isChange && !d.isTip)
+            .reduce((sum, [, d]) => sum + (d.totalUsd || 0), 0),
+        [activeShiftPaymentBreakdown]
+    );
 
     // Cálculo exacto del Efectivo Físico Esperado en Gaveta mediante FinancialEngine (Arqueo Teórico de Caja en Vivo)
     const activeShiftExpectedCash = useMemo(() => {
@@ -2212,11 +2208,14 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                             <div className="space-y-2.5">
                                                 {activeShiftPaymentBreakdown.map(([methodId, data]) => {
                                                     const IconComp = getMethodIcon(methodId);
-                                                    const pct = activeShiftMetrics.totalUsd > 0 && !data.isChange 
-                                                        ? Math.round((data.totalUsd / activeShiftMetrics.totalUsd) * 100) 
-                                                        : 0;
-
+                                                    // El vuelto sale de la gaveta (se pinta en ámbar y con signo −).
+                                                    // La propina se queda en ella, así que conserva el estilo neutro.
                                                     const isChangeRow = data.isChange;
+                                                    // Ninguno de los dos es un cobro: quedan fuera del reparto porcentual.
+                                                    const isOutOfPct = data.isChange || data.isTip;
+                                                    const pct = activeShiftGrossUsd > 0 && !isOutOfPct
+                                                        ? Math.round((data.totalUsd / activeShiftGrossUsd) * 100)
+                                                        : 0;
 
                                                     return (
                                                         <div 
@@ -2250,17 +2249,17 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                                         ) : (
                                                                             <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Vuelto Otorgado</span>
                                                                         )}
-                                                                        {!isChangeRow && <span className="text-[9px] font-black text-violet-500 bg-violet-50 dark:bg-violet-950/20 dark:text-violet-400 px-1.5 py-0.5 rounded-md">{pct}%</span>}
+                                                                        {!isOutOfPct && <span className="text-[9px] font-black text-violet-500 bg-violet-50 dark:bg-violet-950/20 dark:text-violet-400 px-1.5 py-0.5 rounded-md">{pct}%</span>}
                                                                     </div>
                                                                     <span className={`font-outfit text-[10px] font-bold tabular-nums ${isChangeRow ? 'text-amber-600/80 dark:text-amber-400/80' : 'text-slate-400'}`}>
                                                                         {isChangeRow ? '− ' : ''}{formatBs(data.totalBs)} Bs
                                                                     </span>
                                                                 </div>
-                                                                {!isChangeRow && (
+                                                                {!isOutOfPct && (
                                                                     <div className="mt-1.5 h-1 bg-slate-200/60 dark:bg-slate-800 rounded-full overflow-hidden">
-                                                                        <div 
-                                                                            className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 rounded-full transition-all duration-500" 
-                                                                            style={{ width: `${Math.max(2, pct)}%` }} 
+                                                                        <div
+                                                                            className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 rounded-full transition-all duration-500"
+                                                                            style={{ width: `${Math.max(2, Math.min(100, pct))}%` }}
                                                                         />
                                                                     </div>
                                                                 )}
