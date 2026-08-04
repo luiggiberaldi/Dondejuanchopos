@@ -47,6 +47,10 @@ export function useMonitorSync(pairedDeviceId) {
     const isSyncingRef = useRef(false);
     const lastSyncRef = useRef(lastSync);
     const initMonitorRef = useRef(null);
+    // E3: cuando la pestaña está oculta, el supervisor no está mirando. Los
+    // relojes se ralentizan x6 en vez de mantener el ritmo de primer plano.
+    const hiddenRef = useRef(false);
+    const tickRef = useRef(0);
 
     useEffect(() => {
         lastSyncRef.current = lastSync;
@@ -339,7 +343,12 @@ export function useMonitorSync(pairedDeviceId) {
 
         // 2. Escuchar cuando el usuario regresa a la app (desbloqueo de pantalla o cambio de pestaña)
         const handleVisibilityChange = () => {
-            if (document.visibilityState === 'visible' && navigator.onLine) {
+            const wasHidden = hiddenRef.current;
+            hiddenRef.current = document.visibilityState === 'hidden';
+            if (wasHidden && !hiddenRef.current && navigator.onLine) {
+                initMonitor(true);
+                sendHeartbeat();
+            } else if (document.visibilityState === 'visible' && navigator.onLine) {
                 const now = Date.now();
                 const lastSyncMs = lastSyncRef.current ? lastSyncRef.current.getTime() : 0;
                 const isFresh = monitorSubscription && (now - lastSyncMs < 60000);
@@ -357,6 +366,9 @@ export function useMonitorSync(pairedDeviceId) {
         // 3. Health-check en segundo plano: 30s con canal sano, 10s cuando está caído (FX9)
         reconnectTimer = setInterval(() => {
             if (!navigator.onLine) return;
+            tickRef.current++;
+            // E3: en segundo plano, 1 de cada 6 ticks.
+            if (hiddenRef.current && tickRef.current % 6 !== 0) return;
 
             const isHealthy = isConnectedRef.current && monitorSubscription;
             checkCounterRef.current += 1;
@@ -372,6 +384,7 @@ export function useMonitorSync(pairedDeviceId) {
 
         // 4. Heartbeat de presencia hacia Supabase (cada 60s)
         const heartbeatTimer = setInterval(() => {
+            if (hiddenRef.current) return;
             if (navigator.onLine) {
                 sendHeartbeat();
             }
