@@ -784,13 +784,19 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                     next.push({ action, productId, data, queuedAt: new Date().toISOString() });
                 }
             } else if (action === 'edit') {
+                // F5: enviar la versión base (baseUpdatedAt) únicamente en edits para versionado optimista
+                const targetProd = projectedProducts.find(p => p.id === productId);
+                const editData = (targetProd?.updatedAt && !data?.baseUpdatedAt)
+                    ? { ...data, baseUpdatedAt: targetProd.updatedAt }
+                    : data;
+
                 const addIdx = idxOf('add');
                 if (addIdx >= 0) {
-                    next[addIdx] = { ...next[addIdx], data: { ...data, id: productId }, queuedAt: new Date().toISOString() };
+                    next[addIdx] = { ...next[addIdx], data: { ...editData, id: productId }, queuedAt: new Date().toISOString() };
                 } else {
                     const i = idxOf('edit');
-                    if (i >= 0) next[i] = { ...next[i], data, queuedAt: new Date().toISOString() };
-                    else next.push({ action, productId, data, queuedAt: new Date().toISOString() });
+                    if (i >= 0) next[i] = { ...next[i], data: editData, queuedAt: new Date().toISOString() };
+                    else next.push({ action, productId, data: editData, queuedAt: new Date().toISOString() });
                 }
             } else if (action === 'delete') {
                 const hadAdd = idxOf('add') >= 0;
@@ -808,7 +814,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         // No mostramos toast flotante ruidoso en cada clic individual;
         // la UI responde instantáneamente y la barra flotante inferior muestra los cambios pendientes.
         return true;
-    }, []);
+    }, [projectedProducts]);
 
     // Delta de stock pendiente por producto (para proyectar en la fila)
     const pendingStockDelta = (productId) =>
@@ -987,7 +993,8 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             totalBs: activeShiftMetrics.totalBs,
                             count: activeShiftMetrics.count,
                         },
-                        cashier: { nombre: activeCashier?.nombre || 'Supervisión Remota', rol: 'SUPERVISOR_REMOTO' },
+                        cashier: { nombre: 'Supervisión Remota', rol: 'SUPERVISOR_REMOTO' },
+                        observedCashier: activeCashier?.nombre || null,
                         copEnabled,
                         tasaCop,
                     },
@@ -1019,7 +1026,8 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                     command_type: 'reopen_shift',
                     payload: {
                         cierreId: targetCierreId || null,
-                        cashier: { nombre: activeCashier?.nombre || 'Supervisión Remota', rol: 'SUPERVISOR_REMOTO' },
+                        cashier: { nombre: 'Supervisión Remota', rol: 'SUPERVISOR_REMOTO' },
+                        observedCashier: activeCashier?.nombre || null,
                     },
                     status: 'pending'
                 });
