@@ -208,6 +208,17 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
             // Obtener o regenerar el device_id local para registrarlo como monitor
             let monitorId = localStorage.getItem('dj_device_id');
             if (!monitorId || isRetry) {
+                // R5: si este dispositivo alguna vez operó como caja, sobrescribir su
+                // `dj_device_id` deja huérfanos todos sus documentos en la nube (nadie
+                // volverá a consultarlos con ese id). Se conserva el original.
+                const previousDeviceId = localStorage.getItem('dj_device_id');
+                if (previousDeviceId && !previousDeviceId.startsWith('mon_')) {
+                    localStorage.setItem('dj_previous_pos_device_id', previousDeviceId);
+                    console.warn(
+                        `[PairingScan] Este dispositivo tenía id de caja (${previousDeviceId}). ` +
+                        `Se conserva en 'dj_previous_pos_device_id' antes de pasar a modo monitor.`
+                    );
+                }
                 monitorId = 'mon_' + Math.random().toString(36).substring(2, 12) + '_' + Date.now().toString(36);
                 localStorage.setItem('dj_device_id', monitorId);
             }

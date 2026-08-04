@@ -639,32 +639,25 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         }
     };
 
-    // 🎯 Sniper Auto-Repair: Detectar y conectar a la caja activa más reciente en Supabase
+    // R3: Verificar el vínculo del monitor vía list_monitors
     const handleAutoRepairPairing = async () => {
         if (!supabaseCloud) return;
         triggerHaptic?.();
-        showToast('🎯 Buscando caja activa en Supabase...', 'info');
+        showToast('Verificando vínculo con la caja en Supabase...', 'info');
         try {
-            const { data, error } = await supabaseCloud
-                .from('sync_documents')
-                .select('device_id, updated_at')
-                .eq('doc_id', 'bodega_sales_v1')
-                .order('updated_at', { ascending: false })
-                .limit(1);
+            const monitorId = localStorage.getItem('dj_device_id');
+            const { data: res, error } = await supabaseCloud.rpc('list_monitors', {
+                p_requester_id: monitorId
+            });
 
-            if (error) throw error;
-
-            if (data && data[0]?.device_id) {
-                const activeId = data[0].device_id;
-                localStorage.setItem('dj_paired_device_id', activeId);
-                showToast(`🎯 Conectado con éxito a la caja activa`, 'success');
-                setTimeout(() => window.location.reload(), 600);
-            } else {
-                showToast('No se encontró ninguna caja con ventas recientes', 'error');
+            if (error || !res?.success) {
+                showToast('Este dispositivo no está autorizado en ninguna caja. Vuelve a emparejar con un código.', 'error');
+                return;
             }
+            showToast('Vínculo verificado. Si sigue sin conectar, vuelve a emparejar con un código.', 'info');
         } catch (err) {
-            console.error('[SniperAutoRepair] Error:', err);
-            showToast('Error al buscar caja activa', 'error');
+            console.error('[OwnerMonitor] Error al verificar vínculo:', err);
+            showToast('Error al consultar estado de vinculación', 'error');
         }
     };
 
@@ -1803,16 +1796,16 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             )}
                         </div>
 
-                        {/* Status Badge de la Caja Principal (Online/Offline) con Sniper Auto-Repair Integrado */}
+                        {/* Status Badge de la Caja Principal (Online/Offline) */}
                         <div 
                             onClick={!isPosOnline ? handleAutoRepairPairing : undefined}
-                            title={isPosOnline ? `Caja conectada (${posLastSeen ? posLastSeen.toLocaleTimeString() : ''})` : 'Haz clic para Auto-Conectar a la Caja Activa en Supabase'}
+                            title={isPosOnline ? `Caja conectada (${posLastSeen ? posLastSeen.toLocaleTimeString() : ''})` : 'Haz clic para verificar vínculo con la caja'}
                             className={`flex items-center gap-1 sm:gap-1.5 px-2.5 py-1 rounded-full text-[9px] sm:text-[10px] font-black tracking-wider uppercase shadow-xs shrink-0 transition-all duration-300 ${
                                 !isPosOnline ? 'cursor-pointer bg-amber-500 text-white border border-amber-600 active:scale-95 shadow-tone-sm' : 'bg-emerald-50 border border-emerald-200/60 text-emerald-700 dark:bg-emerald-950/30 dark:border-emerald-800/50 dark:text-emerald-400'
                             }`}
                         >
                             <span className={`w-2 h-2 rounded-full shrink-0 ${isPosOnline ? 'bg-emerald-500 animate-pulse' : 'bg-white'}`} />
-                            <span>{isPosOnline ? 'Caja: En Línea' : 'Caja: Offline (Reconectar)'}</span>
+                            <span>{isPosOnline ? 'Caja: En Línea' : 'Caja: Offline'}</span>
                             {!isPosOnline && <Target size={11} className="text-white animate-pulse ml-0.5" />}
                         </div>
 
@@ -1823,19 +1816,6 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             <button 
                                 onClick={async () => { 
                                     triggerHaptic?.(); 
-                                    if (supabaseCloud) {
-                                        try {
-                                            const { data } = await supabaseCloud
-                                                .from('sync_documents')
-                                                .select('device_id')
-                                                .eq('doc_id', 'bodega_sales_v1')
-                                                .order('updated_at', { ascending: false })
-                                                .limit(1);
-                                            if (data?.[0]?.device_id) {
-                                                localStorage.setItem('dj_paired_device_id', data[0].device_id);
-                                            }
-                                        } catch (e) {}
-                                    }
                                     await triggerRefresh(); 
                                     showToast?.('Datos actualizados', 'success');
                                 }}
@@ -2329,7 +2309,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                 <div className="py-12 text-center text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
                                                     <Clock size={36} className="mx-auto text-slate-350 dark:text-slate-700 mb-2" />
                                                     <p className="text-xs font-black">No se han registrado ventas en este turno</p>
-                                                    <p className="text-[10px] text-slate-400 mt-1">Las ventas de la caja activa aparecerán aquí al instante.</p>
+                                                    <p className="text-[10px] text-slate-400 mt-1">Las ventas de la caja emparejada aparecerán aquí al instante.</p>
                                                 </div>
                                             ) : (
                                                 <div className="space-y-3 max-h-[550px] overflow-y-auto pr-1">

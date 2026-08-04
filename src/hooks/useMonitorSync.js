@@ -133,22 +133,18 @@ export function useMonitorSync(pairedDeviceId) {
     const initMonitor = useCallback(async (isSilent = false) => {
         let activeDeviceId = pairedDeviceId || localStorage.getItem('dj_paired_device_id');
         
-        if (!activeDeviceId && supabaseCloud) {
-            try {
-                const { data } = await supabaseCloud
-                    .from('sync_documents')
-                    .select('device_id')
-                    .eq('doc_id', 'bodega_sales_v1')
-                    .order('updated_at', { ascending: false })
-                    .limit(1);
-                if (data?.[0]?.device_id) {
-                    activeDeviceId = data[0].device_id;
-                    localStorage.setItem('dj_paired_device_id', activeDeviceId);
-                }
-            } catch (e) {}
+        // R3: eliminado el "francotirador" global. Consultaba sync_documents SIN
+        // filtro de tienda y se quedaba con la caja más activa del sistema, que
+        // puede pertenecer a OTRO comercio; después persistía esa elección en
+        // `dj_paired_device_id` y le enviaba comandos. La pertenencia solo puede
+        // venir del emparejamiento, nunca de una heurística.
+        if (!activeDeviceId) {
+            console.warn('[useMonitorSync] Monitor sin caja vinculada. Se requiere emparejar con un código.');
+            setLoading(false);
+            return;
         }
 
-        if (!supabaseCloud || !activeDeviceId) {
+        if (!supabaseCloud) {
             setLoading(false);
             return;
         }
