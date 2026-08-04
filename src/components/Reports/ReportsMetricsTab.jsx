@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Calendar, DollarSign, TrendingUp, ShoppingBag, Package, ChevronDown, ChevronUp, Clock, Send, Ban, Shuffle, Search, X, Recycle, LockIcon, CornerDownLeft, Printer } from 'lucide-react';
+import { Calendar, DollarSign, TrendingUp, ShoppingBag, Package, ChevronDown, ChevronUp, Clock, Send, Ban, Shuffle, Search, X, Recycle, LockIcon, CornerDownLeft, Printer, HandCoins } from 'lucide-react';
 import { formatBs, formatCop } from '../../utils/calculatorUtils';
 import { getPaymentLabel, getPaymentMethod, PAYMENT_ICONS, toTitleCase, getPaymentIcon } from '../../config/paymentMethods';
 import { generateTicketPDF, printThermalTicket } from '../../utils/ticketGenerator';
@@ -190,12 +190,18 @@ function TransactionRow({ sale: s, bcvRate, isExpanded, onToggle, onVoidSale, on
                             <span>Ref: {formatBs(s.totalBs)} Bs @ {formatBs(s.rate || bcvRate)}</span>
                             {s.tasaCop > 0 && <span>COP: {(s.totalCop || (s.totalUsd * s.tasaCop)).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} @ {s.tasaCop}</span>}
                         </div>
+                        {s.tipDonated && (
+                            <div className="flex items-center gap-1 self-start mt-0.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-extrabold px-2 py-1 rounded-md border border-emerald-300 dark:border-emerald-700 text-[10px]">
+                                <HandCoins size={12} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                <span>Cambio Dejado en Caja: {s.tipDonated.currency === 'BS' ? `Bs ${formatBs(s.tipDonated.amountBs)}` : `$${(s.tipDonated.amountUsd || 0).toFixed(2)} USD`}</span>
+                            </div>
+                        )}
                         {s.changeUsd > 0 && (
-                                            <div className="flex items-center gap-1 self-start mt-0.5 bg-orange-50 dark:bg-orange-900/20 text-orange-500 dark:text-orange-400 font-bold px-1.5 py-0.5 rounded-md border border-orange-100 dark:border-orange-800/40 text-[10px]">
-                                                <CornerDownLeft size={10} />
-                                                <span>−${s.changeUsd.toFixed(2)}</span>
-                                            </div>
-                                        )}
+                            <div className="flex items-center gap-1 self-start mt-0.5 bg-orange-50 dark:bg-orange-900/20 text-orange-500 dark:text-orange-400 font-bold px-1.5 py-0.5 rounded-md border border-orange-100 dark:border-orange-800/40 text-[10px]">
+                                <CornerDownLeft size={10} />
+                                <span>−${s.changeUsd.toFixed(2)}</span>
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 mt-2">

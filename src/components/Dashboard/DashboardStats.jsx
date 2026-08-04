@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { TrendingUp, Package, ShoppingBag, ArrowUpRight, Users, ChevronDown, ChevronUp, Key, LockIcon, CheckCircle2, Coins } from 'lucide-react';
 import { formatBs, formatCop } from '../../utils/calculatorUtils';
 import AnimatedCounter from '../AnimatedCounter';
 import CasheaIcon from '../CasheaIcon';
+import { FinancialEngine } from '../../core/FinancialEngine';
 
 export default function DashboardStats({
     deviceId,
@@ -29,10 +30,20 @@ export default function DashboardStats({
     const openingUsd = activeApertura?.openingUsd || activeApertura?.montoUsd || 0;
     const openingCop = activeApertura?.openingCop || activeApertura?.montoCop || 0;
 
+    const drawerTotals = useMemo(() => {
+        try {
+            const breakdown = FinancialEngine.calculatePaymentBreakdown(todayCashFlow || []);
+            return FinancialEngine.computeExpectedCash(breakdown);
+        } catch (e) {
+            console.error('Error calculating drawer totals:', e);
+            return { usd: openingUsd, bs: openingBs, cop: openingCop };
+        }
+    }, [todayCashFlow, openingUsd, openingBs, openingCop]);
+
     return (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
 
-            {/* Banner Fondo Inicial en Caja (Apertura) */}
+            {/* Banner Efectivo Esperado en Gaveta (En Vivo) */}
             {activeApertura && (
                 <div className="col-span-2 lg:col-span-4 bg-emerald-500/10 dark:bg-emerald-950/40 border border-emerald-500/30 rounded-2xl p-4 relative overflow-hidden shadow-tone-sm">
                     <div className="flex items-center justify-between flex-wrap gap-2">
@@ -42,36 +53,34 @@ export default function DashboardStats({
                             </div>
                             <div>
                                 <div className="flex items-center gap-2 mb-1">
-                                    <p className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Fondo Inicial en Caja (Apertura)</p>
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Efectivo Esperado en Gaveta (En Vivo)</p>
                                     {(activeApertura.cajero || activeApertura.sellerName) && (
                                         <span className="text-[10px] text-slate-400 font-medium">· {activeApertura.cajero || activeApertura.sellerName}</span>
                                     )}
                                 </div>
                                 <div className="flex items-center gap-2 flex-wrap">
+                                    {/* Zona de Dólares ($) */}
+                                    <div className="flex items-center gap-1.5 px-3 py-1 bg-blue-500/10 dark:bg-blue-900/30 border border-blue-500/30 rounded-xl">
+                                        <span className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400">Efectivo $:</span>
+                                        <span className="font-outfit text-base font-black text-blue-700 dark:text-blue-300">
+                                            ${drawerTotals.usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                                        </span>
+                                    </div>
+
                                     {/* Zona de Bolívares */}
                                     <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-500/10 dark:bg-emerald-900/30 border border-emerald-500/30 rounded-xl">
                                         <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Efectivo Bs:</span>
                                         <span className="font-outfit text-base font-black text-slate-800 dark:text-white">
-                                            {formatBs(openingBs)} Bs
+                                            {formatBs(drawerTotals.bs)} Bs
                                         </span>
                                     </div>
 
-                                    {/* Zona de Dólares ($) */}
-                                    {openingUsd > 0 && (
-                                        <div className="flex items-center gap-1.5 px-3 py-1 bg-blue-500/10 dark:bg-blue-900/30 border border-blue-500/30 rounded-xl">
-                                            <span className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400">Efectivo $:</span>
-                                            <span className="font-outfit text-base font-black text-blue-700 dark:text-blue-300">
-                                                ${openingUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-                                            </span>
-                                        </div>
-                                    )}
-
                                     {/* Zona de Pesos COP */}
-                                    {openingCop > 0 && (
+                                    {drawerTotals.cop > 0 && (
                                         <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 dark:bg-amber-900/30 border border-amber-500/30 rounded-xl">
                                             <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">Efectivo COP:</span>
                                             <span className="font-outfit text-base font-black text-amber-700 dark:text-amber-300">
-                                                {formatCop(openingCop)} COP
+                                                {formatCop(drawerTotals.cop)} COP
                                             </span>
                                         </div>
                                     )}

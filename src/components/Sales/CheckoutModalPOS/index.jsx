@@ -129,6 +129,24 @@ export default function CheckoutModalPOS({
     const [distVueltoUSD, setDistVueltoUSD] = useState('');
     const [distVueltoBS, setDistVueltoBS] = useState('');
     const [isChangeCredited, setIsChangeCredited] = useState(false);
+    const [isTipDonated, setIsTipDonated] = useState(false);
+
+    const tipCurrency = useMemo(() => {
+        const activeInputMethods = metodosNormalizados.filter(m => val(m.id) > 0);
+        if (activeInputMethods.length === 0) return 'USD';
+        const firstUsd = activeInputMethods.find(m => m.currency === 'USD');
+        if (firstUsd) return 'USD';
+        const firstBs = activeInputMethods.find(m => m.currency === 'BS');
+        if (firstBs) return 'BS';
+        const firstCop = activeInputMethods.find(m => m.currency === 'COP');
+        if (firstCop) return 'COP';
+        return 'USD';
+    }, [pagos, metodosNormalizados]);
+
+    const toggleTipDonated = () => {
+        triggerHaptic && triggerHaptic();
+        setIsTipDonated(prev => !prev);
+    };
 
     // Detección de pago 100% Bolívares
     const isPureBsPayment = useMemo(() => {
@@ -174,6 +192,7 @@ export default function CheckoutModalPOS({
     });
 
     const handleVueltoDistChange = (moneda, valor) => {
+        setIsTipDonated(false);
         let cleanVal = valor.replace(',', '.');
         if (cleanVal !== '' && !/^\d*\.?\d*$/.test(cleanVal)) return;
 
@@ -215,6 +234,7 @@ export default function CheckoutModalPOS({
         if (cambioUSD <= 0) {
             setDistVueltoUSD('');
             setDistVueltoBS('');
+            setIsTipDonated(false);
         }
     }, [cambioUSD]);
 
@@ -357,8 +377,14 @@ export default function CheckoutModalPOS({
             const cashPaidUsdInBs = payments.reduce((sum, p) => sum + ((p.methodId === 'efectivo_usd' || p.currency === 'USD') ? (mulR(Number(p.amountUsd) || 0, tasaSegura)) : 0), 0);
             const vueltoEnBs = cashPaidBs > cashPaidUsdInBs;
 
-            const defaultChangeUsd = distVueltoUSD ? parseFloat(distVueltoUSD) : (vueltoEnBs ? 0 : cambioUSD);
-            const defaultChangeBs = distVueltoBS ? parseFloat(distVueltoBS) : (vueltoEnBs ? round2(mulR(cambioUSD, tasaSegura)) : 0);
+            const defaultChangeUsd = isTipDonated ? 0 : (distVueltoUSD ? parseFloat(distVueltoUSD) : (vueltoEnBs ? 0 : cambioUSD));
+            const defaultChangeBs = isTipDonated ? 0 : (distVueltoBS ? parseFloat(distVueltoBS) : (vueltoEnBs ? round2(mulR(cambioUSD, tasaSegura)) : 0));
+
+            const tipDonatedObj = (isTipDonated && cambioUSD > 0.009) ? {
+                amountUsd: cambioUSD,
+                amountBs: round2(mulR(cambioUSD, tasaSegura)),
+                currency: tipCurrency,
+            } : null;
 
             // Total a REGISTRAR: los totales del carrito provienen directamente de
             // FinancialEngine.buildCartTotals (que respeta precios duales y manuales en Bs).
@@ -370,6 +396,7 @@ export default function CheckoutModalPOS({
                 clienteId: clienteSeleccionado || null,
                 esCashea: casheaActive,
                 vueltoCredito: isChangeCredited,
+                tipDonated: tipDonatedObj,
             }, {
                 cartTotalUsd: originalTotalUsd,
                 cartTotalBs: originalTotalBs,
@@ -388,9 +415,9 @@ export default function CheckoutModalPOS({
         parseFloat(distVueltoUSD || 0) + parseFloat(distVueltoBS || 0) / tasaSegura <= cambioUSD + 0.001
     );
 
-    // Calcular si el vuelto físico asignado está incompleto (no iguala cambioUSD y no se abona a saldo a favor)
+    // Calcular si el vuelto físico asignado está incompleto (no iguala cambioUSD y no se abona a saldo a favor ni se dona a caja)
     const sumaVueltoAsignado = parseFloat(distVueltoUSD || 0) + parseFloat(distVueltoBS || 0) / tasaSegura;
-    const vueltoIncompleto = cambioUSD > 0.01 && !isChangeCredited && Math.abs(sumaVueltoAsignado - cambioUSD) > 0.01;
+    const vueltoIncompleto = cambioUSD > 0.01 && !isChangeCredited && !isTipDonated && Math.abs(sumaVueltoAsignado - cambioUSD) > 0.01;
 
     // Switch rápido al modo básico
     const handleSwitchToBasic = () => {
@@ -457,6 +484,9 @@ export default function CheckoutModalPOS({
                         setCasheaPercent={setCasheaPercent}
                         casheaAmountUsd={casheaAmountUsd}
                         effectiveRate={effectiveRate}
+                        isTipDonated={isTipDonated}
+                        toggleTipDonated={toggleTipDonated}
+                        tipCurrency={tipCurrency}
                     />
 
                     {/* Columna Derecha — inputs */}

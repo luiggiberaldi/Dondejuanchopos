@@ -105,7 +105,24 @@ export function useMonitorSync(pairedDeviceId) {
     };
 
     const initMonitor = useCallback(async (isSilent = false) => {
-        if (!supabaseCloud || !pairedDeviceId) {
+        let activeDeviceId = pairedDeviceId || localStorage.getItem('dj_paired_device_id');
+        
+        if (!activeDeviceId && supabaseCloud) {
+            try {
+                const { data } = await supabaseCloud
+                    .from('sync_documents')
+                    .select('device_id')
+                    .eq('doc_id', 'bodega_sales_v1')
+                    .order('updated_at', { ascending: false })
+                    .limit(1);
+                if (data?.[0]?.device_id) {
+                    activeDeviceId = data[0].device_id;
+                    localStorage.setItem('dj_paired_device_id', activeDeviceId);
+                }
+            } catch (e) {}
+        }
+
+        if (!supabaseCloud || !activeDeviceId) {
             setLoading(false);
             return;
         }
@@ -128,7 +145,7 @@ export function useMonitorSync(pairedDeviceId) {
             let query = supabaseCloud
                 .from('sync_documents')
                 .select('collection, doc_id, data, updated_at')
-                .eq('device_id', pairedDeviceId)
+                .eq('device_id', activeDeviceId)
                 .in('doc_id', MONITOR_DOC_IDS)
                 .order('updated_at', { ascending: true });
 
@@ -162,14 +179,14 @@ export function useMonitorSync(pairedDeviceId) {
 
             // 2. Suscripción en Tiempo Real vía WebSocket
             if (!monitorSubscription) {
-                const channelName = `monitor:${pairedDeviceId}:${Date.now()}`;
+                const channelName = `monitor:${activeDeviceId}:${Date.now()}`;
                 monitorSubscription = supabaseCloud
                     .channel(channelName)
                     .on('postgres_changes', {
                         event: '*',
                         schema: 'public',
                         table: 'sync_documents',
-                        filter: `device_id=eq.${pairedDeviceId}`
+                        filter: `device_id=eq.${activeDeviceId}`
                     }, async (payload) => {
                         if (payload?.eventType === 'DELETE') return;
 
@@ -225,6 +242,9 @@ export function useMonitorSync(pairedDeviceId) {
             await supabaseCloud.removeChannel(monitorSubscription).catch(() => {});
             monitorSubscription = null;
         }
+        localStorage.removeItem('dj_monitor_last_full_pull_ts');
+        lastSyncRef.current = null;
+        setLastSync(null);
         await initMonitor(false);
     };
 

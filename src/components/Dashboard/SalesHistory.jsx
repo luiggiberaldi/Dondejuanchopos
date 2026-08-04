@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Clock, Send, Ban, ChevronDown, ChevronUp, Trash2, Shuffle, Recycle, Receipt, Printer, LockIcon, CornerDownLeft, Smartphone } from 'lucide-react';
+import { Clock, Send, Ban, ChevronDown, ChevronUp, Trash2, Shuffle, Recycle, Receipt, Printer, LockIcon, CornerDownLeft, Smartphone, HandCoins } from 'lucide-react';
 import { formatBs, formatCop } from '../../utils/calculatorUtils';
 import { getPaymentLabel, getPaymentMethod, PAYMENT_ICONS, toTitleCase, getPaymentIcon } from '../../config/paymentMethods';
 import EmptyState from '../EmptyState';
@@ -289,6 +289,12 @@ export default function SalesHistory({
                                                 <div className="flex items-center gap-1 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 font-bold px-1.5 py-0.5 rounded-md border border-purple-200 dark:border-purple-800/40 text-[10px]">
                                                     <span className="flex items-center gap-1"><CasheaIcon size={10} /> Financia Cashea: ${s.casheaUsd.toFixed(2)}</span>
                                                 </div>
+                                            </div>
+                                        )}
+                                        {s.tipDonated && (
+                                            <div className="flex items-center gap-1 self-start mt-0.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-extrabold px-2 py-1 rounded-md border border-emerald-300 dark:border-emerald-700 text-[11px]">
+                                                <HandCoins size={12} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                                <span>Cambio Dejado en Caja: {s.tipDonated.currency === 'BS' ? `Bs ${formatBs(s.tipDonated.amountBs)}` : `$${(s.tipDonated.amountUsd || 0).toFixed(2)} USD`}</span>
                                             </div>
                                         )}
                                         {s.changeUsd > 0 && (

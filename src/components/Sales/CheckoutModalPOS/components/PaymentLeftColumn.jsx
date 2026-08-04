@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { Banknote, CreditCard } from 'lucide-react';
+import { Banknote, CreditCard, HandCoins, CheckCircle } from 'lucide-react';
 import { round2 } from '../../../../utils/dinero';
 import TransactionSummary from './TransactionSummary';
 import CheckoutCustomerPicker from '../../CheckoutCustomerPicker';
@@ -40,6 +40,9 @@ const PaymentLeftColumn = ({
     casheaEnabled,
     casheaMeetsMinimum,
     effectiveRate,
+    isTipDonated,
+    toggleTipDonated,
+    tipCurrency,
 }) => {
     const isPending = modo === 'contado' && faltaPorPagar > 0.01;
     const isPaid = modo === 'contado' && faltaPorPagar <= 0.01;
@@ -135,65 +138,91 @@ const PaymentLeftColumn = ({
 
                     {/* Vuelto */}
                     {isPaid && cambioUSD > 0.009 && (
-                        <div className="flex flex-col justify-center items-center text-center p-5 rounded-xl border-2 border-emerald-200 dark:border-emerald-800/40 bg-emerald-50 dark:bg-emerald-950/20 shadow-sm transition-all">
-                            <p className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-700 dark:text-emerald-400">Vuelto</p>
-                            <p className="text-4xl lg:text-5xl font-black text-emerald-700 dark:text-emerald-400 my-2">${cambioUSD.toFixed(2)}</p>
+                        <div className={`flex flex-col justify-center items-center text-center p-5 rounded-xl border-2 shadow-sm transition-all ${
+                            isTipDonated
+                                ? 'border-emerald-500 bg-emerald-100/90 dark:bg-emerald-950/60 ring-2 ring-emerald-400/50'
+                                : 'border-emerald-200 dark:border-emerald-800/40 bg-emerald-50 dark:bg-emerald-950/20'
+                        }`}>
+                            <p className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-700 dark:text-emerald-400">
+                                {isTipDonated ? 'Vuelto Dejado en Caja (Propina)' : 'Vuelto'}
+                            </p>
+                            <p className="text-4xl lg:text-5xl font-black text-emerald-700 dark:text-emerald-400 my-2">
+                                ${cambioUSD.toFixed(2)}
+                            </p>
                             <div className="text-lg font-black text-emerald-600 dark:text-emerald-300">
                                 Bs {round2(cambioUSD * tasaSegura).toLocaleString('es-VE', { minimumFractionDigits: 2 })}
                             </div>
-                            {/* Distribución de vuelto */}
-                            <div className="w-full mt-3 pt-3 border-t border-emerald-200/60 dark:border-emerald-800/30 flex gap-2">
-                                <div className="flex-1">
-                                    <label className="text-[9px] font-black text-emerald-700 dark:text-emerald-500 uppercase block mb-1">En $ USD</label>
-                                    <div className="relative">
-                                        <input
-                                            type="number"
-                                            value={distVueltoUSD}
-                                            onChange={e => handleVueltoDistChange('usd', e.target.value)}
-                                            onFocus={e => {
-                                                e.target.select();
-                                                if (e.target.value === '0' || parseFloat(e.target.value) === 0) {
-                                                    handleVueltoDistChange('usd', '');
-                                                }
-                                            }}
-                                            placeholder="0.00"
-                                            className="w-full py-2 pl-2 pr-12 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-900 font-bold text-xs text-slate-800 dark:text-white outline-none focus:ring-1 focus:ring-emerald-500"
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={() => handleVueltoDistChange('usd', cambioUSD.toString())}
-                                            className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] font-black bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 px-1.5 py-1 rounded hover:bg-emerald-200 active:scale-95 transition-all"
-                                        >
-                                            Todo
-                                        </button>
+
+                            {/* 🎁 Botón Profesional: Cliente deja el cambio */}
+                            <button
+                                type="button"
+                                onClick={toggleTipDonated}
+                                className={`w-full mt-3.5 py-3 px-3 min-h-[48px] rounded-xl font-bold text-xs flex items-center justify-center gap-2.5 transition-all duration-200 active:scale-95 cursor-pointer ${
+                                    isTipDonated
+                                        ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30 border border-emerald-500'
+                                        : 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100/50 dark:hover:bg-slate-800'
+                                }`}
+                            >
+                                <HandCoins size={18} className={isTipDonated ? 'animate-bounce' : 'text-emerald-600'} />
+                                <span>{isTipDonated ? `Cliente deja el cambio (${tipCurrency === 'BS' ? `Bs ${round2(cambioUSD * tasaSegura)}` : `$${cambioUSD.toFixed(2)} USD`})` : 'Cliente deja el cambio (Donar a Caja)'}</span>
+                                {isTipDonated && <CheckCircle size={16} className="text-white ml-auto shrink-0" />}
+                            </button>
+
+                            {/* Distribución de vuelto (solo si no es vuelto dejado) */}
+                            {!isTipDonated && (
+                                <div className="w-full mt-3 pt-3 border-t border-emerald-200/60 dark:border-emerald-800/30 flex gap-2">
+                                    <div className="flex-1">
+                                        <label className="text-[9px] font-black text-emerald-700 dark:text-emerald-500 uppercase block mb-1">En $ USD</label>
+                                        <div className="relative">
+                                            <input
+                                                type="number"
+                                                value={distVueltoUSD}
+                                                onChange={e => handleVueltoDistChange('usd', e.target.value)}
+                                                onFocus={e => {
+                                                    e.target.select();
+                                                    if (e.target.value === '0' || parseFloat(e.target.value) === 0) {
+                                                        handleVueltoDistChange('usd', '');
+                                                    }
+                                                }}
+                                                placeholder="0.00"
+                                                className="w-full py-2 pl-2 pr-12 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-900 font-bold text-xs text-slate-800 dark:text-white outline-none focus:ring-1 focus:ring-emerald-500"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => handleVueltoDistChange('usd', cambioUSD.toString())}
+                                                className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] font-black bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 px-1.5 py-1 rounded hover:bg-emerald-200 active:scale-95 transition-all"
+                                            >
+                                                Todo
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="flex-1">
+                                        <label className="text-[9px] font-black text-emerald-700 dark:text-emerald-500 uppercase block mb-1">En Bs</label>
+                                        <div className="relative">
+                                            <input
+                                                type="number"
+                                                value={distVueltoBS}
+                                                onChange={e => handleVueltoDistChange('bs', e.target.value)}
+                                                onFocus={e => {
+                                                    e.target.select();
+                                                    if (e.target.value === '0' || parseFloat(e.target.value) === 0) {
+                                                        handleVueltoDistChange('bs', '');
+                                                    }
+                                                }}
+                                                placeholder="0"
+                                                className="w-full py-2 pl-2 pr-12 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-900 font-bold text-xs text-slate-800 dark:text-white outline-none focus:ring-1 focus:ring-emerald-500"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => handleVueltoDistChange('bs', Math.round(cambioUSD * tasaSegura).toString())}
+                                                className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] font-black bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 px-1.5 py-1 rounded hover:bg-emerald-200 active:scale-95 transition-all"
+                                            >
+                                                Todo
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
-                                <div className="flex-1">
-                                    <label className="text-[9px] font-black text-emerald-700 dark:text-emerald-500 uppercase block mb-1">En Bs</label>
-                                    <div className="relative">
-                                        <input
-                                            type="number"
-                                            value={distVueltoBS}
-                                            onChange={e => handleVueltoDistChange('bs', e.target.value)}
-                                            onFocus={e => {
-                                                e.target.select();
-                                                if (e.target.value === '0' || parseFloat(e.target.value) === 0) {
-                                                    handleVueltoDistChange('bs', '');
-                                                }
-                                            }}
-                                            placeholder="0"
-                                            className="w-full py-2 pl-2 pr-12 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-900 font-bold text-xs text-slate-800 dark:text-white outline-none focus:ring-1 focus:ring-emerald-500"
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={() => handleVueltoDistChange('bs', Math.round(cambioUSD * tasaSegura).toString())}
-                                            className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] font-black bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 px-1.5 py-1 rounded hover:bg-emerald-200 active:scale-95 transition-all"
-                                        >
-                                            Todo
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
+                            )}
                         </div>
                     )}
 

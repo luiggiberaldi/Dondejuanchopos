@@ -61,9 +61,9 @@ let gateRetryTimer = null;
 const originalSetItem = localStorage.setItem.bind(localStorage);
 
 // Keys pesadas (arrays grandes con imágenes) usan debounce más largo para agrupar ediciones
-const HEAVY_KEYS = ['bodega_products_v1', 'bodega_sales_v1', 'bodega_customers_v1', 'abasto_audit_log_v1'];
+const HEAVY_KEYS = ['bodega_products_v1', 'bodega_customers_v1', 'abasto_audit_log_v1'];
 const DEBOUNCE_LIGHT_MS = 300;
-const DEBOUNCE_HEAVY_MS = 3000;
+const DEBOUNCE_HEAVY_MS = 2000;
 
 function _debouncePush(key, value) {
     if (pendingPush[key]) clearTimeout(pendingPush[key]);
@@ -320,20 +320,7 @@ export function useCloudSync(deviceId) {
                     console.warn('[CloudSync] Error verificando registro de la caja:', e);
                 }
 
-                if (!hasAuth && !isRegisteredOrPaired) {
-                    isCloudSyncActive = false;
-                    isInitialized.current = true;
-                    console.log('[CloudSync] Dispositivo sin sesión ni vinculación remota. Sincronización en la nube pausada (Modo Local/Offline).');
-                    if (!gateRetryTimer) {
-                        gateRetryTimer = setTimeout(() => {
-                            gateRetryTimer = null;
-                            isInitialized.current = false;
-                            initSync();
-                        }, 60000);
-                    }
-                    return;
-                }
-
+                // ── Sincronización activa por defecto para el punto de venta ──
                 isCloudSyncActive = true;
                 isInitialized.current = true;
 

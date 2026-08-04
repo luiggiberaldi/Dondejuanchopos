@@ -1,5 +1,5 @@
 import React from 'react';
-import { DollarSign } from 'lucide-react';
+import { DollarSign, HandCoins } from 'lucide-react';
 import { formatBs, formatCop } from '../../utils/calculatorUtils';
 import { getPaymentLabel, toTitleCase, getPaymentIcon, PAYMENT_ICONS } from '../../config/paymentMethods';
 
@@ -168,6 +168,21 @@ export default function DashboardPaymentBreakdown({
                     </div>
                     <div className="space-y-3 pl-1 border-l-2 border-amber-200 dark:border-amber-800/40">
                         <div className="pl-3 space-y-3">{copMethods.map(e => renderMethod(e))}</div>
+                    </div>
+                </div>
+            )}
+
+            {/* Propina / Cambios Dejados en Caja */}
+            {paymentBreakdown['_propina_donada'] && ((paymentBreakdown['_propina_donada'].totalUsd || 0) > 0 || (paymentBreakdown['_propina_donada'].totalBs || 0) > 0) && (
+                <div className="mt-3 p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700/50 rounded-xl flex items-center justify-between shadow-sm">
+                    <div className="flex items-center gap-2">
+                        <HandCoins size={16} className="text-emerald-600 dark:text-emerald-400" />
+                        <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300 uppercase tracking-wide">Cambios Dejados en Caja (Propinas)</span>
+                    </div>
+                    <div className="text-right font-outfit font-black text-xs text-emerald-700 dark:text-emerald-300">
+                        {(paymentBreakdown['_propina_donada'].totalUsd || 0) > 0 && <span>${paymentBreakdown['_propina_donada'].totalUsd.toFixed(2)} USD</span>}
+                        {(paymentBreakdown['_propina_donada'].totalUsd || 0) > 0 && (paymentBreakdown['_propina_donada'].totalBs || 0) > 0 && <span className="mx-1">/</span>}
+                        {(paymentBreakdown['_propina_donada'].totalBs || 0) > 0 && <span>{formatBs(paymentBreakdown['_propina_donada'].totalBs)} Bs</span>}
                     </div>
                 </div>
             )}

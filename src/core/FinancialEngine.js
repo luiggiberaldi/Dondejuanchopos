@@ -139,13 +139,36 @@ export class FinancialEngine {
     static computeExpectedCash(breakdown) {
         if (!breakdown || typeof breakdown !== 'object') return { bs: 0, usd: 0, cop: 0 };
 
-        const aperturaUsd = round2(breakdown['_apertura']?.openingUsd || breakdown['_apertura']?.usd || 0);
-        const aperturaBs  = round2(breakdown['_apertura']?.openingBs  || breakdown['_apertura']?.bs  || 0);
-        const aperturaCop = round2(breakdown['_apertura']?.openingCop || breakdown['_apertura']?.cop || 0);
+        const aperturaUsd = round2(breakdown['_apertura']?.openingUsd || breakdown['_apertura']?.montoUsd || breakdown['_apertura']?.usd || 0);
+        const aperturaBs  = round2(breakdown['_apertura']?.openingBs  || breakdown['_apertura']?.montoBs  || breakdown['_apertura']?.bs  || 0);
+        const aperturaCop = round2(breakdown['_apertura']?.openingCop || breakdown['_apertura']?.montoCop || breakdown['_apertura']?.cop || 0);
 
-        const brutoUsd = round2(breakdown['efectivo_usd']?.total || 0);
-        const brutoBs  = round2(breakdown['efectivo_bs']?.total || 0);
-        const brutoCop = round2(breakdown['efectivo_cop']?.total || 0);
+        let brutoUsd = 0;
+        let brutoBs = 0;
+        let brutoCop = 0;
+
+        const isDigitalOrCredit = (key, label) => {
+            const l = (key + ' ' + (label || '')).toLowerCase();
+            return l.includes('zelle') || l.includes('binance') || l.includes('punto') || l.includes('transfer') || l.includes('tarjeta') || l.includes('pago_movil') || l.includes('pagomovil') || l.includes('fiado') || l.includes('cashea') || l.includes('saldo_favor');
+        };
+
+        Object.keys(breakdown).forEach(k => {
+            if (k.startsWith('_')) return;
+            const item = breakdown[k];
+            if (!item || typeof item.total !== 'number') return;
+            if (isDigitalOrCredit(k, item.label)) return;
+
+            const curr = (item.currency || '').toUpperCase();
+            const keyLower = k.toLowerCase();
+
+            if (curr === 'USD' || keyLower.includes('usd') || keyLower.includes('dolar') || keyLower.includes('divisa')) {
+                brutoUsd = round2(brutoUsd + item.total);
+            } else if (curr === 'COP' || keyLower.includes('cop') || keyLower.includes('peso')) {
+                brutoCop = round2(brutoCop + item.total);
+            } else {
+                brutoBs = round2(brutoBs + item.total);
+            }
+        });
 
         const vueltoUsd = round2(breakdown['_vuelto_usd']?.total || 0);
         const vueltoBs  = round2(breakdown['_vuelto_bs']?.total || 0);
@@ -156,6 +179,10 @@ export class FinancialEngine {
             bs:  round2(aperturaBs + brutoBs - vueltoBs),
             cop: round2(aperturaCop + brutoCop - vueltoCop)
         };
+    }
+
+    static calculateDrawerTotalUsdAndBs(breakdown) {
+        return this.computeExpectedCash(breakdown);
     }
 
     /**
@@ -399,6 +426,18 @@ export class FinancialEngine {
             if (safeChangeBs > 0) {
                 if (!breakdown['_vuelto_bs']) breakdown['_vuelto_bs'] = { total: 0, currency: 'BS', label: 'Vuelto En Bs Entregado', isChange: true };
                 breakdown['_vuelto_bs'].total = round2(breakdown['_vuelto_bs'].total + safeChangeBs);
+            }
+
+            if (sale.tipDonated) {
+                if (!breakdown['_propina_donada']) {
+                    breakdown['_propina_donada'] = { totalUsd: 0, totalBs: 0, label: 'Cambio Dejado en Caja (Propina)', isTip: true };
+                }
+                if (sale.tipDonated.amountUsd > 0) {
+                    breakdown['_propina_donada'].totalUsd = round2((breakdown['_propina_donada'].totalUsd || 0) + round2(sale.tipDonated.amountUsd));
+                }
+                if (sale.tipDonated.amountBs > 0) {
+                    breakdown['_propina_donada'].totalBs = round2((breakdown['_propina_donada'].totalBs || 0) + round2(sale.tipDonated.amountBs));
+                }
             }
         });
 

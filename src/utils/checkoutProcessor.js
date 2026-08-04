@@ -165,7 +165,8 @@ export async function processSaleTransaction({
         customerDocument: selectedCustomer?.documentId || null,
         customerPhone:    selectedCustomer?.phone      || null,
         fiadoUsd: fiadoAmountUsd,
-        casheaUsd: casheaUsd
+        casheaUsd: casheaUsd,
+        tipDonated: changeBreakdown?.tipDonated || null,
     };
 
     // FIN-008: deepFreeze en lugar de Object.freeze (congela items[] y payments[]).

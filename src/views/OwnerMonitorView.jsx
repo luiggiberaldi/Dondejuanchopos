@@ -19,7 +19,7 @@ import {
     RefreshCw, Wifi, WifiOff, Clock, FileText, DollarSign,
     Wallet, CreditCard, Smartphone, Banknote, ArrowDownRight,
     ShieldCheck, Hash, AlertTriangle, Search, X, ChevronLeft, ChevronRight,
-    MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud, Sparkles, Gift, RotateCcw, Target, Lock, Unlock
+    MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud, Sparkles, Gift, RotateCcw, Target, Lock, Unlock, HandCoins
 } from 'lucide-react';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
 import { mulR, round2 } from '../utils/dinero';
@@ -391,6 +391,19 @@ function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId, onVoidSaleSuc
 
                         {/* Vuelto Entregado */}
                         {(() => {
+                            if (sale.tipDonated) {
+                                return (
+                                    <div className="flex items-center justify-between text-xs pt-2 border-t border-emerald-200/50 dark:border-emerald-900/40 text-emerald-800 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/30 p-2 rounded-lg my-1">
+                                        <span className="flex items-center gap-1 font-black uppercase tracking-wider text-[10px]">
+                                            <RotateCcw size={12} className="text-emerald-600 dark:text-emerald-400" /> Cambio Dejado en Caja
+                                        </span>
+                                        <span className="font-outfit font-black text-sm text-emerald-700 dark:text-emerald-400">
+                                            {sale.tipDonated.currency === 'BS' ? `Bs ${formatBs(sale.tipDonated.amountBs)}` : `$${(sale.tipDonated.amountUsd || 0).toFixed(2)} USD`}
+                                        </span>
+                                    </div>
+                                );
+                            }
+
                             const { changeUsd, changeBs, hasChange } = getSaleChangeDetails(sale);
                             if (!hasChange) return null;
                             return (
@@ -1287,7 +1300,15 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         // Movimientos del turno activo según shiftScope (incluye GASTO_INTERNO con afectaCaja)
         const activeFlow = getOpenShiftMovements(sales).movements.filter(s => s.tipo !== 'APERTURA_CAJA');
 
+        let totalTipDonatedUsd = 0;
+        let totalTipDonatedBs = 0;
+
         activeFlow.forEach(sale => {
+            if (sale.tipDonated) {
+                totalTipDonatedUsd += (sale.tipDonated.amountUsd || 0);
+                totalTipDonatedBs += (sale.tipDonated.amountBs || 0);
+            }
+
             const { changeUsd, changeBs } = getSaleChangeDetails(sale, products, effectiveRate, bcvRate);
             if (changeBs > 0) totalVueltoBs += changeBs;
             if (changeUsd > 0) totalVueltoUsd += changeUsd;
@@ -1375,6 +1396,17 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             };
         }
 
+        if (totalTipDonatedUsd > 0 || totalTipDonatedBs > 0) {
+            breakdown['_propina_donada'] = {
+                totalUsd: totalTipDonatedUsd,
+                totalBs: totalTipDonatedBs,
+                count: activeFlow.filter(s => s.tipDonated).length,
+                label: 'Cambios Dejados en Caja (Propinas)',
+                currency: 'USD',
+                isTip: true
+            };
+        }
+
         return Object.entries(breakdown)
             .filter(([, data]) => data.totalUsd > 0 || data.totalBs > 0 || data.count > 0)
             .sort(([, a], [, b]) => {
@@ -1395,6 +1427,21 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             expectedUsd: Math.max(0, round2(expected.usd || 0)),
             expectedCop: Math.max(0, round2(expected.cop || 0))
         };
+    }, [sales]);
+
+    const activeShiftTipTotals = useMemo(() => {
+        const activeFlow = getOpenShiftMovements(sales).movements;
+        let tipUsd = 0;
+        let tipBs = 0;
+        let tipCount = 0;
+        activeFlow.forEach(s => {
+            if (s.tipDonated) {
+                tipUsd += (s.tipDonated.amountUsd || 0);
+                tipBs += (s.tipDonated.amountBs || 0);
+                tipCount++;
+            }
+        });
+        return { tipUsd: round2(tipUsd), tipBs: round2(tipBs), tipCount };
     }, [sales]);
 
     // Ticket promedio del turno activo
@@ -1740,6 +1787,19 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             <button 
                                 onClick={async () => { 
                                     triggerHaptic?.(); 
+                                    if (supabaseCloud) {
+                                        try {
+                                            const { data } = await supabaseCloud
+                                                .from('sync_documents')
+                                                .select('device_id')
+                                                .eq('doc_id', 'bodega_sales_v1')
+                                                .order('updated_at', { ascending: false })
+                                                .limit(1);
+                                            if (data?.[0]?.device_id) {
+                                                localStorage.setItem('dj_paired_device_id', data[0].device_id);
+                                            }
+                                        } catch (e) {}
+                                    }
                                     await triggerRefresh(); 
                                     showToast?.('Datos actualizados', 'success');
                                 }}
@@ -1962,6 +2022,27 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                     </span>
                                 </div>
                             </div>
+
+                            {activeShiftTipTotals.tipCount > 0 && (
+                                <div className="mt-2.5 p-3 bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-300/80 dark:border-emerald-800/60 rounded-xl flex items-center justify-between shadow-xs">
+                                    <div className="flex items-center gap-2">
+                                        <HandCoins size={18} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                        <div>
+                                            <span className="text-[10px] sm:text-xs font-black text-emerald-800 dark:text-emerald-300 uppercase tracking-wide block leading-tight">
+                                                Cambios Dejados en Caja ({activeShiftTipTotals.tipCount} {activeShiftTipTotals.tipCount === 1 ? 'venta' : 'ventas'})
+                                            </span>
+                                            <span className="text-[9px] text-emerald-600/80 dark:text-emerald-400/80 font-semibold block">
+                                                Propina retenida en efectivo sin salir de gaveta
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div className="text-right font-outfit font-black text-xs sm:text-sm text-emerald-700 dark:text-emerald-300">
+                                        {activeShiftTipTotals.tipUsd > 0 && <span>${activeShiftTipTotals.tipUsd.toFixed(2)} USD</span>}
+                                        {activeShiftTipTotals.tipUsd > 0 && activeShiftTipTotals.tipBs > 0 && <span className="mx-1">/</span>}
+                                        {activeShiftTipTotals.tipBs > 0 && <span>{formatBs(activeShiftTipTotals.tipBs)} Bs</span>}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Fila 1: Tarjetas de Métricas de Turno Activo */}

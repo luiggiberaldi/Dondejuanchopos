@@ -175,16 +175,23 @@ export function useCheckoutCalculations({
 
         const defaultUsdChange = hasCustomUsd ? round2(CurrencyService.safeParse(changeUsdGiven)) : (isPureBsPayment ? 0 : changeUsd);
         const defaultBsChange  = hasCustomBs  ? round2(CurrencyService.safeParse(changeBsGiven))  : (isPureBsPayment ? changeBs : 0);
+
+        const tipDonatedObj = (isTipDonated && (changeUsd > 0 || changeBs > 0)) ? {
+            amountUsd: changeUsd,
+            amountBs: changeBs,
+            currency: tipCurrency,
+        } : null;
         
         onConfirmSale(payments, {
-            changeUsdGiven: Math.min(defaultUsdChange, changeUsd),
-            changeBsGiven: Math.min(defaultBsChange, changeBs),
+            changeUsdGiven: isTipDonated ? 0 : Math.min(defaultUsdChange, changeUsd),
+            changeBsGiven: isTipDonated ? 0 : Math.min(defaultBsChange, changeBs),
+            tipDonated: tipDonatedObj,
         }, {
             cartTotalUsd: dynamicTotalUsd,
             cartTotalBs: dynamicTotalBs,
             cartSubtotalUsd: isPureBsPayment && safeRate > 0 ? round2(divR(cartTotalBs, safeRate)) : dynamicTotalUsd,
         });
-    }, [barValues, paymentMethods, onConfirmSale, changeUsdGiven, changeBsGiven, changeUsd, changeBs, safeRate, safeTasaCop, casheaActive, casheaAmountUsd, casheaPercent, dynamicTotalUsd, dynamicTotalBs, isPureBsPayment, cartTotalBs]);
+    }, [barValues, paymentMethods, onConfirmSale, changeUsdGiven, changeBsGiven, changeUsd, changeBs, safeRate, safeTasaCop, casheaActive, casheaAmountUsd, casheaPercent, dynamicTotalUsd, dynamicTotalBs, isPureBsPayment, cartTotalBs, isTipDonated, tipCurrency]);
 
     // ── Detección inteligente de errores de entrada ───────────────────────────
     const _detectWarning = useCallback(() => {
@@ -280,6 +287,26 @@ export function useCheckoutCalculations({
         pendingConfirmRef.current = null;
     }, []);
 
+    // ── Tip Donated / Cliente deja el cambio ──────────────────────────────
+    const [isTipDonated, setIsTipDonated] = useState(false);
+
+    const tipCurrency = useMemo(() => {
+        const activeInputMethods = paymentMethods.filter(m => CurrencyService.safeParse(barValues[m.id]) > 0);
+        if (activeInputMethods.length === 0) return 'USD';
+        const firstUsd = activeInputMethods.find(m => m.currency === 'USD');
+        if (firstUsd) return 'USD';
+        const firstBs = activeInputMethods.find(m => m.currency === 'BS');
+        if (firstBs) return 'BS';
+        const firstCop = activeInputMethods.find(m => m.currency === 'COP');
+        if (firstCop) return 'COP';
+        return 'USD';
+    }, [barValues, paymentMethods]);
+
+    const toggleTipDonated = useCallback(() => {
+        triggerHaptic && triggerHaptic();
+        setIsTipDonated(prev => !prev);
+    }, [triggerHaptic]);
+
     return {
         barValues,
         totalPaidUsd,
@@ -292,6 +319,9 @@ export function useCheckoutCalculations({
         changeBsGiven,
         setChangeUsdGiven,
         setChangeBsGiven,
+        isTipDonated,
+        toggleTipDonated,
+        tipCurrency,
         handleBarChange,
         fillBar,
         handleConfirm,
