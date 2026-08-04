@@ -287,7 +287,17 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
         }
 
         const res = agregarUsuario(newName.trim(), newRole, newBypassPin ? '' : newPin, newBypassPin);
-        pushRemoteUserCmd('add', { nombre: newName.trim(), rol: newRole, newPin: newBypassPin ? '' : newPin, bypassPin: newBypassPin });
+        // S5: el PIN en claro NO entra en supervisor_commands.payload (fila
+        // legible por anon y persistente). Se transmite el hash PBKDF2.
+        (async () => {
+            try {
+                const { hashPin } = await import('../../utils/crypto');
+                const newPinHash = newBypassPin ? '' : await hashPin(String(newPin));
+                pushRemoteUserCmd('add', { nombre: newName.trim(), rol: newRole, newPinHash, bypassPin: newBypassPin });
+            } catch (e) {
+                console.error('[UsersManager] No se pudo hashear el PIN para el comando remoto:', e);
+            }
+        })();
         
         // Actualización optimista de estado local y publicación usando maxId + 1
         setSyncedUsers(prev => {
@@ -405,7 +415,18 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
             return showToast(res.error, 'error');
         }
 
-        pushRemoteUserCmd('change_pin', { userId: changePinUser.id, newPin: pinValue });
+        // S5: el PIN en claro NO entra en supervisor_commands.payload (fila
+        // legible por anon y persistente). Se transmite el hash PBKDF2.
+        (async () => {
+            try {
+                const { hashPin } = await import('../../utils/crypto');
+                const newPinHash = await hashPin(String(pinValue));
+                pushRemoteUserCmd('change_pin', { userId: changePinUser.id, newPinHash });
+            } catch (e) {
+                console.error('[UsersManager] No se pudo hashear el PIN para el comando remoto:', e);
+                showToast('No se pudo preparar el cambio de PIN remoto', 'error');
+            }
+        })();
 
         // Actualización optimista de estado local y publicación
         setSyncedUsers(prev => {

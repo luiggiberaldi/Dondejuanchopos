@@ -28,6 +28,7 @@ describe('PU4.1: Sanitización de catálogo de usuarios para la nube', () => {
       const files = [
           'src/components/Settings/UsersManager.jsx',
           'src/hooks/store/useAuthStore.js',
+          'src/hooks/useSupervisorCommands.js',
       ];
       for (const rel of files) {
           const src = fs.readFileSync(path.resolve(__dirname, '..', rel), 'utf-8');

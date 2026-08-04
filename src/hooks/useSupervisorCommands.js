@@ -199,7 +199,13 @@ export function useSupervisorCommands(deviceId) {
                 }
             } else if (command.command_type === 'user_update') {
                 try {
-                    const { action, userId, newPin, nombre, rol, bypassPin } = command.payload || {};
+                    const { action, userId, newPin, newPinHash, nombre, rol, bypassPin } = command.payload || {};
+                    // S5: `newPin` (en claro) queda solo por compatibilidad con
+                    // comandos encolados antes del despliegue de esta versión.
+                    // Se eliminará en la siguiente. El camino vigente es newPinHash.
+                    if (newPin) {
+                        console.warn('[SupervisorCommands] Comando legacy con PIN en claro; migra el monitor a newPinHash.');
+                    }
                     const { useAuthStore } = await import('./store/useAuthStore');
                     const store = useAuthStore.getState();
 
@@ -207,14 +213,17 @@ export function useSupervisorCommands(deviceId) {
                     let applied = false;
                     let failReason = '';
 
-                    if (action === 'change_pin' && userId && newPin) {
+                    if (action === 'change_pin' && userId && (newPinHash || newPin)) {
                         const target = store.usuarios.find(u => u.id === userId);
                         if (!target) {
                             failReason = `Usuario con ID ${userId} no existe en la caja`;
-                        } else if (store.usuarios.some(u => u.id !== userId && (u.plainPin === newPin || u.pin === newPin))) {
+                        } else if (newPin && store.usuarios.some(u => u.id !== userId && (u.plainPin === newPin || u.pin === newPin))) {
                             failReason = `El PIN ya está asignado a otro usuario en la caja`;
                         } else {
-                            res = store.cambiarPin(userId, newPin);
+                            // S5: ruta preferente = hash; `cambiarPin` (claro) es legacy.
+                            res = newPinHash
+                                ? store.setPinHash(userId, newPinHash)
+                                : store.cambiarPin(userId, newPin);
                             applied = true;
                         }
                     } else if (action === 'add' && nombre) {
@@ -261,10 +270,13 @@ export function useSupervisorCommands(deviceId) {
 
                     // Notificar y actualizar catálogo de usuarios sanitizado en la nube (SEC-002: sin pin ni plainPin)
                     const freshUsers = useAuthStore.getState().usuarios;
-                    localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(freshUsers));
                     try {
                         const { sanitizeUserCatalog } = await import('../utils/userCatalog');
                         const sanitizedUsers = sanitizeUserCatalog(freshUsers);
+                        // S4: el catálogo en disco también viaja a sync_documents vía
+                        // forcePushLocalData. Escribirlo en crudo aquí anulaba el
+                        // saneamiento de la subida.
+                        localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(sanitizedUsers));
                         const { pushCloudSync } = await import('./useCloudSync');
                         await pushCloudSync('bodega_users_catalog_v1', sanitizedUsers);
                     } catch {}

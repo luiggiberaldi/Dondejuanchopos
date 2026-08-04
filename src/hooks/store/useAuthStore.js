@@ -419,6 +419,32 @@ export const useAuthStore = create(
             },
 
             /**
+             * S5: aplica un PIN ya hasheado (PBKDF2) recibido de un supervisor
+             * remoto. El PIN en claro nunca entra en supervisor_commands.payload,
+             * que es legible por anon y persiste indefinidamente.
+             * @param {number|string} userId
+             * @param {string} hashedPin - salida de hashPin(), formato `pbkdf2$...`
+             * @returns {{ ok: boolean, error?: string }}
+             */
+            setPinHash: (userId, hashedPin) => {
+                if (typeof hashedPin !== 'string' || !hashedPin.startsWith('pbkdf2$')) {
+                    return { ok: false, error: 'Hash de PIN inválido' };
+                }
+                const target = get().usuarios.find(u => u.id === userId);
+                if (!target) return { ok: false, error: 'Usuario no encontrado' };
+
+                set((state) => ({
+                    usuarios: state.usuarios.map(u =>
+                        // `plainPin` se elimina: la caja no conoce el PIN en claro
+                        // de un cambio remoto, y no debe inventárselo.
+                        u.id === userId ? { ...u, pin: hashedPin, plainPin: undefined } : u
+                    )
+                }));
+                logEvent('AUTH', 'PIN_CAMBIADO', `PIN cambiado remotamente para ${target.nombre}`, get().usuarioActivo);
+                return { ok: true };
+            },
+
+            /**
              * Cambia el PIN de un usuario.
              * @param {number} userId
              * @param {string} nuevoPin - PIN en claro (será validado y hasheado).
