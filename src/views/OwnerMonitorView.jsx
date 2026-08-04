@@ -859,29 +859,66 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 };
             });
 
-            const { error } = await supabaseCloud
-                .from('supervisor_commands')
-                .insert(rowsToInsert);
+            // R2: inserción fila a fila. Antes iba en un único .insert(), y como
+            // Postgres es todo-o-nada, una sola fila inválida (CHECK de
+            // command_type, o RLS) rechazaba el lote entero. El supervisor veía un
+            // error genérico sin saber cuál de sus cambios lo causó, y la cola
+            // quedaba en un estado ambiguo.
+            const okRows = [];
+            const failedRows = [];
+            const okChanges = [];
 
-            if (error) {
-                console.error('[OwnerMonitor] Error al subir lote de cambios:', error);
-                showToast('Error al enviar lote a la caja: ' + error.message, 'error');
-                return;
+            for (let i = 0; i < rowsToInsert.length; i++) {
+                const row = rowsToInsert[i];
+                const change = listToProcess[i];
+                const { error: rowError } = await supabaseCloud
+                    .from('supervisor_commands')
+                    .insert(row);
+
+                if (rowError) {
+                    failedRows.push({ row, change, message: rowError.message, code: rowError.code });
+                    console.warn(
+                        `[OwnerMonitor] Comando '${row.command_type}' rechazado ` +
+                        `(${rowError.code || 's/c'}): ${rowError.message}`
+                    );
+                } else {
+                    okRows.push(row);
+                    okChanges.push(change);
+                }
             }
 
-            const sent = rowsToInsert.length;
-            if (sent > 0 && !overrideList) {
+            if (failedRows.length > 0) {
+                const detalle = failedRows
+                    .map(f => `${f.row.command_type}${f.code ? ` (${f.code})` : ''}`)
+                    .join(', ');
+                // Éxito parcial: los que pasaron ya están en la nube y NO deben
+                // reintentarse; solo los fallidos se quedan en la cola.
+                showToast(
+                    `${okRows.length} de ${rowsToInsert.length} cambios enviados. Fallaron: ${detalle}`,
+                    okRows.length > 0 ? 'warning' : 'error'
+                );
+            }
+
+            if (okRows.length > 0 && !overrideList) {
                 const updatedLocal = projectedProducts.map(p => {
                     const { _rawStock, _stockDelta, _isQueuedDelete, _isQueuedEdit, _isQueuedNew, _isCombo, _effectiveCost, ...clean } = p;
                     return clean;
                 });
                 if (setProducts) setProducts(updatedLocal);
             }
+
             if (!overrideList) {
-                persistPending([]);
-                showToast(`${sent} cambio${sent !== 1 ? 's' : ''} enviado${sent !== 1 ? 's' : ''} a la caja`, 'success');
-            } else {
-                showToast(`${sent} cambio${sent !== 1 ? 's' : ''} enviado${sent !== 1 ? 's' : ''} con éxito a la caja principal`, 'success');
+                const remainingPending = pendingChanges.filter(c => !okChanges.includes(c));
+                persistPending(remainingPending);
+                if (failedRows.length === 0) {
+                    showToast(`${okRows.length} cambio${okRows.length !== 1 ? 's' : ''} enviado${okRows.length !== 1 ? 's' : ''} a la caja`, 'success');
+                }
+            } else if (failedRows.length === 0) {
+                showToast(`${okRows.length} cambio${okRows.length !== 1 ? 's' : ''} enviado${okRows.length !== 1 ? 's' : ''} con éxito a la caja principal`, 'success');
+            }
+
+            if (okRows.length === 0 && rowsToInsert.length > 0) {
+                throw new Error(`Ningún comando pudo enviarse: ${failedRows[0]?.message || 'error desconocido'}`);
             }
         } catch (err) {
             console.error('[OwnerMonitor] Excepción al subir lote:', err);

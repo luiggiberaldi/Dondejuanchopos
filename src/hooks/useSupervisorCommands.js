@@ -276,7 +276,7 @@ export function useSupervisorCommands(deviceId) {
                         // S4: el catálogo en disco también viaja a sync_documents vía
                         // forcePushLocalData. Escribirlo en crudo aquí anulaba el
                         // saneamiento de la subida.
-                        localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(sanitizedUsers));
+                        localStorage.setItem('bodega_users_catalog_v1', JSON.stringify(sanitizeUserCatalog(freshUsers)));
                         const { pushCloudSync } = await import('./useCloudSync');
                         await pushCloudSync('bodega_users_catalog_v1', sanitizedUsers);
                     } catch {}
