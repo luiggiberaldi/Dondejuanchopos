@@ -149,18 +149,27 @@ export function useMonitorSync(pairedDeviceId) {
                 .in('doc_id', MONITOR_DOC_IDS)
                 .order('updated_at', { ascending: true });
 
+            // D3: el rate limiter se marca DESPUÉS de un pull exitoso, nunca antes.
+            // Antes se escribía aquí y un query fallido dejaba al monitor 5 minutos
+            // bloqueado, sin datos y sin posibilidad de reintentar.
+            let isFullPull = false;
             if (lastSyncIso) {
                 query = query.gt('updated_at', lastSyncIso);
             } else if (nowTs - lastFullPullTs < MONITOR_FULL_PULL_MIN_INTERVAL_MS) {
                 console.log('[useMonitorSync] Full-Pull del Monitor omitido por Rate Limiter (< 5 min). Usando datos locales.');
                 query = query.gt('updated_at', new Date(lastFullPullTs).toISOString());
             } else {
-                localStorage.setItem('dj_monitor_last_full_pull_ts', String(nowTs));
+                isFullPull = true;
             }
 
             const { data: docs, error } = await query;
 
             if (error) throw error;
+
+            // D3: solo ahora sabemos que el pull completo se realizó de verdad.
+            if (isFullPull) {
+                localStorage.setItem('dj_monitor_last_full_pull_ts', String(nowTs));
+            }
 
             if (docs && docs.length > 0) {
                 // D2: try/catch por documento — igual que HOOK-023 en la caja.

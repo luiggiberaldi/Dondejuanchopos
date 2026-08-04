@@ -369,7 +369,7 @@ export function useCloudSync(deviceId) {
 
                     let query = supabaseCloud
                         .from('sync_documents')
-                        .select('collection, doc_id, data')
+                        .select('collection, doc_id, data, updated_at')
                         .eq('device_id', deviceId)
                         .in('collection', ['store', 'local']);
 
@@ -381,10 +381,20 @@ export function useCloudSync(deviceId) {
                         localStorage.setItem('dj_cloud_sync_ts', new Date(lastFullPullTs).toISOString());
                         query = query.gt('updated_at', new Date(lastFullPullTs).toISOString());
                     } else {
-                        localStorage.setItem('dj_last_full_pull_ts', String(nowTs));
+                        // D3: `dj_last_full_pull_ts` ya no se marca aquí. Se escribe
+                        // después del pull exitoso (ver más abajo), para que un fallo
+                        // no bloquee el reintento durante 5 minutos.
                     }
 
-                    const { data: docs } = await query;
+                    // D4: antes se descartaba `error` y el cursor avanzaba igual,
+                    // de modo que un pull fallido hacía perder esa ventana de
+                    // cambios para siempre.
+                    const { data: docs, error: pullError } = await query;
+
+                    if (pullError) {
+                        console.warn('[CloudSync] Pull incremental falló; el cursor NO avanza:', pullError.message);
+                        throw pullError;
+                    }
 
                     if (docs?.length > 0) {
                         for (const doc of docs) {
@@ -399,7 +409,23 @@ export function useCloudSync(deviceId) {
                         }
                         console.log(`[CloudSync] Pull incremental (${lastSyncIso ? 'cambios' : 'inicial'}): ${docs.length} documentos aplicados.`);
                     }
-                    localStorage.setItem('dj_cloud_sync_ts', new Date().toISOString());
+                    // D4/D5: el cursor sale del `updated_at` máximo REALMENTE recibido.
+                    // Usar el reloj local hacía que cualquier desfase con el servidor
+                    // saltase una ventana de escrituras de forma silenciosa.
+                    const maxUpdatedAt = (docs || []).reduce((acc, d) => {
+                        const t = d?.updated_at ? new Date(d.updated_at).getTime() : 0;
+                        return t > acc ? t : acc;
+                    }, 0);
+                    if (maxUpdatedAt > 0) {
+                        localStorage.setItem('dj_cloud_sync_ts', new Date(maxUpdatedAt).toISOString());
+                    } else if (!lastSyncIso) {
+                        // Primer pull sin resultados: sellar para no repetir el full pull.
+                        localStorage.setItem('dj_cloud_sync_ts', new Date().toISOString());
+                    }
+                    // D3: el rate limiter del full pull también se marca aquí, ya con éxito.
+                    if (!lastSyncIso && nowTs - lastFullPullTs >= FULL_PULL_MIN_INTERVAL_MS) {
+                        localStorage.setItem('dj_last_full_pull_ts', String(nowTs));
+                    }
                 }
 
                 // ── Auto-recuperación: Purgar/subir datos locales que no llegaron a enviarse debido al bug anterior ──
