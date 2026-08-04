@@ -163,16 +163,50 @@ export function useMonitorSync(pairedDeviceId) {
             if (error) throw error;
 
             if (docs && docs.length > 0) {
+                // D2: try/catch por documento — igual que HOOK-023 en la caja.
+                // Un solo documento malformado no puede abortar los otros 20, y
+                // menos aún de forma permanente (el pull trae siempre el mismo lote).
+                let appliedCount = 0;
+                let failedCount = 0;
                 for (const doc of docs) {
-                    await applyDocToLocal(doc.doc_id, doc.collection, doc.data.payload);
+                    try {
+                        if (!doc || doc.data == null) {
+                            failedCount++;
+                            console.warn(`[useMonitorSync] Documento sin data, omitido: ${doc?.doc_id}`);
+                            continue;
+                        }
+                        await applyDocToLocal(doc.doc_id, doc.collection, doc.data.payload);
+                        appliedCount++;
+                    } catch (e) {
+                        failedCount++;
+                        console.warn(`[useMonitorSync] Error aplicando doc ${doc?.doc_id}:`, e);
+                    }
                 }
-                const now = new Date();
+
+                if (failedCount > 0) {
+                    console.warn(`[useMonitorSync] Pull parcial: ${appliedCount} aplicados, ${failedCount} fallidos.`);
+                }
+
+                // D5/D6: el cursor se deriva del `updated_at` MÁXIMO realmente
+                // recibido, no del reloj local. El `updated_at` lo escribe el
+                // servidor (ver FX10), así que ambos lados comparten referencia
+                // temporal y un desfase de reloj ya no descarta ventanas.
+                const maxUpdatedAt = docs.reduce((acc, d) => {
+                    const t = d?.updated_at ? new Date(d.updated_at).getTime() : 0;
+                    return t > acc ? t : acc;
+                }, 0);
+                const now = maxUpdatedAt > 0 ? new Date(maxUpdatedAt) : new Date();
                 setLastSync(now);
                 localStorage.setItem('monitor_last_sync', now.toISOString());
 
                 // Notificar a los context (ProductContext, etc) para actualizar el estado React de inmediato
                 window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_products_v1' } }));
                 window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_sales_v1' } }));
+            } else if (docs) {
+                // D6: lote vacío = ya estamos al día. Marcar la sincronización como
+                // exitosa evita que el health-check la interprete como "sin datos"
+                // y dispare pulls completos repetidos.
+                setLastSync(prev => prev || new Date());
             }
 
             setIsConnected(true);
