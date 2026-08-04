@@ -66,8 +66,16 @@ export default function PairingManager({ deviceId, triggerHaptic }) {
         setPairingState('generating');
 
         try {
-            // Asegurar que todos los datos del POS estén en la nube para el nuevo monitor
-            forceSyncAllPOSData(deviceId).catch(() => {});
+            // E1: `forceUnconditional = true`. Sin él, el guard de hash omite las
+            // claves cuyo hash coincide — incluidas las que quedaron envenenadas por
+            // D1 — y el monitor recién emparejado arranca vacío, sin ningún error.
+            // Se espera el resultado: el QR no debe mostrarse antes de que los datos
+            // estén arriba, o el supervisor verá una pantalla en blanco.
+            try {
+                await forceSyncAllPOSData(deviceId, true);
+            } catch (e) {
+                console.warn('[PairingManager] La subida previa al emparejamiento falló:', e);
+            }
 
             const { data: generatedToken, error } = await supabaseCloud.rpc('generate_pairing_token', {
                 p_device_id: deviceId

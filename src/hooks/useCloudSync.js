@@ -111,6 +111,25 @@ export const pushCloudSync = async (key, value, forceUnconditional = false) => {
 
     const payloadToUpload = sanitizePayloadForSync(key, value);
 
+    // E2: tope duro de egress por documento. No trunca ni recorta datos — solo
+    // rechaza y avisa, para que un documento desbocado sea visible en vez de
+    // convertirse en una factura sorpresa. 2 MB está muy por encima del mayor
+    // documento real observado (~1.1 MB para el dataset completo).
+    const MAX_DOC_BYTES = 2 * 1024 * 1024;
+    try {
+        const approxBytes = JSON.stringify(payloadToUpload)?.length ?? 0;
+        if (approxBytes > MAX_DOC_BYTES) {
+            console.error(
+                `[CloudSync] E2: documento '${key}' de ${(approxBytes / 1048576).toFixed(2)} MB ` +
+                `supera el tope de ${MAX_DOC_BYTES / 1048576} MB. NO se sube. ` +
+                `Revisa por qué creció (¿histórico sin podar?).`
+            );
+            return false;
+        }
+    } catch {
+        // Si no es serializable, que falle el upsert y lo reporte por el camino normal.
+    }
+
     // EGRESS & REQUEST SAVER:
     // Si el valor a enviar es idéntico al último enviado con éxito a la nube, abortar antes del POST HTTP.
     const hashKey = LAST_PUSH_HASH_PREFIX + key;
@@ -314,6 +333,26 @@ export function useCloudSync(deviceId) {
                 if (isMonitor) {
                     isCloudSyncActive = false;
                     return;
+                }
+
+                // D1/E1: las versiones anteriores escribían el hash de egress aunque el
+                // upsert hubiese fallado, dejando claves marcadas como "ya subidas" que en
+                // realidad nunca llegaron. Se purgan una única vez para forzar una
+                // reconciliación completa. La marca evita repetirlo en cada arranque.
+                const HASH_PURGE_FLAG = 'dj_egress_hash_purge_v1';
+                if (!localStorage.getItem(HASH_PURGE_FLAG)) {
+                    try {
+                        const stale = [];
+                        for (let i = 0; i < localStorage.length; i++) {
+                            const k = localStorage.key(i);
+                            if (k && k.startsWith(LAST_PUSH_HASH_PREFIX)) stale.push(k);
+                        }
+                        stale.forEach(k => localStorage.removeItem(k));
+                        localStorage.setItem(HASH_PURGE_FLAG, '1');
+                        console.log(`[CloudSync] Purga única de ${stale.length} hashes de egress potencialmente envenenados (D1).`);
+                    } catch (e) {
+                        console.warn('[CloudSync] No se pudo purgar los hashes de egress:', e);
+                    }
                 }
 
                 // ── Verificar Permisos / Estado de Registro del Dispositivo antes de activar CloudSync ──
@@ -550,7 +589,14 @@ export function useCloudSync(deviceId) {
         const pingPosPresence = async () => {
             if (navigator.onLine && isCloudSyncActive && deviceId) {
                 try {
-                    await supabaseCloud.rpc('touch_pos_heartbeat', { p_device_id: deviceId });
+                    const { data: hb } = await supabaseCloud.rpc('touch_pos_heartbeat', { p_device_id: deviceId });
+                    // E2/S1: `touch_pos_heartbeat` ya no crea la fila de emparejamiento
+                    // (era el vector de suplantación S1). Si la caja aún no está registrada,
+                    // se registra UNA vez, de forma explícita y auditable.
+                    if (hb && hb.registered === false) {
+                        await supabaseCloud.rpc('register_pos_device', { p_device_id: deviceId });
+                        console.log('[CloudSync] Dispositivo POS registrado en la nube:', deviceId);
+                    }
                 } catch {}
             }
         };
