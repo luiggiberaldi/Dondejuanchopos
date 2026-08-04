@@ -19,4 +19,21 @@ describe('Command Status Mirror Test', () => {
 
         expect(sqlStatuses.sort()).toEqual([...VALID_COMMAND_STATUSES].sort());
     });
+
+    // F3: ningún literal de status emitido por el código puede quedar fuera del
+    // enum. Este test es el que habría cazado F1 ('cancelled') el primer día.
+    test('no source file writes a supervisor_commands status literal outside the enum', () => {
+        const roots = [
+            path.resolve(__dirname, '../src/views/OwnerMonitorView.jsx'),
+            path.resolve(__dirname, '../src/hooks/useSupervisorCommands.js'),
+        ];
+        const emitted = new Set();
+        for (const file of roots) {
+            const src = fs.readFileSync(file, 'utf-8');
+            for (const m of src.matchAll(/status:\s*'([a-z_]+)'/g)) emitted.add(m[1]);
+            for (const m of src.matchAll(/updateCommandStatus\([^,]+,\s*'([a-z_]+)'/g)) emitted.add(m[1]);
+        }
+        const unknown = [...emitted].filter(s => !VALID_COMMAND_STATUSES.includes(s));
+        expect(unknown).toEqual([]);
+    });
 });

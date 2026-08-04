@@ -85,6 +85,14 @@ async function updateCommandStatus(commandId, status, errorReason = null, maxRet
             if (!error) return true;
             if (error.code && ['23514', '23503', '22P02'].includes(error.code)) {
                 console.error(`[SupervisorCommands] Error de esquema al fijar status="${status}" — no se reintenta:`, error);
+                // F4: 23514 = CHECK violado. Casi siempre significa que el
+                // .sql y el JS se separaron (ver tests/commandStatus.test.js
+                // y tests/commandType.test.js). Nunca es un fallo transitorio.
+                console.error(
+                    `[SupervisorCommands] DERIVA DE ESQUEMA: Postgres rechazó ` +
+                    `status='${status}' para el comando ${commandId} (23514). ` +
+                    `Revisa supervisor_commands_status_check.`
+                );
                 return false;
             }
             console.warn(`[SupervisorCommands] Intento ${attempt}/${maxRetries} falló al actualizar status de ${commandId}:`, error);
