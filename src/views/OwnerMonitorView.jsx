@@ -899,7 +899,10 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 );
             }
 
-            if (okRows.length > 0 && !overrideList) {
+            // R2: solo se consolida la proyección si NADA falló. Con éxito
+            // parcial, projectedProducts todavía incluye los cambios fallidos,
+            // que siguen en la cola: escribirlos aquí los aplicaría dos veces.
+            if (failedRows.length === 0 && okRows.length > 0 && !overrideList) {
                 const updatedLocal = projectedProducts.map(p => {
                     const { _rawStock, _stockDelta, _isQueuedDelete, _isQueuedEdit, _isQueuedNew, _isCombo, _effectiveCost, ...clean } = p;
                     return clean;
@@ -915,10 +918,6 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 }
             } else if (failedRows.length === 0) {
                 showToast(`${okRows.length} cambio${okRows.length !== 1 ? 's' : ''} enviado${okRows.length !== 1 ? 's' : ''} con éxito a la caja principal`, 'success');
-            }
-
-            if (okRows.length === 0 && rowsToInsert.length > 0) {
-                throw new Error(`Ningún comando pudo enviarse: ${failedRows[0]?.message || 'error desconocido'}`);
             }
         } catch (err) {
             console.error('[OwnerMonitor] Excepción al subir lote:', err);
