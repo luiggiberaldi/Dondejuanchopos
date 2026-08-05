@@ -524,10 +524,11 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             const ts = s.timestamp || s.created_at || s.date;
             if (!ts) return false;
             let dateStr = '';
-            if (typeof ts === 'string' && /^\d{4}-\d{2}-\d{2}/.test(ts.trim())) {
-                dateStr = ts.trim().slice(0, 10);
+            if (typeof ts === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(ts.trim())) {
+                dateStr = ts.trim();
             } else {
-                dateStr = getLocalISODate(new Date(ts));
+                const parsed = new Date(ts);
+                dateStr = isNaN(parsed.getTime()) ? '' : getLocalISODate(parsed);
             }
             return dateStr >= artFrom && dateStr <= artTo;
         });
