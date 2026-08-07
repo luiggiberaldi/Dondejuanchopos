@@ -339,7 +339,7 @@ export function useCloudSync(deviceId) {
                 // upsert hubiese fallado, dejando claves marcadas como "ya subidas" que en
                 // realidad nunca llegaron. Se purgan una única vez para forzar una
                 // reconciliación completa. La marca evita repetirlo en cada arranque.
-                const HASH_PURGE_FLAG = 'dj_egress_hash_purge_v1';
+                const HASH_PURGE_FLAG = 'dj_egress_hash_purge_v2';
                 if (!localStorage.getItem(HASH_PURGE_FLAG)) {
                     try {
                         const stale = [];
@@ -349,7 +349,7 @@ export function useCloudSync(deviceId) {
                         }
                         stale.forEach(k => localStorage.removeItem(k));
                         localStorage.setItem(HASH_PURGE_FLAG, '1');
-                        console.log(`[CloudSync] Purga única de ${stale.length} hashes de egress potencialmente envenenados (D1).`);
+                        console.log(`[CloudSync] Purga única de ${stale.length} hashes de egress envenenados por migración de nube (v2).`);
                     } catch (e) {
                         console.warn('[CloudSync] No se pudo purgar los hashes de egress:', e);
                     }
@@ -378,8 +378,8 @@ export function useCloudSync(deviceId) {
                 isCloudSyncActive = true;
                 isInitialized.current = true;
 
-                // Sincronizar automáticamente todos los datos del POS a la nube en segundo plano
-                forceSyncAllPOSData(deviceId).catch(() => {});
+                // Sincronizar automáticamente todos los datos del POS a la nube en segundo plano (forzado incondicional)
+                forceSyncAllPOSData(deviceId, true).catch(() => {});
 
                 // ── Pull Inicial / Sincronización de Importación ──
                 const backupImported = localStorage.getItem('dj_backup_imported_flag') === 'true';
