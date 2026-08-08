@@ -39,6 +39,14 @@ function unmarkApplied(commandId) {
 let cloudSyncTimer = null;
 let cloudSyncPending = false;
 
+// ── Singleton guard ─────────────────────────────────────────────────────────
+// El hook puede montarse varias veces si hay múltiples instancias de
+// ProductProvider / useCloudSync activas (ej: modo monitor + modo normal
+// montados simultáneamente en App.jsx). Sin esta protección cada instancia
+// crearía su propio canal Realtime y su propio intervalo de polling,
+// disparando cada comando 2–3 veces.
+let _activeSubscriberCount = 0;
+
 export async function flushCloudProductsSync() {
     if (!cloudSyncPending) return;
     cloudSyncPending = false;
@@ -135,6 +143,16 @@ async function applyRateChange(command) {
 export function useSupervisorCommands(deviceId) {
     useEffect(() => {
         if (!supabaseCloud || !deviceId) return;
+
+        // Singleton guard: si ya hay una instancia activa con este deviceId,
+        // no crear un segundo canal. Incrementar contador; decrementar al desmontar.
+        _activeSubscriberCount++;
+        if (_activeSubscriberCount > 1) {
+            // Ya existe una instancia manejando los comandos — salir sin suscribirse.
+            return () => {
+                _activeSubscriberCount--;
+            };
+        }
 
         // Set en memoria sembrado desde localStorage (sobrevive recargas)
         const appliedIds = new Set(loadAppliedIds());
@@ -533,6 +551,7 @@ export function useSupervisorCommands(deviceId) {
 
         return () => {
             disposed = true;
+            _activeSubscriberCount--;
             clearInterval(intervalId);
             window.removeEventListener('online', handleOnline);
             document.removeEventListener('visibilitychange', handleVisibility);

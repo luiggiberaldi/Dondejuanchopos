@@ -169,8 +169,26 @@ export async function applyInventoryCommand(payload) {
         return { success: false, error: 'productId requerido' };
     }
 
+    // EGRESS RC2: si el monitor no pudo subir la imagen (offline), la caja lo intenta.
+    // Se hace ANTES del withLock — un upload de red no puede sostener el write-lock
+    // porque bloquearía el checkout durante segundos.
+    // El upload es idempotente (upsert:true, ruta determinística por ID).
+    let resolvedPayload = payload;
+    const payloadImg = payload.data?.image;
+    if (payloadImg && typeof payloadImg === 'string' && payloadImg.startsWith('data:')) {
+        try {
+            const { uploadProductImage } = await import('./imageUpload');
+            const imgId = payload.data?.id || payload.productId;
+            const url = await uploadProductImage(payloadImg, { id: imgId });
+            if (url) {
+                resolvedPayload = { ...payload, data: { ...payload.data, image: url } };
+            }
+        } catch { /* fallback: el base64 sigue en resolvedPayload.data.image */ }
+    }
+
     // withLock retorna directamente el valor del callback (mismo contrato que checkoutProcessor)
     const lockResult = await withLock('pos_write_lock', async () => {
+        const { action, productId, data } = resolvedPayload;
         const products = await storageService.getItem(PRODUCTS_KEY, []) || [];
 
         if (action === 'batch_edit') {
@@ -305,7 +323,9 @@ export async function applyInventoryCommand(payload) {
             if (validationError) return { success: false, error: validationError };
             const normalized = normalizeProduct(mergedPayload);
             normalized.id = productId;
-            // D8: preservar imagen local si el comando no la trae (nunca viaja base64)
+            // D8: preservar imagen local si el comando no la trae.
+            // Puede llegar base64 como fallback cuando el monitor estaba offline;
+            // en ese caso RC2 ya intentó subirlo antes del lock.
             if (normalized.image === undefined) normalized.image = existing.image;
             // Anti-pisado: una edición remota NUNCA modifica el stock — la caja pudo
             // vender mientras el cambio esperaba en la cola del monitor. El stock

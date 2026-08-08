@@ -44,6 +44,7 @@ const normalizeCategories = (cats) => {
 
 const sanitizeProducts = (productsList) => {
     if (!Array.isArray(productsList)) return [];
+
     const seenIds = new Set();
     return productsList.map((p, idx) => {
         if (!p) return p;
