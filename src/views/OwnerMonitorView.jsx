@@ -663,51 +663,70 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     }, []);
 
     useEffect(() => {
-        if (inFlightChanges.length === 0 || !Array.isArray(products)) return;
+        if (inFlightChanges.length === 0) return;
         const confirmedKeys = new Set(
-            inFlightChanges
+            (Array.isArray(products) ? inFlightChanges : [])
                 .filter(change => change.action !== 'adjust_stock' && isInventoryChangeConfirmed(change, products))
                 .map(getChangeKey)
         );
 
+        // Limpiar cambios inFlight si la nube ya registró el estado final (aplicado/rechazado/anulado)
+        if (Array.isArray(allCloudCmds) && allCloudCmds.length > 0) {
+            const pendingCmdProductIds = new Set(
+                (Array.isArray(cloudPendingCmds) ? cloudPendingCmds : [])
+                    .filter(c => c.command_type === 'inventory_update')
+                    .map(c => String(c.payload?.productId || c.payload?.data?.id || ''))
+            );
+
+            inFlightChanges.forEach(change => {
+                const pId = String(change.productId || change.data?.id || '');
+                if (pId && !pendingCmdProductIds.has(pId)) {
+                    confirmedKeys.add(getChangeKey(change));
+                }
+            });
+        }
+
         // Varios ajustes pueden llegar a la caja antes de que el catálogo
         // vuelva al monitor. No se debe comparar cada delta contra el mismo
         // stock base: si entraron +3 y luego +2, el catálogo final será +5.
-        const stockGroups = new Map();
-        inFlightChanges
-            .filter(change => change.action === 'adjust_stock')
-            .forEach(change => {
-                const key = String(change.productId);
-                if (!stockGroups.has(key)) stockGroups.set(key, []);
-                stockGroups.get(key).push(change);
-            });
+        if (Array.isArray(products)) {
+            const stockGroups = new Map();
+            inFlightChanges
+                .filter(change => change.action === 'adjust_stock')
+                .forEach(change => {
+                    const key = String(change.productId);
+                    if (!stockGroups.has(key)) stockGroups.set(key, []);
+                    stockGroups.get(key).push(change);
+                });
 
-        for (const [productId, group] of stockGroups) {
-            const product = products.find(p => String(p.id) === productId);
-            if (!product || group.length === 0) continue;
-            const ordered = [...group].sort((a, b) =>
-                String(a.sentAt || a.queuedAt || '').localeCompare(String(b.sentAt || b.queuedAt || ''))
-            );
-            const firstBase = Number(ordered[0].baseStock);
-            if (!Number.isFinite(firstBase)) {
-                ordered.filter(change => isInventoryChangeConfirmed(change, products))
-                    .forEach(change => confirmedKeys.add(getChangeKey(change)));
-                continue;
-            }
+            for (const [productId, group] of stockGroups) {
+                const product = products.find(p => String(p.id) === productId);
+                if (!product || group.length === 0) continue;
+                const ordered = [...group].sort((a, b) =>
+                    String(a.sentAt || a.queuedAt || '').localeCompare(String(b.sentAt || b.queuedAt || ''))
+                );
+                const firstBase = Number(ordered[0].baseStock);
+                if (!Number.isFinite(firstBase)) {
+                    ordered.filter(change => isInventoryChangeConfirmed(change, products))
+                        .forEach(change => confirmedKeys.add(getChangeKey(change)));
+                    continue;
+                }
 
-            let expected = Math.max(0, firstBase);
-            let matchedPrefix = -1;
-            for (let index = 0; index < ordered.length; index++) {
-                expected = applyProjectedStock(expected, [ordered[index]]);
-                if (Number(product.stock) === Number(expected)) matchedPrefix = index;
-            }
-            if (matchedPrefix >= 0) {
-                ordered.slice(0, matchedPrefix + 1).forEach(change => confirmedKeys.add(getChangeKey(change)));
+                let expected = Math.max(0, firstBase);
+                let matchedPrefix = -1;
+                for (let index = 0; index < ordered.length; index++) {
+                    expected = applyProjectedStock(expected, [ordered[index]]);
+                    if (Number(product.stock) === Number(expected)) matchedPrefix = index;
+                }
+                if (matchedPrefix >= 0) {
+                    ordered.slice(0, matchedPrefix + 1).forEach(change => confirmedKeys.add(getChangeKey(change)));
+                }
             }
         }
+
         if (confirmedKeys.size === 0) return;
         persistInFlight(inFlightChanges.filter(change => !confirmedKeys.has(getChangeKey(change))));
-    }, [products, inFlightChanges, getChangeKey, isInventoryChangeConfirmed, persistInFlight]);
+    }, [products, inFlightChanges, allCloudCmds, cloudPendingCmds, getChangeKey, isInventoryChangeConfirmed, persistInFlight]);
 
     // 📄 Generar y Descargar PDF del Cierre Seleccionado
     const handleDownloadCierrePDF = async (cierreObj, e) => {
