@@ -16,12 +16,43 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
     const sanitizeAndHealSales = async (savedSales) => {
         let salesList = Array.isArray(savedSales) ? [...savedSales] : [];
         let healed = false;
+
+        // Regla de sanitización / corrección histórica para Venta 224 (Abono de 22.100 Bs)
+        const normalizeSale224 = (sale) => {
+            if (!sale) return sale;
+            if (sale.id === '2eca7ae8-4d51-4ba5-ac15-820821f6885a' || sale.saleNumber === 224) {
+                if (sale.timestamp !== '2026-08-01T20:00:00.000Z' || !sale.cajaCerrada || sale.paymentMethod !== 'pago_movil') {
+                    healed = true;
+                }
+                return {
+                    ...sale,
+                    timestamp: '2026-08-01T20:00:00.000Z',
+                    cierreId: 1785647146867,
+                    cajaCerrada: true,
+                    paymentMethod: 'pago_movil',
+                    payments: [
+                        {
+                            amount: 22100,
+                            amountBs: 22100,
+                            currency: 'BS',
+                            methodId: 'pago_movil',
+                            amountUsd: 25.4,
+                            methodLabel: 'Pago Móvil'
+                        }
+                    ]
+                };
+            }
+            return sale;
+        };
+
+        salesList = salesList.map(normalizeSale224);
         const knownIds = new Set(salesList.map(s => s.id).filter(Boolean));
 
         try {
             const mirrorSales = await storageService.getItem('bodega_sales_mirror_v1', []);
             if (Array.isArray(mirrorSales)) {
-                for (const s of mirrorSales) {
+                for (let s of mirrorSales) {
+                    s = normalizeSale224(s);
                     if (s && s.id && !knownIds.has(s.id)) {
                         salesList.push(s);
                         knownIds.add(s.id);
@@ -32,7 +63,8 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
 
             const autoBackup = await storageService.getItem('bodega_autobackup_v1', null);
             if (autoBackup?.data?.idb?.bodega_sales_v1 && Array.isArray(autoBackup.data.idb.bodega_sales_v1)) {
-                for (const s of autoBackup.data.idb.bodega_sales_v1) {
+                for (let s of autoBackup.data.idb.bodega_sales_v1) {
+                    s = normalizeSale224(s);
                     if (s && s.id && !knownIds.has(s.id)) {
                         salesList.push(s);
                         knownIds.add(s.id);
@@ -47,6 +79,9 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
         if (healed) {
             salesList.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
             await storageService.setItem(SALES_KEY, salesList);
+            try {
+                await storageService.setItem('bodega_sales_mirror_v1', salesList);
+            } catch (e) {}
         }
         return salesList;
     };
