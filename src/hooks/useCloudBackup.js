@@ -1,10 +1,13 @@
 import { useState } from 'react';
+import localforage from 'localforage';
 import { storageService } from '../utils/storageService';
 import { showToast } from '../components/Toast';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { IDB_KEYS, LS_KEYS } from '../config/backupKeys';
 import { runWithoutEco } from '../utils/syncFlags';
 import { compressString, decompressString, isCompressionSupported } from '../utils/compression';
+import { uploadProductImage } from '../utils/imageUpload';
+import { mergeMissingProductImages } from '../utils/productImageRecovery';
 
 
 /**
@@ -78,6 +81,81 @@ export function useCloudBackup({
         } catch (e) {
             console.warn('[applyCloudBackup] No se pudo republicar tras la restauración:', e);
         }
+    };
+
+    /**
+     * Recupera únicamente `image` por id. Nunca reemplaza el catálogo completo,
+     * nunca elimina productos y no publica el resultado automáticamente: así
+     * una foto Base64 recuperada no puede volver a ser eliminada por el sync
+     * cloud antes de que el usuario valide el resultado.
+     */
+    const recoverProductImagesOnly = async () => {
+        const currentProducts = await storageService.getItem('bodega_products_v1', []);
+        if (!Array.isArray(currentProducts)) {
+            return { recovered: 0, uploaded: 0, source: null, updatedProducts: [] };
+        }
+
+        const sources = [];
+        const sourceLabels = [];
+        const shadow = await localforage.getItem('bodega_products_shadow_backup_v1');
+        if (Array.isArray(shadow)) {
+            sources.push(shadow);
+            sourceLabels.push('copia de sombra local');
+        }
+
+        if (supabaseCloud && deviceId) {
+            try {
+                const { data: cloudRow, error } = await supabaseCloud
+                    .from('cloud_backups')
+                    .select('backup_data')
+                    .eq('device_id', deviceId)
+                    .maybeSingle();
+                if (error) throw error;
+
+                let backup = cloudRow?.backup_data;
+                if (backup?.compressed) {
+                    backup = JSON.parse(await decompressString(backup.data));
+                }
+                const cloudProducts = backup?.data?.idb?.bodega_products_v1;
+                if (Array.isArray(cloudProducts)) {
+                    sources.push(cloudProducts);
+                    sourceLabels.push('backup cloud');
+                }
+            } catch (error) {
+                console.warn('[CloudBackup] No se pudo consultar backup para recuperar imágenes:', error);
+            }
+        }
+
+        const merged = mergeMissingProductImages(currentProducts, ...sources);
+        if (merged.recovered === 0) {
+            return { recovered: 0, uploaded: 0, source: null, updatedProducts: currentProducts };
+        }
+
+        let uploaded = 0;
+        const updatedProducts = merged.products.map(product => ({ ...product }));
+        for (const productId of merged.recoveredIds) {
+            const product = updatedProducts.find(item => item.id === productId);
+            if (!product || typeof product.image !== 'string' || !product.image.startsWith('data:')) continue;
+            const url = await uploadProductImage(product.image, { id: product.id });
+            if (url) {
+                product.image = url;
+                uploaded++;
+            }
+        }
+
+        // Escritura directa: solo cambia las propiedades image recuperadas y no
+        // dispara una publicación cloud potencialmente incompleta.
+        await localforage.setItem('bodega_products_v1', updatedProducts);
+        window.dispatchEvent(new CustomEvent('app_storage_update', {
+            detail: { key: 'bodega_products_v1', source: 'image-recovery', payload: updatedProducts }
+        }));
+
+        return {
+            recovered: merged.recovered,
+            uploaded,
+            source: sourceLabels.join(' + ') || 'fuente local',
+            updatedProducts,
+        };
     };
 
     // ─── HELPER: Collect local backup payload ────────────────────────────────
@@ -255,5 +333,6 @@ export function useCloudBackup({
         uploadLocalBackup,
         handleSyncCloud,
         handleDataConflictChoice,
+        recoverProductImagesOnly,
     };
 }

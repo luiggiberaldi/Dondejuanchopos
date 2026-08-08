@@ -56,6 +56,7 @@ export default function SettingsView({ onClose, theme, toggleTheme, triggerHapti
     const [activeTab, setActiveTab] = useState('negocio');
     const [idCopied, setIdCopied] = useState(false);
     const [isShareOpen, setIsShareOpen] = useState(false);
+    const [recoveringImages, setRecoveringImages] = useState(false);
 
     // Business Data
     const [businessName, setBusinessName] = useState('Donde Juancho');
@@ -186,6 +187,7 @@ export default function SettingsView({ onClose, theme, toggleTheme, triggerHapti
         dataConflictPending,
         setDataConflictPending,
         handleDataConflictChoice,
+        recoverProductImagesOnly,
     } = useCloudBackup({
         deviceId,
         auditLog,
@@ -221,6 +223,30 @@ export default function SettingsView({ onClose, theme, toggleTheme, triggerHapti
     };
 
     const handleImportClick = () => fileInputRef.current?.click();
+
+    const handleRecoverProductImages = async () => {
+        if (!isAdmin || recoveringImages) return;
+        setRecoveringImages(true);
+        triggerHaptic?.();
+        try {
+            const result = await recoverProductImagesOnly();
+            if (result.updatedProducts) setProducts(result.updatedProducts);
+            if (result.recovered > 0) {
+                showToast(
+                    `${result.recovered} foto${result.recovered !== 1 ? 's' : ''} recuperada${result.recovered !== 1 ? 's' : ''}` +
+                    `${result.uploaded > 0 ? ` y ${result.uploaded} subida${result.uploaded !== 1 ? 's' : ''} a Storage` : ''}.`,
+                    'success'
+                );
+            } else {
+                showToast('No se encontraron fotos recuperables en las copias disponibles.', 'info');
+            }
+        } catch (error) {
+            console.error('[SettingsView] Error recuperando imágenes:', error);
+            showToast('No se pudieron recuperar las fotos.', 'error');
+        } finally {
+            setRecoveringImages(false);
+        }
+    };
 
     const settingsDialog = (
         <div
@@ -365,6 +391,8 @@ export default function SettingsView({ onClose, theme, toggleTheme, triggerHapti
                                 handleImportClick={handleImportClick}
                                 setIsShareOpen={setIsShareOpen}
                                 setShowDeleteConfirm={setShowDeleteConfirm}
+                                onRecoverProductImages={handleRecoverProductImages}
+                                recoveringImages={recoveringImages}
                                 triggerHaptic={triggerHaptic}
                             />
                         )}

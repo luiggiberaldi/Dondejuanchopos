@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
     Database, Palette, Fingerprint, Upload, Download, Share2,
-    Check, ChevronRight, Trash2, AlertTriangle, FileText, ZoomIn, ZoomOut, RotateCcw, QrCode, Volume2
+    Check, ChevronRight, Trash2, AlertTriangle, FileText, ZoomIn, ZoomOut, RotateCcw, QrCode, Volume2,
+    Image as ImageIcon, RefreshCw
 } from 'lucide-react';
 import { SectionCard } from '../../SettingsShared';
 import AuditLogViewer from '../AuditLogViewer';
@@ -17,6 +18,7 @@ export default function SettingsTabSistema({
     handleExport, handleImportClick,
     setIsShareOpen,
     setShowDeleteConfirm,
+    onRecoverProductImages, recoveringImages,
     triggerHaptic,
 }) {
     const [uiScale, setUiScale] = useState(() => {
@@ -122,6 +124,21 @@ export default function SettingsTabSistema({
                         <div className="text-left flex-1">
                             <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Compartir Inventario</p>
                             <p className="text-xs text-slate-500 dark:text-slate-400">Código de 6 dígitos, 24h</p>
+                        </div>
+                        <ChevronRight size={16} className="text-slate-300" />
+                    </button>
+
+                    <button
+                        onClick={onRecoverProductImages}
+                        disabled={!isAdmin || recoveringImages}
+                        className="w-full flex items-center gap-3 p-3 bg-violet-50/70 dark:bg-violet-900/20 border border-violet-100 dark:border-violet-800/30 rounded-xl hover:bg-violet-100 dark:hover:bg-violet-900/30 transition-colors group active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        <div className="p-2 bg-violet-100 dark:bg-violet-900/40 rounded-lg">
+                            {recoveringImages ? <RefreshCw size={18} className="text-violet-500 animate-spin" /> : <ImageIcon size={18} className="text-violet-500" />}
+                        </div>
+                        <div className="text-left flex-1">
+                            <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Recuperar solo fotos</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">Completa imágenes sin cambiar otros datos</p>
                         </div>
                         <ChevronRight size={16} className="text-slate-300" />
                     </button>

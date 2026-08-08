@@ -2,6 +2,8 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { runWithoutEco } from '../utils/syncFlags';
 import localforage from 'localforage';
+import { shouldApplySyncVersion } from '../utils/syncVersionGuard';
+import { mergeCloudProductImages } from '../utils/productImageRecovery';
 
 // Configurar localforage a nivel de módulo
 localforage.config({ name: 'BodegaApp', storeName: 'bodega_app_data' });
@@ -57,6 +59,38 @@ export function useMonitorSync(pairedDeviceId) {
     // y remonta, la ref queda !null apuntando a un canal muerto y nunca se crea
     // una nueva suscripción.
     const monitorSubscriptionRef = useRef(null);
+    const appliedVersionsRef = useRef(new Map());
+    const applyDocQueueRef = useRef(new Map());
+
+    const getVersionKey = useCallback((docId) => {
+        const deviceId = pairedDeviceId || localStorage.getItem('dj_paired_device_id') || 'unknown-device';
+        return `${deviceId}:${docId}`;
+    }, [pairedDeviceId]);
+
+    const persistAppliedVersion = useCallback((versionKey, version) => {
+        try {
+            const raw = localStorage.getItem('dj_monitor_sync_versions_v1');
+            const versions = raw ? JSON.parse(raw) : {};
+            versions[versionKey] = version;
+            localStorage.setItem('dj_monitor_sync_versions_v1', JSON.stringify(versions));
+        } catch (error) {
+            console.warn('[useMonitorSync] No se pudo persistir la versión de sync:', error);
+        }
+    }, []);
+
+    useEffect(() => {
+        appliedVersionsRef.current = new Map();
+        try {
+            const raw = localStorage.getItem('dj_monitor_sync_versions_v1');
+            const versions = raw ? JSON.parse(raw) : {};
+            const prefix = `${pairedDeviceId || localStorage.getItem('dj_paired_device_id') || 'unknown-device'}:`;
+            Object.entries(versions || {}).forEach(([key, value]) => {
+                if (key.startsWith(prefix)) appliedVersionsRef.current.set(key, value);
+            });
+        } catch (error) {
+            console.warn('[useMonitorSync] No se pudieron cargar versiones de sync:', error);
+        }
+    }, [pairedDeviceId]);
 
     useEffect(() => {
         lastSyncRef.current = lastSync;
@@ -107,10 +141,21 @@ export function useMonitorSync(pairedDeviceId) {
         }
     }, [pairedDeviceId]);
 
-    const applyDocToLocal = async (docId, collection, payload) => {
+    const persistDocToLocal = async (docId, collection, payload, syncVersion = null, source = 'unknown') => {
         if (payload == null) return;
         // Bloqueo de seguridad: nunca guardar credenciales de autenticación del admin en el monitor
         if (docId === 'abasto-auth-storage') return;
+
+        const versionKey = getVersionKey(docId);
+        const currentVersion = appliedVersionsRef.current.get(versionKey) || null;
+        if (docId === 'bodega_products_v1' && !shouldApplySyncVersion(currentVersion, syncVersion)) {
+            console.info('[useMonitorSync] Documento de productos ignorado por versión anterior:', {
+                source,
+                currentVersion,
+                syncVersion,
+            });
+            return false;
+        }
 
         // Usamos runWithoutEco para estar seguros de que no se gatille ningún eco de sincronización
         await runWithoutEco(async () => {
@@ -127,11 +172,49 @@ export function useMonitorSync(pairedDeviceId) {
                     storageArea: localStorage
                 }));
                 window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: docId } }));
-            } else {
-                await localforage.setItem(docId, payload);
-                window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: docId } }));
+                } else {
+                    let payloadToApply = payload;
+                    if (docId === 'bodega_products_v1' && Array.isArray(payload)) {
+                        const localProducts = await localforage.getItem(docId);
+                        payloadToApply = mergeCloudProductImages(payload, localProducts);
+                    }
+                    await localforage.setItem(docId, payloadToApply);
+                    window.dispatchEvent(new CustomEvent('app_storage_update', {
+                        detail: {
+                            key: docId,
+                            source: 'monitor-sync',
+                            syncVersion,
+                            ...(docId === 'bodega_products_v1' ? { payload: payloadToApply } : {}),
+                        }
+                    }));
             }
         });
+
+        if (docId === 'bodega_products_v1' && syncVersion) {
+            appliedVersionsRef.current.set(versionKey, syncVersion);
+            persistAppliedVersion(versionKey, syncVersion);
+        }
+        return true;
+    };
+
+    const applyDocToLocal = (docId, collection, payload, syncVersion = null, source = 'unknown') => {
+        if (payload == null) return Promise.resolve();
+        const versionKey = getVersionKey(docId);
+        const previous = applyDocQueueRef.current.get(versionKey) || Promise.resolve();
+        const current = previous
+            .catch(() => undefined)
+            .then(() => persistDocToLocal(docId, collection, payload, syncVersion, source));
+
+        applyDocQueueRef.current.set(versionKey, current);
+        current.then(
+            () => {
+                if (applyDocQueueRef.current.get(versionKey) === current) applyDocQueueRef.current.delete(versionKey);
+            },
+            () => {
+                if (applyDocQueueRef.current.get(versionKey) === current) applyDocQueueRef.current.delete(versionKey);
+            },
+        );
+        return current;
     };
 
     const initMonitor = useCallback(async (isSilent = false) => {
@@ -210,7 +293,7 @@ export function useMonitorSync(pairedDeviceId) {
                             console.warn(`[useMonitorSync] Documento sin data, omitido: ${doc?.doc_id}`);
                             continue;
                         }
-                        await applyDocToLocal(doc.doc_id, doc.collection, doc.data.payload);
+                        await applyDocToLocal(doc.doc_id, doc.collection, doc.data.payload, doc.updated_at, 'pull');
                         appliedCount++;
                     } catch (e) {
                         failedCount++;
@@ -234,8 +317,10 @@ export function useMonitorSync(pairedDeviceId) {
                 setLastSync(now);
                 localStorage.setItem('monitor_last_sync', now.toISOString());
 
-                // Notificar a los context (ProductContext, etc) para actualizar el estado React de inmediato
-                window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_products_v1' } }));
+                // `applyDocToLocal` ya notifica cada documento con su versión y
+                // payload. No emitir aquí un segundo evento de productos sin
+                // versión: esa lectura adicional podía reintroducir un payload
+                // viejo mientras el evento Realtime nuevo aún se procesaba.
                 window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_sales_v1' } }));
             } else if (docs) {
                 // D6: lote vacío = ya estamos al día. Marcar la sincronización como
@@ -274,8 +359,8 @@ export function useMonitorSync(pairedDeviceId) {
 
                         if (!['store', 'local'].includes(doc.collection)) return;
                         if (!MONITOR_DOC_IDS.includes(doc.doc_id)) return;
-                        await applyDocToLocal(doc.doc_id, doc.collection, doc.data?.payload);
-                        const now = new Date();
+                        await applyDocToLocal(doc.doc_id, doc.collection, doc.data?.payload, doc.updated_at, 'realtime');
+                        const now = doc.updated_at ? new Date(doc.updated_at) : new Date();
                         setLastSync(now);
                         setPosLastSeen(now);
                         setIsPosOnline(true);
@@ -373,7 +458,7 @@ export function useMonitorSync(pairedDeviceId) {
             } else if (document.visibilityState === 'visible' && navigator.onLine) {
                 const now = Date.now();
                 const lastSyncMs = lastSyncRef.current ? lastSyncRef.current.getTime() : 0;
-                const isFresh = monitorSubscription && (now - lastSyncMs < 60000);
+                const isFresh = monitorSubscriptionRef.current && (now - lastSyncMs < 60000);
                 if (!isFresh) {
                     initMonitor(true);
                 }

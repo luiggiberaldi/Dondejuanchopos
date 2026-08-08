@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useProductContext } from '../context/ProductContext';
 import { useMonitorSync } from '../hooks/useMonitorSync';
+import { useCloudBackup } from '../hooks/useCloudBackup';
 import { storageService } from '../utils/storageService';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { showToast } from '../components/Toast';
@@ -20,7 +21,7 @@ import {
     Wallet, CreditCard, Smartphone, Banknote, ArrowDownRight,
     ShieldCheck, Hash, AlertTriangle, Search, X, ChevronLeft, ChevronRight,
     MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud, Sparkles, Gift, RotateCcw, Target, Lock, Unlock, HandCoins,
-    Wrench, Truck, User, Lightbulb, Box, Home, Receipt
+    Wrench, Truck, User, Lightbulb, Box, Home, Receipt, Image as ImageIcon
 } from 'lucide-react';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
 import { mulR, round2 } from '../utils/dinero';
@@ -523,12 +524,14 @@ function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId, onVoidSaleSuc
 }
 
 const PENDING_KEY = 'dj_pending_inventory_changes_v1';
+const INFLIGHT_KEY = 'dj_inflight_inventory_changes_v1';
 
 export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) {
     const pairedDeviceId = localStorage.getItem('dj_paired_device_id');
     const { products, setProducts, effectiveRate, copEnabled, tasaCop, rates, categories, isBsWizardOpen, openBsCongeladoWizard, closeBsCongeladoWizard, bsCongeladoAlert, previousRate, bsRoundingStep, rateMode } = useProductContext();
     const bcvRate = rates?.bcv?.price || effectiveRate;
     const { isConnected, lastSync, loading: syncLoading, triggerRefresh, posLastSeen, isPosOnline } = useMonitorSync(pairedDeviceId);
+    const { recoverProductImagesOnly } = useCloudBackup({ deviceId: pairedDeviceId });
 
     const [sales, setSales] = useState([]);
     const [activeCashier, setActiveCashier] = useState({ nombre: 'Ninguno', rol: '' });
@@ -583,6 +586,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const [showPairingModal, setShowPairingModal] = useState(false);
     const [showMobileMenu, setShowMobileMenu] = useState(false);
     const [cancellingCmdId, setCancellingCmdId] = useState(null);
+    const [recoveringImages, setRecoveringImages] = useState(false);
     const [pendingChanges, setPendingChanges] = useState(() => {
         try {
             const raw = localStorage.getItem(PENDING_KEY);
@@ -590,9 +594,64 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             return Array.isArray(arr) ? arr : [];
         } catch { return []; }
     });
+    const [inFlightChanges, setInFlightChanges] = useState(() => {
+        try {
+            const raw = localStorage.getItem(INFLIGHT_KEY);
+            const arr = raw ? JSON.parse(raw) : [];
+            return Array.isArray(arr) ? arr : [];
+        } catch { return []; }
+    });
     const [uploading, setUploading] = useState(false);
     const [exportingCierreId, setExportingCierreId] = useState(null);
     const [stockAlertTab, setStockAlertTab] = useState('agotados'); // 'agotados' | 'critico'
+
+    const persistInFlight = useCallback((next) => {
+        setInFlightChanges(next);
+        try {
+            localStorage.setItem(INFLIGHT_KEY, JSON.stringify(next));
+        } catch { /* storage lleno */ }
+    }, []);
+
+    const getChangeKey = useCallback(
+        (change) => `${change?.action || ''}:${change?.productId || change?.data?.id || ''}:${change?.queuedAt || ''}`,
+        []
+    );
+
+    const isInventoryChangeConfirmed = useCallback((change, catalog) => {
+        if (!change || !Array.isArray(catalog)) return false;
+        const product = catalog.find(p => String(p.id) === String(change.productId));
+
+        if (change.action === 'add') return Boolean(product);
+        if (change.action === 'delete') return !product;
+        if (change.action === 'adjust_stock') {
+            const target = change.data?.targetStock;
+            return target !== undefined && target !== null && target !== ''
+                ? Boolean(product && Number(product.stock) === Number(target))
+                : Boolean(product && change.baseStock !== undefined
+                    && Number(product.stock) === Number(change.baseStock) + (Number(change.data?.delta) || 0));
+        }
+        if (change.action !== 'edit' || !product) return false;
+
+        const data = change.data || {};
+        return Object.entries(data)
+            .filter(([key]) => !['baseUpdatedAt', 'updatedAt', 'createdAt'].includes(key) && !key.startsWith('_'))
+            .every(([key, expected]) => {
+                if (key === 'name') return String(product[key] || '').trim() === String(expected || '').trim();
+                if (expected === null || expected === undefined || expected === '') return true;
+                return String(product[key] ?? '') === String(expected);
+            });
+    }, []);
+
+    useEffect(() => {
+        if (inFlightChanges.length === 0 || !Array.isArray(products)) return;
+        const confirmedKeys = new Set(
+            inFlightChanges
+                .filter(change => isInventoryChangeConfirmed(change, products))
+                .map(getChangeKey)
+        );
+        if (confirmedKeys.size === 0) return;
+        persistInFlight(inFlightChanges.filter(change => !confirmedKeys.has(getChangeKey(change))));
+    }, [products, inFlightChanges, getChangeKey, isInventoryChangeConfirmed, persistInFlight]);
 
     // 📄 Generar y Descargar PDF del Cierre Seleccionado
     const handleDownloadCierrePDF = async (cierreObj, e) => {
@@ -851,10 +910,32 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
     // Delta de stock pendiente por producto (para proyectar en la fila)
     const pendingStockDelta = (productId) =>
-        pendingChanges.reduce((sum, c) =>
+        [...inFlightChanges, ...pendingChanges].reduce((sum, c) =>
             c.productId === productId && c.action === 'adjust_stock' ? sum + (Number(c.data?.delta) || 0) : sum, 0);
 
-    const hasPendingFor = (productId) => pendingChanges.some(c => c.productId === productId);
+    const hasPendingFor = (productId) => [...inFlightChanges, ...pendingChanges].some(c => c.productId === productId);
+    const hasInventoryChanges = pendingChanges.length > 0 || inFlightChanges.length > 0;
+
+    const handleRecoverProductImages = async () => {
+        if (recoveringImages) return;
+        setRecoveringImages(true);
+        triggerHaptic?.();
+        try {
+            const result = await recoverProductImagesOnly();
+            if (result.updatedProducts) setProducts(result.updatedProducts);
+            showToast(
+                result.recovered > 0
+                    ? `${result.recovered} foto${result.recovered !== 1 ? 's' : ''} recuperada${result.recovered !== 1 ? 's' : ''}.`
+                    : 'No se encontraron fotos recuperables en las copias disponibles.',
+                result.recovered > 0 ? 'success' : 'info'
+            );
+        } catch (error) {
+            console.error('[OwnerMonitor] Error recuperando imágenes:', error);
+            showToast('No se pudieron recuperar las fotos.', 'error');
+        } finally {
+            setRecoveringImages(false);
+        }
+    };
 
     // «Subir al sistema»: vacía la cola enviando los comandos individuales ya
     // fusionados. Reutiliza toda la infraestructura existente (dedup, catch-up,
@@ -931,22 +1012,26 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 );
             }
 
-            // R2: solo se consolida la proyección si NADA falló. Con éxito
-            // parcial, projectedProducts todavía incluye los cambios fallidos,
-            // que siguen en la cola: escribirlos aquí los aplicaría dos veces.
-            if (failedRows.length === 0 && okRows.length > 0 && !overrideList) {
-                const updatedLocal = projectedProducts.map(p => {
-                    const { _rawStock, _stockDelta, _isQueuedDelete, _isQueuedEdit, _isQueuedNew, _isCombo, _effectiveCost, ...clean } = p;
-                    return clean;
-                });
-                if (setProducts) setProducts(updatedLocal);
-            }
-
             if (!overrideList) {
                 const remainingPending = pendingChanges.filter(c => !okChanges.includes(c));
                 persistPending(remainingPending);
+                if (okChanges.length > 0) {
+                    const sentAt = new Date().toISOString();
+                    const nextInFlight = [
+                        ...inFlightChanges.filter(existing => !okChanges.some(sent => getChangeKey(sent) === getChangeKey(existing))),
+                        ...okChanges.map(change => ({
+                            ...change,
+                            ...(change.action === 'adjust_stock' && change.data?.targetStock === undefined
+                                ? { baseStock: products.find(p => String(p.id) === String(change.productId))?.stock }
+                                : {}),
+                            sentAt,
+                            syncState: 'sent',
+                        })),
+                    ];
+                    persistInFlight(nextInFlight);
+                }
                 if (failedRows.length === 0) {
-                    showToast(`${okRows.length} cambio${okRows.length !== 1 ? 's' : ''} enviado${okRows.length !== 1 ? 's' : ''} a la caja`, 'success');
+                    showToast(`${okRows.length} cambio${okRows.length !== 1 ? 's' : ''} enviado${okRows.length !== 1 ? 's' : ''}; esperando confirmación de la caja`, 'success');
                 }
             } else if (failedRows.length === 0) {
                 showToast(`${okRows.length} cambio${okRows.length !== 1 ? 's' : ''} enviado${okRows.length !== 1 ? 's' : ''} con éxito a la caja principal`, 'success');
@@ -1078,13 +1163,17 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const projectedProducts = useMemo(() => {
         if (!products) return [];
 
+        const allProjectedChanges = [...inFlightChanges, ...pendingChanges];
         const baseList = products.map(p => {
-            const stockDelta = pendingChanges
+            const stockDelta = allProjectedChanges
                 .filter(c => c.productId === p.id && c.action === 'adjust_stock')
                 .reduce((sum, c) => sum + (Number(c.data?.delta) || 0), 0);
 
-            const editChange = pendingChanges.find(c => c.productId === p.id && c.action === 'edit');
-            const isDeleted = pendingChanges.some(c => c.productId === p.id && c.action === 'delete');
+            const productEdits = allProjectedChanges
+                .filter(c => c.productId === p.id && c.action === 'edit')
+                .sort((a, b) => String(a.queuedAt || a.sentAt || '').localeCompare(String(b.queuedAt || b.sentAt || '')));
+            const editChange = productEdits[productEdits.length - 1];
+            const isDeleted = allProjectedChanges.some(c => c.productId === p.id && c.action === 'delete');
 
             let merged = { ...p };
             if (editChange?.data) {
@@ -1106,7 +1195,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         const activeList = baseList.filter(p => !p._isQueuedDelete);
 
         // Agregar a la vista los creados en cola (nuevos)
-        const addChanges = pendingChanges.filter(c => c.action === 'add');
+        const addChanges = allProjectedChanges.filter(c => c.action === 'add');
         const newItems = addChanges.filter(c => c.data).map(addChange => ({
             ...addChange.data,
             id: addChange.productId || addChange.data.id || `temp_${Date.now()}`,
@@ -1129,7 +1218,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             }
             return { ...p, _effectiveCost: effCost, costUsd: p.costUsd || effCost };
         });
-    }, [products, pendingChanges]);
+    }, [products, pendingChanges, inFlightChanges]);
 
     const filteredProducts = useMemo(() => {
         return projectedProducts.filter(p => {
@@ -1754,7 +1843,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const isShiftActive = activeShiftApertura !== null || activeShiftSales.length > 0;
 
     return (
-        <div className={`min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-sans transition-colors duration-300 overflow-x-hidden ${pendingChanges.length > 0 && viewTab === 'inventario' ? 'pb-48 sm:pb-36' : 'pb-16'}`}>
+        <div className={`min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-sans transition-colors duration-300 overflow-x-hidden ${hasInventoryChanges && viewTab === 'inventario' ? 'pb-48 sm:pb-36' : 'pb-16'}`}>
             {/* Header del Monitor (100% Responsivo) */}
             <header className="sticky top-0 z-50 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3 sm:px-5 py-2.5 shadow-xs">
                 <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-2.5">
@@ -1826,6 +1915,14 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                         >
                                             <QrCode size={15} className="text-emerald-500 shrink-0" />
                                             <span>Vincular Dispositivo</span>
+                                        </button>
+                                        <button
+                                            onClick={() => { setShowMobileMenu(false); handleRecoverProductImages(); }}
+                                            disabled={recoveringImages}
+                                            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-left disabled:opacity-50"
+                                        >
+                                            {recoveringImages ? <RefreshCw size={15} className="text-violet-500 animate-spin shrink-0" /> : <ImageIcon size={15} className="text-violet-500 shrink-0" />}
+                                            <span>Recuperar solo fotos</span>
                                         </button>
                                         <div className="border-t border-slate-100 dark:border-slate-800 my-1" />
                                         <button
@@ -1916,6 +2013,15 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             >
                                 <QrCode size={15} />
                                 <span className="hidden lg:inline text-xs font-black text-emerald-700 dark:text-emerald-300">+ Vincular Celular</span>
+                            </button>
+
+                            <button
+                                onClick={handleRecoverProductImages}
+                                disabled={recoveringImages}
+                                className="p-2 rounded-xl text-violet-500 hover:text-violet-700 hover:bg-violet-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-violet-400 transition-colors disabled:opacity-50 cursor-pointer"
+                                title="Recuperar solo fotos"
+                            >
+                                {recoveringImages ? <RefreshCw size={15} className="animate-spin" /> : <ImageIcon size={15} />}
                             </button>
 
                             <button 
@@ -4106,7 +4212,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             )}
 
             {/* Barra flotante «Subir al sistema» — ultra compacta y de 1 sola fila */}
-            {pendingChanges.length > 0 && viewTab === 'inventario' && (
+            {hasInventoryChanges && viewTab === 'inventario' && (
                 <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-[250] w-[94%] sm:w-full max-w-lg px-2 sm:px-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
                     <div className="bg-[#193275] dark:bg-slate-900 border border-white/20 text-white rounded-2xl p-2.5 sm:p-3 shadow-2xl backdrop-blur-md flex items-center justify-between gap-2">
                         {/* Texto descriptivo */}
@@ -4114,7 +4220,9 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping shrink-0" />
                             <div className="min-w-0">
                                 <p className="text-xs font-black leading-tight truncate">
-                                    {pendingChanges.length} cambio{pendingChanges.length !== 1 ? 's' : ''} en cola
+                                    {pendingChanges.length > 0
+                                        ? `${pendingChanges.length} cambio${pendingChanges.length !== 1 ? 's' : ''} en cola`
+                                        : `${inFlightChanges.length} cambio${inFlightChanges.length !== 1 ? 's' : ''} en confirmación`}
                                 </p>
                                 <p className="text-[9.5px] text-slate-300 font-medium leading-none mt-0.5 hidden sm:block truncate">
                                     Aún no se han enviado a la caja
@@ -4124,6 +4232,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
                         {/* Botones de Acción */}
                         <div className="flex items-center gap-1.5 shrink-0">
+                            {pendingChanges.length > 0 && <>
                             <button
                                 onClick={() => { triggerHaptic?.(); discardPendingChanges(); }}
                                 disabled={uploading}
@@ -4140,6 +4249,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                 {uploading ? <RefreshCw size={13} className="animate-spin" /> : <UploadCloud size={13} />}
                                 <span>{uploading ? 'Subiendo...' : 'Subir al sistema'}</span>
                             </button>
+                            </>}
                         </div>
                     </div>
                 </div>

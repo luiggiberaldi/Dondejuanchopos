@@ -11,6 +11,7 @@ import { showToast } from '../components/Toast';
 import { formatBs } from '../utils/calculatorUtils';
 import { getFrozenFormats } from '../utils/frozenPrices';
 import { migrateFormatPriceAliases } from '../utils/productPriceMigration';
+import { shouldApplySyncVersion } from '../utils/syncVersionGuard';
 
 const ProductContext = createContext();
 
@@ -123,6 +124,7 @@ export function ProductProvider({ children, rates }) {
         rawProductsRef.current = rawProducts;
     }, [rawProducts]);
     const productsRef = useRef(products);
+    const productSyncVersionRef = useRef(null);
     useEffect(() => {
         productsRef.current = products;
     }, [products]);
@@ -441,8 +443,23 @@ export function ProductProvider({ children, rates }) {
             if (!key) return;
 
             if (key === 'bodega_products_v1') {
-                const updatedProducts = await storageService.getItem('bodega_products_v1', []);
+                const incomingVersion = e.detail?.source === 'monitor-sync' ? e.detail?.syncVersion : null;
+                const isMonitorProductContext = localStorage.getItem('dj_pairing_mode') === 'monitor';
+                if (isMonitorProductContext && e.detail?.source !== 'monitor-sync') {
+                    return;
+                }
+                if (e.detail?.source === 'monitor-sync'
+                    && !shouldApplySyncVersion(productSyncVersionRef.current, incomingVersion)) {
+                    return;
+                }
+
+                const updatedProducts = Array.isArray(e.detail?.payload)
+                    ? e.detail.payload
+                    : await storageService.getItem('bodega_products_v1', []);
                 const sanitized = sanitizeProducts(updatedProducts);
+                if (e.detail?.source === 'monitor-sync' && incomingVersion) {
+                    productSyncVersionRef.current = incomingVersion;
+                }
                 setProducts(sanitized);
             }
             if (key === 'my_categories_v1') {

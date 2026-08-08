@@ -82,6 +82,26 @@ describe('applyInventoryCommand — comandos remotos de inventario', () => {
         expect(p.image).toBe('https://bucket/foto.webp'); // preservada
     });
 
+    it('edit de nombre conserva el nombre nuevo en el catálogo persistido', async () => {
+        const currentIso = new Date('2026-08-07T10:00:00.000Z').toISOString();
+        await storageService.setItem(PRODUCTS_KEY, [{ ...baseProduct, updatedAt: currentIso }]);
+
+        const res = await applyInventoryCommand({
+            action: 'edit',
+            productId: 'p1',
+            data: {
+                name: 'Solera Pilsen Media Caja',
+                priceUsd: 10,
+                baseUpdatedAt: currentIso,
+            },
+        });
+
+        expect(res.success).toBe(true);
+        expect(res.updatedProducts.find(p => p.id === 'p1').name).toBe('Solera Pilsen Media Caja');
+        const [persisted] = await storageService.getItem(PRODUCTS_KEY);
+        expect(persisted.name).toBe('Solera Pilsen Media Caja');
+    });
+
     it('edit NUNCA pisa el stock de la caja (anti-pisado con cola del monitor)', async () => {
         // El monitor encoló la edición con stock viejo (24); la caja vendió y va en 7.
         const products = await storageService.getItem(PRODUCTS_KEY);

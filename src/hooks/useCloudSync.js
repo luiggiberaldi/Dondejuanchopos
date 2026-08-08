@@ -5,6 +5,8 @@ import { useAuthStore } from './store/useAuthStore';
 import { useSupervisorCommands } from './useSupervisorCommands';
 import { IDB_KEYS, LS_KEYS } from '../config/backupKeys';
 import { registerCloudSyncSetter } from '../utils/syncFlags';
+import { createAsyncKeyQueue } from '../utils/asyncKeyQueue';
+import { mergeCloudProductImages } from '../utils/productImageRecovery';
 
 // EGRESS: claves que se respaldan pero NO se sincronizan a la nube.
 // Cada upsert a sync_documents se retransmite por Realtime a CADA monitor
@@ -48,6 +50,7 @@ let isSyncingFromCloud = false; // true mientras aplicamos cambios de la nube �
 registerCloudSyncSetter((v) => { isSyncingFromCloud = v; });
 
 let pendingPush = {};           // Debounce: { [key]: timeoutId }
+const serializedCloudPush = createAsyncKeyQueue();
 let _currentDeviceId = '';      // Device ID activo para pushCloudSync
 let isCloudSyncActive = false;   // Evita empujar a la nube si el dispositivo no está autenticado/emparejado
 let gateRetryTimer = null;
@@ -95,7 +98,7 @@ function sanitizePayloadForSync(key, value) {
     return value;
 }
 
-export const pushCloudSync = async (key, value, forceUnconditional = false) => {
+const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
     if (!supabaseCloud) return false;
     if (isSyncingFromCloud) return false;          // Nunca re-emitir lo que llegó de la nube
     const isMonitor = localStorage.getItem('dj_pairing_mode') === 'monitor';
@@ -174,6 +177,16 @@ export const pushCloudSync = async (key, value, forceUnconditional = false) => {
         return false;
     }
 };
+
+/**
+ * Las publicaciones de una misma clave deben terminar en el mismo orden en
+ * que fueron solicitadas. Supabase no conoce la intención temporal del
+ * cliente; sin esta cola, una petición vieja en vuelo podía completar después
+ * de una nueva y devolver el catálogo anterior al monitor.
+ */
+export const pushCloudSync = (key, value, forceUnconditional = false) => (
+    serializedCloudPush(key, () => pushCloudSyncNow(key, value, forceUnconditional))
+);
 
 /**
  * Empuja de forma forzada TODOS los datos del punto de venta a la nube Supabase.
@@ -280,7 +293,12 @@ async function _applyFromCloud(docId, collection, payload) {
         } else {
             // Colección 'store' → IndexedDB directo, sin pasar por storageService.setItem
             const lf = localforage.createInstance({ name: 'BodegaApp', storeName: 'bodega_app_data' });
-            await lf.setItem(docId, payload);
+            let payloadToApply = payload;
+            if (docId === 'bodega_products_v1' && Array.isArray(payload)) {
+                const localProducts = await lf.getItem(docId);
+                payloadToApply = mergeCloudProductImages(payload, localProducts);
+            }
+            await lf.setItem(docId, payloadToApply);
 
             // Notificar a los componentes React que lean este store
             window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: docId } }));
