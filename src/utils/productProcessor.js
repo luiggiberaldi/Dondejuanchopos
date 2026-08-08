@@ -1,4 +1,5 @@
 import { mulR, divR, round2, roundBs } from './dinero';
+import { migrateFormatPriceAliases, readPositiveMoney, resolveFormatBsPrice } from './productPriceMigration';
 
 /**
  * Construye el objeto payload para guardar o actualizar productos en el sistema local
@@ -117,6 +118,7 @@ export function buildProductPayload(formData, effectiveRate) {
         boxPriceUsd: sellByBox && boxPriceUsd !== '' && boxPriceUsd != null ? Number(boxPriceUsd) : null,
         boxPricingMode: sellByBox ? effectiveBoxMode : 'inherit',
         boxPriceBs: sellByBox ? resolvedBoxPriceBs : null,
+        boxPriceBsManual: sellByBox ? resolvedBoxPriceBs : null,
         boxPriceBsUsdRef: sellByBox ? resolvedBoxPriceBsUsdRef : null,
 
         // HalfBox
@@ -126,6 +128,7 @@ export function buildProductPayload(formData, effectiveRate) {
         halfBoxPriceUsd: sellByBox && sellByHalfBox && halfBoxPriceUsd !== '' && halfBoxPriceUsd != null ? Number(halfBoxPriceUsd) : null,
         halfBoxPricingMode: sellByBox && sellByHalfBox ? effectiveHalfBoxMode : 'inherit',
         halfBoxPriceBs: sellByBox && sellByHalfBox ? resolvedHalfBoxPriceBs : null,
+        halfBoxPriceBsManual: sellByBox && sellByHalfBox ? resolvedHalfBoxPriceBs : null,
         halfBoxPriceBsUsdRef: sellByBox && sellByHalfBox ? resolvedHalfBoxPriceBsUsdRef : null,
     };
 }
@@ -136,6 +139,8 @@ export function buildProductPayload(formData, effectiveRate) {
  */
 export function normalizeProduct(raw = {}) {
     if (!raw) return {};
+
+    const migrated = migrateFormatPriceAliases(raw);
 
     const priceUsd = Number(raw.priceUsd ?? raw.priceUsdt ?? raw.price ?? 0);
     const forceBcv = Boolean(raw.forceBcv);
@@ -153,8 +158,21 @@ export function normalizeProduct(raw = {}) {
         }
     }
 
-    const isBox = Boolean(raw.sellByBox || raw._mode === 'box' || raw.boxPriceBs > 0 || raw.boxPriceUsd > 0);
-    const isHalfBox = Boolean(raw.sellByHalfBox || raw._mode === 'halfBox' || raw.halfBoxPriceBs > 0 || raw.halfBoxPriceUsd > 0);
+    const isBox = Boolean(raw.sellByBox || raw._mode === 'box'
+        || resolveFormatBsPrice(raw, 'box') !== null
+        || readPositiveMoney(raw.boxPriceUsd, raw.boxPriceUsdt) !== null);
+    const isHalfBox = Boolean(raw.sellByHalfBox || raw._mode === 'halfBox'
+        || resolveFormatBsPrice(raw, 'halfBox') !== null
+        || readPositiveMoney(raw.halfBoxPriceUsd, raw.halfBoxPriceUsdt) !== null);
+
+    const boxPriceBs = resolveFormatBsPrice(migrated, 'box');
+    const halfBoxPriceBs = resolveFormatBsPrice(migrated, 'halfBox');
+    const boxPriceBsFallback = isBox && raw._mode === 'box'
+        ? readPositiveMoney(raw.priceBsManual)
+        : null;
+    const halfBoxPriceBsFallback = isHalfBox && raw._mode === 'halfBox'
+        ? readPositiveMoney(raw.priceBsManual)
+        : null;
 
     return {
         ...raw,
@@ -166,16 +184,18 @@ export function normalizeProduct(raw = {}) {
 
         sellByBox: isBox,
         boxUnits: isBox ? (parseInt(raw.boxUnits, 10) || null) : null,
-        boxPriceUsd: isBox && raw.boxPriceUsd != null ? Number(raw.boxPriceUsd) : null,
+        boxPriceUsd: isBox ? readPositiveMoney(raw.boxPriceUsd, raw.boxPriceUsdt) : null,
         boxPricingMode: isBox ? (raw.boxPricingMode || 'inherit') : 'inherit',
-        boxPriceBs: isBox && raw.boxPriceBs != null ? Number(raw.boxPriceBs) : (isBox && raw._mode === 'box' && raw.priceBsManual ? Number(raw.priceBsManual) : null),
+        boxPriceBs: isBox ? (boxPriceBs ?? boxPriceBsFallback) : null,
+        boxPriceBsManual: isBox ? (boxPriceBs ?? boxPriceBsFallback) : null,
         boxPriceBsUsdRef: isBox && raw.boxPriceBsUsdRef != null ? Number(raw.boxPriceBsUsdRef) : (isBox && raw._mode === 'box' && raw.priceBsUsdRef ? Number(raw.priceBsUsdRef) : null),
 
         sellByHalfBox: isHalfBox,
         halfBoxUnits: isHalfBox ? (parseInt(raw.halfBoxUnits, 10) || null) : null,
-        halfBoxPriceUsd: isHalfBox && raw.halfBoxPriceUsd != null ? Number(raw.halfBoxPriceUsd) : null,
+        halfBoxPriceUsd: isHalfBox ? readPositiveMoney(raw.halfBoxPriceUsd, raw.halfBoxPriceUsdt) : null,
         halfBoxPricingMode: isHalfBox ? (raw.halfBoxPricingMode || 'inherit') : 'inherit',
-        halfBoxPriceBs: isHalfBox && raw.halfBoxPriceBs != null ? Number(raw.halfBoxPriceBs) : (isHalfBox && raw._mode === 'halfBox' && raw.priceBsManual ? Number(raw.priceBsManual) : null),
+        halfBoxPriceBs: isHalfBox ? (halfBoxPriceBs ?? halfBoxPriceBsFallback) : null,
+        halfBoxPriceBsManual: isHalfBox ? (halfBoxPriceBs ?? halfBoxPriceBsFallback) : null,
         halfBoxPriceBsUsdRef: isHalfBox && raw.halfBoxPriceBsUsdRef != null ? Number(raw.halfBoxPriceBsUsdRef) : (isHalfBox && raw._mode === 'halfBox' && raw.priceBsUsdRef ? Number(raw.priceBsUsdRef) : null),
     };
 }
@@ -235,6 +255,7 @@ export function calculatePricing(product, effectiveRate, bcvRate, format = null,
 
     let unitPriceUsd = baseUsd;
     let unitPriceBs = 0;
+    let pricingError = null;
 
     switch (mode) {
         case 'bcv': {
@@ -268,13 +289,22 @@ export function calculatePricing(product, effectiveRate, bcvRate, format = null,
         }
 
         case 'bs_fijo': {
-            const bsManual = format === 'box' && p.boxPriceBs > 0 
-                ? p.boxPriceBs 
-                : format === 'halfBox' && p.halfBoxPriceBs > 0 
-                    ? p.halfBoxPriceBs 
-                    : (p.priceBsManual || 0);
+            const formatBsPrice = targetFormat === 'box'
+                ? p.boxPriceBs
+                : targetFormat === 'halfBox'
+                    ? p.halfBoxPriceBs
+                    : p.priceBsManual;
+            const hasExplicitFormatMode = targetFormat === 'box'
+                ? p.boxPricingMode && p.boxPricingMode !== 'inherit'
+                : targetFormat === 'halfBox'
+                    ? p.halfBoxPricingMode && p.halfBoxPricingMode !== 'inherit'
+                    : true;
+            const bsManual = formatBsPrice > 0
+                ? formatBsPrice
+                : (!hasExplicitFormatMode && targetFormat !== 'unit' ? (p.priceBsManual || 0) : 0);
             unitPriceBs = bsManual;
             unitPriceUsd = effectiveRate > 0 ? divR(bsManual, effectiveRate) : baseUsd;
+            if (!(bsManual > 0)) pricingError = 'PRECIO_BS_FORMATO_AUSENTE';
             break;
         }
 
@@ -292,6 +322,7 @@ export function calculatePricing(product, effectiveRate, bcvRate, format = null,
         unitPriceBs: round2(unitPriceBs),
         mode,
         isBcv: mode === 'bcv',
+        pricingError,
     };
 }
 

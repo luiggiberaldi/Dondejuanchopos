@@ -10,6 +10,7 @@ import { calculateComboStock } from '../utils/productProcessor';
 import { showToast } from '../components/Toast';
 import { formatBs } from '../utils/calculatorUtils';
 import { getFrozenFormats } from '../utils/frozenPrices';
+import { migrateFormatPriceAliases } from '../utils/productPriceMigration';
 
 const ProductContext = createContext();
 
@@ -45,7 +46,7 @@ const sanitizeProducts = (productsList) => {
     const seenIds = new Set();
     return productsList.map((p, idx) => {
         if (!p) return p;
-        let item = { ...p };
+        let item = migrateFormatPriceAliases(p);
 
         // Garantizar ID único para evitar advertencias de React por claves duplicadas
         let pId = item.id;

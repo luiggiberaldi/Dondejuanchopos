@@ -511,8 +511,17 @@ export class FinancialEngine {
         const subtotalUsd = sumR(lineItemsUsd);
 
         // Bs: usa calculatePricing para respetar bs_fijo, bcv, dual_usd, tasa_dia y alineación canónica
+        const pricingErrors = [];
         const lineItemsBs = cartItems.map(item => {
-            const { unitPriceBs } = calculatePricing(item, bcvRate, realBcvRate, null, bsRoundingStep);
+            const { unitPriceBs, pricingError, mode } = calculatePricing(item, bcvRate, realBcvRate, null, bsRoundingStep);
+            if (pricingError) {
+                pricingErrors.push({
+                    itemId: item.id || item._originalId || null,
+                    itemName: item.name || 'Producto sin nombre',
+                    mode: item._mode || mode || 'unit',
+                    code: pricingError,
+                });
+            }
             return mulR(unitPriceBs, item.qty);
         });
         const subtotalBs = sumR(lineItemsBs);
@@ -578,7 +587,8 @@ export class FinancialEngine {
             totalUsd,
             totalBs,
             totalCop,
-            bsVsUsdDiffBs
+            bsVsUsdDiffBs,
+            pricingErrors,
         };
     }
 }

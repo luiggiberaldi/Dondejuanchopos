@@ -357,6 +357,7 @@ export default function BsCongeladoWizardModal({
                         }
                     } else if (item.type === 'caja') {
                         if (newPriceBs !== undefined && !isNaN(newPriceBs)) {
+                            origProd.boxPriceBs = newPriceBs;
                             origProd.boxPriceBsManual = newPriceBs;
                             origProd.boxPricingMode = 'bs_fijo';
                         }
@@ -366,6 +367,7 @@ export default function BsCongeladoWizardModal({
                         }
                     } else if (item.type === 'medioBulto') {
                         if (newPriceBs !== undefined && !isNaN(newPriceBs)) {
+                            origProd.halfBoxPriceBs = newPriceBs;
                             origProd.halfBoxPriceBsManual = newPriceBs;
                             origProd.halfBoxPricingMode = 'bs_fijo';
                         }

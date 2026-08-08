@@ -44,6 +44,7 @@ import { buildReceiptWhatsAppUrl } from '../components/Sales/ReceiptShareHelper'
 import { useSalesData } from '../hooks/useSalesData';
 import { useCheckoutFlow } from '../hooks/useCheckoutFlow';
 import { compareBarcodes } from '../utils/calculatorUtils';
+import { calculatePricing, normalizeProduct } from '../utils/productProcessor';
 
 export default function SalesView({ triggerHaptic, isActive }) {
     const { playAdd, playRemove, playCheckout, playError } = useSounds();
@@ -299,7 +300,8 @@ export default function SalesView({ triggerHaptic, isActive }) {
         discountAmountBs,
         totalUsd: cartTotalUsd,
         totalBs: cartTotalBs,
-        totalCop: cartTotalCop
+        totalCop: cartTotalCop,
+        pricingErrors,
     } = useMemo(() =>
         FinancialEngine.buildCartTotals(cart, discount, effectiveRate, copEnabled ? tasaCop : 0, rates?.bcv?.price || effectiveRate, bsRoundingStep)
     , [cart, discount, effectiveRate, copEnabled, tasaCop, rates, bsRoundingStep]);
@@ -332,30 +334,32 @@ export default function SalesView({ triggerHaptic, isActive }) {
             const fresh = products.find(p => p.id === (item._originalId || item.id));
             if (!fresh) return item;
 
+            const freshProduct = normalizeProduct(fresh);
+
             const mode = item._mode || 'unit';
-            let priceToUse = fresh.priceUsd;
-            let priceBsToUse = fresh.priceBsManual;
-            let priceBsUsdRefToUse = fresh.priceBsUsdRef;
-            let baseName = fresh.name;
+            let priceToUse = freshProduct.priceUsd;
+            let priceBsToUse = freshProduct.priceBsManual;
+            let priceBsUsdRefToUse = freshProduct.priceBsUsdRef;
+            let baseName = freshProduct.name;
 
             if (mode === 'box') {
-                priceToUse = fresh.boxPriceUsd != null ? fresh.boxPriceUsd : fresh.priceUsd;
-                priceBsToUse = fresh.boxPriceBs != null ? fresh.boxPriceBs : fresh.priceBsManual;
-                priceBsUsdRefToUse = fresh.boxPriceBsUsdRef != null ? fresh.boxPriceBsUsdRef : fresh.priceBsUsdRef;
-                baseName = fresh.name + ' (Caja)';
+                priceToUse = freshProduct.boxPriceUsd != null ? freshProduct.boxPriceUsd : freshProduct.priceUsd;
+                priceBsToUse = freshProduct.boxPriceBs != null ? freshProduct.boxPriceBs : freshProduct.priceBsManual;
+                priceBsUsdRefToUse = freshProduct.boxPriceBsUsdRef != null ? freshProduct.boxPriceBsUsdRef : freshProduct.priceBsUsdRef;
+                baseName = freshProduct.name + ' (Caja)';
             } else if (mode === 'halfBox') {
-                priceToUse = fresh.halfBoxPriceUsd != null ? fresh.halfBoxPriceUsd : fresh.priceUsd;
-                priceBsToUse = fresh.halfBoxPriceBs != null ? fresh.halfBoxPriceBs : fresh.priceBsManual;
-                priceBsUsdRefToUse = fresh.halfBoxPriceBsUsdRef != null ? fresh.halfBoxPriceBsUsdRef : fresh.priceBsUsdRef;
-                baseName = fresh.name + ' (½ Caja)';
+                priceToUse = freshProduct.halfBoxPriceUsd != null ? freshProduct.halfBoxPriceUsd : freshProduct.priceUsd;
+                priceBsToUse = freshProduct.halfBoxPriceBs != null ? freshProduct.halfBoxPriceBs : freshProduct.priceBsManual;
+                priceBsUsdRefToUse = freshProduct.halfBoxPriceBsUsdRef != null ? freshProduct.halfBoxPriceBsUsdRef : freshProduct.priceBsUsdRef;
+                baseName = freshProduct.name + ' (½ Caja)';
             }
 
             if (
                 item.priceUsd !== priceToUse ||
                 item.priceBsManual !== priceBsToUse ||
                 item.priceBsUsdRef !== priceBsUsdRefToUse ||
-                item.pricingMode !== fresh.pricingMode ||
-                item.forceBcv !== fresh.forceBcv ||
+                item.pricingMode !== freshProduct.pricingMode ||
+                item.forceBcv !== freshProduct.forceBcv ||
                 item.name !== baseName
             ) {
                 hasChanges = true;
@@ -365,10 +369,14 @@ export default function SalesView({ triggerHaptic, isActive }) {
                     priceUsd: priceToUse,
                     priceBsManual: priceBsToUse,
                     priceBsUsdRef: priceBsUsdRefToUse,
-                    pricingMode: fresh.pricingMode,
-                    forceBcv: fresh.forceBcv,
-                    costUsd: fresh.costUsd || item.costUsd,
-                    costBs: fresh.costBs || item.costBs,
+                    pricingMode: freshProduct.pricingMode,
+                    forceBcv: freshProduct.forceBcv,
+                    boxPriceBs: freshProduct.boxPriceBs,
+                    boxPriceBsManual: freshProduct.boxPriceBsManual,
+                    halfBoxPriceBs: freshProduct.halfBoxPriceBs,
+                    halfBoxPriceBsManual: freshProduct.halfBoxPriceBsManual,
+                    costUsd: freshProduct.costUsd || item.costUsd,
+                    costBs: freshProduct.costBs || item.costBs,
                 };
             }
             return item;
@@ -503,37 +511,37 @@ export default function SalesView({ triggerHaptic, isActive }) {
         }
 
         const mode = forceMode || 'unit';
-        let priceToUse = CurrencyService.safeParse(product.priceUsd) || 0;
-        let priceBsToUse = product.priceBsManual ? CurrencyService.safeParse(product.priceBsManual) : null;
-        let priceBsUsdRefToUse = product.priceBsUsdRef ? CurrencyService.safeParse(product.priceBsUsdRef) : null;
-        let pricingModeToUse = product.pricingMode || 'tasa_dia';
+        const productForCart = normalizeProduct(product);
+        const pricing = calculatePricing(productForCart, effectiveRate, null, mode);
+        let priceToUse = pricing.unitPriceUsd;
+        let priceBsToUse = productForCart.priceBsManual;
+        let priceBsUsdRefToUse = productForCart.priceBsUsdRef;
+        let pricingModeToUse = pricing.mode || productForCart.pricingMode || 'tasa_dia';
         let cartId = product.id;
         let cartName = product.name;
         let unitsMultiplier = 1;
 
         if (mode === 'box') {
-            priceToUse = CurrencyService.safeParse(product.boxPriceUsd) || 0;
-            priceBsToUse = product.boxPriceBs ? CurrencyService.safeParse(product.boxPriceBs) : null;
-            priceBsUsdRefToUse = product.boxPriceBsUsdRef ? CurrencyService.safeParse(product.boxPriceBsUsdRef) : null;
-            pricingModeToUse = product.boxPricingMode && product.boxPricingMode !== 'inherit'
-                ? product.boxPricingMode
-                : (product.pricingMode || 'tasa_dia');
+            priceBsToUse = productForCart.boxPriceBs;
+            priceBsUsdRefToUse = productForCart.boxPriceBsUsdRef;
             cartId = product.id + '_box';
             cartName = product.name + ' (Caja)';
             unitsMultiplier = parseInt(product.boxUnits, 10) || 1;
         } else if (mode === 'halfBox') {
-            priceToUse = CurrencyService.safeParse(product.halfBoxPriceUsd) || 0;
-            priceBsToUse = product.halfBoxPriceBs ? CurrencyService.safeParse(product.halfBoxPriceBs) : null;
-            priceBsUsdRefToUse = product.halfBoxPriceBsUsdRef ? CurrencyService.safeParse(product.halfBoxPriceBsUsdRef) : null;
-            pricingModeToUse = product.halfBoxPricingMode && product.halfBoxPricingMode !== 'inherit'
-                ? product.halfBoxPricingMode
-                : (product.pricingMode || 'tasa_dia');
+            priceBsToUse = productForCart.halfBoxPriceBs;
+            priceBsUsdRefToUse = productForCart.halfBoxPriceBsUsdRef;
             cartId = product.id + '_half';
             cartName = product.name + ' (½ Caja)';
             unitsMultiplier = parseInt(product.halfBoxUnits, 10) || 1;
         }
 
         // Validación de precio
+        if (pricing.pricingError) {
+            playError();
+            const formatLabel = mode === 'halfBox' ? 'Media caja' : mode === 'box' ? 'Caja' : 'Unidad';
+            showToast(`${formatLabel} sin precio Bs fijo válido. Revisa la configuración del producto.`, 'warning');
+            return;
+        }
         if (priceToUse <= 0) {
             playError();
             showToast('Este formato no tiene un precio válido asignado', 'warning');
@@ -576,9 +584,9 @@ export default function SalesView({ triggerHaptic, isActive }) {
             if (existing && !qtyOverride) return prev.map(i => i.id === cartId ? { ...i, qty: i.qty + 1 } : i);
             if (existing && qtyOverride) return prev.map(i => i.id === cartId ? { ...i, qty: i.qty + qtyOverride } : i);
 
-            const itemCostBs = product.costBs || (product.costUsd ? product.costUsd * effectiveRate : 0);
+            const itemCostBs = productForCart.costBs || (productForCart.costUsd ? productForCart.costUsd * effectiveRate : 0);
             return [{
-                ...product,
+                ...productForCart,
                 id: cartId,
                 name: cartName,
                 priceUsd: priceToUse,
@@ -586,7 +594,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 forceBcv: pricingModeToUse === 'bcv',
                 priceBsManual: priceBsToUse,
                 priceBsUsdRef: priceBsUsdRefToUse,
-                costUsd: product.costUsd ? CurrencyService.safeParse(product.costUsd) * unitsMultiplier : 0,
+                costUsd: productForCart.costUsd ? CurrencyService.safeParse(productForCart.costUsd) * unitsMultiplier : 0,
                 costBs: itemCostBs * unitsMultiplier,
                 qty: qtyToAdd,
                 isWeight: !!qtyOverride,
@@ -1024,8 +1032,9 @@ export default function SalesView({ triggerHaptic, isActive }) {
             {showCheckout && (() => {
                 const sharedProps = {
                     onClose: () => { setShowCheckout(false); setSelectedCustomerId(''); },
-                    cartSubtotalUsd, cartSubtotalBs: cartSubtotalUsd * effectiveRate,
+                    cartSubtotalUsd, cartSubtotalBs,
                     cartTotalUsd, cartTotalBs, cartTotalCop,
+                    pricingErrors,
                     discountData, effectiveRate,
                     customers, selectedCustomerId, setSelectedCustomerId,
                     paymentMethods,

@@ -5,6 +5,10 @@ import { formatCop, getCop, getUsd } from '../../utils/calculatorUtils';
 import { calculatePricing } from '../../utils/productProcessor';
 
 const formatBs = (n) => new Intl.NumberFormat('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+const formatFormatBs = (product, effectiveRate, format) => {
+    const pricing = calculatePricing(product, effectiveRate, null, format);
+    return pricing.pricingError ? 'Precio Bs no configurado' : `${formatBs(pricing.unitPriceBs)} Bs`;
+};
 
 const SearchBar = forwardRef(function SearchBar({
     searchTerm,
@@ -187,21 +191,24 @@ const SearchBar = forwardRef(function SearchBar({
                             <div className="flex flex-col">
                                 <span className="text-xs font-black text-emerald-600 dark:text-emerald-400">${hierarchyPending.priceUsd?.toFixed(2)}</span>
                                 <span className="text-[9px] font-bold text-slate-400">
-                                    {formatBs(calculatePricing(hierarchyPending, effectiveRate, null, 'unit').unitPriceBs)} Bs
+                                    {formatFormatBs(hierarchyPending, effectiveRate, 'unit')}
                                 </span>
                             </div>
                         </button>
 
                         {/* 2. Caja */}
                         {hierarchyPending.sellByBox && (
-                            <button onClick={() => addToCart(hierarchyPending, null, 'box')}
+                            <button
+                                onClick={() => addToCart(hierarchyPending, null, 'box')}
+                                disabled={Boolean(calculatePricing(hierarchyPending, effectiveRate, null, 'box').pricingError)}
+                                aria-disabled={Boolean(calculatePricing(hierarchyPending, effectiveRate, null, 'box').pricingError)}
                                 className="flex flex-col items-center justify-between gap-2 p-3.5 rounded-xl bg-[#193275]/5 dark:bg-[#193275]/20 border-2 border-[#193275]/15 hover:border-[#193275] hover:bg-[#193275]/10 transition-all active:scale-95 text-center">
                                 <Package size={20} className="text-[#193275] dark:text-brand" />
                                 <span className="text-[10px] font-black text-[#193275] dark:text-brand uppercase">Caja ({hierarchyPending.boxUnits} Uds)</span>
                                 <div className="flex flex-col">
                                     <span className="text-xs font-black text-[#193275] dark:text-brand">${hierarchyPending.boxPriceUsd?.toFixed(2)}</span>
                                     <span className="text-[9px] font-bold text-slate-450 dark:text-slate-400">
-                                        {formatBs(calculatePricing(hierarchyPending, effectiveRate, null, 'box').unitPriceBs)} Bs
+                                        {formatFormatBs(hierarchyPending, effectiveRate, 'box')}
                                     </span>
                                 </div>
                             </button>
@@ -209,14 +216,17 @@ const SearchBar = forwardRef(function SearchBar({
 
                         {/* 3. Media Caja */}
                         {hierarchyPending.sellByHalfBox && (
-                            <button onClick={() => addToCart(hierarchyPending, null, 'halfBox')}
+                            <button
+                                onClick={() => addToCart(hierarchyPending, null, 'halfBox')}
+                                disabled={Boolean(calculatePricing(hierarchyPending, effectiveRate, null, 'halfBox').pricingError)}
+                                aria-disabled={Boolean(calculatePricing(hierarchyPending, effectiveRate, null, 'halfBox').pricingError)}
                                 className="flex flex-col items-center justify-between gap-2 p-3.5 rounded-xl bg-purple-50 dark:bg-purple-950/20 border-2 border-purple-250 dark:border-purple-900/60 hover:border-purple-500 hover:bg-purple-100 dark:hover:bg-purple-950/40 transition-all active:scale-95 text-center">
                                 <Package size={20} className="text-purple-600 dark:text-purple-400" />
                                 <span className="text-[10px] font-black text-purple-700 dark:text-purple-300 uppercase">½ Caja ({hierarchyPending.halfBoxUnits} Uds)</span>
                                 <div className="flex flex-col">
                                     <span className="text-xs font-black text-purple-600 dark:text-purple-400">${hierarchyPending.halfBoxPriceUsd?.toFixed(2)}</span>
                                     <span className="text-[9px] font-bold text-slate-400">
-                                        {formatBs(calculatePricing(hierarchyPending, effectiveRate, null, 'halfBox').unitPriceBs)} Bs
+                                        {formatFormatBs(hierarchyPending, effectiveRate, 'halfBox')}
                                     </span>
                                 </div>
                             </button>

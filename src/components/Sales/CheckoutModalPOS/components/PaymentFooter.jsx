@@ -12,10 +12,11 @@ export default function PaymentFooter({
     onProcesar,
     vueltoIncompleto = false,
     processing = false,
+    blockedByPricing = false,
 }) {
     const disabled = (modo === 'contado'
         ? faltaPorPagar > 0.01
-        : !clienteSeleccionado) || vueltoIncompleto || processing;
+        : !clienteSeleccionado) || vueltoIncompleto || processing || blockedByPricing;
 
     return (
         <div className="px-5 py-4 bg-white dark:bg-slate-950 border-t border-slate-100 dark:border-slate-800 flex justify-end items-center gap-3 shrink-0 shadow-[0_-4px_10px_rgba(0,0,0,0.04)] dark:shadow-[0_-4px_10px_rgba(0,0,0,0.2)]">
@@ -35,6 +36,8 @@ export default function PaymentFooter({
             >
                 {processing ? (
                     <>Procesando…</>
+                ) : blockedByPricing ? (
+                    <>Corrija el precio Bs</>
                 ) : vueltoIncompleto ? (
                     <><Wallet size={20} /> REGISTRE EL VUELTO</>
                 ) : modo === 'credito' ? (

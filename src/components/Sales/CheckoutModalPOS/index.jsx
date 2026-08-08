@@ -36,6 +36,7 @@ export default function CheckoutModalPOS({
     cartSubtotalUsd,
     cartTotalUsd: originalTotalUsd,
     cartTotalBs: originalTotalBs,
+    pricingErrors = [],
     discountData,
     effectiveRate,
     customers,
@@ -594,6 +595,7 @@ export default function CheckoutModalPOS({
                     <PaymentLeftColumn
                         totalUSD={cartTotalUsd}
                         totalBS={cartTotalBs}
+                        pricingErrors={pricingErrors}
                         discountData={discountData}
                         tasaSegura={tasaSegura}
                         clienteSeleccionado={clienteSeleccionado}
@@ -678,6 +680,7 @@ export default function CheckoutModalPOS({
                             onProcesar={procesarPago}
                             vueltoIncompleto={vueltoIncompleto}
                             processing={isSubmitting}
+                            blockedByPricing={pricingErrors.length > 0}
                         />
                     </div>
                 </div>

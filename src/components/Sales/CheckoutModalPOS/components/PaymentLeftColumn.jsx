@@ -12,6 +12,7 @@ import CasheaIcon from '../../../CasheaIcon';
 const PaymentLeftColumn = ({
     totalUSD,
     totalBS,
+    pricingErrors = [],
     discountData,
     tasaSegura,
     clienteSeleccionado,
@@ -79,6 +80,7 @@ const PaymentLeftColumn = ({
             <TransactionSummary
                 totalUSD={totalUSD}
                 totalBS={totalBS}
+                pricingErrors={pricingErrors}
                 discountData={discountData}
                 tasaSegura={tasaSegura}
             />

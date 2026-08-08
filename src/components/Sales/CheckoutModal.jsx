@@ -18,6 +18,7 @@ export default function CheckoutModal({
     cartSubtotalBs,
     cartTotalUsd: originalTotalUsd,
     cartTotalBs: originalTotalBs,
+    pricingErrors = [],
     cartTotalCop,
     discountData,
     effectiveRate,
@@ -184,6 +185,12 @@ export default function CheckoutModal({
                     )}
                 </div>
             </div>
+
+            {pricingErrors.length > 0 && (
+                <div role="alert" className="shrink-0 mx-4 mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
+                    Hay un formato sin precio Bs válido. Corrige la configuración antes de cobrar.
+                </div>
+            )}
 
             {/* --- SCROLLABLE BODY --- */}
             <div className="flex-1 overflow-y-auto overscroll-contain pb-28">
@@ -455,7 +462,7 @@ export default function CheckoutModal({
                                 handleConfirm();
                             }
                         }}
-                        disabled={rateError || copRateError || (!isPaid && casheaActive) || (!selectedCustomerId && remainingUsd > 0.01)}
+                        disabled={pricingErrors.length > 0 || rateError || copRateError || (!isPaid && casheaActive) || (!selectedCustomerId && remainingUsd > 0.01)}
                         className={`w-full py-4 text-white font-black text-base rounded-2xl shadow-lg transition-all tracking-wide flex items-center justify-center gap-2 ${
                             rateError || copRateError
                                 ? 'bg-red-500/80 cursor-not-allowed shadow-none'

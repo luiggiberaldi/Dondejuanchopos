@@ -5,7 +5,7 @@ import { round2 } from '../../../../utils/dinero';
 /**
  * TransactionSummary — Resumen del total a pagar en la columna izquierda.
  */
-const TransactionSummary = ({ totalUSD, totalBS, discountData, tasaSegura }) => {
+const TransactionSummary = ({ totalUSD, totalBS, discountData, tasaSegura, pricingErrors = [] }) => {
     return (
         <div className="p-4 pb-3 shrink-0 bg-white dark:bg-slate-950 z-20 shadow-sm">
             <div className="text-center p-3 bg-slate-900 dark:bg-slate-800 text-white rounded-2xl shadow-lg relative overflow-hidden">
@@ -31,6 +31,16 @@ const TransactionSummary = ({ totalUSD, totalBS, discountData, tasaSegura }) => 
                     </div>
                 )}
             </div>
+
+            {pricingErrors.length > 0 && (
+                <div
+                    role="alert"
+                    className="mt-2 flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-left text-[11px] font-bold text-amber-800 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200"
+                >
+                    <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+                    <span>Hay un formato sin precio Bs válido. Corrige la configuración antes de cobrar.</span>
+                </div>
+            )}
         </div>
     );
 };

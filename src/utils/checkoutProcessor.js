@@ -53,6 +53,14 @@ export async function processSaleTransaction({
     }
     
     const totals = FinancialEngine.buildCartTotals(cart, discountData, effectiveRate, copEnabled ? tasaCop : 0, bcvRate);
+    if (totals.pricingErrors?.length) {
+        const firstError = totals.pricingErrors[0];
+        return {
+            success: false,
+            error: `No se puede cobrar: ${firstError.itemName} no tiene un precio Bs válido para ${firstError.mode}.`,
+            pricingErrors: totals.pricingErrors,
+        };
+    }
     const expectedBs = totals.totalBs;
     const bsDrift = Math.abs(subR(cartTotalBs, expectedBs));
     if (bsDrift > FINANCIAL_EPSILON.CASH_RECONCILE_TOLERANCE_BS) {

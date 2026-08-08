@@ -19,7 +19,8 @@ import {
     RefreshCw, Wifi, WifiOff, Clock, FileText, DollarSign,
     Wallet, CreditCard, Smartphone, Banknote, ArrowDownRight,
     ShieldCheck, Hash, AlertTriangle, Search, X, ChevronLeft, ChevronRight,
-    MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud, Sparkles, Gift, RotateCcw, Target, Lock, Unlock, HandCoins
+    MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud, Sparkles, Gift, RotateCcw, Target, Lock, Unlock, HandCoins,
+    Wrench, Truck, User, Lightbulb, Box, Home, Receipt
 } from 'lucide-react';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
 import { mulR, round2 } from '../utils/dinero';
@@ -1355,6 +1356,42 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         };
     }, [activeShiftSales, products, effectiveRate, bcvRate]);
 
+    // Métricas de gastos del turno activo
+    const activeShiftExpensesMetrics = useMemo(() => {
+        const flow = getOpenShiftMovements(sales).movements;
+        const gastos = flow.filter(s => s.tipo === 'GASTO_INTERNO' && s.status !== 'ANULADA');
+        let totalUsd = 0;
+        let totalBs = 0;
+        let totalCop = 0;
+        const categoryMap = {};
+
+        gastos.forEach(g => {
+            const usd = Math.abs(g.totalUsd || 0);
+            const bs = Math.abs(g.totalBs || 0);
+            const cop = Math.abs(g.totalCop || 0);
+            totalUsd += usd;
+            totalBs += bs;
+            totalCop += cop;
+
+            const cat = g.category || 'otros';
+            if (!categoryMap[cat]) {
+                categoryMap[cat] = { count: 0, totalUsd: 0, totalBs: 0 };
+            }
+            categoryMap[cat].count += 1;
+            categoryMap[cat].totalUsd += usd;
+            categoryMap[cat].totalBs += bs;
+        });
+
+        return {
+            totalUsd,
+            totalBs,
+            totalCop,
+            count: gastos.length,
+            categoryMap,
+            gastosList: gastos.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+        };
+    }, [sales]);
+
     // Desglose por método de pago del turno activo (incluye vueltos desglosados en Bs y $)
     const activeShiftPaymentBreakdown = useMemo(() => {
         const breakdown = {};
@@ -1905,12 +1942,12 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
             {/* Contenido Principal */}
             <main className="max-w-7xl mx-auto px-4 mt-6 space-y-6">
-                {/* Selector de Pestañas (100% Responsivo) */}
-                <div className="bg-slate-200/60 dark:bg-slate-900/60 p-1 rounded-2xl w-full sm:max-w-2xl shadow-sm overflow-x-auto scrollbar-hide">
-                    <div className="flex items-center gap-1 min-w-max">
+                {/* Selector de Pestañas (100% Responsivo - Sin Recortes) */}
+                <div className="bg-slate-200/60 dark:bg-slate-900/60 p-1 rounded-2xl w-full shadow-sm">
+                    <div className="grid grid-cols-6 sm:flex sm:items-center gap-1 w-full">
                         <button
                             onClick={() => { triggerHaptic?.(); setViewTab('activo'); }}
-                            className={`py-2 px-2 sm:px-3 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs shrink-0 ${
+                            className={`py-2 px-1 sm:px-3.5 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs truncate ${
                                 viewTab === 'activo' 
                                     ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
                                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
@@ -1921,7 +1958,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                         </button>
                         <button
                             onClick={() => { triggerHaptic?.(); setViewTab('cierres'); }}
-                            className={`py-2 px-2 sm:px-3 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs shrink-0 ${
+                            className={`py-2 px-1 sm:px-3.5 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs truncate ${
                                 viewTab === 'cierres' 
                                     ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
                                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
@@ -1931,7 +1968,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                         </button>
                         <button
                             onClick={() => { triggerHaptic?.(); setViewTab('articulos'); }}
-                            className={`py-2 px-2 sm:px-3 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs shrink-0 ${
+                            className={`py-2 px-1 sm:px-3.5 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs truncate ${
                                 viewTab === 'articulos' 
                                     ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
                                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
@@ -1940,18 +1977,29 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             <span>Reportes</span>
                         </button>
                         <button
+                            onClick={() => { triggerHaptic?.(); setViewTab('gastos'); }}
+                            className={`py-2 px-1 sm:px-3.5 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs truncate ${
+                                viewTab === 'gastos' 
+                                    ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
+                                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                            }`}
+                        >
+                            <span>Gastos</span>
+                        </button>
+                        <button
                             onClick={() => { triggerHaptic?.(); setViewTab('inventario'); }}
-                            className={`py-2 px-2 sm:px-3 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs shrink-0 ${
+                            className={`py-2 px-1 sm:px-3.5 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs truncate ${
                                 viewTab === 'inventario' 
                                     ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
                                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
                             }`}
                         >
-                            <span>Inventario</span>
+                            <span className="sm:hidden">Inven.</span>
+                            <span className="hidden sm:inline">Inventario</span>
                         </button>
                         <button
                             onClick={() => { triggerHaptic?.(); setViewTab('cambios'); }}
-                            className={`relative py-2 px-2 sm:px-3 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs shrink-0 ${
+                            className={`relative py-2 px-1 sm:px-3.5 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs truncate flex items-center justify-center gap-0.5 ${
                                 viewTab === 'cambios' 
                                     ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
                                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
@@ -1959,7 +2007,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                         >
                             <span>Cambios</span>
                             {(pendingChanges.length > 0 || cloudPendingCmds.length > 0) && (
-                                <span className="ml-1 px-1.5 py-0.2 rounded-full bg-amber-500 text-white text-[9px] font-black tabular-nums animate-pulse">
+                                <span className="px-1 py-0.2 rounded-full bg-amber-500 text-white text-[8px] sm:text-[9px] font-black tabular-nums animate-pulse">
                                     {pendingChanges.length + cloudPendingCmds.length}
                                 </span>
                             )}
@@ -2158,6 +2206,29 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                     </span>
                                     <span className="text-[9px] text-slate-400 block font-medium mt-1">
                                         {activeShiftMetrics.count} {activeShiftMetrics.count === 1 ? 'venta' : 'ventas'} en curso
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Gastos del Turno */}
+                            <div 
+                                onClick={() => { triggerHaptic?.(); setViewTab('gastos'); }}
+                                className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-rose-200/60 dark:border-rose-900/40 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px] cursor-pointer hover:border-rose-400 transition-all group"
+                            >
+                                <div className="flex items-center justify-between w-full">
+                                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-rose-500 dark:text-rose-400 flex items-center gap-1">
+                                        Gastos Turno <span className="text-[8px] opacity-75 group-hover:translate-x-0.5 transition-transform">➔</span>
+                                    </span>
+                                    <div className="w-7 h-7 sm:w-9 sm:h-9 bg-rose-50 dark:bg-rose-950/20 rounded-xl flex items-center justify-center text-rose-500 shrink-0">
+                                        <TrendingUp size={16} className="rotate-180" />
+                                    </div>
+                                </div>
+                                <div className="mt-2.5 min-w-0">
+                                    <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-rose-600 dark:text-rose-400 tabular-nums block break-words leading-none">
+                                        -${activeShiftExpensesMetrics.totalUsd.toFixed(2)}
+                                    </span>
+                                    <span className="text-[9px] text-slate-400 block font-medium mt-1">
+                                        {activeShiftExpensesMetrics.count} {activeShiftExpensesMetrics.count === 1 ? 'egreso' : 'egresos'} (-{formatBs(activeShiftExpensesMetrics.totalBs)} Bs)
                                     </span>
                                 </div>
                             </div>
@@ -3582,6 +3653,253 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                         setArtFrom={setArtFrom}
                         setArtTo={setArtTo}
                     />
+                )}
+
+                {/* ── SECCIÓN 6: DESGLOSE DE GASTOS DEL DÍA / TURNO ── */}
+                {viewTab === 'gastos' && (
+                    <div className="space-y-6 animate-in fade-in">
+                        {/* Header con resumen principal */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 rounded-3xl shadow-sm">
+                            <div>
+                                <h3 className="text-base sm:text-lg font-black text-slate-800 dark:text-white flex items-center gap-2 flex-wrap">
+                                    <span>Desglose de Gastos del Turno</span>
+                                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 font-bold border border-rose-200 dark:border-rose-900/50">
+                                        {activeShiftExpensesMetrics.count} {activeShiftExpensesMetrics.count === 1 ? 'registro' : 'registros'}
+                                    </span>
+                                </h3>
+                                <p className="text-xs text-slate-400 font-medium mt-0.5">
+                                    Visualización en tiempo real de egresos y gastos de caja registrados durante el turno activo.
+                                </p>
+                            </div>
+
+                            {/* Tarjetas Totales */}
+                            <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                                <div className="flex-1 sm:flex-initial bg-rose-50 dark:bg-rose-950/30 border border-rose-200/80 dark:border-rose-900/40 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-2xl text-right">
+                                    <span className="text-[9px] font-black uppercase text-rose-500 tracking-wider block">Total USD</span>
+                                    <span className="text-base sm:text-xl font-black text-rose-600 dark:text-rose-400 font-outfit tabular-nums">
+                                        -${activeShiftExpensesMetrics.totalUsd.toFixed(2)}
+                                    </span>
+                                </div>
+                                <div className="flex-1 sm:flex-initial bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-2xl text-right">
+                                    <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider block">Total Bs</span>
+                                    <span className="text-base sm:text-xl font-black text-slate-700 dark:text-slate-200 font-outfit tabular-nums">
+                                        -{formatBs(activeShiftExpensesMetrics.totalBs)} Bs
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Desglose por Categorías (Bento Cards - Responsivo) */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2.5 sm:gap-3">
+                            {[
+                                { id: 'insumos', label: 'Insumos', icon: Box, color: 'text-amber-500 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/50' },
+                                { id: 'servicios', label: 'Servicios', icon: Lightbulb, color: 'text-yellow-500 bg-yellow-50 dark:bg-yellow-950/40 border-yellow-200 dark:border-yellow-900/50' },
+                                { id: 'transporte', label: 'Transporte', icon: Truck, color: 'text-blue-500 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-900/50' },
+                                { id: 'personal', label: 'Personal', icon: User, color: 'text-purple-500 bg-purple-50 dark:bg-purple-950/40 border-purple-200 dark:border-purple-900/50' },
+                                { id: 'mantenimiento', label: 'Mantenimiento', icon: Wrench, color: 'text-slate-600 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700' },
+                                { id: 'autoconsumo', label: 'Autoconsumo', icon: Home, color: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900/50' },
+                                { id: 'otros', label: 'Otros', icon: Receipt, color: 'text-rose-500 bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/50' },
+                            ].map(cat => {
+                                const data = activeShiftExpensesMetrics.categoryMap[cat.id] || { count: 0, totalUsd: 0, totalBs: 0 };
+                                const percent = activeShiftExpensesMetrics.totalUsd > 0
+                                    ? ((data.totalUsd / activeShiftExpensesMetrics.totalUsd) * 100).toFixed(0)
+                                    : 0;
+                                const IconComponent = cat.icon;
+
+                                return (
+                                    <div 
+                                        key={cat.id} 
+                                        className={`p-3.5 rounded-2xl border transition-all flex flex-col justify-between ${
+                                            data.count > 0 
+                                                ? 'bg-white dark:bg-slate-900 border-rose-200/80 dark:border-rose-900/40 shadow-sm' 
+                                                : 'bg-slate-50/50 dark:bg-slate-900/30 border-slate-200/50 dark:border-slate-800/40 opacity-60'
+                                        }`}
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <div className={`w-8 h-8 rounded-xl border flex items-center justify-center shrink-0 ${cat.color}`}>
+                                                <IconComponent size={16} />
+                                            </div>
+                                            {data.count > 0 && (
+                                                <span className="text-[9px] font-black px-1.5 py-0.5 rounded-md bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-400">
+                                                    {percent}%
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="mt-3">
+                                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block leading-tight">
+                                                {cat.label}
+                                            </span>
+                                            <span className="text-xs sm:text-sm font-black text-slate-800 dark:text-white font-outfit tabular-nums block mt-0.5">
+                                                ${data.totalUsd.toFixed(2)}
+                                            </span>
+                                            <span className="text-[9px] font-medium text-slate-400 block mt-0.5 truncate">
+                                                {data.count} {data.count === 1 ? 'gasto' : 'gastos'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Lista de Transacciones de Gastos (Mobile Cards + Desktop Table) */}
+                        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 sm:p-6 shadow-sm">
+                            <div className="flex items-center justify-between mb-4">
+                                <h4 className="text-xs sm:text-sm font-black text-slate-800 dark:text-white uppercase tracking-wider">
+                                    Detalle de Transacciones de Gasto
+                                </h4>
+                                <span className="text-[11px] sm:text-xs text-slate-400 font-medium">
+                                    {activeShiftExpensesMetrics.gastosList.length} {activeShiftExpensesMetrics.gastosList.length === 1 ? 'egreso' : 'egresos'}
+                                </span>
+                            </div>
+
+                            {activeShiftExpensesMetrics.gastosList.length === 0 ? (
+                                <div className="py-12 text-center text-slate-400 space-y-2">
+                                    <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto text-xl">
+                                        <Receipt size={22} className="text-slate-400" />
+                                    </div>
+                                    <p className="text-xs font-bold">No hay gastos registrados en el turno activo</p>
+                                    <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
+                                        Los egresos de caja registrados por los cajeros aparecerán aquí automáticamente en tiempo real.
+                                    </p>
+                                </div>
+                            ) : (
+                                <>
+                                    {/* Vista Móvil: Tarjetas Nativas Sin Scroll Horizontal */}
+                                    <div className="space-y-3 md:hidden">
+                                        {activeShiftExpensesMetrics.gastosList.map((gasto) => {
+                                            const catObj = [
+                                                { id: 'insumos', label: 'Insumos', icon: Box, color: 'text-amber-600 bg-amber-50 dark:bg-amber-950/40' },
+                                                { id: 'servicios', label: 'Servicios', icon: Lightbulb, color: 'text-yellow-600 bg-yellow-50 dark:bg-yellow-950/40' },
+                                                { id: 'transporte', label: 'Transporte', icon: Truck, color: 'text-blue-600 bg-blue-50 dark:bg-blue-950/40' },
+                                                { id: 'personal', label: 'Personal', icon: User, color: 'text-purple-600 bg-purple-50 dark:bg-purple-950/40' },
+                                                { id: 'mantenimiento', label: 'Mantenimiento', icon: Wrench, color: 'text-slate-700 bg-slate-100 dark:bg-slate-800' },
+                                                { id: 'autoconsumo', label: 'Autoconsumo', icon: Home, color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40' },
+                                                { id: 'otros', label: 'Otros', icon: Receipt, color: 'text-rose-600 bg-rose-50 dark:bg-rose-950/40' },
+                                            ].find(c => c.id === gasto.category) || { label: gasto.category || 'Otros', icon: Receipt, color: 'text-rose-600 bg-rose-50 dark:bg-rose-950/40' };
+
+                                            const IconCat = catObj.icon;
+                                            const date = gasto.timestamp ? new Date(gasto.timestamp) : new Date();
+                                            const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                                            return (
+                                                <div 
+                                                    key={gasto.id} 
+                                                    className="p-3.5 bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800 rounded-2xl space-y-2.5"
+                                                >
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 px-2 py-0.5 rounded-lg border border-slate-200/60 dark:border-slate-700/60">
+                                                            <IconCat size={12} className={catObj.color.split(' ')[0]} />
+                                                            <span>{catObj.label}</span>
+                                                        </span>
+                                                        <span className="text-[10px] font-mono font-medium text-slate-400">
+                                                            {timeStr}
+                                                        </span>
+                                                    </div>
+
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div className="min-w-0 flex-1">
+                                                            <h5 className="text-xs font-bold text-slate-800 dark:text-white leading-snug break-words">
+                                                                {gasto.description || 'Gasto Interno'}
+                                                            </h5>
+                                                            {gasto.note && (
+                                                                <p className="text-[10px] text-slate-400 font-normal italic mt-0.5 break-words">
+                                                                    "{gasto.note}"
+                                                                </p>
+                                                            )}
+                                                        </div>
+
+                                                        <div className="text-right shrink-0">
+                                                            <span className="text-xs font-black font-outfit text-rose-600 dark:text-rose-400 block leading-tight">
+                                                                -${Math.abs(gasto.totalUsd || 0).toFixed(2)}
+                                                            </span>
+                                                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block mt-0.5">
+                                                                -{formatBs(Math.abs(gasto.totalBs || 0))} Bs
+                                                            </span>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="pt-2 border-t border-slate-200/40 dark:border-slate-800/60 flex items-center justify-between text-[9.5px]">
+                                                        <span className="font-bold text-slate-400 uppercase">Método:</span>
+                                                        <span className="font-bold uppercase text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 px-2 py-0.5 rounded-md border border-slate-200/50 dark:border-slate-700/50">
+                                                            {(gasto.paymentMethod || 'Efectivo').replace(/_/g, ' ')}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+
+                                    {/* Vista Escritorio: Tabla Completa */}
+                                    <div className="hidden md:block overflow-x-auto">
+                                        <table className="w-full text-left text-xs">
+                                            <thead>
+                                                <tr className="border-b border-slate-100 dark:border-slate-800 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                                                    <th className="pb-3 px-2">Hora</th>
+                                                    <th className="pb-3 px-2">Categoría</th>
+                                                    <th className="pb-3 px-2">Descripción</th>
+                                                    <th className="pb-3 px-2">Método</th>
+                                                    <th className="pb-3 px-2 text-right">Monto (USD)</th>
+                                                    <th className="pb-3 px-2 text-right">Monto (Bs)</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
+                                                {activeShiftExpensesMetrics.gastosList.map((gasto) => {
+                                                    const catObj = [
+                                                        { id: 'insumos', label: 'Insumos', icon: Box, color: 'text-amber-600 bg-amber-50 dark:bg-amber-950/40' },
+                                                        { id: 'servicios', label: 'Servicios', icon: Lightbulb, color: 'text-yellow-600 bg-yellow-50 dark:bg-yellow-950/40' },
+                                                        { id: 'transporte', label: 'Transporte', icon: Truck, color: 'text-blue-600 bg-blue-50 dark:bg-blue-950/40' },
+                                                        { id: 'personal', label: 'Personal', icon: User, color: 'text-purple-600 bg-purple-50 dark:bg-purple-950/40' },
+                                                        { id: 'mantenimiento', label: 'Mantenimiento', icon: Wrench, color: 'text-slate-700 bg-slate-100 dark:bg-slate-800' },
+                                                        { id: 'autoconsumo', label: 'Autoconsumo', icon: Home, color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40' },
+                                                        { id: 'otros', label: 'Otros', icon: Receipt, color: 'text-rose-600 bg-rose-50 dark:bg-rose-950/40' },
+                                                    ].find(c => c.id === gasto.category) || { label: gasto.category || 'Otros', icon: Receipt, color: 'text-rose-600 bg-rose-50 dark:bg-rose-950/40' };
+
+                                                    const IconCat = catObj.icon;
+                                                    const date = gasto.timestamp ? new Date(gasto.timestamp) : new Date();
+                                                    const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                                                    return (
+                                                        <tr key={gasto.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                                                            <td className="py-3 px-2 text-slate-400 font-mono text-[11px] whitespace-nowrap">
+                                                                {timeStr}
+                                                            </td>
+                                                            <td className="py-3 px-2 whitespace-nowrap">
+                                                                <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/90 border border-slate-200/60 dark:border-slate-700/60 px-2.5 py-1 rounded-xl">
+                                                                    <IconCat size={13} className={catObj.color.split(' ')[0]} />
+                                                                    <span>{catObj.label}</span>
+                                                                </span>
+                                                            </td>
+                                                            <td className="py-3 px-2">
+                                                                <div className="font-bold text-slate-800 dark:text-white">
+                                                                    {gasto.description || 'Gasto Interno'}
+                                                                </div>
+                                                                {gasto.note && (
+                                                                    <div className="text-[10px] text-slate-400 font-normal italic mt-0.5">
+                                                                        "{gasto.note}"
+                                                                    </div>
+                                                                )}
+                                                            </td>
+                                                            <td className="py-3 px-2 whitespace-nowrap">
+                                                                <span className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/80 px-2 py-0.5 rounded-md">
+                                                                    {(gasto.paymentMethod || 'Efectivo').replace(/_/g, ' ')}
+                                                                </span>
+                                                            </td>
+                                                            <td className="py-3 px-2 text-right font-black font-outfit text-rose-600 dark:text-rose-400 tabular-nums">
+                                                                -${Math.abs(gasto.totalUsd || 0).toFixed(2)}
+                                                            </td>
+                                                            <td className="py-3 px-2 text-right font-bold text-slate-600 dark:text-slate-300 tabular-nums">
+                                                                -{formatBs(Math.abs(gasto.totalBs || 0))} Bs
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    </div>
                 )}
             </main>
 

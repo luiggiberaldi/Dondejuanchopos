@@ -14,6 +14,7 @@ import { storageService } from './storageService';
 import { withLock } from './withLock';
 import { logEvent } from '../services/auditService';
 import { PRICING_MODES, FROZEN_MODES } from '../constants/pricingModes';
+import { readPositiveMoney } from './productPriceMigration';
 
 const PRODUCTS_KEY = 'bodega_products_v1';
 const VALID_ACTIONS = ['add', 'edit', 'delete', 'adjust_stock', 'batch_edit'];
@@ -83,8 +84,14 @@ function normalizeProduct(data) {
     normalized.priceUsd = Number(data.priceUsd) || 0;
     normalized.priceUsdt = normalized.priceUsd; // alias canónico legacy — SIEMPRE espejo
     normalized.priceBsManual = data.priceBsManual != null && data.priceBsManual !== '' ? Number(data.priceBsManual) : null;
-    normalized.boxPriceBsManual = data.boxPriceBsManual != null && data.boxPriceBsManual !== '' ? Number(data.boxPriceBsManual) : (data.boxPriceBs != null && data.boxPriceBs !== '' ? Number(data.boxPriceBs) : null);
-    normalized.halfBoxPriceBsManual = data.halfBoxPriceBsManual != null && data.halfBoxPriceBsManual !== '' ? Number(data.halfBoxPriceBsManual) : (data.halfBoxPriceBs != null && data.halfBoxPriceBs !== '' ? Number(data.halfBoxPriceBs) : null);
+    const boxPriceBs = readPositiveMoney(data.boxPriceBs, data.boxPriceBsManual);
+    const halfBoxPriceBs = readPositiveMoney(data.halfBoxPriceBs, data.halfBoxPriceBsManual);
+    normalized.boxPriceBs = boxPriceBs;
+    normalized.boxPriceBsManual = boxPriceBs;
+    normalized.halfBoxPriceBs = halfBoxPriceBs;
+    normalized.halfBoxPriceBsManual = halfBoxPriceBs;
+    normalized.boxPriceUsd = readPositiveMoney(data.boxPriceUsd, data.boxPriceUsdt);
+    normalized.halfBoxPriceUsd = readPositiveMoney(data.halfBoxPriceUsd, data.halfBoxPriceUsdt);
     if (data.boxPricingMode) normalized.boxPricingMode = data.boxPricingMode;
     if (data.halfBoxPricingMode) normalized.halfBoxPricingMode = data.halfBoxPricingMode;
     normalized.stock = Number(data.stock) || 0;
@@ -110,11 +117,13 @@ function normalizeProduct(data) {
 
     const boxMode = data.boxPricingMode === 'inherit' ? data.pricingMode : data.boxPricingMode;
     if (boxMode && !FROZEN_MODES.includes(boxMode)) {
+        normalized.boxPriceBs = null;
         normalized.boxPriceBsManual = null;
     }
 
     const halfBoxMode = data.halfBoxPricingMode === 'inherit' ? data.pricingMode : data.halfBoxPricingMode;
     if (halfBoxMode && !FROZEN_MODES.includes(halfBoxMode)) {
+        normalized.halfBoxPriceBs = null;
         normalized.halfBoxPriceBsManual = null;
     }
 
