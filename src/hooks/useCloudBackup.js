@@ -126,6 +126,49 @@ export function useCloudBackup({
             }
         }
 
+        // Última fuente de recuperación: Storage. Las imágenes migradas se
+        // guardan como `${deviceId}/${productId}.ext`, por lo que podemos
+        // reconstruir únicamente las referencias de los productos actuales
+        // sin descargar ni modificar el catálogo completo.
+        if (supabaseCloud && Array.isArray(currentProducts)) {
+            const currentIds = new Set(currentProducts.map(product => product?.id).filter(Boolean));
+            const prefixes = [...new Set([
+                deviceId,
+                localStorage.getItem('dj_paired_device_id'),
+                localStorage.getItem('dj_device_id'),
+            ].filter(Boolean).map(value => String(value).replace(/[^a-zA-Z0-9_-]/g, '_')))];
+            const storageProducts = [];
+
+            for (const prefix of prefixes) {
+                try {
+                    const { data: objects, error } = await supabaseCloud.storage
+                        .from('product-images')
+                        .list(prefix, { limit: 1000 });
+                    if (error) continue;
+
+                    for (const object of objects || []) {
+                        if (!object?.name || object.name.includes('/')) continue;
+                        const productId = object.name.replace(/\.[^.]+$/, '');
+                        if (!currentIds.has(productId)) continue;
+                        const path = `${prefix}/${object.name}`;
+                        const { data: publicData } = supabaseCloud.storage
+                            .from('product-images')
+                            .getPublicUrl(path);
+                        if (publicData?.publicUrl) {
+                            storageProducts.push({ id: productId, image: publicData.publicUrl });
+                        }
+                    }
+                } catch (error) {
+                    console.warn('[CloudBackup] No se pudo inspeccionar Storage para recuperar imágenes:', error);
+                }
+            }
+
+            if (storageProducts.length > 0) {
+                sources.push(storageProducts);
+                sourceLabels.push('Supabase Storage');
+            }
+        }
+
         const merged = mergeMissingProductImages(currentProducts, ...sources);
         if (merged.recovered === 0) {
             return { recovered: 0, uploaded: 0, source: null, updatedProducts: currentProducts };

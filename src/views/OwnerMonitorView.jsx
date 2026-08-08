@@ -50,6 +50,26 @@ function getMethodIcon(methodId) {
     return PAYMENT_METHOD_ICONS[methodId] || Wallet;
 }
 
+function isDuplicateProductIdFailure(command) {
+    const reason = String(command?.error_reason || '');
+    return /DUPLICATE_PRODUCT_ID_CONFLICT|Ya existe un producto con ese ID/i.test(reason);
+}
+
+function applyProjectedStock(baseStock, changes = []) {
+    let stock = Math.max(0, Number(baseStock) || 0);
+    for (const change of changes) {
+        if (change?.action !== 'adjust_stock') continue;
+        const target = change.data?.targetStock;
+        if (target !== undefined && target !== null && target !== '') {
+            const parsedTarget = Number(target);
+            if (!Number.isNaN(parsedTarget)) stock = Math.max(0, parsedTarget);
+        } else {
+            stock = Math.max(0, stock + (Number(change.data?.delta) || 0));
+        }
+    }
+    return stock;
+}
+
 function getFormattedPaymentMethod(sale) {
     if (!sale) return 'Efectivo (Bs)';
 
@@ -646,9 +666,45 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         if (inFlightChanges.length === 0 || !Array.isArray(products)) return;
         const confirmedKeys = new Set(
             inFlightChanges
-                .filter(change => isInventoryChangeConfirmed(change, products))
+                .filter(change => change.action !== 'adjust_stock' && isInventoryChangeConfirmed(change, products))
                 .map(getChangeKey)
         );
+
+        // Varios ajustes pueden llegar a la caja antes de que el catálogo
+        // vuelva al monitor. No se debe comparar cada delta contra el mismo
+        // stock base: si entraron +3 y luego +2, el catálogo final será +5.
+        const stockGroups = new Map();
+        inFlightChanges
+            .filter(change => change.action === 'adjust_stock')
+            .forEach(change => {
+                const key = String(change.productId);
+                if (!stockGroups.has(key)) stockGroups.set(key, []);
+                stockGroups.get(key).push(change);
+            });
+
+        for (const [productId, group] of stockGroups) {
+            const product = products.find(p => String(p.id) === productId);
+            if (!product || group.length === 0) continue;
+            const ordered = [...group].sort((a, b) =>
+                String(a.sentAt || a.queuedAt || '').localeCompare(String(b.sentAt || b.queuedAt || ''))
+            );
+            const firstBase = Number(ordered[0].baseStock);
+            if (!Number.isFinite(firstBase)) {
+                ordered.filter(change => isInventoryChangeConfirmed(change, products))
+                    .forEach(change => confirmedKeys.add(getChangeKey(change)));
+                continue;
+            }
+
+            let expected = Math.max(0, firstBase);
+            let matchedPrefix = -1;
+            for (let index = 0; index < ordered.length; index++) {
+                expected = applyProjectedStock(expected, [ordered[index]]);
+                if (Number(product.stock) === Number(expected)) matchedPrefix = index;
+            }
+            if (matchedPrefix >= 0) {
+                ordered.slice(0, matchedPrefix + 1).forEach(change => confirmedKeys.add(getChangeKey(change)));
+            }
+        }
         if (confirmedKeys.size === 0) return;
         persistInFlight(inFlightChanges.filter(change => !confirmedKeys.has(getChangeKey(change))));
     }, [products, inFlightChanges, getChangeKey, isInventoryChangeConfirmed, persistInFlight]);
@@ -865,13 +921,44 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             const idxOf = (act) => next.findIndex(c => c.productId === productId && c.action === act);
 
             if (action === 'adjust_stock') {
-                const i = idxOf('adjust_stock');
-                if (i >= 0) {
-                    const newDelta = (Number(next[i].data?.delta) || 0) + (Number(data?.delta) || 0);
-                    if (newDelta === 0) next.splice(i, 1);
-                    else next[i] = { ...next[i], data: { ...next[i].data, ...data, delta: newDelta }, queuedAt: new Date().toISOString() };
+                const hasTarget = data?.targetStock !== undefined && data?.targetStock !== null && data?.targetStock !== '';
+                const adjustIndexes = next
+                    .map((change, index) => ({ change, index }))
+                    .filter(({ change }) => change.productId === productId && change.action === 'adjust_stock');
+
+                if (hasTarget) {
+                    // El ultimo "Fijar exacto" es una orden absoluta. Descarta
+                    // solo deltas aun no enviados; los que ya estan en vuelo
+                    // terminaran antes y la orden absoluta dejara el valor final.
+                    for (let i = adjustIndexes.length - 1; i >= 0; i--) {
+                        next.splice(adjustIndexes[i].index, 1);
+                    }
+                    next.push({ action, productId, data: { targetStock: Number(data.targetStock) }, queuedAt: new Date().toISOString() });
                 } else {
-                    next.push({ action, productId, data, queuedAt: new Date().toISOString() });
+                    const pendingTargetIndex = adjustIndexes.find(({ change }) =>
+                        change.data?.targetStock !== undefined && change.data?.targetStock !== null && change.data?.targetStock !== ''
+                    )?.index;
+                    if (pendingTargetIndex !== undefined) {
+                        // Un delta posterior a un valor exacto debe conservar
+                        // el orden: primero fijar, luego sumar/restar.
+                        next.push({ action, productId, data: { delta: Number(data?.delta) || 0 }, queuedAt: new Date().toISOString() });
+                    } else {
+                        const pendingDeltaIndexes = adjustIndexes.filter(({ change }) =>
+                            change.data?.targetStock === undefined || change.data?.targetStock === null || change.data?.targetStock === ''
+                        );
+                        const firstDelta = pendingDeltaIndexes[0];
+                        if (firstDelta) {
+                            const newDelta = (Number(firstDelta.change.data?.delta) || 0) + (Number(data?.delta) || 0);
+                            if (newDelta === 0) next.splice(firstDelta.index, 1);
+                            else next[firstDelta.index] = {
+                                ...firstDelta.change,
+                                data: { delta: newDelta },
+                                queuedAt: new Date().toISOString()
+                            };
+                        } else {
+                            next.push({ action, productId, data: { delta: Number(data?.delta) || 0 }, queuedAt: new Date().toISOString() });
+                        }
+                    }
                 }
             } else if (action === 'edit') {
                 // F5: enviar la versión base (baseUpdatedAt) únicamente en edits para versionado optimista.
@@ -909,9 +996,12 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     }, [products]);
 
     // Delta de stock pendiente por producto (para proyectar en la fila)
-    const pendingStockDelta = (productId) =>
-        [...inFlightChanges, ...pendingChanges].reduce((sum, c) =>
-            c.productId === productId && c.action === 'adjust_stock' ? sum + (Number(c.data?.delta) || 0) : sum, 0);
+    const pendingStockDelta = (productId) => {
+        const baseStock = (products || []).find(p => String(p.id) === String(productId))?.stock || 0;
+        const changes = [...inFlightChanges, ...pendingChanges]
+            .filter(c => String(c.productId) === String(productId) && c.action === 'adjust_stock');
+        return applyProjectedStock(baseStock, changes) - (Number(baseStock) || 0);
+    };
 
     const hasPendingFor = (productId) => [...inFlightChanges, ...pendingChanges].some(c => c.productId === productId);
     const hasInventoryChanges = pendingChanges.length > 0 || inFlightChanges.length > 0;
@@ -1021,7 +1111,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                         ...inFlightChanges.filter(existing => !okChanges.some(sent => getChangeKey(sent) === getChangeKey(existing))),
                         ...okChanges.map(change => ({
                             ...change,
-                            ...(change.action === 'adjust_stock' && change.data?.targetStock === undefined
+                            ...(change.action === 'adjust_stock'
                                 ? { baseStock: products.find(p => String(p.id) === String(change.productId))?.stock }
                                 : {}),
                             sentAt,
@@ -1165,9 +1255,11 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
         const allProjectedChanges = [...inFlightChanges, ...pendingChanges];
         const baseList = products.map(p => {
-            const stockDelta = allProjectedChanges
-                .filter(c => c.productId === p.id && c.action === 'adjust_stock')
-                .reduce((sum, c) => sum + (Number(c.data?.delta) || 0), 0);
+            const stockChanges = allProjectedChanges
+                .filter(c => c.productId === p.id && c.action === 'adjust_stock');
+            const baseStockValue = Number(p.stock) || 0;
+            const projectedStock = applyProjectedStock(baseStockValue, stockChanges);
+            const stockDelta = projectedStock - baseStockValue;
 
             const productEdits = allProjectedChanges
                 .filter(c => c.productId === p.id && c.action === 'edit')
@@ -1183,7 +1275,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             const baseStock = Number(merged.stock) || 0;
             return {
                 ...merged,
-                stock: Math.max(0, baseStock + stockDelta),
+                stock: projectedStock,
                 _rawStock: baseStock,
                 _stockDelta: stockDelta,
                 _isQueuedDelete: isDeleted,
@@ -3674,7 +3766,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                                 {cancellingCmdId === cmd.id ? 'Anulando...' : 'Anular 🚫'}
                                                             </button>
                                                         )}
-                                                        {cmd.status === 'failed' && cmd.command_type === 'inventory_update' && (
+                                                        {cmd.status === 'failed' && cmd.command_type === 'inventory_update' && !isDuplicateProductIdFailure(cmd) && (
                                                             <button
                                                                 onClick={() => {
                                                                     const p = cmd.payload || {};
@@ -3684,6 +3776,17 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                                 className="px-3.5 py-2 rounded-xl bg-orange-50 hover:bg-orange-100 dark:bg-orange-950/40 text-orange-600 dark:text-orange-300 border border-orange-200 dark:border-orange-800 text-xs font-black uppercase transition-colors shrink-0 cursor-pointer"
                                                             >
                                                                 Reintentar ↺
+                                                            </button>
+                                                        )}
+                                                        {cmd.status === 'failed' && cmd.command_type === 'inventory_update' && isDuplicateProductIdFailure(cmd) && (
+                                                            <button
+                                                                onClick={async () => {
+                                                                    showToast('El producto ya existe en la caja. Actualizando catálogo...', 'info');
+                                                                    await triggerRefresh();
+                                                                }}
+                                                                className="px-3.5 py-2 rounded-xl bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 text-xs font-black uppercase transition-colors shrink-0 cursor-pointer"
+                                                            >
+                                                                Actualizar catálogo
                                                             </button>
                                                         )}
                                                         {cmd.status === 'applied' && (
@@ -4476,7 +4579,10 @@ function StockAdjustModal({ product, onClose, onConfirm, triggerHaptic }) {
         delta = qtyNum;
     } else if (mode === 'subtract') {
         targetStock = Math.max(0, currentStock - qtyNum);
-        delta = -Math.min(currentStock, qtyNum);
+        // La salida es relativa. La caja debe recibir todas las unidades
+        // solicitadas y encargarse de limitar el resultado a cero usando su
+        // stock real, que puede ser distinto al del monitor.
+        delta = -qtyNum;
     } else if (mode === 'set') {
         targetStock = Math.max(0, qtyNum);
         delta = targetStock - currentStock;

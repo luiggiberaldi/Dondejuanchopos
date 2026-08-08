@@ -131,6 +131,31 @@ function normalizeProduct(data) {
 }
 
 /**
+ * Un reintento de un alta debe ser idempotente. El monitor puede perder la
+ * confirmacion despues de que la caja ya persistio el producto; en ese caso
+ * no debemos reportarlo como fallo ni volver a crear otra fila.
+ *
+ * Se comparan solo campos de identidad/configuracion. Stock, timestamps e
+ * imagen no forman parte de la comparacion porque pueden cambiar en la caja
+ * mientras el comando estaba en vuelo.
+ */
+function isSameProductForIdempotentAdd(existing, candidate) {
+    const text = value => String(value ?? '').trim().toLowerCase();
+    const number = value => Number(value ?? 0);
+    const sameNumber = (a, b) => Math.abs(number(a) - number(b)) < 0.000001;
+    const sameNullableText = (a, b) => text(a) === text(b);
+
+    return text(existing?.name) === text(candidate?.name)
+        && sameNumber(existing?.priceUsd, candidate?.priceUsd)
+        && sameNullableText(existing?.barcode, candidate?.barcode)
+        && sameNullableText(existing?.boxBarcode, candidate?.boxBarcode)
+        && sameNullableText(existing?.halfBoxBarcode, candidate?.halfBoxBarcode)
+        && Boolean(existing?.isCombo) === Boolean(candidate?.isCombo)
+        && Boolean(existing?.sellByBox) === Boolean(candidate?.sellByBox)
+        && Boolean(existing?.sellByHalfBox) === Boolean(candidate?.sellByHalfBox);
+}
+
+/**
  * Aplica un comando de inventario emitido por el supervisor.
  * @param {{action:string, productId?:string, data?:object}} payload
  * @returns {Promise<{success:boolean, error?:string, productName?:string}>}
@@ -207,9 +232,24 @@ export async function applyInventoryCommand(payload) {
             const validationError = validateProductData(data);
             if (validationError) return { success: false, error: validationError };
             const normalized = normalizeProduct(data);
-            normalized.id = data.id || crypto.randomUUID();
-            if (products.some(p => p.id === normalized.id)) {
-                return { success: false, error: 'Ya existe un producto con ese ID' };
+            // Compatibilidad con comandos antiguos que guardaban el ID en el
+            // sobre del comando y no dentro de data.
+            normalized.id = data.id || productId || crypto.randomUUID();
+            const existingById = products.find(p => p.id === normalized.id);
+            if (existingById) {
+                if (isSameProductForIdempotentAdd(existingById, normalized)) {
+                    return {
+                        success: true,
+                        idempotent: true,
+                        productName: existingById.name || normalized.name,
+                        updatedProducts: products
+                    };
+                }
+                return {
+                    success: false,
+                    duplicateId: true,
+                    error: 'DUPLICATE_PRODUCT_ID_CONFLICT: Ya existe otro producto con ese ID. No se reintento para evitar duplicarlo.'
+                };
             }
             const conflict = findBarcodeConflict(normalized, products);
             if (conflict) return { success: false, error: conflict };
@@ -296,9 +336,10 @@ export async function applyInventoryCommand(payload) {
 
         if (hasTargetStock) {
             const target = Number(data.targetStock);
-            next = isNaN(target) ? current : (allowNeg ? target : Math.max(0, target));
+            if (!Number.isFinite(target)) return { success: false, error: 'Stock objetivo inválido' };
+            next = allowNeg ? target : Math.max(0, target);
         } else {
-            if (isNaN(delta) || delta === 0) return { success: false, error: 'Delta de stock inválido' };
+            if (!Number.isFinite(delta) || delta === 0) return { success: false, error: 'Delta de stock inválido' };
             next = allowNeg ? current + delta : Math.max(0, current + delta);
         }
 

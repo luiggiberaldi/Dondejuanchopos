@@ -62,6 +62,43 @@ describe('applyInventoryCommand — comandos remotos de inventario', () => {
         expect(products.length).toBe(1);
     });
 
+    it('add repetido con mismo ID y misma identidad es idempotente', async () => {
+        const existing = {
+            ...baseProduct,
+            id: 'carbon-retry-1',
+            name: 'Carbon vegetal charcoal',
+            barcode: '',
+            sellByBox: false,
+            sellByHalfBox: false,
+            stock: 11,
+        };
+        await storageService.setItem(PRODUCTS_KEY, [existing]);
+
+        const res = await applyInventoryCommand({
+            action: 'add',
+            data: { ...existing, stock: 999, issuedAt: '2026-08-08T10:00:00.000Z' },
+        });
+
+        expect(res.success).toBe(true);
+        expect(res.idempotent).toBe(true);
+        const products = await storageService.getItem(PRODUCTS_KEY);
+        expect(products).toHaveLength(1);
+        expect(products[0].stock).toBe(11);
+    });
+
+    it('add con mismo ID pero datos distintos falla como conflicto y no duplica', async () => {
+        const res = await applyInventoryCommand({
+            action: 'add',
+            data: { ...baseProduct, name: 'Otro producto', priceUsd: 3 },
+        });
+
+        expect(res.success).toBe(false);
+        expect(res.duplicateId).toBe(true);
+        expect(res.error).toMatch(/DUPLICATE_PRODUCT_ID_CONFLICT/);
+        const products = await storageService.getItem(PRODUCTS_KEY);
+        expect(products).toHaveLength(1);
+    });
+
     it('edit inexistente → failed', async () => {
         const res = await applyInventoryCommand({
             action: 'edit', productId: 'nope', data: { name: 'X', priceUsd: 1 },
@@ -140,6 +177,34 @@ describe('applyInventoryCommand — comandos remotos de inventario', () => {
         expect(res.success).toBe(true);
         const [p] = await storageService.getItem(PRODUCTS_KEY);
         expect(p.stock).toBe(29);
+    });
+
+    it('adjust_stock con targetStock fija el valor exacto y no suma el delta auxiliar', async () => {
+        const res = await applyInventoryCommand({
+            action: 'adjust_stock', productId: 'p1', data: { delta: 16, targetStock: 40 },
+        });
+        expect(res.success).toBe(true);
+        const [p] = await storageService.getItem(PRODUCTS_KEY);
+        expect(p.stock).toBe(40);
+    });
+
+    it('adjust_stock salida relativa completa se limita en la caja al llegar a cero', async () => {
+        const res = await applyInventoryCommand({
+            action: 'adjust_stock', productId: 'p1', data: { delta: -100 },
+        });
+        expect(res.success).toBe(true);
+        const [p] = await storageService.getItem(PRODUCTS_KEY);
+        expect(p.stock).toBe(0);
+    });
+
+    it('adjust_stock rechaza targetStock no numerico sin tocar inventario', async () => {
+        const res = await applyInventoryCommand({
+            action: 'adjust_stock', productId: 'p1', data: { targetStock: 'abc' },
+        });
+        expect(res.success).toBe(false);
+        expect(res.error).toMatch(/objetivo/i);
+        const [p] = await storageService.getItem(PRODUCTS_KEY);
+        expect(p.stock).toBe(24);
     });
 
     it('delete elimina y reporta el nombre', async () => {
