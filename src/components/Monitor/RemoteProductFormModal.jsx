@@ -5,6 +5,8 @@ import { derivePricingMode } from '../../hooks/useProductForm';
 import PricingModeSelector from '../Products/PricingModeSelector';
 import PricePreviewLine from '../Products/PricePreviewLine';
 import { calcUsdFromBs } from '../../utils/calculatorUtils';
+// EGRESS RC1: subir imagen a Storage antes de enviar el payload al supervisor_commands.
+import { uploadProductImage, isStorageImageUrl } from '../../utils/imageUpload';
 
 const MODE_LABELS = {
     tasa_dia: 'Tasa del día',
@@ -169,12 +171,25 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
             const boxEffMode = form.boxPricingMode === 'inherit' ? mode : form.boxPricingMode;
             const halfBoxEffMode = form.halfBoxPricingMode === 'inherit' ? mode : form.halfBoxPricingMode;
 
+            // EGRESS RC1: determinar el ID antes del upload para ruta determinística.
+            // Un solo randomUUID para todo el bloque — nunca se genera un segundo UUID.
+            const productId = editingProduct?.id || crypto.randomUUID();
+
+            // EGRESS RC1: subir imagen a Storage si es base64 nuevo.
+            // Si el upload falla (offline), conserva base64 como fallback sin bloquear.
+            let finalImage = form.image || null;
+            if (finalImage && finalImage.startsWith('data:') && !isStorageImageUrl(finalImage)) {
+                const url = await uploadProductImage(finalImage, { id: productId });
+                if (url) finalImage = url;
+            }
+
             const data = {
                 ...(editingProduct || {}),
+                id: productId,
                 name: form.name.trim(),
                 category: form.category || editingProduct?.category || 'varios',
                 barcode: form.barcode.trim() || null,
-                image: form.image || null,
+                image: finalImage,
                 priceUsd: Number(form.priceUsd) || 0,
                 priceBsManual: mode === 'bs_fijo' && form.priceBsManual !== '' ? Number(form.priceBsManual) : null,
                 priceBsUsdRef: mode === 'dual_usd' && form.priceBsUsdRef !== '' ? Number(form.priceBsUsdRef) : null,
@@ -200,8 +215,6 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
                 halfBoxPriceBs: form.sellByHalfBox && halfBoxEffMode === 'bs_fijo' && form.halfBoxPriceBs !== '' ? Number(form.halfBoxPriceBs) : null,
                 halfBoxPriceBsUsdRef: form.sellByHalfBox && halfBoxEffMode === 'dual_usd' && form.halfBoxPriceBsUsdRef !== '' ? Number(form.halfBoxPriceBsUsdRef) : null,
             };
-
-            if (!editingProduct) data.id = crypto.randomUUID();
 
             // FS6: Los campos con prefijo _ son de la proyección del monitor, no del producto.
             for (const k of Object.keys(data)) {

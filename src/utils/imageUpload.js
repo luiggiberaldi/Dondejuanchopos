@@ -15,8 +15,9 @@ const MAX_BYTES = 1048576; // Debe coincidir con file_size_limit del bucket (1MB
 
 /** Convierte un data URI base64 a Blob para subirlo a Storage. */
 function dataUriToBlob(dataUri) {
-    const [meta, b64] = dataUri.split(',');
-    const mime = meta.match(/data:([^;]+)/)?.[1] || 'image/webp';
+    const [meta, b64Raw] = dataUri.split(',');
+    const mime = meta?.match(/data:([^;]+)/)?.[1] || 'image/webp';
+    const b64 = (b64Raw || '').trim().replace(/[^A-Za-z0-9+/=]/g, '');
     const bin = atob(b64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -38,9 +39,15 @@ export function isStorageImageUrl(value) {
 /** Verifica de forma síncrona si hay una sesión o emparejamiento cloud activo en localStorage. */
 function hasActiveCloudSession() {
     if (typeof window === 'undefined') return false;
-    
+
+    // 0. Verificar si es la caja principal (tiene device_id local registrado).
+    // La caja no tiene dj_paired_device_id ni token Supabase Auth, pero sí
+    // dj_device_id. Tanto monitor como caja llegan aquí con ese key presente.
+    if (localStorage.getItem('dj_device_id')) return true;
+
     // 1. Verificar si está emparejado como monitor secundario
     if (localStorage.getItem('dj_paired_device_id')) return true;
+
     
     // 2. Verificar si hay un token de sesión de Supabase guardado
     for (let i = 0; i < localStorage.length; i++) {
@@ -89,7 +96,9 @@ export async function uploadProductImage(dataUri, opts = {}) {
             : `${blob.size}_${Date.now()}`)).replace(/[^a-zA-Z0-9_-]/g, '_');
             
         const path = `${deviceId}/${id}.${ext}`;
-        const file = new File([blob], `${id}.${ext}`, { type: blob.type });
+        const file = typeof File !== 'undefined'
+            ? new File([blob], `${id}.${ext}`, { type: blob.type })
+            : blob;
 
         const { error } = await supabaseCloud.storage
             .from(BUCKET)
