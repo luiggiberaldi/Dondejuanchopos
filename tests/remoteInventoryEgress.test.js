@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'fs';
 
 vi.mock('../src/config/supabaseCloud.js', () => ({
     supabaseCloud: {
@@ -118,5 +119,52 @@ describe('remoteInventoryProcessor — EGRESS RC2', () => {
         });
         expect(spy).not.toHaveBeenCalled();
         spy.mockRestore();
+    });
+});
+
+describe('remoteInventoryProcessor — comentarios y dead code', () => {
+    const src = readFileSync('src/utils/remoteInventoryProcessor.js', 'utf8');
+
+    it('FA01: D8 no afirma "nunca viaja base64"', () => {
+        expect(src).not.toMatch(/nunca viaja base64/);
+    });
+
+    it('FA04: destructuring externo de payload no declara `data`', () => {
+        expect(src).not.toMatch(/const\s*\{\s*action\s*,\s*productId\s*,\s*data\s*\}\s*=\s*payload/);
+    });
+});
+
+describe('remoteInventoryProcessor — rechazo de conflicto (FA05)', () => {
+    beforeEach(() => {
+        store.clear();
+        vi.clearAllMocks();
+    });
+
+    it('FA05: rechazo incluye nombre del producto y flag conflictRejection', async () => {
+        store.set('bodega_products_v1', [{
+            id: 'pConflict', name: 'Café Molido', priceUsd: 3,
+            stock: 10, updatedAt: '2025-06-01T12:00:00.000Z',
+        }]);
+        const result = await applyInventoryCommand({
+            action: 'edit', productId: 'pConflict',
+            data: { name: 'Café Molido', priceUsd: 4, baseUpdatedAt: '2025-01-01T00:00:00.000Z' },
+        });
+        expect(result.success).toBe(false);
+        expect(result.conflictRejection).toBe(true);
+        expect(result.productName).toBe('Café Molido');
+        expect(result.error).toContain('Café Molido');
+    });
+
+    it('FA05: edición sin conflicto no incluye conflictRejection', async () => {
+        store.set('bodega_products_v1', [{
+            id: 'pOk', name: 'Arroz', priceUsd: 1,
+            stock: 5, updatedAt: '2025-01-01T00:00:00.000Z',
+        }]);
+        const result = await applyInventoryCommand({
+            action: 'edit', productId: 'pOk',
+            data: { name: 'Arroz', priceUsd: 2, baseUpdatedAt: '2025-01-01T00:00:00.000Z' },
+        });
+        expect(result.success).toBe(true);
+        expect(result.conflictRejection).toBeUndefined();
     });
 });

@@ -164,7 +164,7 @@ export async function applyInventoryCommand(payload) {
     if (!payload || !VALID_ACTIONS.includes(payload.action)) {
         return { success: false, error: `Acción inválida: ${payload?.action}` };
     }
-    const { action, productId, data } = payload;
+    const { action, productId } = payload;
     if (action !== 'add' && action !== 'batch_edit' && !productId) {
         return { success: false, error: 'productId requerido' };
     }
@@ -173,6 +173,10 @@ export async function applyInventoryCommand(payload) {
     // Se hace ANTES del withLock — un upload de red no puede sostener el write-lock
     // porque bloquearía el checkout durante segundos.
     // El upload es idempotente (upsert:true, ruta determinística por ID).
+    // LIMITACIÓN: batch_edit tiene data.items[].data.image — esos no pasan por aquí.
+    // En el flujo actual esto no ocurre (cada ítem pasó por handleSubmit antes de
+    // ser encolado), pero si en el futuro se añade otro origen de batch_edit con
+    // imágenes, este bloque debe extenderse para iterar sobre los ítems.
     let resolvedPayload = payload;
     const payloadImg = payload.data?.image;
     if (payloadImg && typeof payloadImg === 'string' && payloadImg.startsWith('data:')) {
@@ -313,7 +317,9 @@ export async function applyInventoryCommand(payload) {
                 if (!isNaN(baseTime) && !isNaN(existingTime) && baseTime < existingTime) {
                     return {
                         success: false,
-                        error: 'El producto fue modificado por otro supervisor. Vuelve a encolar el cambio.'
+                        conflictRejection: true,
+                        productName: existing.name,
+                        error: `Conflicto en "${existing.name}": fue editado por otro supervisor mientras esperaba. Reabre el producto y vuelve a encolar.`
                     };
                 }
             }
@@ -324,10 +330,6 @@ export async function applyInventoryCommand(payload) {
             const normalized = normalizeProduct(mergedPayload);
             normalized.id = productId;
             // D8: preservar imagen local si el comando no la trae.
-            // Puede llegar base64 como fallback cuando el monitor estaba offline;
-            // en ese caso RC2 ya intentó subirlo antes del lock.
-            if (normalized.image === undefined) normalized.image = existing.image;
-            // Anti-pisado: una edición remota NUNCA modifica el stock — la caja pudo
             // vender mientras el cambio esperaba en la cola del monitor. El stock
             // solo cambia vía 'adjust_stock' (deltas aditivos).
             normalized.stock = existing.stock;

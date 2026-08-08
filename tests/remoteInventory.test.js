@@ -257,7 +257,7 @@ describe('applyInventoryCommand — comandos remotos de inventario', () => {
         });
 
         expect(res.success).toBe(false);
-        expect(res.error).toMatch(/modificado por otro supervisor/i);
+        expect(res.error).toMatch(/editado por otro supervisor|modificado por otro supervisor/i);
 
         const [p] = await storageService.getItem(PRODUCTS_KEY);
         expect(p.priceUsd).toBe(10); // Sin modificar

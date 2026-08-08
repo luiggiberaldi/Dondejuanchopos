@@ -7,6 +7,7 @@ import PricePreviewLine from '../Products/PricePreviewLine';
 import { calcUsdFromBs } from '../../utils/calculatorUtils';
 // EGRESS RC1: subir imagen a Storage antes de enviar el payload al supervisor_commands.
 import { uploadProductImage, isStorageImageUrl } from '../../utils/imageUpload';
+import { showToast } from '../Toast';
 
 const MODE_LABELS = {
     tasa_dia: 'Tasa del día',
@@ -88,6 +89,13 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
     const handleImageUpload = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
+
+        // EGRESS RC1-guard: rechazar antes de leer el archivo completo.
+        // 8 MB crudos → canvas comprime a ≤ 300 KB. Más de 8 MB bloquea el hilo.
+        if (file.size > 8 * 1024 * 1024) {
+            showToast('La imagen es demasiado grande (máx 8 MB). Recórtala antes de subir.', 'warning');
+            return;
+        }
 
         const reader = new FileReader();
         reader.onload = (event) => {
@@ -224,6 +232,9 @@ export default function RemoteProductFormModal({ isOpen, onClose, editingProduct
             const payloadData = editingProduct ? { ...data, baseUpdatedAt: editingProduct.updatedAt } : data;
             await onSubmit(editingProduct ? 'edit' : 'add', data.id, payloadData);
             onClose();
+        } catch (err) {
+            console.error('[RemoteProductFormModal] Error al encolar cambio:', err);
+            showToast('No se pudo guardar el cambio. Comprueba el almacenamiento.', 'error');
         } finally {
             setSending(false);
         }
