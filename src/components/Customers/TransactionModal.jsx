@@ -137,7 +137,10 @@ export default function TransactionModal({
                                 onClick={() => {
                                     const deudaUsd = currentCustomer.deuda;
                                     if (currencyMode === 'BS' && bcvRate > 0) {
-                                        setTransactionAmount((deudaUsd * bcvRate).toFixed(2));
+                                        const debtBsToUse = (transactionModal.debtCurrentBs && transactionModal.debtCurrentBs > 0)
+                                            ? transactionModal.debtCurrentBs
+                                            : (deudaUsd * bcvRate);
+                                        setTransactionAmount(debtBsToUse.toFixed(2));
                                     } else if (currencyMode === 'COP' && tasaCop > 0) {
                                         setTransactionAmount((deudaUsd * tasaCop).toFixed(2));
                                     } else {
@@ -148,7 +151,7 @@ export default function TransactionModal({
                             >
                                 <CheckCircle2 size={14} />
                                 Pagar Total: {currencyMode === 'BS' && bcvRate > 0
-                                    ? `Bs ${formatBs(currentCustomer.deuda * bcvRate)}`
+                                    ? `Bs ${formatBs((transactionModal.debtCurrentBs && transactionModal.debtCurrentBs > 0) ? transactionModal.debtCurrentBs : (currentCustomer.deuda * bcvRate))}`
                                     : currencyMode === 'COP' && tasaCop > 0
                                     ? `${formatBs(currentCustomer.deuda * tasaCop)} COP`
                                     : `USD ${formatUsd(currentCustomer.deuda)}`

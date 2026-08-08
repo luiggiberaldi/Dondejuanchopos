@@ -225,9 +225,36 @@ export default function ReceiptModal({ receipt, onClose, onShareWhatsApp, curren
                                     </div>
                                 )}
 
+                                {receipt.changeOwed && (
+                                    <div className="flex justify-between text-amber-700 dark:text-amber-300 font-bold mt-2 pt-2 border-t border-slate-200">
+                                        <span>Vuelto por Fuera ({receipt.changeOwed.method === 'pago_movil' ? 'Pago Móvil' : receipt.changeOwed.method === 'zelle' ? 'Zelle' : receipt.changeOwed.method === 'transferencia' ? 'Transferencia' : receipt.changeOwed.method === 'efectivo_externo' ? 'Efectivo Externo' : 'Otro'}):</span>
+                                        <span className="font-extrabold text-amber-800 dark:text-amber-200">
+                                            ${(receipt.changeOwed.amountUsd || 0).toFixed(2)} USD (Bs {formatBs(receipt.changeOwed.amountBs)})
+                                        </span>
+                                    </div>
+                                )}
+
+                                {receipt.changeVoucher && (
+                                    <div className="flex justify-between text-purple-700 dark:text-purple-300 font-bold mt-2 pt-2 border-t border-slate-200">
+                                        <span>Voucher Emitido (#{receipt.changeVoucher.voucherCode}):</span>
+                                        <span className="font-extrabold text-purple-800 dark:text-purple-200">
+                                            ${(receipt.changeVoucher.amountUsd || 0).toFixed(2)} USD
+                                        </span>
+                                    </div>
+                                )}
+
+                                {receipt.tipDonated && (
+                                    <div className="flex justify-between text-emerald-700 dark:text-emerald-300 font-bold mt-2 pt-2 border-t border-slate-200">
+                                        <span>Cambio Cedido/Donado:</span>
+                                        <span className="font-extrabold text-emerald-800 dark:text-emerald-200">
+                                            {receipt.tipDonated.currency === 'BS' ? `Bs ${formatBs(receipt.tipDonated.amountBs)}` : `$${(receipt.tipDonated.amountUsd || 0).toFixed(2)} USD`}
+                                        </span>
+                                    </div>
+                                )}
+
                                 {receipt.changeUsd > 0 && (
                                     <div className="flex justify-between text-emerald-600 font-bold mt-2 pt-2 border-t border-slate-200">
-                                        <span>Vuelto Emitido:</span>
+                                        <span>Vuelto Entregado en Efectivo:</span>
                                         <span>
                                             {receiptCurrencyMode === 'usd'
                                                 ? `$${receipt.changeUsd.toFixed(2)}`

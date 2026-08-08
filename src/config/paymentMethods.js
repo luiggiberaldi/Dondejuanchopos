@@ -6,14 +6,14 @@ const PM_KEY = 'bodega_payment_methods_v1';
 // ── MÉTODOS DE FÁBRICA (no editables, no eliminables) ──
 export const FACTORY_PAYMENT_METHODS = [
     // Bolívares
-    { id: 'efectivo_bs', label: 'Efectivo en Bolívares', icon: '💵', Icon: Banknote, currency: 'BS', isFactory: true },
-    { id: 'pago_movil', label: 'Pago Móvil', icon: '📱', Icon: Smartphone, currency: 'BS', isFactory: true },
-    { id: 'punto_venta', label: 'Punto de Venta', icon: '💳', Icon: CreditCard, currency: 'BS', isFactory: true },
+    { id: 'efectivo_bs', label: 'Efectivo en Bolívares', icon: '💵', Icon: Banknote, currency: 'BS', isCash: true, isFactory: true },
+    { id: 'pago_movil', label: 'Pago Móvil', icon: '📱', Icon: Smartphone, currency: 'BS', isCash: false, isFactory: true },
+    { id: 'punto_venta', label: 'Punto de Venta', icon: '💳', Icon: CreditCard, currency: 'BS', isCash: false, isFactory: true },
     // Dólares
-    { id: 'efectivo_usd', label: 'Efectivo en Dólares', icon: '💲', Icon: DollarSign, currency: 'USD', isFactory: true },
+    { id: 'efectivo_usd', label: 'Efectivo en Dólares', icon: '💲', Icon: DollarSign, currency: 'USD', isCash: true, isFactory: true },
     // Pesos
-    { id: 'efectivo_cop', label: 'Efectivo en Pesos', icon: '🟡', Icon: Coins, currency: 'COP', isFactory: true },
-    { id: 'transferencia_cop', label: 'Transferencia COP', icon: '🏦', Icon: Store, currency: 'COP', isFactory: true },
+    { id: 'efectivo_cop', label: 'Efectivo en Pesos', icon: '🟡', Icon: Coins, currency: 'COP', isCash: true, isFactory: true },
+    { id: 'transferencia_cop', label: 'Transferencia COP', icon: '🏦', Icon: Store, currency: 'COP', isCash: false, isFactory: true },
 ];
 
 // Alias para compatibilidad

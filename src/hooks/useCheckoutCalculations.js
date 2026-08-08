@@ -172,26 +172,48 @@ export function useCheckoutCalculations({
 
         const hasCustomUsd = changeUsdGiven !== undefined && changeUsdGiven !== null && changeUsdGiven !== '';
         const hasCustomBs  = changeBsGiven !== undefined && changeBsGiven !== null && changeBsGiven !== '';
-
         const defaultUsdChange = hasCustomUsd ? round2(CurrencyService.safeParse(changeUsdGiven)) : (isPureBsPayment ? 0 : changeUsd);
         const defaultBsChange  = hasCustomBs  ? round2(CurrencyService.safeParse(changeBsGiven))  : (isPureBsPayment ? changeBs : 0);
 
+        const givenChangeInUsd = defaultUsdChange + (safeRate > 0 ? divR(defaultBsChange, safeRate) : 0);
+        const cambioFaltanteCalc = round2(Math.max(0, subR(changeUsd, givenChangeInUsd)));
+
         const tipDonatedObj = (isTipDonated && (changeUsd > 0 || changeBs > 0)) ? {
-            amountUsd: changeUsd,
-            amountBs: changeBs,
+            amountUsd: isChangeOwed || isChangeVoucher ? cambioFaltanteCalc : changeUsd,
+            amountBs: isChangeOwed || isChangeVoucher ? round2(mulR(cambioFaltanteCalc, safeRate)) : changeBs,
             currency: tipCurrency,
+            partial: givenChangeInUsd > 0.01 && givenChangeInUsd < changeUsd - 0.01,
+            physicalGivenUsd: defaultUsdChange,
+            physicalGivenBs: defaultBsChange,
+        } : null;
+
+        const changeOwedObj = (isChangeOwed && cambioFaltanteCalc > 0.009) ? {
+            amountUsd: cambioFaltanteCalc,
+            amountBs: round2(mulR(cambioFaltanteCalc, safeRate)),
+            method: changeOwedMethod,
+            note: changeOwedNote,
+            resolvedAt: null,
+        } : null;
+
+        const changeVoucherObj = (isChangeVoucher && cambioFaltanteCalc > 0.009) ? {
+            amountUsd: cambioFaltanteCalc,
+            amountBs: round2(mulR(cambioFaltanteCalc, safeRate)),
+            voucherCode: `VCH-${Date.now()}`,
+            issuedAt: new Date().toISOString(),
         } : null;
         
         onConfirmSale(payments, {
             changeUsdGiven: isTipDonated ? 0 : Math.min(defaultUsdChange, changeUsd),
             changeBsGiven: isTipDonated ? 0 : Math.min(defaultBsChange, changeBs),
             tipDonated: tipDonatedObj,
+            changeOwed: changeOwedObj,
+            changeVoucher: changeVoucherObj,
         }, {
             cartTotalUsd: dynamicTotalUsd,
             cartTotalBs: dynamicTotalBs,
             cartSubtotalUsd: isPureBsPayment && safeRate > 0 ? round2(divR(cartTotalBs, safeRate)) : dynamicTotalUsd,
         });
-    }, [barValues, paymentMethods, onConfirmSale, changeUsdGiven, changeBsGiven, changeUsd, changeBs, safeRate, safeTasaCop, casheaActive, casheaAmountUsd, casheaPercent, dynamicTotalUsd, dynamicTotalBs, isPureBsPayment, cartTotalBs, isTipDonated, tipCurrency]);
+    }, [barValues, paymentMethods, onConfirmSale, changeUsdGiven, changeBsGiven, changeUsd, changeBs, safeRate, safeTasaCop, casheaActive, casheaAmountUsd, casheaPercent, dynamicTotalUsd, dynamicTotalBs, isPureBsPayment, cartTotalBs, isTipDonated, tipCurrency, isChangeOwed, changeOwedMethod, changeOwedNote, isChangeVoucher]);
 
     // ── Detección inteligente de errores de entrada ───────────────────────────
     const _detectWarning = useCallback(() => {
@@ -214,12 +236,6 @@ export function useCheckoutCalculations({
                 if (ratio >= 0.90 && ratio <= 1.10 && val > dynamicTotalUsd * 3) {
                     const expectedBs = round2(mulR(dynamicTotalUsd, safeRate));
                     return {
-                        type: 'currency_confusion',
-                        title: 'Posible error de moneda',
-                        lines: [
-                            `Ingresaste $${round2(val)} en el campo de Dólares, pero el total de la venta es $${round2(dynamicTotalUsd)}.`,
-                            `El total en Bolívares es Bs ${expectedBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })}. ¿Confundiste el campo?`,
-                        ],
                         isRound: false,
                     };
                 }
@@ -287,8 +303,12 @@ export function useCheckoutCalculations({
         pendingConfirmRef.current = null;
     }, []);
 
-    // ── Tip Donated / Cliente deja el cambio ──────────────────────────────
+    // ── Tip Donated / Cliente deja el cambio + FX19 ───────────────────────────
     const [isTipDonated, setIsTipDonated] = useState(false);
+    const [isChangeOwed, setIsChangeOwed] = useState(false);
+    const [changeOwedMethod, setChangeOwedMethod] = useState('pago_movil');
+    const [changeOwedNote, setChangeOwedNote] = useState('');
+    const [isChangeVoucher, setIsChangeVoucher] = useState(false);
 
     const tipCurrency = useMemo(() => {
         const activeInputMethods = paymentMethods.filter(m => CurrencyService.safeParse(barValues[m.id]) > 0);
@@ -305,6 +325,8 @@ export function useCheckoutCalculations({
     const toggleTipDonated = useCallback(() => {
         triggerHaptic && triggerHaptic();
         setIsTipDonated(prev => !prev);
+        setIsChangeOwed(false);
+        setIsChangeVoucher(false);
     }, [triggerHaptic]);
 
     return {
@@ -322,6 +344,10 @@ export function useCheckoutCalculations({
         isTipDonated,
         toggleTipDonated,
         tipCurrency,
+        isChangeOwed, setIsChangeOwed,
+        changeOwedMethod, setChangeOwedMethod,
+        changeOwedNote, setChangeOwedNote,
+        isChangeVoucher, setIsChangeVoucher,
         handleBarChange,
         fillBar,
         handleConfirm,

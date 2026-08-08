@@ -77,6 +77,24 @@ export const FINANCIAL_EPSILON = Object.freeze({
   CHANGE_ANOMALY_MIN_BS_FACTOR: 100,
 });
 
+/**
+ * Política común del flujo de checkout.
+ *
+ * Estos valores no sustituyen la validación del processor; evitan que la UI,
+ * los hooks y el cierre usen umbrales ligeramente distintos.
+ */
+export const CHECKOUT_POLICY = Object.freeze({
+  PAYMENT_ZERO: FINANCIAL_EPSILON.PAYMENT_ZERO,
+  TOTAL_DRIFT_USD: 0.009,
+  TOTAL_DRIFT_BS: 5,
+  TOTAL_DRIFT_COP: 500,
+  CHANGE_SPLIT_TOLERANCE: 0.009,
+  REFERENCE_MIN_LENGTH: 4,
+  MAX_CASHEA_PERCENT: 60,
+  MIN_CASHEA_PERCENT: 10,
+  VALID_CURRENCIES: Object.freeze(['USD', 'BS', 'COP']),
+});
+
 /** Configuración de licencias (SEC-001). */
 export const LICENSE_POLICY = Object.freeze({
   /** Rechazar tokens que no tengan firma RSA (sin '.'). */
@@ -128,6 +146,7 @@ export default {
   LOGIN_RATE_LIMIT,
   AUTOLOCK_POLICY,
   FINANCIAL_EPSILON,
+  CHECKOUT_POLICY,
   LICENSE_POLICY,
   ALLOWED_ORIGINS,
   validatePin,

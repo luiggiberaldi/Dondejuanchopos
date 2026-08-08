@@ -5,6 +5,7 @@ import { Users, Plus, Search, User, X, Trash2, Pencil, Phone, RefreshCw, Save, A
 import { storageService } from '../utils/storageService';
 import { showToast } from '../components/Toast';
 import { formatBs, formatUsd, formatCop } from '../utils/calculatorUtils';
+import { getSaleCurrentBsTotal } from '../utils/saleItemsBsCalculator';
 import { procesarImpactoCliente } from '../utils/financialLogic';
 import TransactionModal from '../components/Customers/TransactionModal';
 import { processCustomerTransaction } from '../utils/customerTransactionProcessor';
@@ -45,10 +46,12 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
     const [paymentMethod, setPaymentMethod] = useState('efectivo_usd');
     const [activePaymentMethods, setActivePaymentMethods] = useState([]);
     const [resetBalanceCustomer, setResetBalanceCustomer] = useState(null);
-    const { effectiveRate: bcvRate, tasaCop, copEnabled, copPrimary } = useProductContext();
+    const { products, effectiveRate: bcvRate, tasaCop, copEnabled, copPrimary, bsRoundingStep } = useProductContext();
     const { log: auditLog } = useAudit();
     const [expandedHistory, setExpandedHistory] = useState(null);
     const [historyData, setHistoryData] = useState([]);
+    // Mapa con el Bs correcto (a precios actuales del catálogo) por cliente
+    const [customerDebtBsMap, setCustomerDebtBsMap] = useState({});
     // Modales de Clientes
     const [selectedCustomer, setSelectedCustomer] = useState(null);
     const [editingCustomer, setEditingCustomer] = useState(null);
@@ -109,6 +112,32 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
     useEffect(() => {
         if (isActive) loadData();
     }, [isActive]);
+
+    // Pre-calcular el Bs correcto (precio actual del catálogo) para cada cliente con deuda
+    useEffect(() => {
+        if (!products || products.length === 0 || !customers || customers.length === 0 || bcvRate <= 0) return;
+        const debtors = customers.filter(c => c.deuda > 0.01);
+        if (debtors.length === 0) return;
+
+        storageService.getItem('bodega_sales_v1', []).then(allSales => {
+            const map = {};
+            debtors.forEach(customer => {
+                const fiadasActivas = allSales.filter(s =>
+                    (s.customerId === customer.id || s.clienteId === customer.id) &&
+                    s.tipo === 'VENTA_FIADA' &&
+                    s.status !== 'ANULADA'
+                );
+                if (fiadasActivas.length > 0) {
+                    const totalBs = fiadasActivas.reduce((acc, s) => {
+                        const res = getSaleCurrentBsTotal(s.items, products, bcvRate, bcvRate, bsRoundingStep);
+                        return acc + res.totalBs;
+                    }, 0);
+                    if (totalBs > 0) map[customer.id] = totalBs;
+                }
+            });
+            setCustomerDebtBsMap(prev => ({ ...prev, ...map }));
+        });
+    }, [products, customers, bcvRate, bsRoundingStep]);
 
     const saveCustomers = async (updatedCustomers) => {
         setCustomers(updatedCustomers);
@@ -415,6 +444,7 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
                                     tasaCop={tasaCop}
                                     copEnabled={copEnabled}
                                     copPrimary={copPrimary}
+                                    debtBs={customerDebtBsMap[customer.id]}
                                     onClick={() => {
                                         setSelectedCustomer(customer);
                                         toggleHistory(customer.id);
@@ -490,7 +520,15 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
                     setHistoryData([]);
                 }}
                 onAjustar={() => {
-                    setTransactionModal({ isOpen: true, type: 'ABONO', customer: selectedCustomer });
+                    const fiadasActivas = (historyData || []).filter(s => s.tipo === 'VENTA_FIADA' && s.status !== 'ANULADA');
+                    let totalDebtCurrentBs = 0;
+                    if (fiadasActivas.length > 0) {
+                        totalDebtCurrentBs = fiadasActivas.reduce((acc, s) => {
+                            const itemRes = getSaleCurrentBsTotal(s.items, products, bcvRate, bcvRate, bsRoundingStep);
+                            return acc + itemRes.totalBs;
+                        }, 0);
+                    }
+                    setTransactionModal({ isOpen: true, type: 'ABONO', customer: selectedCustomer, debtCurrentBs: totalDebtCurrentBs });
                     setSelectedCustomer(null);
                 }}
                 onReset={() => {
@@ -528,6 +566,8 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
                 tasaCop={tasaCop}
                 copEnabled={copEnabled}
                 copPrimary={copPrimary}
+                bsRoundingStep={bsRoundingStep}
+                products={products}
                 sales={historyData}
             />
 
@@ -577,7 +617,7 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
 }
 
 // ─── Sub-componente: Tarjeta Compacta ───────────────────────
-function CustomerCard({ customer, bcvRate, tasaCop, copEnabled, copPrimary, onClick, onDelete }) {
+function CustomerCard({ customer, bcvRate, tasaCop, copEnabled, copPrimary, debtBs, onClick, onDelete }) {
     return (
         // v1.2.0: surface tokens + shadow-tone-sm (warm shadow) en vez de shadow-sm.
         <article className="reveal bg-white dark:bg-surface-900 rounded-2xl px-4 py-3 border border-slate-200 dark:border-slate-700 shadow-sm transition-all active:scale-[0.98] flex items-center gap-2 relative">
@@ -623,7 +663,7 @@ function CustomerCard({ customer, bcvRate, tasaCop, copEnabled, copPrimary, onCl
                                             : `-$${formatUsd(customer.deuda)}`}
                                     </p>
                                     {copEnabled && copPrimary && <p className="text-[10px] font-bold text-red-600 dark:text-red-400">-${formatUsd(customer.deuda)}</p>}
-                                    {bcvRate > 0 && <p className="text-[10px] font-bold text-red-600 dark:text-red-400">-{formatBs(customer.deuda * bcvRate)} Bs</p>}
+                                    {bcvRate > 0 && <p className="text-[10px] font-bold text-red-600 dark:text-red-400">-{formatBs(debtBs ?? (customer.deuda * bcvRate))} Bs</p>}
                                     {copEnabled && !copPrimary && tasaCop > 0 && <p className="text-[10px] font-bold text-red-600 dark:text-red-400">-{formatCop(customer.deuda * tasaCop)} COP</p>}
                                 </>
                             )}
@@ -671,7 +711,7 @@ function CustomerCard({ customer, bcvRate, tasaCop, copEnabled, copPrimary, onCl
 }
 
 // Genera la URL de WhatsApp con el estado de cuenta formateado y las últimas 7 transacciones
-function buildCustomerStatementWhatsAppUrl(customer, sales, bcvRate) {
+function buildCustomerStatementWhatsAppUrl(customer, sales, bcvRate, bsRoundingStep = 10, products = []) {
     const formattedName = customer.name
         ? customer.name.trim().toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
         : '';
@@ -685,9 +725,19 @@ function buildCustomerStatementWhatsAppUrl(customer, sales, bcvRate) {
     const favor = customer.favor || 0;
     const casheaDeuda = customer.casheaDeuda || 0;
 
+    const fiadasActivas = (sales || []).filter(s => s.tipo === 'VENTA_FIADA' && s.status !== 'ANULADA');
+    let totalProductDebtBs = 0;
+    if (fiadasActivas.length > 0) {
+        totalProductDebtBs = fiadasActivas.reduce((acc, s) => {
+            const itemRes = getSaleCurrentBsTotal(s.items, products, bcvRate, bcvRate, bsRoundingStep);
+            return acc + itemRes.totalBs;
+        }, 0);
+    }
+    const debtBsToDisplay = totalProductDebtBs > 0 ? totalProductDebtBs : (deuda * bcvRate);
+
     if (deuda > 0) {
         msg += `*Estado:* Deuda Pendiente de *$${formatUsd(deuda)}*`;
-        if (bcvRate > 0) msg += ` (Bs ${formatBs(deuda * bcvRate)})`;
+        if (bcvRate > 0) msg += ` (Bs ${formatBs(debtBsToDisplay)})`;
         msg += `\n`;
     } else if (favor > 0) {
         msg += `*Estado:* Saldo a Favor de *$${formatUsd(favor)}*`;
@@ -720,7 +770,12 @@ function buildCustomerStatementWhatsAppUrl(customer, sales, bcvRate) {
 
             let sign = isCobro ? '+' : '';
             msg += `${idx + 1}. [${dateStr}] ${typeStr}: *${sign}$${formatUsd(sale.totalUsd || 0)}*`;
-            if (bcvRate > 0 && !isAnulada) msg += ` (Bs ${formatBs((sale.totalUsd || 0) * bcvRate)})`;
+            if (bcvRate > 0 && !isAnulada) {
+                const bsAmount = (isFiada && sale.items?.length > 0)
+                    ? getSaleCurrentBsTotal(sale.items, products, bcvRate, bcvRate, bsRoundingStep).totalBs
+                    : ((sale.totalUsd || 0) * bcvRate);
+                msg += ` (Bs ${formatBs(bsAmount)})`;
+            }
             msg += `\n`;
 
             if (sale.items && sale.items.length > 0) {
@@ -740,7 +795,7 @@ function buildCustomerStatementWhatsAppUrl(customer, sales, bcvRate) {
 }
 
 // ─── Sub-componente: Bottom Sheet de Detalle ────────────────
-function CustomerDetailSheet({ customer, isOpen, isAdmin, onClose, onAjustar, onReset, onSaldarCashea, onEdit, onDelete, bcvRate, tasaCop, copEnabled, copPrimary, sales }) {
+function CustomerDetailSheet({ customer, isOpen, isAdmin, onClose, onAjustar, onReset, onSaldarCashea, onEdit, onDelete, bcvRate, tasaCop, copEnabled, copPrimary, bsRoundingStep = 10, products = [], sales }) {
     if (!isOpen || !customer) return null;
 
     // Mini-paginación del historial
@@ -820,59 +875,73 @@ function CustomerDetailSheet({ customer, isOpen, isAdmin, onClose, onAjustar, on
                     </div>
 
                     {/* Saldo */}
-                    <div className="flex flex-col gap-2 w-full">
-                        <div className="flex gap-2">
-                            {customer.deuda > 0 || customer.casheaDeuda > 0 ? (
-                                <>
-                                    {customer.deuda > 0 && (
-                                        <div className="flex-1 bg-red-500/[0.03] dark:bg-red-500/[0.05] border border-red-200 dark:border-red-900/40 rounded-2xl px-3 py-2.5 text-center shadow-sm">
-                                            <p className="text-[10px] font-black text-red-500 dark:text-red-400 uppercase tracking-wider mb-1">Deuda Pendiente</p>
-                                            <p className={`text-xl font-black ${copEnabled && copPrimary ? 'text-amber-700 dark:text-amber-450' : 'text-red-500'} tracking-tight leading-tight`}>
+                    {(() => {
+                        const fiadasActivas = (sales || []).filter(s => s.tipo === 'VENTA_FIADA' && s.status !== 'ANULADA');
+                        let totalProductDebtBs = 0;
+                        if (fiadasActivas.length > 0) {
+                            totalProductDebtBs = fiadasActivas.reduce((acc, s) => {
+                                const itemRes = getSaleCurrentBsTotal(s.items, products, bcvRate, bcvRate, bsRoundingStep);
+                                return acc + itemRes.totalBs;
+                            }, 0);
+                        }
+                        const debtBsToDisplay = totalProductDebtBs > 0 ? totalProductDebtBs : (customer.deuda * bcvRate);
+
+                        return (
+                            <div className="flex flex-col gap-2 w-full">
+                                <div className="flex gap-2">
+                                    {customer.deuda > 0 || customer.casheaDeuda > 0 ? (
+                                        <>
+                                            {customer.deuda > 0 && (
+                                                <div className="flex-1 bg-red-500/[0.03] dark:bg-red-500/[0.05] border border-red-200 dark:border-red-900/40 rounded-2xl px-3 py-2.5 text-center shadow-sm">
+                                                    <p className="text-[10px] font-black text-red-500 dark:text-red-400 uppercase tracking-wider mb-1">Deuda Pendiente</p>
+                                                    <p className={`text-xl font-black ${copEnabled && copPrimary ? 'text-amber-700 dark:text-amber-450' : 'text-red-500'} tracking-tight leading-tight`}>
+                                                        {copEnabled && copPrimary && tasaCop > 0
+                                                            ? `-${formatCop(customer.deuda * tasaCop)} COP`
+                                                            : `-$${formatUsd(customer.deuda)}`}
+                                                    </p>
+                                                    <div className="mt-1 space-y-0.5 text-[9px] font-bold text-slate-400 dark:text-slate-550 leading-none">
+                                                        {copEnabled && copPrimary && <p>-${formatUsd(customer.deuda)}</p>}
+                                                        {bcvRate > 0 && <p>-{formatBs(debtBsToDisplay)} Bs</p>}
+                                                        {copEnabled && !copPrimary && tasaCop > 0 && <p>-{formatCop(customer.deuda * tasaCop)} COP</p>}
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {customer.casheaDeuda > 0 && (
+                                                <div className="flex-1 bg-purple-500/[0.03] dark:bg-purple-500/[0.05] border border-purple-200 dark:border-purple-900/40 rounded-2xl px-3 py-2.5 text-center shadow-sm animate-in fade-in">
+                                                    <p className="text-[10px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-wider mb-1 flex items-center justify-center gap-1"><CasheaIcon size={11} /> Cashea</p>
+                                                    <p className="text-xl font-black text-purple-600 dark:text-purple-450 tracking-tight leading-tight">
+                                                        -${formatUsd(customer.casheaDeuda)}
+                                                    </p>
+                                                    {bcvRate > 0 && <p className="text-[9px] font-bold text-slate-400 dark:text-slate-550 mt-1 leading-none">-{formatBs(customer.casheaDeuda * bcvRate)} Bs</p>}
+                                                </div>
+                                            )}
+                                        </>
+                                    ) : customer.favor > 0 ? (
+                                        <div className="flex-1 bg-emerald-500/[0.03] dark:bg-emerald-500/[0.05] border border-emerald-200 dark:border-emerald-900/40 rounded-2xl px-3 py-2.5 text-center shadow-sm">
+                                            <p className="text-[10px] font-black text-emerald-600 dark:text-emerald-450 uppercase tracking-wider mb-1">Saldo a Favor</p>
+                                            <p className={`text-xl font-black ${copEnabled && copPrimary ? 'text-amber-700 dark:text-amber-450' : 'text-emerald-500'} tracking-tight leading-tight`}>
                                                 {copEnabled && copPrimary && tasaCop > 0
-                                                    ? `-${formatCop(customer.deuda * tasaCop)} COP`
-                                                    : `-$${formatUsd(customer.deuda)}`}
+                                                    ? `+${formatCop(customer.favor * tasaCop)} COP`
+                                                    : `+$${formatUsd(customer.favor)}`}
                                             </p>
                                             <div className="mt-1 space-y-0.5 text-[9px] font-bold text-slate-400 dark:text-slate-550 leading-none">
-                                                {copEnabled && copPrimary && <p>-${formatUsd(customer.deuda)}</p>}
-                                                {bcvRate > 0 && <p>-{formatBs(customer.deuda * bcvRate)} Bs</p>}
-                                                {copEnabled && !copPrimary && tasaCop > 0 && <p>-{formatCop(customer.deuda * tasaCop)} COP</p>}
+                                                {copEnabled && copPrimary && <p>+${formatUsd(customer.favor)}</p>}
+                                                {bcvRate > 0 && <p>+{formatBs(customer.favor * bcvRate)} Bs</p>}
+                                                {copEnabled && !copPrimary && tasaCop > 0 && <p>+{formatCop(customer.favor * tasaCop)} COP</p>}
                                             </div>
                                         </div>
-                                    )}
-                                    {customer.casheaDeuda > 0 && (
-                                        <div className="flex-1 bg-purple-500/[0.03] dark:bg-purple-500/[0.05] border border-purple-200 dark:border-purple-900/40 rounded-2xl px-3 py-2.5 text-center shadow-sm animate-in fade-in">
-                                            <p className="text-[10px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-wider mb-1 flex items-center justify-center gap-1"><CasheaIcon size={11} /> Cashea</p>
-                                            <p className="text-xl font-black text-purple-600 dark:text-purple-450 tracking-tight leading-tight">
-                                                -${formatUsd(customer.casheaDeuda)}
+                                    ) : (
+                                        <div className="flex-1 bg-emerald-500/[0.02] dark:bg-emerald-500/[0.04] border border-emerald-100 dark:border-emerald-900/30 rounded-2xl px-3 py-3 text-center shadow-sm">
+                                            <p className="text-[10px] font-black text-emerald-500 dark:text-emerald-450 uppercase tracking-wider mb-0.5">Estado Financiero</p>
+                                            <p className="text-sm font-black text-emerald-600 dark:text-emerald-400 flex items-center justify-center gap-1.5 mt-1.5">
+                                                <CheckCircle2 size={15} className="text-emerald-500" aria-hidden="true" /> Al día
                                             </p>
-                                            {bcvRate > 0 && <p className="text-[9px] font-bold text-slate-400 dark:text-slate-550 mt-1 leading-none">-{formatBs(customer.casheaDeuda * bcvRate)} Bs</p>}
                                         </div>
                                     )}
-                                </>
-                            ) : customer.favor > 0 ? (
-                                <div className="flex-1 bg-emerald-500/[0.03] dark:bg-emerald-500/[0.05] border border-emerald-200 dark:border-emerald-900/40 rounded-2xl px-3 py-2.5 text-center shadow-sm">
-                                    <p className="text-[10px] font-black text-emerald-600 dark:text-emerald-450 uppercase tracking-wider mb-1">Saldo a Favor</p>
-                                    <p className={`text-xl font-black ${copEnabled && copPrimary ? 'text-amber-700 dark:text-amber-450' : 'text-emerald-500'} tracking-tight leading-tight`}>
-                                        {copEnabled && copPrimary && tasaCop > 0
-                                            ? `+${formatCop(customer.favor * tasaCop)} COP`
-                                            : `+$${formatUsd(customer.favor)}`}
-                                    </p>
-                                    <div className="mt-1 space-y-0.5 text-[9px] font-bold text-slate-400 dark:text-slate-550 leading-none">
-                                        {copEnabled && copPrimary && <p>+${formatUsd(customer.favor)}</p>}
-                                        {bcvRate > 0 && <p>+{formatBs(customer.favor * bcvRate)} Bs</p>}
-                                        {copEnabled && !copPrimary && tasaCop > 0 && <p>+{formatCop(customer.favor * tasaCop)} COP</p>}
-                                    </div>
                                 </div>
-                            ) : (
-                                <div className="flex-1 bg-emerald-500/[0.02] dark:bg-emerald-500/[0.04] border border-emerald-100 dark:border-emerald-900/30 rounded-2xl px-3 py-3 text-center shadow-sm">
-                                    <p className="text-[10px] font-black text-emerald-500 dark:text-emerald-450 uppercase tracking-wider mb-0.5">Estado Financiero</p>
-                                    <p className="text-sm font-black text-emerald-600 dark:text-emerald-400 flex items-center justify-center gap-1.5 mt-1.5">
-                                        <CheckCircle2 size={15} className="text-emerald-500" aria-hidden="true" /> Al día
-                                    </p>
-                                </div>
-                            )}
-                        </div>
-                    </div>
+                            </div>
+                        );
+                    })()}
 
                     {/* Acciones */}
                     {(() => {
@@ -912,7 +981,7 @@ function CustomerDetailSheet({ customer, isOpen, isAdmin, onClose, onAjustar, on
                     <div className="flex flex-col gap-1.5 w-full">
                         <button
                             onClick={() => {
-                                const url = buildCustomerStatementWhatsAppUrl(customer, sales, bcvRate);
+                                const url = buildCustomerStatementWhatsAppUrl(customer, sales, bcvRate, bsRoundingStep, products);
                                 window.open(url, '_blank');
                             }}
                             disabled={!customer.phone}
@@ -971,7 +1040,11 @@ function CustomerDetailSheet({ customer, isOpen, isAdmin, onClose, onAjustar, on
                                                         </p>
                                                         {bcvRate > 0 && !isAnulada && (
                                                             <p className={`text-[9px] font-bold ${isCobro ? 'text-emerald-400/70' : isFiada ? 'text-amber-400/70' : isCashea ? 'text-purple-400/70' : 'text-slate-400'}`}>
-                                                                {isCobro ? '+' : ''}{formatBs((sale.totalUsd || 0) * bcvRate)} Bs
+                                                                {isCobro ? '+' : ''}{formatBs(
+                                                                    isFiada && sale.items?.length > 0
+                                                                        ? getSaleCurrentBsTotal(sale.items, products, bcvRate, bcvRate, bsRoundingStep).totalBs
+                                                                        : (sale.totalUsd || 0) * bcvRate
+                                                                )} Bs
                                                             </p>
                                                         )}
                                                     </div>

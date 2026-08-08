@@ -131,6 +131,13 @@ export default function CheckoutModalPOS({
     const [isChangeCredited, setIsChangeCredited] = useState(false);
     const [isTipDonated, setIsTipDonated] = useState(false);
 
+    // FX19: estado de salidas de vuelto incompleto
+    const [isChangeOwed, setIsChangeOwed] = useState(false);
+    const [changeOwedMethod, setChangeOwedMethod] = useState('pago_movil');
+    const [changeOwedNote, setChangeOwedNote] = useState('');
+    const [isChangeVoucher, setIsChangeVoucher] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
     const tipCurrency = useMemo(() => {
         const activeInputMethods = metodosNormalizados.filter(m => val(m.id) > 0);
         if (activeInputMethods.length === 0) return 'USD';
@@ -146,6 +153,9 @@ export default function CheckoutModalPOS({
     const toggleTipDonated = () => {
         triggerHaptic && triggerHaptic();
         setIsTipDonated(prev => !prev);
+        setIsChangeCredited(false);
+        setIsChangeOwed(false);
+        setIsChangeVoucher(false);
     };
 
     // Detección de pago 100% Bolívares
@@ -172,6 +182,9 @@ export default function CheckoutModalPOS({
         faltaPorPagarBS,
         faltaPorPagarUsdDirect,
         cambioUSD,
+        cambioBS,
+        physicalCashReceived,
+        paymentState,
         montoIGTF,
         totalConIGTF,
         totalConIGTFBS,
@@ -192,41 +205,79 @@ export default function CheckoutModalPOS({
     });
 
     const handleVueltoDistChange = (moneda, valor) => {
-        setIsTipDonated(false);
         let cleanVal = valor.replace(',', '.');
         if (cleanVal !== '' && !/^\d*\.?\d*$/.test(cleanVal)) return;
 
-        const valNum = parseFloat(cleanVal) || 0;
-        
         if (moneda === 'usd') {
-            const usdMax = round2(Math.min(valNum, cambioUSD));
-            if (valNum > cambioUSD) {
-                showToast(`El vuelto total es de $${cambioUSD.toFixed(2)}`, 'warning');
+            if (cleanVal === '') {
+                setDistVueltoUSD('');
+                return;
             }
-            setDistVueltoUSD(cleanVal === '' ? '' : usdMax.toString());
-            
-            const restUsd = round2(Math.max(0, subR(cambioUSD, usdMax)));
-            const restBs = round2(mulR(restUsd, tasaSegura));
-            setDistVueltoBS(restUsd > 0.001 ? Math.round(restBs).toString() : '');
+            const valNum = parseFloat(cleanVal) || 0;
+            const bsActualInUsd = parseFloat(distVueltoBS || 0) / tasaSegura;
+            const maxUsdSeguro = round2(Math.max(0, subR(cambioUSD, bsActualInUsd)));
+
+            let usdFinal = valNum;
+            if (valNum > maxUsdSeguro + 0.009) {
+                if (bsActualInUsd > 0) {
+                    const nuevoBsPermitido = round2(Math.max(0, mulR(subR(cambioUSD, Math.min(valNum, cambioUSD)), tasaSegura)));
+                    setDistVueltoBS(nuevoBsPermitido > 0 ? Math.round(nuevoBsPermitido).toString() : '');
+                    usdFinal = Math.min(valNum, cambioUSD);
+                } else {
+                    usdFinal = cambioUSD;
+                    showToast(`El vuelto total es de $${cambioUSD.toFixed(2)}`, 'warning');
+                }
+            }
+            setDistVueltoUSD(round2(usdFinal).toString());
+
+            const sumaFinal = round2(usdFinal + (parseFloat(distVueltoBS || 0) / tasaSegura));
+            if (sumaFinal >= cambioUSD - 0.009) {
+                setIsTipDonated(false);
+                setIsChangeOwed(false);
+                setIsChangeVoucher(false);
+            }
         } else {
-            const maxBs = round2(mulR(cambioUSD, tasaSegura));
-            const bsMax = round2(Math.min(valNum, maxBs));
-            if (valNum > maxBs) {
-                showToast(`El vuelto total en bolívares es Bs ${Math.round(maxBs).toLocaleString('es-VE')}`, 'warning');
+            if (cleanVal === '') {
+                setDistVueltoBS('');
+                return;
             }
-            setDistVueltoBS(cleanVal === '' ? '' : bsMax.toString());
-            
-            const restBsInUsd = divR(bsMax, tasaSegura);
-            const restUsd = round2(Math.max(0, subR(cambioUSD, restBsInUsd)));
-            setDistVueltoUSD(restUsd > 0.001 ? restUsd.toFixed(2) : '');
+            const valNumBs = parseFloat(cleanVal) || 0;
+            const usdActual = parseFloat(distVueltoUSD || 0);
+            const maxBsSeguro = round2(mulR(Math.max(0, subR(cambioUSD, usdActual)), tasaSegura));
+
+            let bsFinal = valNumBs;
+            if (valNumBs > maxBsSeguro + 1) {
+                if (usdActual > 0) {
+                    const nuevoUsdPermitido = round2(Math.max(0, subR(cambioUSD, valNumBs / tasaSegura)));
+                    setDistVueltoUSD(nuevoUsdPermitido > 0 ? nuevoUsdPermitido.toString() : '');
+                    const maxBsAbsoluto = round2(mulR(cambioUSD, tasaSegura));
+                    bsFinal = Math.min(valNumBs, maxBsAbsoluto);
+                } else {
+                    const maxBsAbsoluto = round2(mulR(cambioUSD, tasaSegura));
+                    bsFinal = maxBsAbsoluto;
+                    showToast(`El vuelto total en bolívares es Bs ${Math.round(maxBsAbsoluto).toLocaleString('es-VE')}`, 'warning');
+                }
+            }
+            setDistVueltoBS(Math.round(bsFinal).toString());
+
+            const sumaFinal = round2((parseFloat(distVueltoUSD || 0)) + (bsFinal / tasaSegura));
+            if (sumaFinal >= cambioUSD - 0.009) {
+                setIsTipDonated(false);
+                setIsChangeOwed(false);
+                setIsChangeVoucher(false);
+            }
         }
     };
+
     const handleCreditChange = () => {
         if (!clienteSeleccionado) {
             showToast('Selecciona un cliente para abonar el vuelto a cuenta', 'warning');
             return;
         }
         setIsChangeCredited(true);
+        setIsTipDonated(false);
+        setIsChangeOwed(false);
+        setIsChangeVoucher(false);
     };
 
     // Limpiar vuelto cuando baja
@@ -284,7 +335,8 @@ export default function CheckoutModalPOS({
     };
 
     // ─── PROCESAR PAGO ──────────────────────────────────────
-    const procesarPago = (imprimir = false) => {
+    const procesarPago = async (imprimir = false) => {
+        if (isSubmitting) return;
         sniperLog('1_PROCESAR_PAGO_CLICK', 'Boton PAGAR (LISTO) presionado', { modo, faltaPorPagar, clienteSeleccionado });
         try {
             // Validaciones
@@ -318,6 +370,9 @@ export default function CheckoutModalPOS({
                 }
             }
 
+            setIsSubmitting(true);
+            const checkoutOperationId = crypto.randomUUID();
+
             // Construir pagos finales en formato que onConfirmSale espera
             const payments = metodosNormalizados
                 .filter(m => val(m.id) > 0)
@@ -337,6 +392,7 @@ export default function CheckoutModalPOS({
                         amountBs: currency === 'BS' ? amount
                             : currency === 'COP' ? (tasaCop > 0 && tasaSegura > 0 ? (amount / tasaCop) * tasaSegura : 0)
                             : (tasaSegura > 0 ? amount * tasaSegura : 0),
+                        isCash: m.isCash === true || m.id?.startsWith('efectivo_'),
                         referencia: referencias[m.id] || '',
                     };
                 });
@@ -372,39 +428,90 @@ export default function CheckoutModalPOS({
                 });
             }
 
-            // Determinar moneda predominantemente recibida en efectivo para el valor por defecto del vuelto
-            const cashPaidBs = payments.reduce((sum, p) => sum + ((p.methodId === 'efectivo_bs' || p.currency === 'BS') ? (Number(p.amountBs) || 0) : 0), 0);
-            const cashPaidUsdInBs = payments.reduce((sum, p) => sum + ((p.methodId === 'efectivo_usd' || p.currency === 'USD') ? (mulR(Number(p.amountUsd) || 0, tasaSegura)) : 0), 0);
+            // Solo el efectivo físico puede generar vuelto físico. Pagos digitales
+            // sobregirados deben resolverse explícitamente (monedero/adeudo/voucher/donación).
+            const cashPaidBs = physicalCashReceived.bs;
+            const cashPaidUsdInBs = round2(mulR(physicalCashReceived.usd, tasaSegura)
+                + (tasaCop > 0 ? mulR(divR(physicalCashReceived.cop, tasaCop), tasaSegura) : 0));
             const vueltoEnBs = cashPaidBs > cashPaidUsdInBs;
 
-            const defaultChangeUsd = isTipDonated ? 0 : (distVueltoUSD ? parseFloat(distVueltoUSD) : (vueltoEnBs ? 0 : cambioUSD));
-            const defaultChangeBs = isTipDonated ? 0 : (distVueltoBS ? parseFloat(distVueltoBS) : (vueltoEnBs ? round2(mulR(cambioUSD, tasaSegura)) : 0));
+            // FX19 partial: calcular suma y faltante primero para usarlos en la lógica de donación
+            const sumaVueltoAsignadoCalculada = parseFloat(distVueltoUSD || 0) + parseFloat(distVueltoBS || 0) / tasaSegura;
+            const cambioFaltanteCalculado = round2(Math.max(0, subR(cambioUSD, sumaVueltoAsignadoCalculada)));
 
+            // FX19 partial: si el usuario distribuyó cambio físico Y además donó el resto,
+            // changeUsdGiven/changeBsGiven debe reflejar lo físicamente entregado (no 0).
+            const hasPartialPhysical = sumaVueltoAsignadoCalculada > 0.01;
+            const hasPhysicalCash = cashPaidBs > 0.009 || cashPaidUsdInBs > 0.009;
+            const hasExplicitResolution = isTipDonated || isChangeOwed || isChangeVoucher || isChangeCredited;
+            const defaultChangeUsd = hasPartialPhysical
+                ? parseFloat(distVueltoUSD || 0)
+                : (!hasExplicitResolution && hasPhysicalCash && !vueltoEnBs ? cambioUSD : 0);
+            const defaultChangeBs = hasPartialPhysical
+                ? parseFloat(distVueltoBS || 0)
+                : (!hasExplicitResolution && hasPhysicalCash && vueltoEnBs ? cambioBS : 0);
+            const walletChangeUsd = isChangeCredited ? cambioFaltanteCalculado : 0;
+
+
+            // FX19 partial: la donación es SOLO el faltante (cambioFaltanteCalculado),
+            // no el total del cambio (cambioUSD). Si no hay físico distribuido, dona el 100%.
+            const tipDonatedAmountUsd = hasPartialPhysical ? cambioFaltanteCalculado : cambioUSD;
             const tipDonatedObj = (isTipDonated && cambioUSD > 0.009) ? {
-                amountUsd: cambioUSD,
-                amountBs: round2(mulR(cambioUSD, tasaSegura)),
+                amountUsd: tipDonatedAmountUsd,
+                amountBs: round2(mulR(tipDonatedAmountUsd, tasaSegura)),
                 currency: tipCurrency,
+                partial: hasPartialPhysical,
+                physicalGivenUsd: parseFloat(distVueltoUSD || 0),
+                physicalGivenBs: parseFloat(distVueltoBS || 0),
+            } : null;
+
+            // FX19-S2: Vuelto adeudado externo
+            const changeOwedObj = (isChangeOwed && cambioFaltanteCalculado > 0.009) ? {
+                amountUsd: cambioFaltanteCalculado,
+                amountBs: round2(mulR(cambioFaltanteCalculado, tasaSegura)),
+                method: changeOwedMethod,
+                note: changeOwedNote,
+                resolvedAt: null,
+            } : null;
+
+            // FX19-S3: Voucher de cambio pendiente
+            const changeVoucherObj = (isChangeVoucher && cambioFaltanteCalculado > 0.009) ? {
+                amountUsd: cambioFaltanteCalculado,
+                amountBs: round2(mulR(cambioFaltanteCalculado, tasaSegura)),
+                voucherCode: `VCH-${Date.now()}`,
+                issuedAt: new Date().toISOString(),
             } : null;
 
             // Total a REGISTRAR: los totales del carrito provienen directamente de
             // FinancialEngine.buildCartTotals (que respeta precios duales y manuales en Bs).
             // Pasar originalTotalUsd y originalTotalBs tal cual garantiza consistencia matemática 100%.
-            onConfirmSale(payments, {
+            const result = await onConfirmSale(payments, {
                 changeUsdGiven: defaultChangeUsd,
                 changeBsGiven: defaultChangeBs,
+                vueltoParaMonederoUsd: walletChangeUsd,
                 esCredito: modo === 'credito',
                 clienteId: clienteSeleccionado || null,
                 esCashea: casheaActive,
                 vueltoCredito: isChangeCredited,
                 tipDonated: tipDonatedObj,
+                changeOwed: changeOwedObj,
+                changeVoucher: changeVoucherObj,
+                checkoutOperationId,
             }, {
                 cartTotalUsd: originalTotalUsd,
                 cartTotalBs: originalTotalBs,
-                cartSubtotalUsd: originalTotalUsd,
+                cartSubtotalUsd,
             });
 
+            if (result?.success === false) {
+                setIsSubmitting(false);
+                return;
+            }
+
+            setIsSubmitting(false);
             triggerHaptic && triggerHaptic();
         } catch (err) {
+            setIsSubmitting(false);
             console.error('Error al procesar pago POS:', err);
             showToast('Error al procesar el pago. Revisa la consola.', 'error');
         }
@@ -415,9 +522,40 @@ export default function CheckoutModalPOS({
         parseFloat(distVueltoUSD || 0) + parseFloat(distVueltoBS || 0) / tasaSegura <= cambioUSD + 0.001
     );
 
-    // Calcular si el vuelto físico asignado está incompleto (no iguala cambioUSD y no se abona a saldo a favor ni se dona a caja)
+    // Calcular si el vuelto físico asignado está incompleto (no iguala cambioUSD y no se abona a saldo a favor ni se dona a caja ni se adeuda/voucher)
     const sumaVueltoAsignado = parseFloat(distVueltoUSD || 0) + parseFloat(distVueltoBS || 0) / tasaSegura;
-    const vueltoIncompleto = cambioUSD > 0.01 && !isChangeCredited && !isTipDonated && Math.abs(sumaVueltoAsignado - cambioUSD) > 0.01;
+    const cambioFaltante = round2(Math.max(0, subR(cambioUSD, sumaVueltoAsignado)));
+    const vueltoIncompleto = cambioUSD > 0.01
+        && !isChangeCredited
+        && !isTipDonated
+        && !isChangeOwed
+        && !isChangeVoucher
+        && Math.abs(sumaVueltoAsignado - cambioUSD) > 0.01;
+
+    // GR-FX19-2: Exclusión mutua estricta entre opciones de salientes de vuelto (Donado, Pagar por fuera, Voucher)
+    useEffect(() => {
+        if (isChangeOwed) {
+            if (isTipDonated) setIsTipDonated(false);
+            if (isChangeVoucher) setIsChangeVoucher(false);
+            if (isChangeCredited) setIsChangeCredited(false);
+        }
+    }, [isChangeOwed, isTipDonated, isChangeVoucher, isChangeCredited]);
+
+    useEffect(() => {
+        if (isTipDonated) {
+            if (isChangeOwed) setIsChangeOwed(false);
+            if (isChangeVoucher) setIsChangeVoucher(false);
+            if (isChangeCredited) setIsChangeCredited(false);
+        }
+    }, [isTipDonated, isChangeOwed, isChangeVoucher, isChangeCredited]);
+
+    useEffect(() => {
+        if (isChangeVoucher) {
+            if (isChangeOwed) setIsChangeOwed(false);
+            if (isTipDonated) setIsTipDonated(false);
+            if (isChangeCredited) setIsChangeCredited(false);
+        }
+    }, [isChangeVoucher, isChangeOwed, isTipDonated, isChangeCredited]);
 
     // Switch rápido al modo básico
     const handleSwitchToBasic = () => {
@@ -433,12 +571,12 @@ export default function CheckoutModalPOS({
     }, [casheaActive, modo, setModo]);
 
     return (
-        <div className="fixed inset-0 bg-black/40 dark:bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-black/40 dark:bg-black/60 flex items-center justify-center z-50 p-2 sm:p-4 backdrop-blur-sm animate-in fade-in duration-200">
             <div
                 role="dialog"
                 aria-modal="true"
                 aria-label="Modal de pago profesional"
-                className="bg-white dark:bg-slate-950 w-full max-w-5xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] animate-in zoom-in-95 duration-200"
+                className="bg-white dark:bg-slate-950 w-full max-w-5xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[96vh] animate-in zoom-in-95 duration-200"
             >
                 {/* Header */}
                 <PaymentHeader
@@ -451,7 +589,7 @@ export default function CheckoutModalPOS({
                 />
 
                 {/* Body — dos columnas */}
-                <div className="flex flex-1 overflow-hidden">
+                <div className="flex flex-1 min-h-0 flex-col lg:flex-row overflow-hidden">
                     {/* Columna Izquierda */}
                     <PaymentLeftColumn
                         totalUSD={cartTotalUsd}
@@ -487,10 +625,17 @@ export default function CheckoutModalPOS({
                         isTipDonated={isTipDonated}
                         toggleTipDonated={toggleTipDonated}
                         tipCurrency={tipCurrency}
+                        cambioFaltante={cambioFaltante}
+                        isChangeOwed={isChangeOwed}
+                        setIsChangeOwed={setIsChangeOwed}
+                        changeOwedMethod={changeOwedMethod}
+                        setChangeOwedMethod={setChangeOwedMethod}
+                        changeOwedNote={changeOwedNote}
+                        setChangeOwedNote={setChangeOwedNote}
                     />
 
                     {/* Columna Derecha — inputs */}
-                    <div className="flex-1 flex flex-col bg-white dark:bg-slate-950 overflow-hidden">
+                    <div className="flex-1 min-h-0 flex flex-col bg-white dark:bg-slate-950 overflow-hidden">
                         <div className="flex-1 min-h-0 overflow-y-auto p-5 overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
                             {/* Saldo a Favor */}
                             <WalletSection
@@ -532,6 +677,7 @@ export default function CheckoutModalPOS({
                             totalPagadoGlobalUSD={totalPagadoGlobalUSD}
                             onProcesar={procesarPago}
                             vueltoIncompleto={vueltoIncompleto}
+                            processing={isSubmitting}
                         />
                     </div>
                 </div>

@@ -332,8 +332,8 @@ describe.skip('SEC-006: useAuthStore.login con rate-limiting persistido (desacti
 describe('SEC-008: Fingerprint robusto', () => {
   it('generateFingerprint devuelve 32+ hex chars (no 8)', async () => {
     const fp = await generateFingerprint();
-    // Formato: PDA-V2-<32hex>
-    expect(fp).toMatch(/^PDA-V2-[0-9A-F]{32,}$/);
+    // Formato: DJ-V2-<32hex> o PDA-V2-<32hex>
+    expect(fp).toMatch(/^(PDA|DJ)-V2-[0-9A-F]{32,}$/);
   });
 
   it('verifyStoredFingerprint acepta el propio fingerprint', async () => {

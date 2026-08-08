@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Clock, Send, Ban, ChevronDown, ChevronUp, Trash2, Shuffle, Recycle, Receipt, Printer, LockIcon, CornerDownLeft, Smartphone, HandCoins } from 'lucide-react';
+import { Clock, Send, Ban, ChevronDown, ChevronUp, Trash2, Shuffle, Recycle, Receipt, Printer, LockIcon, CornerDownLeft, Smartphone, HandCoins, Ticket, HeartHandshake } from 'lucide-react';
 import { formatBs, formatCop } from '../../utils/calculatorUtils';
 import { getPaymentLabel, getPaymentMethod, PAYMENT_ICONS, toTitleCase, getPaymentIcon } from '../../config/paymentMethods';
 import EmptyState from '../EmptyState';
@@ -169,6 +169,8 @@ export default function SalesHistory({
                                         {s.customerName || 'Consumidor Final'} 
                                         {s.tipo === 'VENTA_FIADA' && <span className="text-[9px] bg-amber-100 text-amber-600 px-1 rounded uppercase font-black">Fiado</span>}
                                         {hasCashea && <span className="text-[9px] bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 px-1.5 py-0.5 rounded uppercase font-black flex items-center gap-0.5"><CasheaIcon size={10} /> Cashea</span>}
+                                        {s.changeOwed && <span className="text-[9px] bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded uppercase font-black">Vuelto Fuera</span>}
+                                        {s.changeVoucher && <span className="text-[9px] bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded uppercase font-black">Voucher</span>}
                                     </p>
                                     <p className="text-[11px] text-slate-500 flex items-center gap-1">
                                         {s.saleNumber && <span className="font-black text-slate-400">#{String(s.saleNumber).padStart(7, '0')}</span>}
@@ -292,9 +294,24 @@ export default function SalesHistory({
                                             </div>
                                         )}
                                         {s.tipDonated && (
-                                            <div className="flex items-center gap-1 self-start mt-0.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-extrabold px-2 py-1 rounded-md border border-emerald-300 dark:border-emerald-700 text-[11px]">
-                                                <HandCoins size={12} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
-                                                <span>Cambio Dejado en Caja: {s.tipDonated.currency === 'BS' ? `Bs ${formatBs(s.tipDonated.amountBs)}` : `$${(s.tipDonated.amountUsd || 0).toFixed(2)} USD`}</span>
+                                            <div className="flex items-center gap-1.5 self-start mt-0.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-extrabold px-2 py-1 rounded-md border border-emerald-300 dark:border-emerald-700 text-[11px]">
+                                                <HeartHandshake size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                                <span>Vuelto Cedido/Donado: {s.tipDonated.currency === 'BS' ? `Bs ${formatBs(s.tipDonated.amountBs)}` : `$${(s.tipDonated.amountUsd || 0).toFixed(2)} USD`}</span>
+                                            </div>
+                                        )}
+                                        {s.changeOwed && (
+                                            <div className="flex items-center gap-1.5 self-start mt-0.5 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 font-extrabold px-2 py-1 rounded-md border border-amber-300 dark:border-amber-700 text-[11px]">
+                                                <Smartphone size={14} className="text-amber-600 dark:text-amber-400 shrink-0" />
+                                                <span>
+                                                    Vuelto por Fuera ({s.changeOwed.method === 'pago_movil' ? 'Pago Móvil' : s.changeOwed.method === 'zelle' ? 'Zelle' : s.changeOwed.method === 'transferencia' ? 'Transferencia' : s.changeOwed.method === 'efectivo_externo' ? 'Efectivo Externo' : 'Otro'}): ${s.changeOwed.amountUsd.toFixed(2)} USD (Bs {formatBs(s.changeOwed.amountBs)})
+                                                    {s.changeOwed.note && <span className="font-normal text-amber-700 dark:text-amber-300 ml-1">({s.changeOwed.note})</span>}
+                                                </span>
+                                            </div>
+                                        )}
+                                        {s.changeVoucher && (
+                                            <div className="flex items-center gap-1.5 self-start mt-0.5 bg-purple-50 dark:bg-purple-950/40 text-purple-900 dark:text-purple-200 font-extrabold px-2 py-1 rounded-md border border-purple-300 dark:border-purple-700 text-[11px]">
+                                                <Ticket size={14} className="text-purple-600 dark:text-purple-400 shrink-0" />
+                                                <span>Voucher Emitido: ${s.changeVoucher.amountUsd.toFixed(2)} USD (#{s.changeVoucher.voucherCode})</span>
                                             </div>
                                         )}
                                         {s.changeUsd > 0 && (

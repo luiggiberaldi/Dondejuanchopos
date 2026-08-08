@@ -423,7 +423,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
         effectiveRate, tasaCop, copEnabled, discountData, useAutoRate, bcvRate: rates?.bcv?.price || effectiveRate,
         setSalesData, setShowReceipt, setShowCheckout, setSelectedCustomerId,
         setCart, setCartSelectedIndex, setShowConfetti, setTodayAperturaData, setIsAperturaOpen,
-        playCheckout, playError, notifyLowStock, notifySaleComplete, triggerHaptic
+        playCheckout, playError, notifyLowStock, notifySaleComplete, triggerHaptic, paymentMethods
     });
 
     // ── Callbacks ─────────────────────────────────

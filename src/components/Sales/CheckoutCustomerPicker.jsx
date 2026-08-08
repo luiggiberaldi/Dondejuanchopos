@@ -36,6 +36,7 @@ export default function CheckoutCustomerPicker({
     const [newClientDocument, setNewClientDocument] = useState('');
     const [newClientPhone, setNewClientPhone] = useState('');
     const [savingClient, setSavingClient] = useState(false);
+    const [createError, setCreateError] = useState('');
     const searchRef = useRef(null);
     const nameRef = useRef(null);
 
@@ -86,13 +87,21 @@ export default function CheckoutCustomerPicker({
     const handleCreateClient = async () => {
         if (!newClientName.trim() || !onCreateCustomer) return;
         setSavingClient(true);
+        setCreateError('');
         try {
             const newCustomer = await onCreateCustomer(newClientName.trim(), newClientDocument.trim(), newClientPhone.trim());
+            if (!newCustomer?.id) {
+                setCreateError('No se pudo guardar el cliente. Intenta nuevamente.');
+                return;
+            }
             setSelectedCustomerId(newCustomer.id);
             setNewClientName(''); setNewClientDocument(''); setNewClientPhone('');
             setShowNewCustomerForm(false);
             setShowCustomerPicker(false);
             setSearch('');
+        } catch (error) {
+            console.error('[checkout] Error creando cliente:', error);
+            setCreateError('No se pudo guardar el cliente. Intenta nuevamente.');
         } finally {
             setSavingClient(false);
         }
@@ -103,7 +112,10 @@ export default function CheckoutCustomerPicker({
 
             {/* ── Trigger button ── */}
             <button
+                type="button"
                 onClick={handleTogglePicker}
+                aria-expanded={showCustomerPicker}
+                aria-label={selectedCustomer ? `Cliente seleccionado: ${selectedCustomer.name}` : 'Seleccionar cliente'}
                 className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border-2 transition-all ${
                     showCustomerPicker
                         ? 'border-emerald-400 dark:border-emerald-600 bg-white dark:bg-slate-900 shadow-sm shadow-emerald-500/10'
@@ -174,10 +186,11 @@ export default function CheckoutCustomerPicker({
 
                             {/* Nombre */}
                             <div>
-                                <label className="block text-[10px] font-black text-emerald-700 dark:text-emerald-500 uppercase tracking-wider mb-1">
+                                <label htmlFor="checkout-customer-name" className="block text-[10px] font-black text-emerald-700 dark:text-emerald-500 uppercase tracking-wider mb-1">
                                     Nombre *
                                 </label>
                                 <input
+                                    id="checkout-customer-name"
                                     ref={nameRef}
                                     type="text"
                                     placeholder="Ej: Juan Pérez"
@@ -191,10 +204,11 @@ export default function CheckoutCustomerPicker({
                             {/* Cédula + Teléfono en grid */}
                             <div className="grid grid-cols-2 gap-2">
                                 <div>
-                                    <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                    <label htmlFor="checkout-customer-document" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                                         Cédula / RIF
                                     </label>
                                     <input
+                                        id="checkout-customer-document"
                                         type="text"
                                         placeholder="V-12345678"
                                         value={newClientDocument}
@@ -204,12 +218,13 @@ export default function CheckoutCustomerPicker({
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                    <label htmlFor="checkout-customer-phone" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                                         Teléfono
                                     </label>
                                     <div className="w-full flex items-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus-within:ring-2 focus-within:ring-emerald-500/50 transition-all overflow-hidden">
                                         <span className="px-2 py-2.5 text-[10px] font-black text-brand border-r border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 shrink-0 select-none">+58</span>
                                         <input
+                                            id="checkout-customer-phone"
                                             type="tel"
                                             placeholder="0412…"
                                             value={newClientPhone}
@@ -222,17 +237,20 @@ export default function CheckoutCustomerPicker({
                             </div>
 
                             {/* Actions */}
+                            {createError && <p role="alert" className="text-xs font-semibold text-red-600 dark:text-red-400">{createError}</p>}
                             <div className="flex gap-2 pt-0.5">
                                 <button
+                                    type="button"
                                     onClick={cancelNewForm}
-                                    className="flex-1 py-2.5 text-sm font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-95 transition-all"
+                                    className="min-h-11 flex-1 py-2.5 text-sm font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-95 transition-all"
                                 >
                                     Cancelar
                                 </button>
                                 <button
+                                    type="button"
                                     onClick={handleCreateClient}
                                     disabled={!newClientName.trim() || savingClient}
-                                    className="flex-1 py-2.5 text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 rounded-xl disabled:opacity-40 active:scale-95 transition-all flex items-center justify-center gap-2 shadow-sm"
+                                    className="min-h-11 flex-1 py-2.5 text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 rounded-xl disabled:opacity-40 active:scale-95 transition-all flex items-center justify-center gap-2 shadow-sm"
                                 >
                                     <Check size={15} />
                                     {savingClient ? 'Guardando…' : 'Crear y Usar'}

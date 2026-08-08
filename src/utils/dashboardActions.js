@@ -43,6 +43,27 @@ export function shareSaleWhatsApp(sale, saleCustomer, bcvRate) {
         text += ` COP: ${formatCop(totalCop)} COP\n`;
     }
 
+    if (sale.changeOwed) {
+        const methodNames = {
+            pago_movil: 'Pago Móvil',
+            zelle: 'Zelle',
+            transferencia: 'Transferencia',
+            efectivo_externo: 'Efectivo Externo',
+            otro: 'Otro'
+        };
+        const mName = methodNames[sale.changeOwed.method] || sale.changeOwed.method || 'Por Fuera';
+        text += `\n*VUELTO POR FUERA (${mName.toUpperCase()}):* ${fmtUsd(sale.changeOwed.amountUsd)} (${formatBs(sale.changeOwed.amountBs)} Bs)\n`;
+        if (sale.changeOwed.note) {
+            text += `  Nota: ${sale.changeOwed.note}\n`;
+        }
+    }
+    if (sale.changeVoucher) {
+        text += `\n*VOUCHER EMITIDO:* ${fmtUsd(sale.changeVoucher.amountUsd)} (#${sale.changeVoucher.voucherCode})\n`;
+    }
+    if (sale.tipDonated) {
+        text += `\n*VUELTO CEDIDO/DONADO:* ${fmtUsd(sale.tipDonated.amountUsd)}\n`;
+    }
+
     if (sale.fiadoUsd > 0) {
         text += `\n*SALDO PENDIENTE (FIADO): ${fmtUsd(sale.fiadoUsd)}*\n`;
         if (bcvRate > 0) {

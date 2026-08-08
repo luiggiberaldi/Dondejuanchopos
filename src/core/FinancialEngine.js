@@ -439,6 +439,37 @@ export class FinancialEngine {
                     breakdown['_propina_donada'].totalBs = round2((breakdown['_propina_donada'].totalBs || 0) + round2(sale.tipDonated.amountBs));
                 }
             }
+
+            // FX19-S2: Vuelto adeudado externo — NO se descuenta de la gaveta
+            if (sale.changeOwed && sale.changeOwed.amountUsd > 0) {
+                if (!breakdown['_cambio_adeudado']) {
+                    breakdown['_cambio_adeudado'] = {
+                        totalUsd: 0, totalBs: 0,
+                        label: 'Vuelto Adeudado (Pago Externo)',
+                        isChangeOwed: true,
+                    };
+                }
+                breakdown['_cambio_adeudado'].totalUsd = round2(
+                    (breakdown['_cambio_adeudado'].totalUsd || 0) + round2(sale.changeOwed.amountUsd)
+                );
+                breakdown['_cambio_adeudado'].totalBs = round2(
+                    (breakdown['_cambio_adeudado'].totalBs || 0) + round2(sale.changeOwed.amountBs || 0)
+                );
+            }
+
+            // FX19-S3: Voucher — solo auditoría, no afecta saldo físico
+            if (sale.changeVoucher && sale.changeVoucher.amountUsd > 0) {
+                if (!breakdown['_cambio_voucher']) {
+                    breakdown['_cambio_voucher'] = {
+                        totalUsd: 0,
+                        label: 'Vuelto con Voucher Emitido',
+                        isChangeVoucher: true,
+                    };
+                }
+                breakdown['_cambio_voucher'].totalUsd = round2(
+                    (breakdown['_cambio_voucher'].totalUsd || 0) + round2(sale.changeVoucher.amountUsd)
+                );
+            }
         });
 
         // Final pass: round all totals strictly and filter out zeroes (preserving metadata buckets starting with _)

@@ -130,6 +130,32 @@ export function buildReceiptWhatsAppUrl(receipt, currentRate) {
         headerBlocks.push(`COMPROBANTE DE VENTA | DONDE JUANCHO`);
     }
 
+    let changeOwedLine = '';
+    if (r.changeOwed) {
+        const methodNames = {
+            pago_movil: 'Pago Móvil',
+            zelle: 'Zelle',
+            transferencia: 'Transferencia',
+            efectivo_externo: 'Efectivo Externo',
+            otro: 'Otro'
+        };
+        const mName = methodNames[r.changeOwed.method] || r.changeOwed.method || 'Por Fuera';
+        changeOwedLine = `\nVUELTO POR FUERA (${mName.toUpperCase()}): ${fmtUsd(r.changeOwed.amountUsd)} (Bs ${formatBs(r.changeOwed.amountBs)})`;
+        if (r.changeOwed.note) {
+            changeOwedLine += `\n  Nota: ${r.changeOwed.note}`;
+        }
+    }
+
+    let changeVoucherLine = '';
+    if (r.changeVoucher) {
+        changeVoucherLine = `\nVOUCHER EMITIDO: ${fmtUsd(r.changeVoucher.amountUsd)} (#${r.changeVoucher.voucherCode})`;
+    }
+
+    let tipDonatedLine = '';
+    if (r.tipDonated) {
+        tipDonatedLine = `\nVUELTO CEDIDO/DONADO: ${fmtUsd(r.tipDonated.amountUsd)}`;
+    }
+
     const text = [
         ...headerBlocks,
         sep2,
@@ -144,6 +170,9 @@ export function buildReceiptWhatsAppUrl(receipt, currentRate) {
         totalLine,
         paymentsLines ? `\nPAGOS:\n${paymentsLines}` : '',
         changeLines,
+        changeOwedLine,
+        changeVoucherLine,
+        tipDonatedLine,
         fiadoLine,
         sep,
         r.tasaCop > 0 ? `Tasa COP: ${r.tasaCop.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` : '',

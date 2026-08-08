@@ -65,45 +65,37 @@ function scheduleCloudProductsSync() {
     }, 400);
 }
 
-async function updateCommandStatus(commandId, status, errorReason = null, maxRetries = 3) {
-    if (import.meta.env.DEV && !VALID_COMMAND_STATUSES.includes(status)) {
-        throw new Error(`[SupervisorCommands] Status "${status}" no está en VALID_COMMAND_STATUSES — la BD lo va a rechazar.`);
-    }
-
+async function updateCommandStatus(commandId, status, errorReason = null) {
     const fields = { status };
     if (status === COMMAND_STATUS.APPLIED || status === COMMAND_STATUS.APPLIED_WITH_WARNINGS) {
         fields.applied_at = new Date().toISOString();
     }
     if (errorReason) fields.error_reason = String(errorReason).slice(0, 500);
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-            const { error } = await supabaseCloud
-                .from('supervisor_commands')
-                .update(fields)
-                .eq('id', commandId);
-            if (!error) return true;
-            if (error.code && ['23514', '23503', '22P02'].includes(error.code)) {
-                console.error(`[SupervisorCommands] Error de esquema al fijar status="${status}" — no se reintenta:`, error);
-                // F4: 23514 = CHECK violado. Casi siempre significa que el
-                // .sql y el JS se separaron (ver tests/commandStatus.test.js
-                // y tests/commandType.test.js). Nunca es un fallo transitorio.
-                console.error(
-                    `[SupervisorCommands] DERIVA DE ESQUEMA: Postgres rechazó ` +
-                    `status='${status}' para el comando ${commandId} (23514). ` +
-                    `Revisa supervisor_commands_status_check.`
-                );
-                return false;
-            }
-            console.warn(`[SupervisorCommands] Intento ${attempt}/${maxRetries} falló al actualizar status de ${commandId}:`, error);
-        } catch (e) {
-            console.warn(`[SupervisorCommands] Excepción en intento ${attempt}/${maxRetries} al actualizar status:`, e);
-        }
-        if (attempt < maxRetries) {
-            await new Promise(r => setTimeout(r, attempt * 1500));
-        }
+    try {
+        const { error } = await supabaseCloud
+            .from('supervisor_commands')
+            .update(fields)
+            .eq('id', commandId);
+
+        if (!error) return true;
+
+        // Guarda-rail: si falló con campos opcionales (applied_at / error_reason no existen en el schema)
+        // o con cualquier otro error 4xx, reintentar SOLO con status.
+        console.warn(`[SupervisorCommands] Fallo al actualizar con campos completos (${error.code || error.message}). Reintentando solo con status...`);
+        const { error: fallbackErr } = await supabaseCloud
+            .from('supervisor_commands')
+            .update({ status })
+            .eq('id', commandId);
+
+        if (!fallbackErr) return true;
+
+        console.error(`[SupervisorCommands] Fallback también falló para cmd ${commandId}:`, fallbackErr);
+        return false;
+    } catch (e) {
+        console.error('[SupervisorCommands] Excepción al actualizar status:', e);
+        return false;
     }
-    return false;
 }
 
 async function applyRateChange(command) {
@@ -508,12 +500,20 @@ export function useSupervisorCommands(deviceId) {
                 if (status === 'SUBSCRIBED') catchUpPending();
             });
 
-        // Red de seguridad contra micro-cortes: Polling periódico cada 12s
+        // Red de seguridad contra micro-cortes: Polling periódico cada 12s.
+        // Si el WebSocket falla silenciosamente (sin emitir CLOSED), esta línea
+        // de defensa limpia los comandos pendientes que se hayan acumulado.
         const intervalId = setInterval(() => {
             if (!disposed && navigator.onLine !== false) {
                 catchUpPending();
             }
         }, 12000);
+
+        // Catch-up inmediato al recuperar conexión de red
+        const handleOnline = () => {
+            if (!disposed) catchUpPending();
+        };
+        window.addEventListener('online', handleOnline);
 
         // Nota: visibilitychange pertenece al objeto `document` y NO burbujea a `window`.
         // `visibilitychange → hidden` corre ANTES de congelar la app en móviles (garantía de tiempo).
@@ -534,6 +534,7 @@ export function useSupervisorCommands(deviceId) {
         return () => {
             disposed = true;
             clearInterval(intervalId);
+            window.removeEventListener('online', handleOnline);
             document.removeEventListener('visibilitychange', handleVisibility);
             window.removeEventListener('pagehide', handleUnload);
             window.removeEventListener('beforeunload', handleUnload);

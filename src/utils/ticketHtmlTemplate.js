@@ -176,6 +176,38 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
         <div class="total-bs" style="margin-bottom:4px">Bs ${formatBs(sale.totalBs || 0)}</div>`;
     }
 
+    // Generar filas de vuelto por fuera / voucher / donado
+    let changeExtraHtml = '';
+    if (sale.changeOwed) {
+        const methodNames = {
+            pago_movil: 'Pago Móvil',
+            zelle: 'Zelle',
+            transferencia: 'Transferencia',
+            efectivo_externo: 'Efectivo Externo',
+            otro: 'Otro'
+        };
+        const mName = methodNames[sale.changeOwed.method] || sale.changeOwed.method || 'Por Fuera';
+        changeExtraHtml += `
+            <tr>
+                <td style="font-size:11px;padding:2px 4px 2px 0;text-align:left;width:55%;">Vuelto Fuera (${escapeHtml(mName)}):</td>
+                <td style="font-size:11px;font-weight:bold;text-align:right;width:45%;">$${formatUsd(sale.changeOwed.amountUsd)} (Bs ${formatBs(sale.changeOwed.amountBs)})</td>
+            </tr>`;
+    }
+    if (sale.changeVoucher) {
+        changeExtraHtml += `
+            <tr>
+                <td style="font-size:11px;padding:2px 4px 2px 0;text-align:left;width:55%;">Voucher (${escapeHtml(sale.changeVoucher.voucherCode)}):</td>
+                <td style="font-size:11px;font-weight:bold;text-align:right;width:45%;">$${formatUsd(sale.changeVoucher.amountUsd)}</td>
+            </tr>`;
+    }
+    if (sale.tipDonated) {
+        changeExtraHtml += `
+            <tr>
+                <td style="font-size:11px;padding:2px 4px 2px 0;text-align:left;width:55%;">Vuelto Cedido/Donado:</td>
+                <td style="font-size:11px;font-weight:bold;text-align:right;width:45%;">$${formatUsd(sale.tipDonated.amountUsd)}</td>
+            </tr>`;
+    }
+
     return `<!DOCTYPE html>
 <html>
 <head>
@@ -285,10 +317,10 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
     <hr class="dash">
 
     <!-- Pagos -->
-    ${(sale.payments && sale.payments.length > 0) || hasFiado ? `
+    ${(sale.payments && sale.payments.length > 0) || hasFiado || changeExtraHtml ? `
     <div style="margin:4px 0;">
-        <div style="font-size:${fTiny};color:#000;font-weight:bold;margin-bottom:4px;">PAGOS REALIZADOS</div>
-        <table>${paymentsHtml}</table>
+        <div style="font-size:${fTiny};color:#000;font-weight:bold;margin-bottom:4px;">PAGOS Y VUELTOS</div>
+        <table>${paymentsHtml}${changeExtraHtml}</table>
         ${fiadoHtml}
     </div>
     <hr class="dash">

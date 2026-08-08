@@ -494,7 +494,7 @@ export default function ReportsMetricsTab({
                     </h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {topProducts.map((p, i) => (
-                            <div key={p.name} className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800 rounded-xl p-2.5">
+                            <div key={p.id || `${p.name}-${i}`} className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800 rounded-xl p-2.5">
                                 <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black ${i < 3 ? 'bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
                                     }`}>{i + 1}</span>
                                 <div className="flex-1 min-w-0">

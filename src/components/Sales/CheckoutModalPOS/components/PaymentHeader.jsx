@@ -7,7 +7,7 @@ import { Calculator, DollarSign, Wallet, X, LayoutGrid, Zap } from 'lucide-react
  */
 export default function PaymentHeader({ modo, setModo, onClose, onSwitchToBasic, tasa, casheaActive = false }) {
     return (
-        <div className="h-16 px-4 bg-white dark:bg-slate-950 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center shrink-0 shadow-sm">
+        <div className="min-h-16 px-4 bg-white dark:bg-slate-950 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center shrink-0 shadow-sm">
             {/* Título */}
             <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-lg bg-brand/10 dark:bg-brand/20 flex items-center justify-center">
@@ -22,10 +22,13 @@ export default function PaymentHeader({ modo, setModo, onClose, onSwitchToBasic,
             </div>
 
             {/* Tabs Contado / Crédito */}
-            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl gap-0.5">
+            <div role="tablist" aria-label="Modo de pago" className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl gap-0.5">
                 <button
+                    type="button"
                     onClick={() => setModo('contado')}
-                    className={`px-5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    role="tab"
+                    aria-selected={modo === 'contado'}
+                    className={`min-h-11 px-5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
                         modo === 'contado'
                             ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
                             : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
@@ -34,10 +37,14 @@ export default function PaymentHeader({ modo, setModo, onClose, onSwitchToBasic,
                     <DollarSign size={13} /> Contado
                 </button>
                 <button
+                    type="button"
                     onClick={() => setModo('credito')}
                     disabled={casheaActive}
                     title={casheaActive ? "No disponible para compras financiadas con Cashea" : ""}
-                    className={`px-5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    role="tab"
+                    aria-selected={modo === 'credito'}
+                    aria-label={casheaActive ? 'Crédito no disponible con Cashea' : 'Modo crédito'}
+                    className={`min-h-11 px-5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
                         casheaActive
                             ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-600'
                             : modo === 'credito'
@@ -53,16 +60,19 @@ export default function PaymentHeader({ modo, setModo, onClose, onSwitchToBasic,
             <div className="flex items-center gap-2">
                 {onSwitchToBasic && (
                     <button
+                        type="button"
                         onClick={onSwitchToBasic}
                         title="Cambiar al modo básico"
-                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold text-slate-400 hover:text-brand hover:bg-brand/5 border border-slate-200 dark:border-slate-700 dark:hover:border-brand/30 transition-all"
+                        className="min-h-11 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold text-slate-400 hover:text-brand hover:bg-brand/5 border border-slate-200 dark:border-slate-700 dark:hover:border-brand/30 transition-all"
                     >
                         <LayoutGrid size={12} /> Básico
                     </button>
                 )}
                 <button
+                    type="button"
                     onClick={onClose}
-                    className="w-9 h-9 bg-slate-50 dark:bg-slate-900 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-500 text-slate-400 rounded-xl transition-all flex items-center justify-center active:scale-90"
+                    aria-label="Cerrar pago"
+                    className="min-h-11 min-w-11 bg-slate-50 dark:bg-slate-900 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-500 text-slate-400 rounded-xl transition-all flex items-center justify-center active:scale-90"
                 >
                     <X size={18} />
                 </button>

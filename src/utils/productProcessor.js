@@ -153,6 +153,9 @@ export function normalizeProduct(raw = {}) {
         }
     }
 
+    const isBox = Boolean(raw.sellByBox || raw._mode === 'box' || raw.boxPriceBs > 0 || raw.boxPriceUsd > 0);
+    const isHalfBox = Boolean(raw.sellByHalfBox || raw._mode === 'halfBox' || raw.halfBoxPriceBs > 0 || raw.halfBoxPriceUsd > 0);
+
     return {
         ...raw,
         pricingMode,
@@ -161,19 +164,19 @@ export function normalizeProduct(raw = {}) {
         priceBsManual: pricingMode === 'bs_fijo' && raw.priceBsManual ? Number(raw.priceBsManual) : null,
         priceBsUsdRef: pricingMode === 'dual_usd' && raw.priceBsUsdRef ? Number(raw.priceBsUsdRef) : null,
 
-        sellByBox: Boolean(raw.sellByBox),
-        boxUnits: raw.sellByBox ? (parseInt(raw.boxUnits, 10) || null) : null,
-        boxPriceUsd: raw.sellByBox && raw.boxPriceUsd != null ? Number(raw.boxPriceUsd) : null,
-        boxPricingMode: raw.sellByBox ? (raw.boxPricingMode || 'inherit') : 'inherit',
-        boxPriceBs: raw.sellByBox && raw.boxPriceBs != null ? Number(raw.boxPriceBs) : null,
-        boxPriceBsUsdRef: raw.sellByBox && raw.boxPriceBsUsdRef != null ? Number(raw.boxPriceBsUsdRef) : null,
+        sellByBox: isBox,
+        boxUnits: isBox ? (parseInt(raw.boxUnits, 10) || null) : null,
+        boxPriceUsd: isBox && raw.boxPriceUsd != null ? Number(raw.boxPriceUsd) : null,
+        boxPricingMode: isBox ? (raw.boxPricingMode || 'inherit') : 'inherit',
+        boxPriceBs: isBox && raw.boxPriceBs != null ? Number(raw.boxPriceBs) : (isBox && raw._mode === 'box' && raw.priceBsManual ? Number(raw.priceBsManual) : null),
+        boxPriceBsUsdRef: isBox && raw.boxPriceBsUsdRef != null ? Number(raw.boxPriceBsUsdRef) : (isBox && raw._mode === 'box' && raw.priceBsUsdRef ? Number(raw.priceBsUsdRef) : null),
 
-        sellByHalfBox: Boolean(raw.sellByHalfBox),
-        halfBoxUnits: raw.sellByHalfBox ? (parseInt(raw.halfBoxUnits, 10) || null) : null,
-        halfBoxPriceUsd: raw.sellByHalfBox && raw.halfBoxPriceUsd != null ? Number(raw.halfBoxPriceUsd) : null,
-        halfBoxPricingMode: raw.sellByHalfBox ? (raw.halfBoxPricingMode || 'inherit') : 'inherit',
-        halfBoxPriceBs: raw.sellByHalfBox && raw.halfBoxPriceBs != null ? Number(raw.halfBoxPriceBs) : null,
-        halfBoxPriceBsUsdRef: raw.sellByHalfBox && raw.halfBoxPriceBsUsdRef != null ? Number(raw.halfBoxPriceBsUsdRef) : null,
+        sellByHalfBox: isHalfBox,
+        halfBoxUnits: isHalfBox ? (parseInt(raw.halfBoxUnits, 10) || null) : null,
+        halfBoxPriceUsd: isHalfBox && raw.halfBoxPriceUsd != null ? Number(raw.halfBoxPriceUsd) : null,
+        halfBoxPricingMode: isHalfBox ? (raw.halfBoxPricingMode || 'inherit') : 'inherit',
+        halfBoxPriceBs: isHalfBox && raw.halfBoxPriceBs != null ? Number(raw.halfBoxPriceBs) : (isHalfBox && raw._mode === 'halfBox' && raw.priceBsManual ? Number(raw.priceBsManual) : null),
+        halfBoxPriceBsUsdRef: isHalfBox && raw.halfBoxPriceBsUsdRef != null ? Number(raw.halfBoxPriceBsUsdRef) : (isHalfBox && raw._mode === 'halfBox' && raw.priceBsUsdRef ? Number(raw.priceBsUsdRef) : null),
     };
 }
 

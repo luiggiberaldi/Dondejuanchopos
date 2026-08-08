@@ -389,13 +389,14 @@ function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId, onVoidSaleSuc
                             <span className={`font-outfit text-sm font-black ${isVoided ? 'line-through text-slate-400' : 'text-emerald-700 dark:text-emerald-400'}`}>{formatBs(getEffectiveSaleTotalBs(sale, products, effectiveRate, bcvRate))} Bs</span>
                         </div>
 
-                        {/* Vuelto Entregado */}
+                        {/* Vuelto Entregado / Adeudado / Voucher */}
                         {(() => {
+                            const elements = [];
                             if (sale.tipDonated) {
-                                return (
-                                    <div className="flex items-center justify-between text-xs pt-2 border-t border-emerald-200/50 dark:border-emerald-900/40 text-emerald-800 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/30 p-2 rounded-lg my-1">
+                                elements.push(
+                                    <div key="tip" className="flex items-center justify-between text-xs pt-2 border-t border-emerald-200/50 dark:border-emerald-900/40 text-emerald-800 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/30 p-2 rounded-lg my-1">
                                         <span className="flex items-center gap-1 font-black uppercase tracking-wider text-[10px]">
-                                            <RotateCcw size={12} className="text-emerald-600 dark:text-emerald-400" /> Cambio Dejado en Caja
+                                            <RotateCcw size={12} className="text-emerald-600 dark:text-emerald-400" /> {sale.tipDonated.partial ? 'Cambio Parcial Dejado en Caja' : 'Cambio Dejado en Caja'}
                                         </span>
                                         <span className="font-outfit font-black text-sm text-emerald-700 dark:text-emerald-400">
                                             {sale.tipDonated.currency === 'BS' ? `Bs ${formatBs(sale.tipDonated.amountBs)}` : `$${(sale.tipDonated.amountUsd || 0).toFixed(2)} USD`}
@@ -403,6 +404,34 @@ function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId, onVoidSaleSuc
                                     </div>
                                 );
                             }
+
+                            if (sale.changeOwed) {
+                                elements.push(
+                                    <div key="owed" className="flex items-center justify-between text-xs pt-2 border-t border-amber-200/50 dark:border-amber-900/40 text-amber-800 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-950/30 p-2 rounded-lg my-1">
+                                        <span className="flex items-center gap-1 font-black uppercase tracking-wider text-[10px]">
+                                            <RotateCcw size={12} className="text-amber-600 dark:text-amber-400" /> Vuelto Adeudado ({sale.changeOwed.method})
+                                        </span>
+                                        <span className="font-outfit font-black text-sm text-amber-700 dark:text-amber-400">
+                                            ${(sale.changeOwed.amountUsd || 0).toFixed(2)} USD
+                                        </span>
+                                    </div>
+                                );
+                            }
+
+                            if (sale.changeVoucher) {
+                                elements.push(
+                                    <div key="voucher" className="flex items-center justify-between text-xs pt-2 border-t border-blue-200/50 dark:border-blue-900/40 text-blue-800 dark:text-blue-300 bg-blue-50/50 dark:bg-blue-950/30 p-2 rounded-lg my-1">
+                                        <span className="flex items-center gap-1 font-black uppercase tracking-wider text-[10px]">
+                                            <RotateCcw size={12} className="text-blue-600 dark:text-blue-400" /> Voucher ({sale.changeVoucher.voucherCode})
+                                        </span>
+                                        <span className="font-outfit font-black text-sm text-blue-700 dark:text-blue-400">
+                                            ${(sale.changeVoucher.amountUsd || 0).toFixed(2)} USD
+                                        </span>
+                                    </div>
+                                );
+                            }
+
+                            if (elements.length > 0) return elements;
 
                             const { changeUsd, changeBs, hasChange } = getSaleChangeDetails(sale);
                             if (!hasChange) return null;

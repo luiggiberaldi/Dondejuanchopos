@@ -18,9 +18,10 @@ export default function WalletSection({
 
     const pagadoOtros = totalPagadoUSD;
     const faltaSinSaldo = Math.max(0, totalConIGTF - pagadoOtros);
+    const maxUsable = Math.min(saldoDisponible, faltaSinSaldo);
 
     const handleUsarTodo = () => {
-        const aUsar = Math.min(saldoDisponible, faltaSinSaldo);
+        const aUsar = maxUsable;
         setPagoSaldoFavor(aUsar.toFixed(2));
     };
 
@@ -44,17 +45,25 @@ export default function WalletSection({
                         value={pagoSaldoFavor}
                         onChange={(e) => {
                             const v = parseFloat(e.target.value);
-                            if (e.target.value === '' || (v >= 0 && v <= saldoDisponible)) {
+                            if (e.target.value === '') {
+                                setPagoSaldoFavor('');
+                            } else if (v >= 0 && v <= maxUsable) {
                                 setPagoSaldoFavor(e.target.value);
+                            } else if (v > maxUsable) {
+                                setPagoSaldoFavor(maxUsable.toFixed(2));
                             }
                         }}
                         placeholder="0.00"
+                        aria-label="Monto a usar del monedero"
+                        max={maxUsable}
                         className="w-full pl-7 pr-3 py-2 rounded-lg border-2 border-brand/30 dark:border-brand/40 focus:border-brand outline-none font-bold text-brand/90 dark:text-brand text-right bg-white dark:bg-slate-900"
                     />
                 </div>
                 <button
+                    type="button"
                     onClick={handleUsarTodo}
-                    className="px-3 py-2 bg-brand hover:bg-brand/90 text-white font-bold text-xs rounded-lg transition-colors whitespace-nowrap active:scale-95"
+                    aria-label="Usar todo el saldo permitido del monedero"
+                    className="min-h-11 px-3 py-2 bg-brand hover:bg-brand/90 text-white font-bold text-xs rounded-lg transition-colors whitespace-nowrap active:scale-95"
                 >
                     ⚡ Todo
                 </button>

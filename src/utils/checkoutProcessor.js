@@ -7,6 +7,7 @@ import { withLock } from './withLock';          // FIN-007: feature detection + 
 import { deepFreeze } from './deepFreeze';      // FIN-008: deep freeze (no solo shallow).
 import { FINANCIAL_EPSILON } from './securityConstants';
 import { FinancialEngine } from '../core/FinancialEngine';
+import { assertCheckoutInvariants, calculatePaymentState } from '../core/CheckoutPaymentEngine';
 import { calculatePricing } from './productProcessor';
 
 const SALES_KEY = 'bodega_sales_v1';
@@ -28,7 +29,9 @@ export async function processSaleTransaction({
     copEnabled,
     discountData,
     useAutoRate,
-    bcvRate
+    bcvRate,
+    paymentMethods,
+    checkoutOperationId
 }) {
     if (cart.length === 0) return { success: false, error: 'Carrito vacío' };
 
@@ -57,20 +60,37 @@ export async function processSaleTransaction({
     }
 
     // ── Aritmética precisa con dinero.js (elimina IEEE 754 drift) ──
-    const totalPaidUsd = sumR(payments.map(p => p.amountUsd));
-    const totalPaidBs  = sumR(payments.map(p => p.amountBs || (p.amountUsd && effectiveRate ? mulR(p.amountUsd, effectiveRate) : 0)));
+    const normalizedPayments = payments.map(p => ({
+        ...p,
+        currency: String(p.currency || 'USD').toUpperCase() === 'VES' ? 'BS' : String(p.currency || 'USD').toUpperCase(),
+        methodLabel: p.methodLabel || p.methodId,
+    }));
 
     // Si los pagos cubren completamente el total en Bolívares (cartTotalBs) en productos con Bs Fijo/Congelado
-    const isPureBsPayment = payments.length > 0 && payments.every(p => p.currency === 'BS' || (p.amountBs > 0));
-    const totalBsPaidFully = cartTotalBs > 0 && isPureBsPayment && totalPaidBs >= subR(cartTotalBs, 0.5);
+    // NOTA: verificar currency === 'BS' explícitamente — NO usar amountBs > 0 porque los pagos USD
+    // también tienen amountBs calculado (el equivalente), lo que causaría un falso positivo.
+    const casheaPayment = normalizedPayments.find(p => p.methodId === 'cashea');
+    const saldoFavorPayment = normalizedPayments.find(p => p.methodId === 'saldo_favor');
+    const casheaUsd = casheaPayment ? round2(Number(casheaPayment.amountUsd ?? casheaPayment.amountInput) || 0) : 0;
+    const saldoFavorUsd = saldoFavorPayment ? round2(Number(saldoFavorPayment.amountUsd ?? saldoFavorPayment.amountInput) || 0) : 0;
+    const paymentState = calculatePaymentState({
+        cartTotalUsd,
+        cartTotalBs,
+        payments: normalizedPayments,
+        rate: effectiveRate,
+        tasaCop: copEnabled ? tasaCop : 0,
+        saldoFavorUsd,
+        casheaUsd,
+        activeMethods: paymentMethods || [],
+    });
+    if (paymentState.errors.length > 0) {
+        return { success: false, error: paymentState.errors[0] };
+    }
 
-    const effectiveCartTotalUsd = totalBsPaidFully ? totalPaidUsd : cartTotalUsd;
-
-    const remainingUsd = totalBsPaidFully ? 0 : round2(Math.max(0, subR(effectiveCartTotalUsd, totalPaidUsd)));
-    const changeUsd    = round2(Math.max(0, subR(totalPaidUsd, effectiveCartTotalUsd)));
-
-    const casheaPayment = payments.find(p => p.methodId === 'cashea');
-    const casheaUsd = casheaPayment ? round2(casheaPayment.amountUsd) : 0;
+    const remainingUsd = paymentState.remaining.usd;
+    const changeUsd = round2(paymentState.regime === 'PURE_BS' && effectiveRate > 0
+        ? divR(paymentState.change.bs, effectiveRate)
+        : paymentState.change.usd);
 
     if (!selectedCustomer && (remainingUsd > 0.01 || casheaUsd > 0)) {
         return { success: false, error: remainingUsd > 0.01 ? 'Se requiere cliente para ventas fiadas' : 'Se requiere cliente para ventas con Cashea' };
@@ -91,17 +111,13 @@ export async function processSaleTransaction({
     // ── Normalizar payments: asegurar currency y methodLabel ──
     // Esto permite que el FinancialEngine calcule el breakdown correctamente
     // sin depender de campos que podían llegar undefined en versiones anteriores.
-    const normalizedPayments = payments.map(p => ({
-        ...p,
-        currency:    p.currency    || 'USD',
-        methodLabel: p.methodLabel || p.methodId,
-    }));
-
     const activeUser = useAuthStore.getState().usuarioActivo;
     const cajeroNombre = activeUser ? (activeUser.nombre || activeUser.usuario || 'Cajero') : null;
 
+
     const sale = {
         id: crypto.randomUUID(),
+        checkoutOperationId: checkoutOperationId || null,
         tipo: tipoVenta,
         status: 'COMPLETADA',
         cajero: cajeroNombre,
@@ -124,6 +140,11 @@ export async function processSaleTransaction({
                 priceBsUsdRef: i.priceBsUsdRef || null,
                 pricingMode: i.pricingMode || null,
                 forceBcv: i.forceBcv || null,
+                // Precios de empaque para recalcular Bs futuro sin depender de la tasa
+                boxPriceBs: i.boxPriceBs || null,
+                boxPricingMode: i.boxPricingMode || null,
+                halfBoxPriceBs: i.halfBoxPriceBs || null,
+                halfBoxPricingMode: i.halfBoxPricingMode || null,
                 isModular: i.isModular || false,
                 modularSelections: i.modularSelections || [],
                 isDeferredConsumption: i.isDeferredConsumption || false,
@@ -148,6 +169,7 @@ export async function processSaleTransaction({
         timestamp: new Date().toISOString(),
         changeUsd: round2(changeBreakdown?.changeUsdGiven || 0),
         changeBs:  round2(changeBreakdown?.changeBsGiven  || 0),
+        changeRealUsd: changeUsd,
         changeGiven: {
             usd: round2(changeBreakdown?.changeUsdGiven || 0),
             bs:  round2(changeBreakdown?.changeBsGiven  || 0),
@@ -159,7 +181,7 @@ export async function processSaleTransaction({
         // FIN-012: Guardar vueltoParaMonedero para revertir al anular.
         // Por ahora el flujo de checkout no enruta vuelto a favor (siempre 0),
         // pero dejamos el campo para ventas futuras y abonos manuales.
-        vueltoParaMonedero: 0,
+        vueltoParaMonedero: round2(changeBreakdown?.vueltoParaMonederoUsd || 0),
         customerId:       selectedCustomerId || null,
         customerName:     selectedCustomer ? selectedCustomer.name : 'Consumidor Final',
         customerDocument: selectedCustomer?.documentId || null,
@@ -167,7 +189,40 @@ export async function processSaleTransaction({
         fiadoUsd: fiadoAmountUsd,
         casheaUsd: casheaUsd,
         tipDonated: changeBreakdown?.tipDonated || null,
+        // FX19-S2: Vuelto que la caja adeuda al cliente por vía externa
+        changeOwed: changeBreakdown?.changeOwed || null,
+        // FX19-S3: Voucher textual (no afecta balance)
+        changeVoucher: changeBreakdown?.changeVoucher || null,
     };
+
+    // GR-FX19-1: La suma de vuelto dado + adeudado + donado no debe exceder el vuelto real
+    const owedAmt = Number(changeBreakdown?.changeOwed?.amountUsd) || 0;
+    const tipAmt = Number(changeBreakdown?.tipDonated?.amountUsd) || 0;
+    const voucherAmt = Number(changeBreakdown?.changeVoucher?.amountUsd) || 0;
+    const invariant = assertCheckoutInvariants({
+        changeUsd,
+        changeBreakdown: {
+            changeUsdGiven: Number(changeBreakdown?.changeUsdGiven) || 0,
+            changeBsGivenUsd: effectiveRate > 0 ? divR(Number(changeBreakdown?.changeBsGiven) || 0, effectiveRate) : 0,
+            walletUsd: Number(changeBreakdown?.vueltoParaMonederoUsd) || 0,
+            owedUsd: owedAmt,
+            donatedUsd: tipAmt,
+            voucherUsd: voucherAmt,
+        },
+    });
+    if (!invariant.valid) return { success: false, error: invariant.error };
+
+
+    // GR-FX19-3: Coherencia en donación parcial
+    if (changeBreakdown?.tipDonated?.partial === true) {
+        const physicalUsd = changeBreakdown.tipDonated.physicalGivenUsd || 0;
+        const donatedUsd = changeBreakdown.tipDonated.amountUsd || 0;
+        const physicalBs = Number(changeBreakdown.tipDonated.physicalGivenBs) || 0;
+        const sumCheck = round2(physicalUsd + (effectiveRate > 0 ? divR(physicalBs, effectiveRate) : 0) + donatedUsd);
+        if (Math.abs(sumCheck - changeUsd) > 0.009) {
+            return { success: false, error: 'FX19-S1: physicalGivenUsd + tipDonated.amountUsd no cuadra con el cambio real.' };
+        }
+    }
 
     // FIN-008: deepFreeze en lugar de Object.freeze (congela items[] y payments[]).
     deepFreeze(sale);
@@ -175,6 +230,12 @@ export async function processSaleTransaction({
     // FIN-007: withLock reemplaza navigator.locks.request directo (feature detection + fallback).
     const lockResult = await withLock('pos_write_lock', async () => {
         const existingSales = await storageService.getItem(SALES_KEY, []);
+        if (checkoutOperationId) {
+            const duplicate = existingSales.find(s => s.checkoutOperationId === checkoutOperationId);
+            if (duplicate) {
+                return { success: true, sale: duplicate, updatedProducts: products, updatedCustomers: customers, duplicate: true };
+            }
+        }
         const saleNumber = existingSales.reduce((mx, s) => Math.max(mx, s.saleNumber || 0), 0) + 1;
         // FIN-008: deep-freeze el sale persistido final.
         const finalPersistedSale = deepFreeze({ ...sale, saleNumber });
@@ -349,7 +410,7 @@ export async function processSaleTransaction({
                 usaSaldoFavor:    amount_favor_used,
                 esCredito:        deudaParaCliente > FINANCIAL_EPSILON.PAYMENT_ZERO,
                 deudaGenerada:    deudaParaCliente,
-                vueltoParaMonedero: 0,
+                vueltoParaMonedero: round2(changeBreakdown?.vueltoParaMonederoUsd || 0),
                 esCashea:         casheaUsd > 0
             };
 

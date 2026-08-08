@@ -31,7 +31,6 @@ const MONITOR_DOC_IDS = [
     'bodega_use_auto_rate'
 ];
 
-let monitorSubscription = null;
 let reconnectTimer = null;
 let oversizePullTimer = null;
 
@@ -53,6 +52,11 @@ export function useMonitorSync(pairedDeviceId) {
     // relojes se ralentizan x6 en vez de mantener el ritmo de primer plano.
     const hiddenRef = useRef(false);
     const tickRef = useRef(0);
+    // FX-DJ: monitorSubscription como useRef para que cada instancia del hook
+    // gestione su propio canal. Con `let` de módulo, si el componente se desmonta
+    // y remonta, la ref queda !null apuntando a un canal muerto y nunca se crea
+    // una nueva suscripción.
+    const monitorSubscriptionRef = useRef(null);
 
     useEffect(() => {
         lastSyncRef.current = lastSync;
@@ -243,9 +247,9 @@ export function useMonitorSync(pairedDeviceId) {
             setIsConnected(true);
 
             // 2. Suscripción en Tiempo Real vía WebSocket
-            if (!monitorSubscription) {
+            if (!monitorSubscriptionRef.current) {
                 const channelName = `monitor:${activeDeviceId}:${Date.now()}`;
-                monitorSubscription = supabaseCloud
+                monitorSubscriptionRef.current = supabaseCloud
                     .channel(channelName)
                     .on('postgres_changes', {
                         event: '*',
@@ -282,9 +286,9 @@ export function useMonitorSync(pairedDeviceId) {
                             setIsConnected(true);
                         } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
                             setIsConnected(false);
-                            if (monitorSubscription) {
-                                supabaseCloud.removeChannel(monitorSubscription).catch(() => {});
-                                monitorSubscription = null;
+                            if (monitorSubscriptionRef.current) {
+                                supabaseCloud.removeChannel(monitorSubscriptionRef.current).catch(() => {});
+                                monitorSubscriptionRef.current = null;
                             }
                         }
                     });
@@ -303,9 +307,9 @@ export function useMonitorSync(pairedDeviceId) {
     }, [initMonitor]);
 
     const triggerRefresh = async () => {
-        if (monitorSubscription) {
-            await supabaseCloud.removeChannel(monitorSubscription).catch(() => {});
-            monitorSubscription = null;
+        if (monitorSubscriptionRef.current) {
+            await supabaseCloud.removeChannel(monitorSubscriptionRef.current).catch(() => {});
+            monitorSubscriptionRef.current = null;
         }
         localStorage.removeItem('dj_monitor_last_full_pull_ts');
         lastSyncRef.current = null;
@@ -388,7 +392,7 @@ export function useMonitorSync(pairedDeviceId) {
             // E3: en segundo plano, 1 de cada 6 ticks.
             if (hiddenRef.current && tickRef.current % 6 !== 0) return;
 
-            const isHealthy = isConnectedRef.current && monitorSubscription;
+            const isHealthy = isConnectedRef.current && monitorSubscriptionRef.current;
             checkCounterRef.current += 1;
 
             if (!isHealthy || checkCounterRef.current % 3 === 0) {
@@ -415,9 +419,9 @@ export function useMonitorSync(pairedDeviceId) {
             if (reconnectTimer) clearInterval(reconnectTimer);
             if (heartbeatTimer) clearInterval(heartbeatTimer);
             if (oversizePullTimer) { clearTimeout(oversizePullTimer); oversizePullTimer = null; }
-            if (monitorSubscription) {
-                supabaseCloud.removeChannel(monitorSubscription).catch(() => {});
-                monitorSubscription = null;
+            if (monitorSubscriptionRef.current) {
+                supabaseCloud.removeChannel(monitorSubscriptionRef.current).catch(() => {});
+                monitorSubscriptionRef.current = null;
             }
         };
     }, [pairedDeviceId, initMonitor, sendHeartbeat, checkPosPresence]);

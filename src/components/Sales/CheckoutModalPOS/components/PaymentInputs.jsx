@@ -37,7 +37,7 @@ const getBrandStyles = (name, type) => {
  * InputPago — Input individual por método de pago.
  */
 const InputPago = React.memo(React.forwardRef(({
-    label, icon: Icon, value, onChange, onAutoFill, moneda, onKeyDown,
+    id, label, icon: Icon, value, onChange, onAutoFill, moneda, onKeyDown,
     requiereRef, refPago, onChangeRef, tasa, isSelected, onFocus, onFocusRef
 }, ref) => {
     const brand = getBrandStyles(label, moneda);
@@ -50,7 +50,7 @@ const InputPago = React.memo(React.forwardRef(({
     return (
         <div className="relative group">
             <div className="flex justify-between items-center mb-1 ml-0.5">
-                <label className={`text-[10px] font-bold uppercase tracking-wider transition-colors ${isActive ? brand.text : 'text-slate-400'}`}>
+                <label htmlFor={id} className={`text-[10px] font-bold uppercase tracking-wider transition-colors ${isActive ? brand.text : 'text-slate-400'}`}>
                     {label}
                 </label>
             </div>
@@ -64,6 +64,7 @@ const InputPago = React.memo(React.forwardRef(({
 
                     {/* Input */}
                     <input
+                        id={id}
                         ref={ref}
                         type="text"
                         inputMode="decimal"
@@ -94,14 +95,17 @@ const InputPago = React.memo(React.forwardRef(({
                                 : isActive
                                     ? `${brand.border} ${brand.bg} ring-1 ${brand.activeRing}`
                                     : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-slate-300 focus:border-slate-400 focus:ring-4 focus:ring-slate-50 dark:focus:ring-slate-800'
-                            }`}
+                        }`}
+                        aria-label={label}
                     />
 
                     {/* Acciones derecha */}
                     <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
                         <button
+                            type="button"
                             onClick={onAutoFill}
-                            className={`p-1.5 rounded-lg transition-all active:scale-90 ${isActive ? 'text-slate-400 hover:text-amber-500 hover:bg-white/60' : 'text-slate-300 hover:text-amber-500 hover:bg-slate-100'}`}
+                            aria-label={`Completar saldo de ${label}`}
+                            className={`min-h-11 min-w-11 flex items-center justify-center rounded-lg transition-all active:scale-90 ${isActive ? 'text-slate-400 hover:text-amber-500 hover:bg-white/60' : 'text-slate-300 hover:text-amber-500 hover:bg-slate-100'}`}
                             title="Llenar saldo restante"
                             tabIndex={-1}
                         >
@@ -127,6 +131,7 @@ const InputPago = React.memo(React.forwardRef(({
                         <div className="relative h-11">
                             <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"><Hash size={13} /></div>
                             <input
+                                id={`${id}-reference`}
                                 type="text"
                                 className={`w-full h-full pl-8 pr-3 border-2 rounded-xl outline-none font-mono font-bold text-[11px] shadow-sm transition-all
                                     ${isActive ? `${brand.border} bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 focus:ring-2 ${brand.activeRing}` : 'border-slate-200 dark:border-slate-700'}`}
@@ -136,6 +141,7 @@ const InputPago = React.memo(React.forwardRef(({
                                 onFocus={onFocusRef}
                                 maxLength={8}
                                 tabIndex={showRef ? 0 : -1}
+                                aria-label={`Referencia de ${label}`}
                             />
                         </div>
                     </div>
@@ -175,7 +181,7 @@ export default function PaymentInputs({
                     key={den}
                     type="button"
                     onClick={() => sumarBillete(id, den)}
-                    className="flex-1 min-w-[32px] font-bold rounded-lg border border-slate-100 text-xs py-1.5 bg-white dark:bg-slate-900 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-emerald-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 active:scale-95 transition-all"
+                    className="flex-1 min-w-[44px] min-h-11 font-bold rounded-lg border border-slate-100 text-xs py-1.5 bg-white dark:bg-slate-900 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-emerald-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 active:scale-95 transition-all"
                 >{den}</button>
             ))}
         </div>
@@ -199,6 +205,7 @@ export default function PaymentInputs({
                         return (
                             <div key={m.id}>
                                 <InputPago
+                                    id={`payment-${m.id}`}
                                     ref={el => inputRefs.current[idx] = el}
                                     label={m.nombre} icon={Icon}
                                     value={pagos[m.id] || ''}
@@ -239,6 +246,7 @@ export default function PaymentInputs({
                         const Icon = ICON_MAP[m.icono] || Banknote;
                         return (
                             <InputPago
+                                id={`payment-${m.id}`}
                                 key={m.id}
                                 ref={el => inputRefs.current[idx] = el}
                                 label={m.nombre} icon={Icon}
@@ -274,6 +282,7 @@ export default function PaymentInputs({
                             const Icon = ICON_MAP[m.icono] || DollarSign;
                             return (
                                 <InputPago
+                                    id={`payment-${m.id}`}
                                     key={m.id}
                                     ref={el => inputRefs.current[idx] = el}
                                     label={m.nombre} icon={Icon}

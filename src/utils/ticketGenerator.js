@@ -296,6 +296,47 @@ export async function generateTicketPDF(sale, bcvRate) {
             });
         }
 
+        if (sale.changeOwed) {
+            const methodNames = {
+                pago_movil: 'Pago Móvil',
+                zelle: 'Zelle',
+                transferencia: 'Transferencia',
+                efectivo_externo: 'Efectivo Externo',
+                otro: 'Otro'
+            };
+            const mName = methodNames[sale.changeOwed.method] || sale.changeOwed.method || 'Por Fuera';
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7.5);
+            doc.setTextColor(...BODY);
+            doc.text(`Vuelto Fuera (${mName}):`, M, y);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(...INK);
+            doc.text(`$${formatUsd(sale.changeOwed.amountUsd)} (Bs ${formatBs(sale.changeOwed.amountBs)})`, RIGHT, y, { align: 'right' });
+            y += 5;
+        }
+
+        if (sale.changeVoucher) {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7.5);
+            doc.setTextColor(...BODY);
+            doc.text(`Voucher (${sale.changeVoucher.voucherCode}):`, M, y);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(...INK);
+            doc.text(`$${formatUsd(sale.changeVoucher.amountUsd)}`, RIGHT, y, { align: 'right' });
+            y += 5;
+        }
+
+        if (sale.tipDonated) {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7.5);
+            doc.setTextColor(...BODY);
+            doc.text('Vuelto Cedido/Donado:', M, y);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(...INK);
+            doc.text(`$${formatUsd(sale.tipDonated.amountUsd)}`, RIGHT, y, { align: 'right' });
+            y += 5;
+        }
+
         if (hasFiado) {
             y += 2;
             const fiadoRate = bcvRate || rate; // Usar tasa actual para deuda pendiente

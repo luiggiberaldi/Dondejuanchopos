@@ -14,7 +14,7 @@ export function useCheckoutFlow({
     effectiveRate, tasaCop, copEnabled, discountData, useAutoRate, bcvRate,
     setSalesData, setShowReceipt, setShowCheckout, setSelectedCustomerId,
     setCart, setCartSelectedIndex, setShowConfetti, setTodayAperturaData, setIsAperturaOpen,
-    playCheckout, playError, notifyLowStock, notifySaleComplete, triggerHaptic
+    playCheckout, playError, notifyLowStock, notifySaleComplete, triggerHaptic, paymentMethods
 }) {
     const handleCheckout = async (payments, changeBreakdown, totalOverrides = null) => {
         triggerHaptic && triggerHaptic();
@@ -35,7 +35,9 @@ export function useCheckoutFlow({
             copEnabled,
             discountData,
             useAutoRate,
-            bcvRate
+            bcvRate,
+            paymentMethods,
+            checkoutOperationId: totalOverrides?.checkoutOperationId ?? changeBreakdown?.checkoutOperationId
         };
 
         let result;
@@ -48,7 +50,7 @@ export function useCheckoutFlow({
             console.error('[checkout] Error inesperado en processSaleTransaction:', err);
             showToast('Error al procesar la venta. Intenta de nuevo.', 'error');
             playError();
-            return;
+            return { success: false, error: 'Error al procesar la venta. Intenta de nuevo.' };
         }
 
         if (!result.success) {
@@ -56,7 +58,7 @@ export function useCheckoutFlow({
             console.error('Abortando venta:', result.error);
             showToast(result.error, result.error.includes('No se pueden') ? 'warning' : 'error');
             playError();
-            return;
+            return result;
         }
 
         setProducts(result.updatedProducts);
@@ -76,6 +78,7 @@ export function useCheckoutFlow({
         setShowCheckout(false);
         setSelectedCustomerId('');
         setCartSelectedIndex(-1);
+        return result;
     };
 
     const handleCreateCustomer = async (name, documentId, phone) => {

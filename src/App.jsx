@@ -78,7 +78,7 @@ export default function App() {
   const [showIOSInstall, setShowIOSInstall] = useState(false);
   const [mountedViews, setMountedViews] = useState({});
   const [showPairingScan, setShowPairingScan] = useState(false);
-  const isMonitorMode = localStorage.getItem('dj_pairing_mode') === 'monitor';
+  // NOTA: isMonitorMode se calcula más abajo, después de que deviceId esté disponible.
 
   useEffect(() => {
     setMountedViews(prev => ({...prev, [activeTab]: true}));
@@ -87,6 +87,24 @@ export default function App() {
   const { isPremium, deviceId, forceHeartbeat } = useSecurity();
   const { isOnline, cacheRates } = useOfflineQueue();
   useAutoBackup(isPremium, false, deviceId);
+
+  // Guarda-rail anti-autovinculación: si el dj_paired_device_id coincide con el
+  // deviceId actual, la PC principal se está intentando monitorear a sí misma.
+  // Esto provoca un bucle donde la caja nunca sincroniza comandos correctamente.
+  // Se resetea automáticamente y se retorna false para desactivar el modo monitor.
+  const isMonitorMode = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    const rawMode = localStorage.getItem('dj_pairing_mode');
+    const pairedId = localStorage.getItem('dj_paired_device_id');
+    if (rawMode !== 'monitor' || !pairedId) return false;
+    if (deviceId && pairedId === deviceId) {
+      console.warn('[App] Dispositivo principal no puede ser monitor de sí mismo. Reseteando modo monitor.');
+      localStorage.removeItem('dj_pairing_mode');
+      localStorage.removeItem('dj_paired_device_id');
+      return false;
+    }
+    return true;
+  }, [deviceId]);
 
   const { usuarioActivo, requireLogin } = useAuthStore();
   const { logout } = useAuthStore();
