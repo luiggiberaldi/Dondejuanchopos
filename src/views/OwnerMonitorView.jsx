@@ -29,6 +29,7 @@ import { getLocalISODate, getDateRange } from '../utils/dateHelpers';
 import { getPaymentLabel, toTitleCase } from '../config/paymentMethods';
 import { findOpenApertura, getOpenShiftMovements } from '../utils/shiftScope';
 import { FinancialEngine } from '../core/FinancialEngine';
+import { calculateSupervisorChangeMetrics, calculateSupervisorOutflowMetrics } from '../utils/supervisorShiftMetrics';
 
 // Helper: icon por método de pago
 const PAYMENT_METHOD_ICONS = {
@@ -1592,6 +1593,12 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         };
     }, [sales]);
 
+    const activeShiftOutflowMetrics = useMemo(() => (
+        calculateSupervisorOutflowMetrics(getOpenShiftMovements(sales).movements)
+    ), [sales]);
+
+    const activeShiftSupplierMetrics = activeShiftOutflowMetrics.supplierPayments;
+
     // Desglose por método de pago del turno activo (incluye vueltos desglosados en Bs y $)
     const activeShiftPaymentBreakdown = useMemo(() => {
         const breakdown = {};
@@ -1698,6 +1705,13 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 return b.totalUsd - a.totalUsd;
             });
     }, [sales, activeShiftApertura, effectiveRate, bcvRate]);
+
+    const activeShiftChangeMetrics = useMemo(() => (
+        calculateSupervisorChangeMetrics(
+            getOpenShiftMovements(sales).movements,
+            sale => getSaleChangeDetails(sale, products, effectiveRate, bcvRate)
+        )
+    ), [sales, products, effectiveRate, bcvRate]);
 
     // Base de los porcentajes del desglose: SOLO los cobros reales.
     // Los vueltos (isChange) y las propinas (isTip) son disposiciones de ese mismo
@@ -2434,7 +2448,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             >
                                 <div className="flex items-center justify-between w-full">
                                     <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-rose-500 dark:text-rose-400 flex items-center gap-1">
-                                        Gastos Turno <span className="text-[8px] opacity-75 group-hover:translate-x-0.5 transition-transform">➔</span>
+                                        Gastos internos <span className="text-[8px] opacity-75 group-hover:translate-x-0.5 transition-transform">➔</span>
                                     </span>
                                     <div className="w-7 h-7 sm:w-9 sm:h-9 bg-rose-50 dark:bg-rose-950/20 rounded-xl flex items-center justify-center text-rose-500 shrink-0">
                                         <TrendingUp size={16} className="rotate-180" />
@@ -2445,7 +2459,61 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                         -${activeShiftExpensesMetrics.totalUsd.toFixed(2)}
                                     </span>
                                     <span className="text-[9px] text-slate-400 block font-medium mt-1">
-                                        {activeShiftExpensesMetrics.count} {activeShiftExpensesMetrics.count === 1 ? 'egreso' : 'egresos'} (-{formatBs(activeShiftExpensesMetrics.totalBs)} Bs)
+                                        {activeShiftExpensesMetrics.count} {activeShiftExpensesMetrics.count === 1 ? 'gasto' : 'gastos'} (-{formatBs(activeShiftExpensesMetrics.totalBs)} Bs)
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Pagos a proveedores */}
+                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-orange-200/70 dark:border-orange-900/40 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px]">
+                                <div className="flex items-center justify-between w-full">
+                                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-orange-500 dark:text-orange-400">Pagos a proveedores</span>
+                                    <div className="w-7 h-7 sm:w-9 sm:h-9 bg-orange-50 dark:bg-orange-950/20 rounded-xl flex items-center justify-center text-orange-500 shrink-0">
+                                        <Truck size={16} />
+                                    </div>
+                                </div>
+                                <div className="mt-2.5 min-w-0">
+                                    <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-orange-600 dark:text-orange-400 tabular-nums block break-words leading-none">
+                                        -${activeShiftSupplierMetrics.totalUsd.toFixed(2)}
+                                    </span>
+                                    <span className="text-[9px] text-slate-400 block font-medium mt-1">
+                                        {activeShiftSupplierMetrics.count} {activeShiftSupplierMetrics.count === 1 ? 'pago' : 'pagos'} (-{formatBs(activeShiftSupplierMetrics.totalBs)} Bs)
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Vueltos entregados */}
+                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-amber-200/70 dark:border-amber-900/40 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px]">
+                                <div className="flex items-center justify-between w-full">
+                                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">Vueltos entregados</span>
+                                    <div className="w-7 h-7 sm:w-9 sm:h-9 bg-amber-50 dark:bg-amber-950/20 rounded-xl flex items-center justify-center text-amber-500 shrink-0">
+                                        <RotateCcw size={16} />
+                                    </div>
+                                </div>
+                                <div className="mt-2.5 min-w-0">
+                                    <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-amber-600 dark:text-amber-400 tabular-nums block break-words leading-none">
+                                        -${activeShiftChangeMetrics.totalUsd.toFixed(2)}
+                                    </span>
+                                    <span className="text-[9px] text-slate-400 block font-medium mt-1">
+                                        {activeShiftChangeMetrics.count} {activeShiftChangeMetrics.count === 1 ? 'venta' : 'ventas'} (-{formatBs(activeShiftChangeMetrics.totalBs)} Bs)
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Vueltos dejados en caja */}
+                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-emerald-200/70 dark:border-emerald-900/40 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px]">
+                                <div className="flex items-center justify-between w-full">
+                                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Vueltos dejados en caja</span>
+                                    <div className="w-7 h-7 sm:w-9 sm:h-9 bg-emerald-50 dark:bg-emerald-950/20 rounded-xl flex items-center justify-center text-emerald-500 shrink-0">
+                                        <HandCoins size={16} />
+                                    </div>
+                                </div>
+                                <div className="mt-2.5 min-w-0">
+                                    <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums block break-words leading-none">
+                                        ${activeShiftTipTotals.tipUsd.toFixed(2)}
+                                    </span>
+                                    <span className="text-[9px] text-slate-400 block font-medium mt-1">
+                                        {formatBs(activeShiftTipTotals.tipBs)} Bs · {activeShiftTipTotals.tipCount} {activeShiftTipTotals.tipCount === 1 ? 'venta' : 'ventas'}
                                     </span>
                                 </div>
                             </div>
