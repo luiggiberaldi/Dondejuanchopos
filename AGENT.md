@@ -1,8 +1,10 @@
 # AGENT.md — Guía Completa del Proyecto `preciosaldia-bodega`
 
-> **Versión del documento:** 1.1.0 (post-auditoría y fixes)
-> **Última actualización:** 2026-03-30
-> **Estado:** 130/130 issues de auditoría cerrados · 165 tests pasan · build de producción OK
+> **Versión del documento:** 1.2.0 (cierre Supervisor 1:1)
+> **Última actualización:** 2026-08-10
+> **Estado:** 130/130 issues de auditoría cerrados · Supervisor 1:1 validado · build de producción OK
+
+> **Alcance operativo vigente:** una caja principal + un supervisor autorizado. El multisupervisor queda fuera de esta fase.
 
 ---
 
@@ -25,6 +27,7 @@
 15. [Deuda técnica conocida](#15-deuda-técnica-conocida)
 16. [Próximos pasos operacionales](#16-próximos-pasos-operacionales)
 17. [Comandos rápidos](#17-comandos-rápidos)
+18. [Estado del Supervisor 1:1](#18-estado-del-supervisor-11)
 
 ---
 
@@ -219,7 +222,9 @@ Estos módulos fueron creados durante la implementación de fixes y son la base 
 
 ## 7. Testing
 
-### Vitest — 165 tests en 8 archivos
+### Vitest — suite vigente
+
+La suite completa vigente debe ejecutarse con `bun run test`. En el cierre del Supervisor 1:1 se validaron **349 tests**, con **10 omitidos** y **0 fallos**. La cifra puede crecer cuando se agreguen nuevas coberturas.
 
 | Archivo | Tests | Cubre |
 |---|---:|---|
@@ -614,4 +619,58 @@ bash scripts/purge-history.sh   # Purgar binarios/secretos del git history
 
 ---
 
-*Documento mantenido por el equipo de auditoría. Última revisión: 2026-03-30. Para detalles de los fixes aplicados, ver `CHANGES.md`. Para el reporte completo de auditoría, ver `ISSUES.md` y `/home/z/my-project/worklog.md`.*
+## 18. Estado del Supervisor 1:1
+
+### Alcance activado en producción
+
+El modo Supervisor está habilitado para el modelo **una caja principal + un supervisor autorizado mediante pairing**. El acceso no se concede por conocer un `device_id`: el supervisor debe vincularse mediante el flujo QR y la caja debe permanecer emparejada.
+
+Capacidades aprobadas y activas:
+
+- Monitoreo de ventas, inventario, caja y estado de conexión en tiempo real.
+- Cambio remoto de tasas.
+- Ingreso remoto de inventario.
+- Egreso remoto de inventario con motivo, categoría, validación de stock, TTL, idempotencia y confirmación de la caja.
+- Edición remota de productos, incluyendo auto-búsqueda y selección de imágenes.
+- Anulación remota de ventas.
+- Cambio remoto de nombre y PIN de usuarios, sin enviar el PIN en claro dentro del comando.
+- Reportes por producto y rango de fechas.
+- Resumen del turno activo con gastos internos, pagos a proveedores, vueltos entregados, vueltos dejados en caja y efectivo esperado.
+- Interfaz responsive del Supervisor; la zona de terminales adicionales permanece oculta porque el alcance actual es 1:1.
+
+### Aceptación funcional
+
+El operador confirmó en los dispositivos reales:
+
+- pairing Caja ↔ Supervisor;
+- cambio de tasa;
+- ingreso;
+- egreso;
+- cambio de PIN;
+- cambio de nombre;
+- recepción y aplicación de comandos en la caja principal.
+
+Validación automatizada del cierre:
+
+```text
+349 tests pasan · 10 omitidos · 0 fallos
+Build de producción: correcto
+ESLint: 0 errores bloqueantes
+```
+
+### Publicación y operación
+
+- Rama de código: `main`.
+- Commit funcional publicado: `47e18b1`.
+- URL operativa verificada: `https://preciosaldiaoficial.vercel.app` (HTTP 200).
+- El despliegue debe contener el bundle generado desde `main`; si la consola muestra un hash anterior, cerrar la PWA y forzar actualización del Service Worker antes de probar.
+- El canal operativo observado actualmente es Vercel. `wrangler.jsonc` conserva la configuración de Cloudflare como target de infraestructura, pero no debe considerarse una publicación efectiva hasta ejecutar y verificar `wrangler deploy` con credenciales válidas.
+
+### Fuera del alcance de esta fase
+
+- Varios supervisores por caja.
+- Revocación y heartbeat de múltiples supervisores.
+- Backup completo: quedan por resolver CORS de `/api/backup/complete` y permisos `403` de `cloud_backups`.
+- Typecheck estricto de TypeScript: el proyecto usa JavaScript y el script actual permite terminar aunque `tsc` reporte incidencias.
+
+*Documento mantenido por el equipo de auditoría. Última revisión: 2026-08-10. Para detalles de los fixes aplicados, ver `CHANGES.md`. Para el reporte completo de auditoría, ver `ISSUES.md` y `/home/z/my-project/worklog.md`.*
