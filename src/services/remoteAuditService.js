@@ -1,9 +1,14 @@
 import { supabaseCloud } from '../config/supabaseCloud';
 import { IDB_KEYS, LS_KEYS } from '../config/backupKeys';
 
-const REMOTE_BACKUP_EXCLUDED_KEYS = Object.freeze([
+export const REMOTE_BACKUP_EXCLUDED_KEYS = Object.freeze([
     'premium_token',
 ]);
+
+// El backup completo viaja por un RPC dedicado y no por sync_documents.
+// Este límite evita que una solicitud de Supervisor pueda generar una respuesta
+// JSONB descontrolada, pero permite los históricos reales de ventas/Kardex.
+export const REMOTE_BACKUP_MAX_BYTES = 8 * 1024 * 1024;
 
 export const REMOTE_KARDEX_DOC_IDS = Object.freeze([
     'bodega_products_v1',
@@ -52,11 +57,13 @@ export const REMOTE_READABLE_DOC_IDS = Object.freeze([
     ...new Set([...REMOTE_BACKUP_DOC_IDS, ...REMOTE_MONITOR_DOC_IDS]),
 ]);
 
-const REMOTE_BACKUP_CRITICAL_DOC_IDS = Object.freeze([
+export const REMOTE_BACKUP_CRITICAL_DOC_IDS = Object.freeze([
     'bodega_products_v1',
     'bodega_sales_v1',
     'bodega_kardex_v1',
+    'bodega_kardex_snapshots_v1',
     'bodega_inventory_operations_v1',
+    'bodega_sales_mirror_v1',
 ]);
 
 function getLocalStorageValue(key) {
@@ -205,6 +212,57 @@ export async function fetchRemoteInventoryAudit(deviceId, client = supabaseCloud
     return fetchRemoteDocuments(deviceId, REMOTE_AUDIT_DOC_IDS, client);
 }
 
+/**
+ * Lee el snapshot completo creado por la caja en respuesta a una solicitud del
+ * Supervisor. La tabla cloud_backups permanece cerrada para anon; la autorización
+ * la aplica el RPC mediante el pairing exacto.
+ */
+export async function fetchRemoteFullBackup(
+    deviceId,
+    client = supabaseCloud,
+    { updatedAfter = null } = {},
+) {
+    const scope = validateDeviceScope(deviceId);
+    if (!scope.success) return scope;
+
+    if (!client) {
+        return errorResult('REMOTE_CLOUD_UNAVAILABLE', 'La conexión Cloud no está configurada.');
+    }
+
+    const monitorDeviceId = getMonitorDeviceId();
+    if (!monitorDeviceId) {
+        return errorResult('REMOTE_MONITOR_ID_REQUIRED', 'El dispositivo Supervisor no está identificado.');
+    }
+
+    try {
+        const { data, error } = await client.rpc('read_paired_cloud_backup', {
+            p_primary_device_id: deviceId,
+            p_monitor_device_id: monitorDeviceId,
+            p_updated_after: updatedAfter,
+        });
+
+        if (error) {
+            return errorResult(
+                error.code || (error.status ? `HTTP_${error.status}` : 'REMOTE_BACKUP_QUERY_FAILED'),
+                error.message || 'No se pudo leer el backup completo de la caja.',
+            );
+        }
+
+        const row = Array.isArray(data) ? data[0] : data;
+        return {
+            success: true,
+            deviceId,
+            backup: row?.backup_data || null,
+            updatedAt: row?.updated_at || null,
+        };
+    } catch (error) {
+        return errorResult(
+            'REMOTE_BACKUP_QUERY_EXCEPTION',
+            error?.message || 'Error inesperado leyendo el backup completo.',
+        );
+    }
+}
+
 function serializeLocalValue(value) {
     if (typeof value === 'string') return value;
     try {
@@ -216,6 +274,65 @@ function serializeLocalValue(value) {
 
 /**
  * Convierte la lectura remota a backup v2 sin escribir en storage ni en Supabase.
+ */
+export function buildLocalRemoteBackup(
+    deviceId,
+    requestId,
+    idbData = {},
+    lsData = {},
+    generatedAt = new Date().toISOString(),
+) {
+    if (typeof deviceId !== 'string' || deviceId.trim() === '') {
+        throw new Error('El device_id de origen es requerido para el backup.');
+    }
+
+    const safeIdb = {};
+    const safeLs = {};
+    const receivedIds = new Set();
+
+    for (const key of IDB_KEYS) {
+        if (!Object.prototype.hasOwnProperty.call(idbData, key)) continue;
+        safeIdb[key] = idbData[key];
+        receivedIds.add(key);
+    }
+
+    for (const key of LS_KEYS.filter(item => !REMOTE_BACKUP_EXCLUDED_KEYS.includes(item))) {
+        if (!Object.prototype.hasOwnProperty.call(lsData, key)) continue;
+        safeLs[key] = serializeLocalValue(lsData[key]);
+        receivedIds.add(key);
+    }
+
+    const missingDocIds = REMOTE_BACKUP_DOC_IDS.filter(docId => !receivedIds.has(docId));
+    const missingCriticalDocIds = REMOTE_BACKUP_CRITICAL_DOC_IDS.filter(docId => !receivedIds.has(docId));
+    const backup = {
+        timestamp: generatedAt,
+        version: '2.0',
+        appName: 'TasasAlDia_Bodegas_Cloud',
+        source: 'supervisor_full_backup_request',
+        sourceDeviceId: deviceId,
+        data: { idb: safeIdb, ls: safeLs },
+        metadata: {
+            requestId: requestId || null,
+            captureMode: 'full_remote_request',
+            expectedDocIds: [...REMOTE_BACKUP_DOC_IDS],
+            receivedDocIds: [...receivedIds],
+            missingDocIds,
+            missingCriticalDocIds,
+            isReconciliationReady: missingCriticalDocIds.length === 0,
+            isComplete: missingDocIds.length === 0,
+        },
+    };
+
+    const sizeBytes = JSON.stringify(backup).length;
+    if (sizeBytes > REMOTE_BACKUP_MAX_BYTES) {
+        throw new Error(`El backup completo supera el límite de ${REMOTE_BACKUP_MAX_BYTES} bytes.`);
+    }
+
+    return backup;
+}
+
+/**
+ * Convierte documentos recibidos por la lectura bajo demanda a backup v2.
  */
 export function buildRemoteBackup(deviceId, documents, generatedAt = new Date().toISOString()) {
     if (typeof deviceId !== 'string' || deviceId.trim() === '') {
@@ -250,8 +367,12 @@ export function buildRemoteBackup(deviceId, documents, generatedAt = new Date().
         sourceDeviceId: deviceId,
         data: { idb, ls },
         metadata: {
+            captureMode: 'remote_document_read',
+            expectedDocIds: [...REMOTE_BACKUP_DOC_IDS],
+            receivedDocIds: [...receivedIds],
             missingDocIds,
             missingCriticalDocIds,
+            isReconciliationReady: missingCriticalDocIds.length === 0,
             isComplete: missingDocIds.length === 0,
         },
     };

@@ -105,6 +105,27 @@ describe('Supervisor remote Kardex — egress y seguridad', () => {
         expect(sqlSource).toContain("'business_name'");
         expect(sqlSource).not.toContain("'premium_token'");
         expect(sqlSource).toContain("REVOKE SELECT ON public.sync_documents FROM anon");
+        expect(sqlSource).toContain('CREATE OR REPLACE FUNCTION public.read_paired_cloud_backup');
+        expect(sqlSource).toContain('REMOTE_BACKUP_PAIRING_REQUIRED');
+        expect(sqlSource).toContain('GRANT EXECUTE ON FUNCTION public.read_paired_cloud_backup');
+    });
+
+    it('BACKUP-REMOTE-008: el backup completo se captura en la caja mediante un comando autorizado', () => {
+        const commandsSource = fs.readFileSync(
+            path.resolve(__dirname, '../src/hooks/useSupervisorCommands.js'),
+            'utf8',
+        );
+
+        expect(ownerSource).toContain("command_type: 'request_full_backup'");
+        expect(commandsSource).toContain("command.command_type === 'request_full_backup'");
+        expect(commandsSource).toContain("rpc('write_paired_cloud_backup'");
+        expect(commandsSource).toContain('buildLocalRemoteBackup');
+        expect(commandsSource).toContain("withLock('pos_write_lock'");
+        expect(commandsSource).toContain('REMOTE_BACKUP_EXCLUDED_KEYS');
+        expect(sqlSource).toContain("'request_full_backup'");
+        expect(sqlSource).toContain('CREATE OR REPLACE FUNCTION public.write_paired_cloud_backup');
+        expect(sqlSource).toContain('REMOTE_BACKUP_REQUEST_INVALID');
+        expect(sqlSource).toContain('REVOKE ALL ON public.cloud_backups FROM anon');
     });
 
     it('EGRESS-REMOTE-007: la caja escribe por RPC whitelistado y no por CRUD directo', () => {

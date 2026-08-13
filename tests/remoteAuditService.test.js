@@ -18,9 +18,11 @@ const cloudClient = {
 import {
     REMOTE_AUDIT_DOC_IDS,
     REMOTE_KARDEX_DOC_IDS,
+    buildLocalRemoteBackup,
     buildRemoteBackup,
     extractRemoteKardexData,
     fetchRemoteDocuments,
+    fetchRemoteFullBackup,
     fetchRemoteInventoryAudit,
     fetchRemoteKardex,
 } from '../src/services/remoteAuditService';
@@ -156,6 +158,69 @@ describe('remoteAuditService — lectura remota bajo demanda', () => {
         ]);
         expect(result.maxUpdatedAt).toBe('2026-08-12T21:00:00.000Z');
     });
+
+    it('REMOTE-006: lee el snapshot completo por RPC y no consulta cloud_backups directamente', async () => {
+        configureQuery({
+            data: [{
+                backup_data: {
+                    metadata: { requestId: 'request-1', isComplete: true },
+                    data: { idb: { bodega_products_v1: [] }, ls: {} },
+                },
+                updated_at: '2026-08-13T18:00:00.000Z',
+            }],
+        });
+
+        const result = await fetchRemoteFullBackup(pairedDeviceId, cloudClient);
+
+        expect(result.success).toBe(true);
+        expect(result.backup.metadata.requestId).toBe('request-1');
+        expect(result.updatedAt).toBe('2026-08-13T18:00:00.000Z');
+        expect(cloudState.rpc).toHaveBeenCalledWith('read_paired_cloud_backup', {
+            p_primary_device_id: pairedDeviceId,
+            p_monitor_device_id: 'MONITOR-TEST-001',
+            p_updated_after: null,
+        });
+    });
+});
+
+describe('remoteAuditService — backup v2 en memoria', () => {
+    it('BACKUP-000: la caja construye un snapshot completo con requestId y lista de faltantes', () => {
+        const backup = buildLocalRemoteBackup(
+            pairedDeviceId,
+            'request-1',
+            {
+                bodega_products_v1: [],
+                bodega_sales_v1: [],
+                bodega_kardex_v1: [],
+                bodega_kardex_snapshots_v1: [],
+                bodega_inventory_operations_v1: [],
+                bodega_sales_mirror_v1: [],
+            },
+            { business_name: 'Bodega Prueba', premium_token: 'no-debe-viajar' },
+            '2026-08-13T18:00:00.000Z',
+        );
+
+        expect(backup.source).toBe('supervisor_full_backup_request');
+        expect(backup.metadata.requestId).toBe('request-1');
+        expect(backup.metadata.missingCriticalDocIds).toEqual([]);
+        expect(backup.metadata.isReconciliationReady).toBe(true);
+        expect(backup.metadata.isComplete).toBe(false);
+        expect(backup.data.ls).toEqual({ business_name: 'Bodega Prueba' });
+    });
+
+    it('BACKUP-000B: el snapshot marca como crítico el soporte necesario para conciliación', () => {
+        const backup = buildLocalRemoteBackup(pairedDeviceId, 'request-2', {
+            bodega_products_v1: [],
+            bodega_sales_v1: [],
+            bodega_kardex_v1: [],
+        }, {});
+
+        expect(backup.metadata.missingCriticalDocIds).toEqual([
+            'bodega_kardex_snapshots_v1',
+            'bodega_inventory_operations_v1',
+            'bodega_sales_mirror_v1',
+        ]);
+    });
 });
 
 describe('remoteAuditService — backup v2 en memoria', () => {
@@ -166,7 +231,9 @@ describe('remoteAuditService — backup v2 en memoria', () => {
                 remoteDocument('bodega_products_v1', [{ id: 'p1', stock: 327 }]),
                 remoteDocument('bodega_sales_v1', [{ id: 's1' }]),
                 remoteDocument('bodega_kardex_v1', [{ id: 'm1', cantidad: -1 }]),
+                remoteDocument('bodega_kardex_snapshots_v1', [{ id: 'snap1' }]),
                 remoteDocument('bodega_inventory_operations_v1', [{ operationId: 'op1' }]),
+                remoteDocument('bodega_sales_mirror_v1', [{ id: 'mirror-1' }]),
                 remoteDocument('business_name', 'Bodega Prueba', 'local'),
             ],
             '2026-08-12T22:00:00.000Z',
@@ -188,6 +255,7 @@ describe('remoteAuditService — backup v2 en memoria', () => {
             },
         });
         expect(backup.metadata.missingCriticalDocIds).toEqual([]);
+        expect(backup.metadata.isReconciliationReady).toBe(true);
     });
 
     it('BACKUP-002: excluye el premium token y marca un backup incompleto', () => {
@@ -201,7 +269,9 @@ describe('remoteAuditService — backup v2 en memoria', () => {
         expect(backup.metadata.missingCriticalDocIds).toEqual([
             'bodega_sales_v1',
             'bodega_kardex_v1',
+            'bodega_kardex_snapshots_v1',
             'bodega_inventory_operations_v1',
+            'bodega_sales_mirror_v1',
         ]);
     });
 

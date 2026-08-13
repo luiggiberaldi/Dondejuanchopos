@@ -26,20 +26,23 @@ describe('Supervisor — descarga de backup remoto v2', () => {
         const body = getBackupHandlerBody();
 
         expect(SRC).toContain("from '../services/remoteAuditService'");
-        expect(body).toContain('fetchRemoteDocuments(pairedDeviceId, REMOTE_BACKUP_DOC_IDS)');
-        expect(body).toContain('buildRemoteBackup(pairedDeviceId, result.documents)');
+        expect(SRC).toContain('fetchRemoteFullBackup');
+        expect(body).toContain("command_type: 'request_full_backup'");
+        expect(body).toContain('fetchRemoteFullBackup(pairedDeviceId)');
+        expect(body).not.toContain('fetchRemoteDocuments(pairedDeviceId');
     });
 
-    it('BACKUP-UI-002: genera un archivo descargable y marca backups parciales', () => {
+    it('BACKUP-UI-002: solicita el snapshot a la caja, espera el requestId y genera un archivo descargable', () => {
         const body = getBackupHandlerBody();
 
         expect(body).toContain("new Blob([JSON.stringify(backup, null, 2)]");
         expect(body).toContain('anchor.download');
         expect(body).toContain("const suffix = isPartial ? 'parcial' : 'completo'");
         expect(body).toContain('missingCriticalDocIds');
+        expect(body).toContain('result.backup?.metadata?.requestId === requestId');
     });
 
-    it('BACKUP-UI-003: no publica ni persiste el backup remoto', () => {
+    it('BACKUP-UI-003: la lectura final no publica ni persiste el backup remoto', () => {
         const body = getBackupHandlerBody();
 
         expect(body).not.toMatch(/forceSyncAllPOSData|queueCloudSync|storageService\.setItem|localforage/);

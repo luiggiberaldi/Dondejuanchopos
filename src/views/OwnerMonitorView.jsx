@@ -29,7 +29,7 @@ import { getPaymentLabel, toTitleCase } from '../config/paymentMethods';
 import { findOpenApertura, getOpenShiftMovements } from '../utils/shiftScope';
 import { FinancialEngine } from '../core/FinancialEngine';
 import { calculateSupervisorChangeMetrics, calculateSupervisorOutflowMetrics } from '../utils/supervisorShiftMetrics';
-import { buildRemoteBackup, fetchRemoteDocuments, REMOTE_BACKUP_DOC_IDS } from '../services/remoteAuditService';
+import { fetchRemoteFullBackup } from '../services/remoteAuditService';
 
 // Helper: icon por método de pago
 const PAYMENT_METHOD_ICONS = {
@@ -1035,13 +1035,70 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         setDownloadingBackup(true);
         triggerHaptic?.();
         try {
-            const result = await fetchRemoteDocuments(pairedDeviceId, REMOTE_BACKUP_DOC_IDS);
-            if (!result.success) {
-                throw new Error(result.error?.message || 'No se pudo leer el backup remoto.');
+            if (!supabaseCloud) throw new Error('La conexión Cloud no está configurada.');
+
+            const monitorDeviceId = localStorage.getItem('dj_device_id');
+            if (!monitorDeviceId) throw new Error('El Supervisor no tiene una identidad válida.');
+
+            // No se arma el backup con la copia del Supervisor: se solicita a la
+            // caja que lea su IndexedDB bajo lock y publique un snapshot completo.
+            const requestId = crypto.randomUUID();
+            const { error: requestError } = await supabaseCloud
+                .from('supervisor_commands')
+                .insert({
+                    id: requestId,
+                    primary_device_id: pairedDeviceId,
+                    monitor_device_id: monitorDeviceId,
+                    command_type: 'request_full_backup',
+                    payload: {
+                        requestedAt: new Date().toISOString(),
+                        purpose: 'inventory_kardex_reconciliation',
+                    },
+                    status: 'pending',
+                });
+
+            if (requestError) throw requestError;
+
+            let backup = null;
+            for (let attempt = 0; attempt < 30; attempt += 1) {
+                if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 1000));
+
+                // Consultar primero el estado pequeño del comando evita descargar
+                // repetidamente un backup anterior de varios megabytes mientras la
+                // caja todavía está capturando su IndexedDB.
+                const { data: requestRow, error: statusError } = await supabaseCloud
+                    .from('supervisor_commands')
+                    .select('status, error_reason')
+                    .eq('id', requestId)
+                    .maybeSingle();
+                if (statusError) throw statusError;
+
+                if (requestRow?.status === 'failed') {
+                    throw new Error(requestRow.error_reason || 'La caja no pudo generar el backup completo.');
+                }
+
+                if (requestRow?.status === 'applied' || requestRow?.status === 'applied_with_warnings') {
+                    const result = await fetchRemoteFullBackup(pairedDeviceId);
+                    if (!result.success) {
+                        throw new Error(result.error?.message || 'No se pudo leer el backup completo de la caja.');
+                    }
+
+                    // El requestId evita descargar un backup anterior que estuviera
+                    // guardado en cloud_backups antes de esta solicitud.
+                    if (result.backup?.metadata?.requestId === requestId) {
+                        backup = result.backup;
+                        break;
+                    }
+                    throw new Error('La caja confirmó la captura, pero el snapshot remoto no coincide con la solicitud.');
+                }
             }
 
-            const backup = buildRemoteBackup(pairedDeviceId, result.documents);
-            const isPartial = backup.metadata.missingCriticalDocIds.length > 0;
+            if (!backup) {
+                throw new Error('La caja no respondió con un backup completo. Verifica que esté en línea y tenga la versión actualizada.');
+            }
+
+            const isPartial = backup.metadata?.isReconciliationReady !== true
+                || (backup.metadata?.missingCriticalDocIds || []).length > 0;
             const suffix = isPartial ? 'parcial' : 'completo';
             const safeDeviceId = pairedDeviceId.replace(/[^a-zA-Z0-9_-]/g, '_');
             const date = new Date().toISOString().slice(0, 10);
@@ -1057,15 +1114,15 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
             if (isPartial) {
                 showToast(
-                    `Backup parcial descargado. Faltan: ${backup.metadata.missingCriticalDocIds.join(', ')}`,
+                    `Backup generado, pero faltan datos para conciliación: ${(backup.metadata?.missingCriticalDocIds || backup.metadata?.missingDocIds || []).join(', ')}`,
                     'warning',
                 );
             } else {
                 showToast('Backup completo de la caja descargado.', 'success');
             }
         } catch (error) {
-            console.error('[OwnerMonitor] Error descargando backup remoto:', error);
-            showToast(error.message || 'No se pudo descargar el backup remoto.', 'error');
+            console.error('[OwnerMonitor] Error descargando backup completo remoto:', error);
+            showToast(error.message || 'No se pudo descargar el backup completo.', 'error');
         } finally {
             setDownloadingBackup(false);
         }

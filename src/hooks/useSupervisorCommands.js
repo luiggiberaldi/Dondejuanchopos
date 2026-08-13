@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { applyInventoryCommand, isReappliableCommand } from '../utils/remoteInventoryProcessor';
 import { COMMAND_STATUS, VALID_COMMAND_STATUSES } from '../constants/commandStatus';
+import { IDB_KEYS, LS_KEYS } from '../config/backupKeys';
+import { REMOTE_BACKUP_EXCLUDED_KEYS } from '../services/remoteAuditService';
 
 // ── Deduplicación por ID de comando ─────────────────────────────────────────
 // El catch-up (select de pendientes) y el stream realtime pueden entregar el
@@ -162,7 +164,52 @@ export function useSupervisorCommands(deviceId) {
             if (!command || command.status !== 'pending') return;
             if (appliedIds.has(command.id)) return; // dedup: catch-up + realtime
 
-            if (command.command_type === 'rate_change') {
+            if (command.command_type === 'request_full_backup') {
+                try {
+                    const { storageService } = await import('../utils/storageService');
+                    const { withLock } = await import('../utils/withLock');
+                    const { buildLocalRemoteBackup } = await import('../services/remoteAuditService');
+                    const backup = await withLock('pos_write_lock', async () => {
+                        const idbData = {};
+                        for (const key of IDB_KEYS) {
+                            const value = await storageService.getItem(key, null);
+                            if (value !== null) idbData[key] = value;
+                        }
+
+                        const lsData = {};
+                        for (const key of LS_KEYS) {
+                            if (REMOTE_BACKUP_EXCLUDED_KEYS.includes(key)) continue;
+                            const value = localStorage.getItem(key);
+                            if (value !== null) lsData[key] = value;
+                        }
+
+                        return buildLocalRemoteBackup(deviceId, command.id, idbData, lsData);
+                    });
+                    const { error } = await supabaseCloud.rpc('write_paired_cloud_backup', {
+                        p_device_id: deviceId,
+                        p_request_id: command.id,
+                        p_backup_data: backup,
+                    });
+                    if (error) throw error;
+
+                    appliedIds.add(command.id);
+                    markApplied(command.id);
+                    await updateCommandStatus(command.id, COMMAND_STATUS.APPLIED);
+                    window.dispatchEvent(new CustomEvent('remote_full_backup_applied', {
+                        detail: {
+                            requestId: command.id,
+                            missingDocIds: backup.metadata?.missingDocIds || [],
+                            missingCriticalDocIds: backup.metadata?.missingCriticalDocIds || [],
+                            updatedAt: backup.timestamp,
+                        },
+                    }));
+                } catch (err) {
+                    appliedIds.delete(command.id);
+                    unmarkApplied(command.id);
+                    console.error('[SupervisorCommands] Error al generar backup completo remoto:', err);
+                    await updateCommandStatus(command.id, COMMAND_STATUS.FAILED, err?.message);
+                }
+            } else if (command.command_type === 'rate_change') {
                 try {
                     appliedIds.add(command.id);
                     markApplied(command.id);

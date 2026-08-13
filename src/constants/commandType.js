@@ -18,6 +18,7 @@ export const COMMAND_TYPE = Object.freeze({
     USER_UPDATE: 'user_update',
     FORCE_DAILY_CLOSE: 'force_daily_close',
     REOPEN_SHIFT: 'reopen_shift',
+    REQUEST_FULL_BACKUP: 'request_full_backup',
 });
 
 export const VALID_COMMAND_TYPES = Object.freeze(Object.values(COMMAND_TYPE));

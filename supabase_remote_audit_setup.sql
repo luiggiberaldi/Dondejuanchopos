@@ -218,3 +218,148 @@ GRANT EXECUTE ON FUNCTION public.write_paired_sync_document(TEXT, TEXT, TEXT, JS
 -- RPC anterior; el Supervisor lee únicamente por read_paired_audit_documents.
 REVOKE SELECT ON public.sync_documents FROM anon;
 REVOKE INSERT, UPDATE, DELETE ON public.sync_documents FROM anon;
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- BACKUP COMPLETO SOLICITADO DESDE EL SUPERVISOR
+-- ═════════════════════════════════════════════════════════════════════════════
+-- La caja recopila sus claves locales al recibir `request_full_backup` y las
+-- publica en cloud_backups mediante estos RPCs. No se concede CRUD a anon sobre
+-- cloud_backups ni se retransmiten los documentos pesados por Realtime.
+
+ALTER TABLE public.supervisor_commands
+    DROP CONSTRAINT IF EXISTS supervisor_commands_command_type_check;
+
+ALTER TABLE public.supervisor_commands
+    ADD CONSTRAINT supervisor_commands_command_type_check
+    CHECK (command_type IN (
+        'rate_change',
+        'inventory_update',
+        'void_sale',
+        'user_update',
+        'force_daily_close',
+        'reopen_shift',
+        'request_full_backup'
+    ));
+
+CREATE OR REPLACE FUNCTION public.write_paired_cloud_backup(
+    p_device_id TEXT,
+    p_request_id UUID,
+    p_backup_data JSONB
+)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+VOLATILE
+SET search_path = public
+AS $$
+DECLARE
+    v_monitor_device_id TEXT;
+BEGIN
+    IF COALESCE(btrim(p_device_id), '') = ''
+        OR p_request_id IS NULL
+        OR p_backup_data IS NULL
+        OR jsonb_typeof(p_backup_data) <> 'object' THEN
+        RAISE EXCEPTION 'REMOTE_BACKUP_PAYLOAD_REQUIRED';
+    END IF;
+
+    IF octet_length(p_backup_data::text) > 8388608 THEN
+        RAISE EXCEPTION 'REMOTE_BACKUP_TOO_LARGE';
+    END IF;
+
+    SELECT command.monitor_device_id
+    INTO v_monitor_device_id
+    FROM public.supervisor_commands command
+    WHERE command.id = p_request_id
+      AND command.primary_device_id = btrim(p_device_id)
+      AND command.command_type = 'request_full_backup'
+      AND command.status = 'pending'
+      AND command.created_at > now() - interval '15 minutes';
+
+    IF v_monitor_device_id IS NULL THEN
+        RAISE EXCEPTION 'REMOTE_BACKUP_REQUEST_INVALID';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.device_monitors monitor
+        WHERE monitor.primary_device_id = btrim(p_device_id)
+          AND monitor.monitor_device_id = v_monitor_device_id
+          AND monitor.revoked_at IS NULL
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM public.device_pairings pairing
+        WHERE pairing.primary_device_id = btrim(p_device_id)
+          AND pairing.monitor_device_id = v_monitor_device_id
+          AND pairing.paired_at IS NOT NULL
+    ) THEN
+        RAISE EXCEPTION 'REMOTE_BACKUP_PAIRING_REQUIRED';
+    END IF;
+
+    INSERT INTO public.cloud_backups (device_id, backup_data, updated_at)
+    VALUES (btrim(p_device_id), p_backup_data, now())
+    ON CONFLICT (device_id)
+    DO UPDATE SET backup_data = EXCLUDED.backup_data, updated_at = now();
+
+    RETURN json_build_object(
+        'success', true,
+        'device_id', btrim(p_device_id),
+        'request_id', p_request_id
+    );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.read_paired_cloud_backup(
+    p_primary_device_id TEXT,
+    p_monitor_device_id TEXT,
+    p_updated_after TIMESTAMPTZ DEFAULT NULL
+)
+RETURNS TABLE (
+    backup_data JSONB,
+    updated_at TIMESTAMPTZ
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+BEGIN
+    IF COALESCE(btrim(p_primary_device_id), '') = ''
+        OR COALESCE(btrim(p_monitor_device_id), '') = '' THEN
+        RAISE EXCEPTION 'REMOTE_BACKUP_SCOPE_REQUIRED';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.device_monitors monitor
+        WHERE monitor.primary_device_id = p_primary_device_id
+          AND monitor.monitor_device_id = p_monitor_device_id
+          AND monitor.revoked_at IS NULL
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM public.device_pairings pairing
+        WHERE pairing.primary_device_id = p_primary_device_id
+          AND pairing.monitor_device_id = p_monitor_device_id
+          AND pairing.paired_at IS NOT NULL
+    ) THEN
+        RAISE EXCEPTION 'REMOTE_BACKUP_PAIRING_REQUIRED';
+    END IF;
+
+    RETURN QUERY
+    SELECT backup.backup_data, backup.updated_at
+    FROM public.cloud_backups backup
+    WHERE backup.device_id = p_primary_device_id
+      AND (p_updated_after IS NULL OR backup.updated_at > p_updated_after)
+    ORDER BY backup.updated_at DESC
+    LIMIT 1;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.write_paired_cloud_backup(TEXT, UUID, JSONB) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.write_paired_cloud_backup(TEXT, UUID, JSONB) TO anon, authenticated;
+REVOKE ALL ON FUNCTION public.read_paired_cloud_backup(TEXT, TEXT, TIMESTAMPTZ) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.read_paired_cloud_backup(TEXT, TEXT, TIMESTAMPTZ) TO anon, authenticated;
+
+-- cloud_backups permanece sin SELECT/INSERT/UPDATE/DELETE directo para anon.
+REVOKE ALL ON public.cloud_backups FROM anon;
