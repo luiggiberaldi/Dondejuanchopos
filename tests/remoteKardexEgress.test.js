@@ -106,4 +106,16 @@ describe('Supervisor remote Kardex — egress y seguridad', () => {
         expect(sqlSource).not.toContain("'premium_token'");
         expect(sqlSource).toContain("REVOKE SELECT ON public.sync_documents FROM anon");
     });
+
+    it('EGRESS-REMOTE-007: la caja escribe por RPC whitelistado y no por CRUD directo', () => {
+        expect(cloudSyncSource).toContain("rpc('write_paired_sync_document'");
+        expect(cloudSyncSource).not.toContain(".from('sync_documents').upsert");
+        expect(cloudSyncSource).toContain('p_collection: collectionType');
+        expect(cloudSyncSource).toContain('p_doc_id: key');
+        expect(cloudSyncSource).toContain('if (session && session.user?.id !== activeDeviceId)');
+        expect(sqlSource).toContain('CREATE OR REPLACE FUNCTION public.write_paired_sync_document');
+        expect(sqlSource).toContain('POS_SYNC_DEVICE_NOT_REGISTERED');
+        expect(sqlSource).toContain("REVOKE INSERT, UPDATE, DELETE ON public.sync_documents FROM anon");
+        expect(sqlSource).toContain('GRANT EXECUTE ON FUNCTION public.write_paired_sync_document');
+    });
 });

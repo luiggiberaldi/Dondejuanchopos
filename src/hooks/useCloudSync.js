@@ -98,6 +98,19 @@ function sanitizePayloadForSync(key, value) {
     return value;
 }
 
+async function getCloudSession() {
+    if (!supabaseCloud?.auth?.getSession) return null;
+    try {
+        const { data, error } = await supabaseCloud.auth.getSession();
+        const session = data?.session;
+        if (error || !session) return null;
+        if (session.expires_at && session.expires_at * 1000 < Date.now()) return null;
+        return session;
+    } catch {
+        return null;
+    }
+}
+
 const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
     if (!supabaseCloud) return false;
     if (isSyncingFromCloud) return false;          // Nunca re-emitir lo que llegó de la nube
@@ -108,6 +121,15 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
     if (!SYNC_KEYS.includes(key)) return false;
     const activeDeviceId = _currentDeviceId || localStorage.getItem('dj_device_id');
     if (!activeDeviceId) return false;
+
+    // El POS funciona sin una sesión Auth de Supabase. La autorización de
+    // escritura la aplica el RPC por pairing y whitelist; si existe una sesión,
+    // nunca permitimos que una identidad distinta escriba documentos de la caja.
+    const session = await getCloudSession();
+    if (session && session.user?.id !== activeDeviceId) {
+        isCloudSyncActive = false;
+        return false;
+    }
 
     // SEC-002: jamás empujar `abasto-auth-storage` aunque accidentalmente lo pidan.
     if (key === 'abasto-auth-storage') return false;
@@ -144,16 +166,15 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
     try {
         const collectionType = LOCAL_KEYS.includes(key) ? 'local' : 'store';
 
-        // D5: `updated_at` lo pone el trigger `trg_sync_documents_updated_at`
-        // (supabase_sync_supervisor_hardening.sql). Enviarlo desde el cliente
-        // mezclaba dos relojes: el de quien escribe y el de quien lee el cursor,
-        // y cualquier desfase descartaba escrituras en silencio.
-        const { error } = await supabaseCloud.from('sync_documents').upsert({
-            device_id: activeDeviceId,
-            collection: collectionType,
-            doc_id: key,
-            data: { payload: payloadToUpload }
-        }, { onConflict: 'device_id,collection,doc_id' });
+        // La tabla sync_documents permanece cerrada para anon. El RPC valida
+        // pairing, whitelist y tamaño, y el trigger del servidor escribe
+        // `updated_at` sin mezclar relojes del cliente y del lector.
+        const { error } = await supabaseCloud.rpc('write_paired_sync_document', {
+            p_device_id: activeDeviceId,
+            p_collection: collectionType,
+            p_doc_id: key,
+            p_data: { payload: payloadToUpload },
+        });
 
         if (error) {
             if (error.code === '42501' || error.status === 401) {
@@ -198,12 +219,22 @@ export const forceSyncAllPOSData = async (overrideDeviceId, forceUnconditional =
     if (isMonitor) return;
 
     const activeDeviceId = overrideDeviceId || _currentDeviceId || localStorage.getItem('dj_device_id');
-    if (!activeDeviceId) return;
+    if (!activeDeviceId) return false;
+
+    // El POS puede operar como anon; el RPC aplica la autorización por pairing.
+    // Si existe una sesión Auth distinta, se mantiene el bloqueo de identidad.
+    const session = await getCloudSession();
+    if (session && session.user?.id !== activeDeviceId) {
+        isCloudSyncActive = false;
+        console.info('[CloudSync] Sincronización pausada: la sesión Auth no coincide con la caja.');
+        return false;
+    }
 
     // Habilitar sync activo cuando se fuerza la sincronización explícitamente (ej: al generar código QR de emparejamiento)
     isCloudSyncActive = true;
 
     try {
+        let allSucceeded = true;
         const lf = localforage.createInstance({ name: 'BodegaApp', storeName: 'bodega_app_data' });
         
         for (const key of IDB_KEYS) {
@@ -214,7 +245,8 @@ export const forceSyncAllPOSData = async (overrideDeviceId, forceUnconditional =
                 const currentHash = quickHash(val);
                 if (!forceUnconditional && localStorage.getItem(hashKey) === currentHash) continue;
                 // D1: el hash lo escribe pushCloudSync solo si el upsert tuvo éxito.
-                await pushCloudSync(key, val, forceUnconditional);
+                const pushed = await pushCloudSync(key, val, forceUnconditional);
+                allSucceeded = pushed && allSucceeded;
             }
         }
         for (const key of LOCAL_KEYS) {
@@ -227,12 +259,19 @@ export const forceSyncAllPOSData = async (overrideDeviceId, forceUnconditional =
                 let parsed = val;
                 try { parsed = JSON.parse(val); } catch {}
                 // D1: el hash lo escribe pushCloudSync solo si el upsert tuvo éxito.
-                await pushCloudSync(key, parsed, forceUnconditional);
+                const pushed = await pushCloudSync(key, parsed, forceUnconditional);
+                allSucceeded = pushed && allSucceeded;
             }
         }
-        console.log('[CloudSync] Sincronización POS verificada/completada para device_id:', activeDeviceId);
+        if (allSucceeded) {
+            console.log('[CloudSync] Sincronización POS verificada/completada para device_id:', activeDeviceId);
+        } else {
+            console.warn('[CloudSync] Sincronización POS incompleta; los documentos quedan pendientes hasta reactivar la autorización.');
+        }
+        return allSucceeded;
     } catch (e) {
         console.warn('[CloudSync] Error en sincronización forzada POS:', e);
+        return false;
     }
 };
 
@@ -374,25 +413,17 @@ export function useCloudSync(deviceId) {
                 }
 
                 // ── Verificar Permisos / Estado de Registro del Dispositivo antes de activar CloudSync ──
-                let hasAuth = false;
-                try {
-                    const { data: { session } } = await supabaseCloud.auth.getSession();
-                    hasAuth = !!(session && !(session.expires_at && session.expires_at * 1000 < Date.now()));
-                } catch (e) {}
+                const session = await getCloudSession();
+                const sessionMatchesDevice = !session || session.user?.id === deviceId;
 
-                let isRegisteredOrPaired = false;
-                try {
-                    const { data: pairing } = await supabaseCloud
-                        .from('device_pairings')
-                        .select('primary_device_id')
-                        .eq('primary_device_id', deviceId)
-                        .maybeSingle();
-                    isRegisteredOrPaired = !!pairing;
-                } catch (e) {
-                    console.warn('[CloudSync] Error verificando registro de la caja:', e);
+                if (!sessionMatchesDevice) {
+                    isCloudSyncActive = false;
+                    isInitialized.current = true;
+                    console.info('[CloudSync] Sincronización pausada: la sesión Auth no coincide con la caja.');
+                    return;
                 }
 
-                // ── Sincronización activa por defecto para el punto de venta ──
+                // ── Sincronización activa para el punto de venta (RPC por pairing) ──
                 isCloudSyncActive = true;
                 isInitialized.current = true;
 
