@@ -2,10 +2,12 @@ import { describe, it, expect } from 'vitest';
 import {
     calculateMovingWeightedAverage,
     filterKardex,
+    filterKardexByLocalDate,
     calculateStockAtDate,
     calculateInventoryValue,
     detectKardexDiscrepancies
 } from '../src/utils/kardexScope';
+import { getLocalISODate } from '../src/utils/dateHelpers';
 
 describe('Pruebas del Módulo Kardex (kardexScope.js)', () => {
 
@@ -59,6 +61,35 @@ describe('Pruebas del Módulo Kardex (kardexScope.js)', () => {
                 hastaIso: '2026-07-03T23:59:59.000Z'
             });
             expect(result).toHaveLength(2);
+        });
+
+        it('debe aplicar fecha exacta y rango inclusivo por día local', () => {
+            const localDay = '2026-07-02';
+            const moves = [
+                { id: 'local-start', producto_nombre: 'Tercio Polar', tipo: 'VENTA', created_at: new Date(2026, 6, 2, 23, 30).toISOString() },
+                { id: 'next-local-day', producto_nombre: 'Tercio Polar', tipo: 'VENTA', created_at: new Date(2026, 6, 3, 0, 30).toISOString() },
+                { id: 'outside', producto_nombre: 'Tercio Polar', tipo: 'VENTA', created_at: new Date(2026, 6, 3, 12, 0).toISOString() },
+            ];
+
+            const exact = filterKardexByLocalDate(moves, { fechaExacta: localDay });
+            const range = filterKardexByLocalDate(moves, { fechaDesde: localDay, fechaHasta: localDay });
+
+            expect(exact.map(move => move.id)).toEqual(['local-start']);
+            expect(range.map(move => move.id)).toEqual(['local-start']);
+        });
+
+        it('debe identificar la fecha exacta usando el día local', () => {
+            const targetDate = getLocalISODate(new Date('2026-07-02T12:00:00.000Z'));
+            const moves = [
+                { id: 'same-day', created_at: '2026-07-02T13:00:00.000Z' },
+                { id: 'next-day', created_at: '2026-07-03T13:00:00.000Z' }
+            ];
+
+            const result = moves.filter(m => (
+                getLocalISODate(new Date(m.created_at || m.timestamp)) === targetDate
+            ));
+
+            expect(result.map(m => m.id)).toEqual(['same-day']);
         });
     });
 

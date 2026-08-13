@@ -38,4 +38,16 @@ describe('D1 — pushCloudSync es el unico dueno del hash de egress', () => {
         // No debe quedar ningun `return;` desnudo.
         expect(body).not.toMatch(/\breturn\s*;/);
     });
+
+    test('la sincronización exige una sesión Auth vinculada al dispositivo', () => {
+        expect(SRC).toMatch(/session\.user\?\.id !== activeDeviceId/);
+        expect(SRC).toMatch(/sessionMatchesDevice/);
+        expect(SRC).toMatch(/Sincronización pausada/);
+    });
+
+    test('forceSyncAllPOSData no reporta éxito si una subida falla', () => {
+        expect(SRC).toMatch(/let allSucceeded = true/);
+        expect(SRC).toMatch(/if \(allSucceeded\)/);
+        expect(SRC).toMatch(/Sincronización POS incompleta/);
+    });
 });

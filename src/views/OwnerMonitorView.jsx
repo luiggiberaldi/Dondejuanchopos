@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useProductContext } from '../context/ProductContext';
 import { useMonitorSync } from '../hooks/useMonitorSync';
-import { useCloudBackup } from '../hooks/useCloudBackup';
 import { storageService } from '../utils/storageService';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { showToast } from '../components/Toast';
@@ -21,7 +20,7 @@ import {
     Wallet, CreditCard, Smartphone, Banknote, ArrowDownRight,
     ShieldCheck, Hash, AlertTriangle, Search, X, ChevronLeft, ChevronRight,
     MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud, Sparkles, Gift, RotateCcw, Target, Lock, Unlock, HandCoins,
-    Wrench, Truck, User, Lightbulb, Box, Home, Receipt, Image as ImageIcon
+    Wrench, Truck, User, Lightbulb, Box, Home, Receipt
 } from 'lucide-react';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
 import { mulR, round2 } from '../utils/dinero';
@@ -30,6 +29,7 @@ import { getPaymentLabel, toTitleCase } from '../config/paymentMethods';
 import { findOpenApertura, getOpenShiftMovements } from '../utils/shiftScope';
 import { FinancialEngine } from '../core/FinancialEngine';
 import { calculateSupervisorChangeMetrics, calculateSupervisorOutflowMetrics } from '../utils/supervisorShiftMetrics';
+import { buildRemoteBackup, fetchRemoteDocuments, REMOTE_BACKUP_DOC_IDS } from '../services/remoteAuditService';
 
 // Helper: icon por método de pago
 const PAYMENT_METHOD_ICONS = {
@@ -549,10 +549,9 @@ const INFLIGHT_KEY = 'dj_inflight_inventory_changes_v1';
 
 export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) {
     const pairedDeviceId = localStorage.getItem('dj_paired_device_id');
-    const { products, setProducts, effectiveRate, copEnabled, tasaCop, rates, categories, isBsWizardOpen, openBsCongeladoWizard, closeBsCongeladoWizard, bsCongeladoAlert, previousRate, bsRoundingStep, rateMode } = useProductContext();
+    const { products, effectiveRate, copEnabled, tasaCop, rates, categories, isBsWizardOpen, openBsCongeladoWizard, closeBsCongeladoWizard, bsCongeladoAlert, previousRate, bsRoundingStep, rateMode } = useProductContext();
     const bcvRate = rates?.bcv?.price || effectiveRate;
     const { isConnected, lastSync, loading: syncLoading, triggerRefresh, posLastSeen, isPosOnline } = useMonitorSync(pairedDeviceId);
-    const { recoverProductImagesOnly } = useCloudBackup({ deviceId: pairedDeviceId });
 
     const [sales, setSales] = useState([]);
     const [activeCashier, setActiveCashier] = useState({ nombre: 'Ninguno', rol: '' });
@@ -607,7 +606,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const [showPairingModal, setShowPairingModal] = useState(false);
     const [showMobileMenu, setShowMobileMenu] = useState(false);
     const [cancellingCmdId, setCancellingCmdId] = useState(null);
-    const [recoveringImages, setRecoveringImages] = useState(false);
+    const [downloadingBackup, setDownloadingBackup] = useState(false);
     const [pendingChanges, setPendingChanges] = useState(() => {
         try {
             const raw = localStorage.getItem(PENDING_KEY);
@@ -1026,24 +1025,49 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const hasPendingFor = (productId) => [...inFlightChanges, ...pendingChanges].some(c => c.productId === productId);
     const hasInventoryChanges = pendingChanges.length > 0 || inFlightChanges.length > 0;
 
-    const handleRecoverProductImages = async () => {
-        if (recoveringImages) return;
-        setRecoveringImages(true);
+    const handleDownloadRemoteBackup = async () => {
+        if (downloadingBackup) return;
+        if (!pairedDeviceId) {
+            showToast('No hay una caja emparejada para respaldar.', 'error');
+            return;
+        }
+
+        setDownloadingBackup(true);
         triggerHaptic?.();
         try {
-            const result = await recoverProductImagesOnly();
-            if (result.updatedProducts) setProducts(result.updatedProducts);
-            showToast(
-                result.recovered > 0
-                    ? `${result.recovered} foto${result.recovered !== 1 ? 's' : ''} recuperada${result.recovered !== 1 ? 's' : ''}.`
-                    : 'No se encontraron fotos recuperables en las copias disponibles.',
-                result.recovered > 0 ? 'success' : 'info'
-            );
+            const result = await fetchRemoteDocuments(pairedDeviceId, REMOTE_BACKUP_DOC_IDS);
+            if (!result.success) {
+                throw new Error(result.error?.message || 'No se pudo leer el backup remoto.');
+            }
+
+            const backup = buildRemoteBackup(pairedDeviceId, result.documents);
+            const isPartial = backup.metadata.missingCriticalDocIds.length > 0;
+            const suffix = isPartial ? 'parcial' : 'completo';
+            const safeDeviceId = pairedDeviceId.replace(/[^a-zA-Z0-9_-]/g, '_');
+            const date = new Date().toISOString().slice(0, 10);
+            const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = `backup_${safeDeviceId}_${suffix}_${date}.json`;
+            document.body.appendChild(anchor);
+            anchor.click();
+            document.body.removeChild(anchor);
+            URL.revokeObjectURL(url);
+
+            if (isPartial) {
+                showToast(
+                    `Backup parcial descargado. Faltan: ${backup.metadata.missingCriticalDocIds.join(', ')}`,
+                    'warning',
+                );
+            } else {
+                showToast('Backup completo de la caja descargado.', 'success');
+            }
         } catch (error) {
-            console.error('[OwnerMonitor] Error recuperando imágenes:', error);
-            showToast('No se pudieron recuperar las fotos.', 'error');
+            console.error('[OwnerMonitor] Error descargando backup remoto:', error);
+            showToast(error.message || 'No se pudo descargar el backup remoto.', 'error');
         } finally {
-            setRecoveringImages(false);
+            setDownloadingBackup(false);
         }
     };
 
@@ -2042,12 +2066,12 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                             <span>Vincular Dispositivo</span>
                                         </button>
                                         <button
-                                            onClick={() => { setShowMobileMenu(false); handleRecoverProductImages(); }}
-                                            disabled={recoveringImages}
+                                            onClick={() => { setShowMobileMenu(false); handleDownloadRemoteBackup(); }}
+                                            disabled={downloadingBackup}
                                             className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-left disabled:opacity-50"
                                         >
-                                            {recoveringImages ? <RefreshCw size={15} className="text-violet-500 animate-spin shrink-0" /> : <ImageIcon size={15} className="text-violet-500 shrink-0" />}
-                                            <span>Recuperar solo fotos</span>
+                                            {downloadingBackup ? <RefreshCw size={15} className="text-cyan-500 animate-spin shrink-0" /> : <Download size={15} className="text-cyan-500 shrink-0" />}
+                                            <span>{downloadingBackup ? 'Generando backup...' : 'Descargar backup de la caja'}</span>
                                         </button>
                                         <div className="border-t border-slate-100 dark:border-slate-800 my-1" />
                                         <button
@@ -2141,12 +2165,12 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             </button>
 
                             <button
-                                onClick={handleRecoverProductImages}
-                                disabled={recoveringImages}
-                                className="p-2 rounded-xl text-violet-500 hover:text-violet-700 hover:bg-violet-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-violet-400 transition-colors disabled:opacity-50 cursor-pointer"
-                                title="Recuperar solo fotos"
+                                onClick={handleDownloadRemoteBackup}
+                                disabled={downloadingBackup}
+                                className="p-2 rounded-xl text-cyan-500 hover:text-cyan-700 hover:bg-cyan-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-cyan-400 transition-colors disabled:opacity-50 cursor-pointer"
+                                title="Descargar backup de la caja"
                             >
-                                {recoveringImages ? <RefreshCw size={15} className="animate-spin" /> : <ImageIcon size={15} />}
+                                {downloadingBackup ? <RefreshCw size={15} className="animate-spin" /> : <Download size={15} />}
                             </button>
 
                             <button 
@@ -3600,7 +3624,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                     </div>
                 )}
 
-                {/* ── SECCIÓN 4: HISTORIAL Y GESTIÓN DEDICADA DE CAMBIOS ── */}
+                {/* ── SECCIÓN 5: HISTORIAL Y GESTIÓN DEDICADA DE CAMBIOS ── */}
                 {viewTab === 'cambios' && (
                     <div className="space-y-6 animate-fade-in">
                         {/* Tarjetas resumen de estado de cambios */}

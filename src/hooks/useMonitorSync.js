@@ -4,6 +4,7 @@ import { runWithoutEco } from '../utils/syncFlags';
 import localforage from 'localforage';
 import { shouldApplySyncVersion } from '../utils/syncVersionGuard';
 import { mergeCloudProductImages } from '../utils/productImageRecovery';
+import { fetchRemoteDocuments, REMOTE_MONITOR_DOC_IDS } from '../services/remoteAuditService';
 
 // Configurar localforage a nivel de módulo
 localforage.config({ name: 'BodegaApp', storeName: 'bodega_app_data' });
@@ -251,29 +252,44 @@ export function useMonitorSync(pairedDeviceId) {
             const nowTs = Date.now();
             const MONITOR_FULL_PULL_MIN_INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
 
-            let query = supabaseCloud
-                .from('sync_documents')
-                .select('collection, doc_id, data, updated_at')
-                .eq('device_id', activeDeviceId)
-                .in('doc_id', MONITOR_DOC_IDS)
-                .order('updated_at', { ascending: true });
-
+            // El monitor no puede consultar sync_documents directamente: el rol
+            // anon no tiene SELECT por RLS. La lectura pasa por el RPC que valida
+            // el pairing exacto y aplica la whitelist de documentos.
+            //
             // D3: el rate limiter se marca DESPUÉS de un pull exitoso, nunca antes.
-            // Antes se escribía aquí y un query fallido dejaba al monitor 5 minutos
-            // bloqueado, sin datos y sin posibilidad de reintentar.
+            // El RPC recibe el cursor para que el servidor no retransmita históricos
+            // completos durante un catch-up.
             let isFullPull = false;
-            if (lastSyncIso) {
-                query = query.gt('updated_at', lastSyncIso);
-            } else if (nowTs - lastFullPullTs < MONITOR_FULL_PULL_MIN_INTERVAL_MS) {
+            let updatedAfter = lastSyncIso;
+            if (!updatedAfter && nowTs - lastFullPullTs < MONITOR_FULL_PULL_MIN_INTERVAL_MS) {
                 console.log('[useMonitorSync] Full-Pull del Monitor omitido por Rate Limiter (< 5 min). Usando datos locales.');
-                query = query.gt('updated_at', new Date(lastFullPullTs).toISOString());
-            } else {
+                updatedAfter = new Date(lastFullPullTs).toISOString();
+            } else if (!updatedAfter) {
                 isFullPull = true;
             }
 
-            const { data: docs, error } = await query;
+            const remoteResult = await fetchRemoteDocuments(
+                activeDeviceId,
+                REMOTE_MONITOR_DOC_IDS,
+                supabaseCloud,
+                { updatedAfter },
+            );
 
-            if (error) throw error;
+            if (!remoteResult.success) {
+                throw new Error(remoteResult.error?.message || 'No se pudieron leer los datos remotos del monitor.');
+            }
+
+            const docs = remoteResult.documents
+                .map(document => ({
+                    collection: document.collection,
+                    doc_id: document.doc_id,
+                    data: { payload: document.payload },
+                    updated_at: document.updated_at,
+                }))
+                .filter(document => !updatedAfter || (
+                    document.updated_at
+                    && new Date(document.updated_at).getTime() > new Date(updatedAfter).getTime()
+                ));
 
             // D3: solo ahora sabemos que el pull completo se realizó de verdad.
             if (isFullPull) {
@@ -364,6 +380,7 @@ export function useMonitorSync(pairedDeviceId) {
                         setLastSync(now);
                         setPosLastSeen(now);
                         setIsPosOnline(true);
+                        setPresenceError(null); // R2: un evento Realtime prueba que la caja está viva — limpiar error de presencia obsoleto
                         localStorage.setItem('monitor_last_sync', now.toISOString());
                     })
                     .subscribe((status) => {

@@ -1,6 +1,83 @@
 // src/utils/kardexScope.js
 // Funciones puras utilitarias para el cálculo, filtrado y auditoría del Kardex.
 
+import { getLocalISODate } from './dateHelpers';
+import { round2 } from './dinero';
+
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function getMovementLocalDate(movement) {
+    const raw = movement?.created_at || movement?.timestamp;
+    if (!raw) return '';
+    if (typeof raw === 'string' && DATE_ONLY_PATTERN.test(raw.trim())) return raw.trim();
+    const date = new Date(raw);
+    return Number.isNaN(date.getTime()) ? '' : getLocalISODate(date);
+}
+
+function csvCell(value) {
+    const text = value == null ? '' : String(value);
+    return `"${text.replace(/"/g, '""')}"`;
+}
+
+export const KARDEX_CSV_HEADERS = Object.freeze([
+    'Fecha/Hora', 'Producto', 'SKU', 'Tipo', 'Subtipo', 'Cantidad',
+    'Stock Antes', 'Stock Después', 'Costo U (USD)', 'Costo Total (USD)',
+    'Referencia', 'Tipo Referencia', 'Operation ID', 'Usuario', 'Motivo', 'Metadata'
+]);
+
+/**
+ * Aplica los filtros visuales del Kardex usando fechas calendario locales.
+ * Central y Supervisor remoto deben pasar por esta misma función para no mezclar
+ * límites UTC con la fecha que ve el usuario.
+ */
+export function filterKardexByLocalDate(kardex, filters = {}) {
+    const { fechaExacta, fechaDesde, fechaHasta, ...scopeFilters } = filters;
+    return filterKardex(kardex, {
+        ...scopeFilters,
+        desdeIso: null,
+        hastaIso: null,
+    }).filter(movement => {
+        const localDate = getMovementLocalDate(movement);
+        if (!localDate) return !fechaExacta && !fechaDesde && !fechaHasta;
+        if (fechaExacta) return localDate === fechaExacta;
+        if (fechaDesde && localDate < fechaDesde) return false;
+        if (fechaHasta && localDate > fechaHasta) return false;
+        return true;
+    });
+}
+
+/** Genera el CSV canónico compartido por Kardex central y remoto. */
+export function buildKardexCsv(movements = []) {
+    const rows = (Array.isArray(movements) ? movements : []).map(movement => [
+        movement?.created_at || movement?.timestamp || '',
+        movement?.producto_nombre || '',
+        movement?.sku || '',
+        movement?.tipo || '',
+        movement?.subtipo || '',
+        movement?.cantidad ?? '',
+        movement?.stock_antes ?? '',
+        movement?.stock_despues ?? '',
+        movement?.costo_unitario ?? '',
+        movement?.costo_total ?? '',
+        movement?.referencia_numero || movement?.referencia_id || '',
+        movement?.referencia_tipo || '',
+        movement?.operation_id || movement?.metadata?.operationId || '',
+        movement?.usuario_nombre || '',
+        movement?.motivo || movement?.observaciones || '',
+        movement?.metadata ? JSON.stringify(movement.metadata) : '',
+    ]);
+
+    return [
+        KARDEX_CSV_HEADERS.map(csvCell).join(','),
+        ...rows.map(row => row.map(csvCell).join(',')),
+    ].join('\n');
+}
+
+export function getKardexMovementLocalDate(movement) {
+    return getMovementLocalDate(movement);
+}
+
+
 /**
  * Calcula el Promedio Ponderado Móvil de Costo para una entrada de inventario.
  * @param {number} oldStock - Stock antes del movimiento
@@ -20,7 +97,7 @@ export function calculateMovingWeightedAverage(oldStock, oldCost, addedQty, adde
 
     const totalValue = (sOld * cOld) + (qAdd * cAdd);
     const newCost = totalValue / totalQty;
-    return Math.round(newCost * 10000) / 10000;
+    return round2(newCost);
 }
 
 /**
@@ -111,7 +188,7 @@ export function calculateInventoryValue(products) {
     }
 
     return {
-        totalValorizadoUsd: Math.round(totalValorizadoUsd * 100) / 100,
+        totalValorizadoUsd: round2(totalValorizadoUsd),
         totalUnidades,
         totalProductos: products.length
     };
