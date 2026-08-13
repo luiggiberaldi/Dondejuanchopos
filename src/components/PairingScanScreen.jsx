@@ -205,9 +205,13 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
         setErrorMsg('');
 
         try {
-            // Obtener o regenerar el device_id local para registrarlo como monitor
+            // Obtener o regenerar el device_id local para registrarlo como monitor.
+            // Un navegador que antes fue caja puede conservar un ID `PDA-/DJ-V2-*`;
+            // nunca se debe reutilizar como identidad de Supervisor porque puede estar
+            // revocado o tener otra autorización. Los monitores nuevos usan `mon_*`.
             let monitorId = localStorage.getItem('dj_device_id');
-            if (!monitorId || isRetry) {
+            const needsFreshMonitorId = !monitorId || isRetry || !monitorId.startsWith('mon_');
+            if (needsFreshMonitorId) {
                 // R5: si este dispositivo alguna vez operó como caja, sobrescribir su
                 // `dj_device_id` deja huérfanos todos sus documentos en la nube (nadie
                 // volverá a consultarlos con ese id). Se conserva el original.

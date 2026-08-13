@@ -18,6 +18,14 @@ const ownerSource = fs.readFileSync(
     path.resolve(__dirname, '../src/views/OwnerMonitorView.jsx'),
     'utf8',
 );
+const cloudSyncSource = fs.readFileSync(
+    path.resolve(__dirname, '../src/hooks/useCloudSync.js'),
+    'utf8',
+);
+const pairingScanSource = fs.readFileSync(
+    path.resolve(__dirname, '../src/components/PairingScanScreen.jsx'),
+    'utf8',
+);
 const sqlSource = fs.readFileSync(
     path.resolve(__dirname, '../supabase_remote_audit_setup.sql'),
     'utf8',
@@ -59,6 +67,28 @@ describe('Supervisor remote Kardex — egress y seguridad', () => {
         expect(ownerSource).not.toContain("setViewTab('kardex')");
         expect(ownerSource).not.toMatch(/<RemoteKardexPanel\b/);
         expect(ownerSource).not.toContain('grid grid-cols-7 sm:flex');
+    });
+
+    it('PRESENCE-REMOTE-001: el heartbeat de la caja no queda bloqueado por CloudSync/Auth', () => {
+        const start = cloudSyncSource.indexOf('const pingPosPresence');
+        const end = cloudSyncSource.indexOf('const presenceIntervalId', start);
+        const heartbeatBlock = cloudSyncSource.slice(start, end);
+
+        expect(heartbeatBlock).toContain('if (!navigator.onLine || !deviceId) return;');
+        expect(heartbeatBlock).toContain("rpc('touch_pos_heartbeat'");
+        expect(heartbeatBlock).not.toContain('navigator.onLine && isCloudSyncActive && deviceId');
+        expect(heartbeatBlock).toContain('isCloudSyncActive && hb && hb.registered === false');
+        expect(cloudSyncSource).toContain("document.addEventListener('visibilitychange', handlePresenceVisibility)");
+    });
+
+    it('PRESENCE-REMOTE-002: un fallo de presencia no se presenta como caja offline confirmada', () => {
+        expect(monitorSource).toContain('presenceError');
+        expect(ownerSource).toContain("presenceError ? 'Caja: Sin verificar' : 'Caja: Offline'");
+    });
+
+    it('PAIRING-REMOTE-003: un dispositivo que fue caja recibe una identidad nueva al reemparejarse', () => {
+        expect(pairingScanSource).toContain("const needsFreshMonitorId = !monitorId || isRetry || !monitorId.startsWith('mon_');");
+        expect(pairingScanSource).toContain('if (needsFreshMonitorId)');
     });
 
     it('RLS-REMOTE-001: la lectura de producción exige pairing exacto, cursor y whitelist SQL', () => {

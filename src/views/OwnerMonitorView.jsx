@@ -551,7 +551,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const pairedDeviceId = localStorage.getItem('dj_paired_device_id');
     const { products, effectiveRate, copEnabled, tasaCop, rates, categories, isBsWizardOpen, openBsCongeladoWizard, closeBsCongeladoWizard, bsCongeladoAlert, previousRate, bsRoundingStep, rateMode } = useProductContext();
     const bcvRate = rates?.bcv?.price || effectiveRate;
-    const { isConnected, lastSync, loading: syncLoading, triggerRefresh, posLastSeen, isPosOnline } = useMonitorSync(pairedDeviceId);
+    const { isConnected, lastSync, loading: syncLoading, triggerRefresh, posLastSeen, isPosOnline, presenceError } = useMonitorSync(pairedDeviceId);
 
     const [sales, setSales] = useState([]);
     const [activeCashier, setActiveCashier] = useState({ nombre: 'Ninguno', rol: '' });
@@ -2111,13 +2111,17 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                         {/* Status Badge de la Caja Principal (Online/Offline) */}
                         <div 
                             onClick={!isPosOnline ? handleAutoRepairPairing : undefined}
-                            title={isPosOnline ? `Caja conectada (${posLastSeen ? posLastSeen.toLocaleTimeString() : ''})` : 'Haz clic para verificar vínculo con la caja'}
+                            title={isPosOnline
+                                ? `Caja conectada (${posLastSeen ? posLastSeen.toLocaleTimeString() : ''})`
+                                : presenceError
+                                    ? `No se pudo verificar la presencia: ${presenceError}`
+                                    : 'Haz clic para verificar vínculo con la caja'}
                             className={`flex items-center gap-1 sm:gap-1.5 px-2.5 py-1 rounded-full text-[9px] sm:text-[10px] font-black tracking-wider uppercase shadow-xs shrink-0 transition-all duration-300 ${
                                 !isPosOnline ? 'cursor-pointer bg-amber-500 text-white border border-amber-600 active:scale-95 shadow-tone-sm' : 'bg-emerald-50 border border-emerald-200/60 text-emerald-700 dark:bg-emerald-950/30 dark:border-emerald-800/50 dark:text-emerald-400'
                             }`}
                         >
                             <span className={`w-2 h-2 rounded-full shrink-0 ${isPosOnline ? 'bg-emerald-500 animate-pulse' : 'bg-white'}`} />
-                            <span>{isPosOnline ? 'Caja: En Línea' : 'Caja: Offline'}</span>
+                            <span>{isPosOnline ? 'Caja: En Línea' : presenceError ? 'Caja: Sin verificar' : 'Caja: Offline'}</span>
                             {!isPosOnline && <Target size={11} className="text-white animate-pulse ml-0.5" />}
                         </div>
 

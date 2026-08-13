@@ -603,24 +603,54 @@ export function useCloudSync(deviceId) {
         // Ejecución periódica cada 60 segundos para asegurar sincronización en tiempo real
         const intervalId = setInterval(forcePushLocalData, 60000);
 
-        // Heartbeat de presencia de la caja principal hacia la nube (cada 60s)
+        // Heartbeat de presencia de la caja principal hacia la nube (cada 60s).
+        // La presencia es independiente de la sincronización de datos: si Auth/RLS
+        // pausa CloudSync, el Supervisor aún debe poder saber que la caja está abierta.
+        // `touch_pos_heartbeat` solo actualiza una autorización existente; no concede
+        // acceso por sí mismo.
         const pingPosPresence = async () => {
-            if (navigator.onLine && isCloudSyncActive && deviceId) {
-                try {
-                    const { data: hb } = await supabaseCloud.rpc('touch_pos_heartbeat', { p_device_id: deviceId });
-                    // E2/S1: `touch_pos_heartbeat` ya no crea la fila de emparejamiento
-                    // (era el vector de suplantación S1). Si la caja aún no está registrada,
-                    // se registra UNA vez, de forma explícita y auditable.
-                    if (hb && hb.registered === false) {
-                        await supabaseCloud.rpc('register_pos_device', { p_device_id: deviceId });
+            if (!navigator.onLine || !deviceId) return;
+
+            try {
+                const { data: hb, error: heartbeatError } = await supabaseCloud.rpc('touch_pos_heartbeat', {
+                    p_device_id: deviceId,
+                });
+
+                if (heartbeatError) {
+                    console.warn('[CloudSync] No se pudo actualizar el heartbeat de la caja:', heartbeatError.message);
+                    return;
+                }
+
+                // El registro inicial sigue siendo deliberado y solo aplica cuando
+                // CloudSync ya verificó la identidad de la caja con Auth.
+                if (isCloudSyncActive && hb && hb.registered === false) {
+                    const { error: registerError } = await supabaseCloud.rpc('register_pos_device', {
+                        p_device_id: deviceId,
+                    });
+                    if (registerError) {
+                        console.warn('[CloudSync] No se pudo registrar la caja:', registerError.message);
+                    } else {
                         console.log('[CloudSync] Dispositivo POS registrado en la nube:', deviceId);
                     }
-                } catch {}
+                }
+
+                if (hb?.success === false) {
+                    console.warn('[CloudSync] La caja no está registrada para presencia:', hb.message || 'registro requerido');
+                }
+            } catch (error) {
+                console.warn('[CloudSync] Error enviando heartbeat de la caja:', error?.message || error);
             }
+        };
+
+        const handlePresenceOnline = () => { pingPosPresence(); };
+        const handlePresenceVisibility = () => {
+            if (document.visibilityState === 'visible') pingPosPresence();
         };
 
         pingPosPresence();
         const presenceIntervalId = setInterval(pingPosPresence, 60000);
+        window.addEventListener('online', handlePresenceOnline);
+        document.addEventListener('visibilitychange', handlePresenceVisibility);
 
         return () => {
             isCloudSyncActive = false;
@@ -629,6 +659,8 @@ export function useCloudSync(deviceId) {
                 gateRetryTimer = null;
             }
             window.removeEventListener('online', forcePushLocalData);
+            window.removeEventListener('online', handlePresenceOnline);
+            document.removeEventListener('visibilitychange', handlePresenceVisibility);
             clearInterval(intervalId);
             clearInterval(presenceIntervalId);
 
