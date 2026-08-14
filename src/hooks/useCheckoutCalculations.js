@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useRef } from 'react';
 import { round2, divR, mulR, subR, sumR } from '../utils/dinero';
 import { FINANCIAL_EPSILON } from '../utils/securityConstants';
 import { CurrencyService } from '../services/CurrencyService'; // FIN-016: safeParse en vez de parseFloat.
+import { calculateChangeAllocation } from '../core/CheckoutPaymentEngine';
 
 /**
  * Hook de cálculos de checkout.
@@ -95,13 +96,21 @@ export function useCheckoutCalculations({
     }, [casheaActive, casheaPercent, dynamicTotalUsd]);
 
     const totalPaidWithCasheaUsd = round2(totalPaidUsd + casheaAmountUsd);
-
-    const remainingUsd = Math.max(0, subR(dynamicTotalUsd, totalPaidWithCasheaUsd));
-    const remainingBs = Math.max(0, subR(dynamicTotalBs, totalPaidBs + mulR(casheaAmountUsd, safeRate)));
-    const changeUsd = Math.max(0, subR(totalPaidWithCasheaUsd, dynamicTotalUsd));
-    const changeBs = Math.max(0, subR(totalPaidBs + mulR(casheaAmountUsd, safeRate), dynamicTotalBs));
+    const totalPaidWithCasheaBs = sumR([totalPaidBs, mulR(casheaAmountUsd, safeRate)]);
+    const remainingBs = round2(Math.max(0, subR(dynamicTotalBs, totalPaidWithCasheaBs)));
+    const changeBs = round2(Math.max(0, subR(totalPaidWithCasheaBs, dynamicTotalBs)));
+    // En puro Bs, el saldo y el vuelto se deben calcular desde Bs. Convertir los
+    // dos equivalentes USD redondeados y restarlos inventa centavos.
+    const remainingUsd = isPureBsPayment && safeRate > 0
+        ? divR(remainingBs, safeRate)
+        : round2(Math.max(0, subR(dynamicTotalUsd, totalPaidWithCasheaUsd)));
+    const changeUsd = isPureBsPayment && safeRate > 0
+        ? divR(changeBs, safeRate)
+        : round2(Math.max(0, subR(totalPaidWithCasheaUsd, dynamicTotalUsd)));
     // FIN-023: umbral centralizado en securityConstants (antes `0.009` hardcodeado).
-    const isPaid = remainingUsd < FINANCIAL_EPSILON.PAYMENT_ZERO;
+    const isPaid = isPureBsPayment
+        ? remainingBs < FINANCIAL_EPSILON.PAYMENT_ZERO
+        : remainingUsd < FINANCIAL_EPSILON.PAYMENT_ZERO;
 
     const PAYMENT_TOLERANCE = 0.01;
     const casheaConfirmReady = !casheaActive || isPaid || totalPaidUsd >= round2(dynamicTotalUsd - casheaAmountUsd) - PAYMENT_TOLERANCE;
@@ -175,21 +184,33 @@ export function useCheckoutCalculations({
         const defaultUsdChange = hasCustomUsd ? round2(CurrencyService.safeParse(changeUsdGiven)) : (isPureBsPayment ? 0 : changeUsd);
         const defaultBsChange  = hasCustomBs  ? round2(CurrencyService.safeParse(changeBsGiven))  : (isPureBsPayment ? changeBs : 0);
 
-        const givenChangeInUsd = defaultUsdChange + (safeRate > 0 ? divR(defaultBsChange, safeRate) : 0);
-        const cambioFaltanteCalc = round2(Math.max(0, subR(changeUsd, givenChangeInUsd)));
+        const changeAllocation = calculateChangeAllocation({
+            totalChangeUsd: changeUsd,
+            totalChangeBs: isPureBsPayment ? changeBs : mulR(changeUsd, safeRate),
+            physicalUsd: defaultUsdChange,
+            physicalBs: defaultBsChange,
+            rate: safeRate,
+        });
+        const cambioFaltanteCalc = changeAllocation.remainingUsd;
 
-        const tipDonatedObj = (isTipDonated && (changeUsd > 0 || changeBs > 0)) ? {
-            amountUsd: isChangeOwed || isChangeVoucher ? cambioFaltanteCalc : changeUsd,
-            amountBs: isChangeOwed || isChangeVoucher ? round2(mulR(cambioFaltanteCalc, safeRate)) : changeBs,
+        const hasPhysicalChange = changeAllocation.distributedBs > 0.009;
+        const tipAmountUsd = hasPhysicalChange ? cambioFaltanteCalc : changeUsd;
+        const tipDonatedObj = (isTipDonated && tipAmountUsd > 0.009) ? {
+            // Si ya se entregó una parte, la donación solo representa el
+            // faltante. Registrar el total aquí duplicaría el efectivo físico.
+            amountUsd: tipAmountUsd,
+            amountBs: hasPhysicalChange ? changeAllocation.remainingBs : changeBs,
             currency: tipCurrency,
-            partial: givenChangeInUsd > 0.01 && givenChangeInUsd < changeUsd - 0.01,
+            partial: hasPhysicalChange,
             physicalGivenUsd: defaultUsdChange,
             physicalGivenBs: defaultBsChange,
         } : null;
 
+        const changeDestinationCurrency = isPureBsPayment ? 'BS' : 'USD';
         const changeOwedObj = (isChangeOwed && cambioFaltanteCalc > 0.009) ? {
             amountUsd: cambioFaltanteCalc,
-            amountBs: round2(mulR(cambioFaltanteCalc, safeRate)),
+            amountBs: changeAllocation.remainingBs,
+            currency: changeDestinationCurrency,
             method: changeOwedMethod,
             note: changeOwedNote,
             resolvedAt: null,
@@ -197,14 +218,18 @@ export function useCheckoutCalculations({
 
         const changeVoucherObj = (isChangeVoucher && cambioFaltanteCalc > 0.009) ? {
             amountUsd: cambioFaltanteCalc,
-            amountBs: round2(mulR(cambioFaltanteCalc, safeRate)),
+            amountBs: changeAllocation.remainingBs,
+            currency: changeDestinationCurrency,
             voucherCode: `VCH-${Date.now()}`,
             issuedAt: new Date().toISOString(),
         } : null;
         
         onConfirmSale(payments, {
-            changeUsdGiven: isTipDonated ? 0 : Math.min(defaultUsdChange, changeUsd),
-            changeBsGiven: isTipDonated ? 0 : Math.min(defaultBsChange, changeBs),
+            // El efectivo entregado sigue siendo una salida real aunque el
+            // remanente se deje como propina/donación.
+            changeUsdGiven: Math.min(defaultUsdChange, changeUsd),
+            changeBsGiven: Math.min(defaultBsChange, changeBs),
+            vueltoParaMonederoCurrency: changeDestinationCurrency,
             tipDonated: tipDonatedObj,
             changeOwed: changeOwedObj,
             changeVoucher: changeVoucherObj,
@@ -310,24 +335,18 @@ export function useCheckoutCalculations({
     const [changeOwedNote, setChangeOwedNote] = useState('');
     const [isChangeVoucher, setIsChangeVoucher] = useState(false);
 
-    const tipCurrency = useMemo(() => {
-        const activeInputMethods = paymentMethods.filter(m => CurrencyService.safeParse(barValues[m.id]) > 0);
-        if (activeInputMethods.length === 0) return 'USD';
-        const firstUsd = activeInputMethods.find(m => m.currency === 'USD');
-        if (firstUsd) return 'USD';
-        const firstBs = activeInputMethods.find(m => m.currency === 'BS');
-        if (firstBs) return 'BS';
-        const firstCop = activeInputMethods.find(m => m.currency === 'COP');
-        if (firstCop) return 'COP';
-        return 'USD';
-    }, [barValues, paymentMethods]);
+    const activeInputMethodsForTip = paymentMethods.filter(m => CurrencyService.safeParse(barValues[m.id]) > 0);
+    const tipCurrency = activeInputMethodsForTip.find(m => m.currency === 'USD')?.currency
+        || activeInputMethodsForTip.find(m => m.currency === 'BS')?.currency
+        || activeInputMethodsForTip.find(m => m.currency === 'COP')?.currency
+        || 'USD';
 
     const toggleTipDonated = useCallback(() => {
         triggerHaptic && triggerHaptic();
         setIsTipDonated(prev => !prev);
         setIsChangeOwed(false);
         setIsChangeVoucher(false);
-    }, [triggerHaptic]);
+    }, [triggerHaptic, setIsTipDonated, setIsChangeOwed, setIsChangeVoucher]);
 
     return {
         barValues,

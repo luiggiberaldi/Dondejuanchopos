@@ -1,8 +1,8 @@
 import React, { memo, useState } from 'react';
-import { Banknote, CreditCard, HandCoins, CheckCircle, Smartphone, HeartHandshake, DollarSign, Building2, Handshake, Cog, ChevronDown, Check } from 'lucide-react';
-import { round2, subR, mulR } from '../../../../utils/dinero';
+import { Banknote, CreditCard, HandCoins, CheckCircle, Smartphone, HeartHandshake, DollarSign, Building2, Handshake, Cog, ChevronDown, Check, Wallet } from 'lucide-react';
+import { round2, subR, mulR, divR } from '../../../../utils/dinero';
 import TransactionSummary from './TransactionSummary';
-import CheckoutCustomerPicker from '../../CheckoutCustomerPicker';
+import CheckoutCustomerPicker, { CustomerBalanceSummary } from '../../CheckoutCustomerPicker';
 import CasheaIcon from '../../../CasheaIcon';
 
 /**
@@ -25,12 +25,16 @@ const PaymentLeftColumn = ({
     faltaPorPagar,
     faltaPorPagarBS,
     cambioUSD,
+    cambioBS = 0,
+    changeTotalBs = cambioBS,
+    paymentRegime = 'USD',
     distVueltoUSD,
     distVueltoBS,
     handleVueltoDistChange,
     isChangeCredited,
     handleCreditChange,
     setIsChangeCredited,
+    setIsChangeVoucher = () => {},
     deudaCliente,
     isVueltoValido,
     casheaActive,
@@ -43,6 +47,7 @@ const PaymentLeftColumn = ({
     effectiveRate,
     isTipDonated,
     toggleTipDonated,
+    setIsTipDonated = () => {},
     tipCurrency,
     // FX19
     cambioFaltante = 0,
@@ -58,7 +63,9 @@ const PaymentLeftColumn = ({
     const isCredit = modo === 'credito';
 
     // FX19: mostrar banner cuando hay vuelto sin asignar y no se han usado otras salidas
-    const hasIncompleteChange = cambioFaltante > 0.009 && !isChangeCredited;
+    // Mantener el panel visible cuando el monedero está seleccionado para que
+    // el mismo botón permita cancelarlo antes de confirmar la venta.
+    const hasIncompleteChange = cambioFaltante > 0.009;
 
     const [isMethodDropdownOpen, setIsMethodDropdownOpen] = useState(false);
 
@@ -72,6 +79,7 @@ const PaymentLeftColumn = ({
 
     const selectedMethodObj = PAYMENT_METHODS.find(m => m.id === changeOwedMethod) || PAYMENT_METHODS[0];
     const SelectedIcon = selectedMethodObj.icon;
+    const selectedCustomer = customers.find(customer => customer.id === clienteSeleccionado);
 
     return (
         <div className="w-full lg:w-[38%] max-h-[45%] lg:max-h-none bg-slate-50 dark:bg-slate-900 border-b lg:border-b-0 lg:border-r border-slate-100 dark:border-slate-800 flex flex-col overflow-hidden">
@@ -96,6 +104,29 @@ const PaymentLeftColumn = ({
                     effectiveRate={effectiveRate}
                     onCreateCustomer={onCreateCustomer}
                 />
+
+                {selectedCustomer && isChangeCredited && proyeccion && (
+                    <div className="mx-3 -mt-1 p-3 rounded-xl border border-sky-200 dark:border-sky-800/60 bg-sky-50/80 dark:bg-sky-950/30 shadow-sm animate-in fade-in slide-in-from-top-1 duration-200">
+                        <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-sky-700 dark:text-sky-300">
+                            <Wallet size={14} />
+                            <span>Saldo de cuenta después del abono</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 mt-2">
+                            <div className="rounded-lg bg-white/80 dark:bg-slate-900/70 border border-sky-100 dark:border-sky-900/50 p-2">
+                                <p className="text-[9px] font-bold uppercase text-slate-400">Actual</p>
+                                <CustomerBalanceSummary customer={selectedCustomer} effectiveRate={effectiveRate} />
+                            </div>
+                            <div className="rounded-lg bg-white/80 dark:bg-slate-900/70 border border-sky-100 dark:border-sky-900/50 p-2">
+                                <p className="text-[9px] font-bold uppercase text-slate-400">Después</p>
+                                <CustomerBalanceSummary customer={proyeccion} effectiveRate={effectiveRate} />
+                            </div>
+                        </div>
+                        <p className="mt-2 text-[10px] font-black text-sky-700 dark:text-sky-300">
+                            Abono aplicado al confirmar: ${round2(proyeccion.abono).toFixed(2)}
+                            {Number(proyeccion.abonoBs) > 0 && ` · Bs ${round2(proyeccion.abonoBs).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`}
+                        </p>
+                    </div>
+                )}
 
                 {/* Panel Cashea */}
                 {casheaEnabled && casheaMeetsMinimum && clienteSeleccionado && (
@@ -179,7 +210,7 @@ const PaymentLeftColumn = ({
                                 ${cambioUSD.toFixed(2)}
                             </p>
                             <div className="text-xs font-black text-emerald-600 dark:text-emerald-300">
-                                Bs {round2(cambioUSD * tasaSegura).toLocaleString('es-VE', { minimumFractionDigits: 2 })}
+                                {paymentRegime === 'PURE_BS' ? 'Bs' : 'Equiv. Bs'} {round2(changeTotalBs).toLocaleString('es-VE', { minimumFractionDigits: 2 })}
                             </div>
 
                             {/* Paso 1: Distribución de vuelto en efectivo */}
@@ -203,7 +234,9 @@ const PaymentLeftColumn = ({
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                const restUsd = round2(Math.max(0, subR(cambioUSD, (parseFloat(distVueltoBS || 0) / tasaSegura))));
+                                                const restUsd = tasaSegura > 0
+                                                    ? divR(Math.max(0, subR(changeTotalBs, parseFloat(distVueltoBS || 0))), tasaSegura)
+                                                    : 0;
                                                 handleVueltoDistChange('usd', restUsd.toString());
                                             }}
                                             className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] font-black bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 rounded hover:bg-emerald-200 active:scale-95 transition-all"
@@ -231,8 +264,8 @@ const PaymentLeftColumn = ({
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                const restBs = round2(Math.max(0, mulR(subR(cambioUSD, parseFloat(distVueltoUSD || 0)), tasaSegura)));
-                                                handleVueltoDistChange('bs', Math.round(restBs).toString());
+                                                const restBs = round2(Math.max(0, subR(changeTotalBs, mulR(parseFloat(distVueltoUSD || 0), tasaSegura))));
+                                                handleVueltoDistChange('bs', restBs.toString());
                                             }}
                                             className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] font-black bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 rounded hover:bg-emerald-200 active:scale-95 transition-all"
                                         >
@@ -279,13 +312,13 @@ const PaymentLeftColumn = ({
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                setIsChangeOwed(prev => {
-                                                    const next = !prev;
-                                                    if (next && toggleTipDonated && isTipDonated) {
-                                                        toggleTipDonated();
-                                                    }
-                                                    return next;
-                                                });
+                                                // La selección del destino es un interruptor. No llamar
+                                                // otro toggle dentro del setter: hacerlo podía invertir
+                                                // dos estados en el mismo evento y dejar ambas opciones
+                                                // activas o ninguna activa.
+                                                setIsChangeOwed(prev => !prev);
+                                                setIsTipDonated(false);
+                                                setIsChangeCredited(false);
                                                 setIsChangeVoucher(false);
                                             }}
                                             aria-pressed={isChangeOwed}
@@ -305,6 +338,7 @@ const PaymentLeftColumn = ({
                                             onClick={handleCreditChange}
                                             aria-pressed={isChangeCredited}
                                             disabled={!clienteSeleccionado}
+                                            title={!clienteSeleccionado ? 'Selecciona un cliente para abonar el vuelto a su cuenta' : 'Abonar el vuelto pendiente a la cuenta del cliente'}
                                             className={`min-h-[44px] p-2 rounded-xl text-[10px] font-extrabold flex items-center justify-center gap-1.5 text-center transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                                                 isChangeCredited
                                                     ? 'bg-sky-600 text-white shadow-md ring-2 ring-sky-400/50'
@@ -312,7 +346,7 @@ const PaymentLeftColumn = ({
                                             }`}
                                         >
                                             <DollarSign size={15} className={isChangeCredited ? 'text-white' : 'text-sky-600'} />
-                                            <span>Abonar a cuenta</span>
+                                            <span>{isChangeCredited ? `Abonar $${cambioFaltante.toFixed(2)} a cuenta` : 'Abonar a cuenta'}</span>
                                             {isChangeCredited && <CheckCircle size={13} className="text-white ml-auto shrink-0" />}
                                         </button>
                                         {/* Voucher reservado: la lógica se conserva para una futura activación,
@@ -376,7 +410,8 @@ const PaymentLeftColumn = ({
                                                 type="text"
                                                 value={changeOwedNote}
                                                 onChange={e => setChangeOwedNote(e.target.value)}
-                                                placeholder="Nota/Referencia opcional..."
+                                                placeholder="Nota / referencia (opcional)..."
+                                                maxLength={240}
                                                 className="w-full py-1.5 px-2.5 rounded-xl border border-amber-300 dark:border-amber-700/80 bg-white dark:bg-slate-900 text-xs font-medium text-slate-800 dark:text-white placeholder-slate-400 outline-none focus:ring-1 focus:ring-amber-500 shadow-sm"
                                             />
                                         </div>

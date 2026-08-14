@@ -17,7 +17,13 @@ function issue(code, message, details = {}) {
 
 function hasPhysicalItems(sale) {
     return Array.isArray(sale?.items)
-        && sale.items.some(item => !item?.isCustomAmount && !String(item?.id || '').startsWith('custom_'));
+        && sale.items.some(item => {
+            const name = String(item?.name || '').trim().toLowerCase();
+            const isVirtualAmount = item?.isCustomAmount === true
+                || String(item?.id || '').startsWith('custom_')
+                || name === 'venta libre';
+            return !isVirtualAmount;
+        });
 }
 
 /**

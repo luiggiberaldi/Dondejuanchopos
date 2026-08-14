@@ -748,6 +748,11 @@ describe('FIN-006: processCustomerTransaction serializa abonos con withLock', ()
         expect(sales.length).toBe(2);
         const nums = new Set(sales.map(s => s.saleNumber));
         expect(nums.size).toBe(2);
+
+        // La segunda operación debe partir del snapshot persistido por la primera;
+        // no se puede perder saldo por usar el cliente capturado en la vista.
+        const [updatedCustomer] = await storageService.getItem('bodega_customers_v1', []);
+        expect(updatedCustomer.deuda).toBe(70);
     });
 
     it('CREDITO manual genera VENTA_FIADA con fiadoUsd persistido', async () => {

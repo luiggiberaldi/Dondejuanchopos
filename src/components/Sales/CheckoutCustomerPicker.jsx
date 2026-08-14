@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown, UserPlus, Check, Search, X, User } from 'lucide-react';
-import { formatBs } from '../../utils/calculatorUtils';
+import { formatBs, formatUsd } from '../../utils/calculatorUtils';
+import { mulR } from '../../utils/dinero';
+import { getCustomerBalanceSnapshot } from '../../utils/financialLogic';
 
 const AVATAR_COLORS = [
     'bg-brand-light text-brand-dark dark:bg-surface-800/40 dark:text-brand',
@@ -12,14 +14,61 @@ const AVATAR_COLORS = [
 ];
 
 function CustomerAvatar({ name, size = 'md' }) {
-    const initial = name ? name.trim()[0].toUpperCase() : '?';
-    const colorClass = AVATAR_COLORS[name.charCodeAt(0) % AVATAR_COLORS.length];
+    const safeName = String(name || '?');
+    const initial = safeName.trim()[0]?.toUpperCase() || '?';
+    const colorClass = AVATAR_COLORS[safeName.charCodeAt(0) % AVATAR_COLORS.length];
     const sizeClass = size === 'sm' ? 'w-7 h-7 text-[11px]' : 'w-8 h-8 text-xs';
     return (
         <div className={`${sizeClass} ${colorClass} rounded-full flex items-center justify-center font-black shrink-0`}>
             {initial}
         </div>
     );
+}
+
+/**
+ * Saldo visible y consistente para el selector del POS. `favor` y `deuda`
+ * son bolsas distintas; no se debe mostrar favor como deuda negativa.
+ */
+export function CustomerBalanceSummary({ customer, effectiveRate = 0, compact = false }) {
+    const { deuda, favor, casheaDeuda } = getCustomerBalanceSnapshot(customer);
+    const amountClass = compact ? 'text-[8px]' : 'text-[9px]';
+    const secondaryClass = compact ? 'text-[7px]' : 'text-[8px]';
+    const amountWithBs = (amount) => effectiveRate > 0
+        ? ` · Bs ${formatBs(mulR(amount, effectiveRate))}`
+        : '';
+
+    const entries = [];
+    if (deuda > 0.009) {
+        entries.push(
+            <span key="deuda" className={`font-black text-red-600 dark:text-red-400 ${amountClass}`}>
+                Debe ${formatUsd(deuda)}<span className={`font-bold text-red-500/70 dark:text-red-300/70 ${secondaryClass}`}>{amountWithBs(deuda)}</span>
+            </span>
+        );
+    }
+    if (favor > 0.009) {
+        entries.push(
+            <span key="favor" className={`font-black text-emerald-600 dark:text-emerald-400 ${amountClass}`}>
+                Favor +${formatUsd(favor)}<span className={`font-bold text-emerald-500/70 dark:text-emerald-300/70 ${secondaryClass}`}>{amountWithBs(favor)}</span>
+            </span>
+        );
+    }
+    if (casheaDeuda > 0.009) {
+        entries.push(
+            <span key="cashea" className={`font-black text-purple-600 dark:text-purple-400 ${amountClass}`}>
+                Cashea ${formatUsd(casheaDeuda)}<span className={`font-bold text-purple-500/70 dark:text-purple-300/70 ${secondaryClass}`}>{amountWithBs(casheaDeuda)}</span>
+            </span>
+        );
+    }
+
+    if (entries.length === 0) {
+        return (
+            <span className={`font-bold text-slate-400 dark:text-slate-500 ${amountClass}`}>
+                Saldo $0.00{effectiveRate > 0 && <span className={`font-medium ${secondaryClass}`}> · Bs 0,00</span>}
+            </span>
+        );
+    }
+
+    return <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">{entries}</div>;
 }
 
 export default function CheckoutCustomerPicker({
@@ -148,17 +197,7 @@ export default function CheckoutCustomerPicker({
                                         C.I: {selectedCustomer.documentId}
                                     </span>
                                 )}
-                                {selectedCustomer.deuda !== 0 && (
-                                    <span className={`text-[8px] font-black px-1.5 py-0.5 rounded leading-none border shrink-0 ${
-                                        selectedCustomer.deuda > 0
-                                            ? 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 border-red-100 dark:border-red-900/30'
-                                            : 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 border-emerald-100 dark:border-emerald-900/30'
-                                    }`}>
-                                        {selectedCustomer.deuda > 0
-                                            ? `Debe $${selectedCustomer.deuda.toFixed(2)}`
-                                            : `Favor $${Math.abs(selectedCustomer.deuda).toFixed(2)}`}
-                                    </span>
-                                )}
+                                <CustomerBalanceSummary customer={selectedCustomer} effectiveRate={effectiveRate} compact />
                             </div>
                         )}
                     </div>
@@ -335,15 +374,7 @@ export default function CheckoutCustomerPicker({
                                                                 C.I: {c.documentId}
                                                             </span>
                                                         )}
-                                                        {c.deuda !== 0 && (
-                                                            <span className={`text-[8px] font-black px-1.5 py-0.5 rounded leading-none border shrink-0 ${
-                                                                c.deuda > 0
-                                                                    ? 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 border-red-100 dark:border-red-900/30'
-                                                                    : 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 border-emerald-100 dark:border-emerald-900/30'
-                                                            }`}>
-                                                                {c.deuda > 0 ? `Debe $${c.deuda.toFixed(2)}` : `Favor $${Math.abs(c.deuda).toFixed(2)}`}
-                                                            </span>
-                                                        )}
+                                                        <CustomerBalanceSummary customer={c} effectiveRate={effectiveRate} compact />
                                                     </div>
                                                 </div>
                                                 {selectedCustomerId === c.id && <Check size={14} className="text-emerald-500 shrink-0" />}

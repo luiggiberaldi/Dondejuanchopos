@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 // v1.2.0: useReveal hook para animaciones reveal-on-scroll (design system "Precios al Día")
 import { useReveal } from '../hooks/useReveal';
-import { BarChart3, Download, LockIcon, Recycle, Package } from 'lucide-react';
+import { BarChart3, Download, LockIcon, Recycle, Package, ShieldCheck } from 'lucide-react';
 import { storageService } from '../utils/storageService';
 import { formatBs } from '../utils/calculatorUtils';
 import { useProductContext } from '../context/ProductContext';
@@ -15,6 +15,8 @@ import ReportsMetricsTab from '../components/Reports/ReportsMetricsTab';
 import ReportsHistoryTab from '../components/Reports/ReportsHistoryTab';
 import ReportsArticleTab from '../components/Reports/ReportsArticleTab';
 import { printThermalTicket } from '../utils/ticketGenerator';
+import { getKardexHistory } from '../services/kardexService';
+import InventoryAuditPanel from '../components/Reports/InventoryAuditPanel';
 
 const SALES_KEY = 'bodega_sales_v1';
 
@@ -45,6 +47,8 @@ export default function ReportsView({ rates, triggerHaptic, onNavigate, isActive
     const [historyFilter, setHistoryFilter] = useState('all'); // all, completed, voided
     const [voidSaleTarget, setVoidSaleTarget] = useState(null);
     const [recycleOffer, setRecycleOffer] = useState(null);
+    const [auditData, setAuditData] = useState({ kardex: [], operations: [], missingDocIds: [] });
+    const [auditLoading, setAuditLoading] = useState(false);
 
     const { handleExportPDF } = useReportExport({ triggerHaptic });
 
@@ -76,6 +80,33 @@ export default function ReportsView({ rates, triggerHaptic, onNavigate, isActive
         load();
         return () => { mounted = false; };
     }, [isActive]);
+
+    const loadAuditData = useCallback(async () => {
+        setAuditLoading(true);
+        try {
+            const [kardex, operations, snapshots] = await Promise.all([
+                getKardexHistory(),
+                storageService.getItem('bodega_inventory_operations_v1', null),
+                storageService.getItem('bodega_kardex_snapshots_v1', null),
+            ]);
+            const missingDocIds = [];
+            if (!Array.isArray(operations)) missingDocIds.push('bodega_inventory_operations_v1');
+            if (!Array.isArray(snapshots) || snapshots.length === 0) missingDocIds.push('bodega_kardex_snapshots_v1');
+            setAuditData({
+                kardex: Array.isArray(kardex) ? kardex : [],
+                operations: Array.isArray(operations) ? operations : [],
+                missingDocIds,
+            });
+        } catch (error) {
+            console.error('[ReportsView] Error cargando auditoría de inventario:', error);
+        } finally {
+            setAuditLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (activeTab === 'audit') loadAuditData();
+    }, [activeTab, loadAuditData]);
 
     const { from, to } = useMemo(() => {
         if (selectedRange === 'custom') {
@@ -169,7 +200,7 @@ export default function ReportsView({ rates, triggerHaptic, onNavigate, isActive
                 </button>
             </div>
 
-            {/* Tab Selector — 4 tabs */}
+            {/* Tab Selector — 5 tabs */}
             <div className="flex bg-slate-200 dark:bg-surface-800 p-1 rounded-xl gap-1 overflow-x-auto">
                 <button
                     onClick={() => { triggerHaptic && triggerHaptic(); setActiveTab('metrics'); }}
@@ -194,6 +225,12 @@ export default function ReportsView({ rates, triggerHaptic, onNavigate, isActive
                     className={`flex-1 py-2.5 min-h-[40px] text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 whitespace-nowrap ${activeTab === 'history' ? 'bg-white dark:bg-surface-900 text-brand-dark dark:text-brand shadow-tone-sm' : 'text-slate-600 hover:text-slate-800 dark:text-surface-400'}`}
                 >
                     <LockIcon size={14} aria-hidden="true"/> Cierres
+                </button>
+                <button
+                    onClick={() => { triggerHaptic && triggerHaptic(); setActiveTab('audit'); }}
+                    className={`flex-1 py-2.5 min-h-[40px] text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 whitespace-nowrap ${activeTab === 'audit' ? 'bg-white dark:bg-surface-900 text-brand-dark dark:text-brand shadow-tone-sm' : 'text-slate-600 hover:text-slate-800 dark:text-surface-400'}`}
+                >
+                    <ShieldCheck size={14} aria-hidden="true"/> Auditoría
                 </button>
             </div>
 
@@ -331,6 +368,18 @@ export default function ReportsView({ rates, triggerHaptic, onNavigate, isActive
                     copEnabled={copEnabled}
                     copPrimary={copPrimary}
                     tasaCop={tasaCop}
+                />
+            )}
+
+            {activeTab === 'audit' && (
+                <InventoryAuditPanel
+                    products={products}
+                    sales={allSales}
+                    kardex={auditData.kardex}
+                    operations={auditData.operations}
+                    missingDocIds={auditData.missingDocIds}
+                    loading={auditLoading}
+                    onRefresh={loadAuditData}
                 />
             )}
 

@@ -2,6 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { X, TrendingUp, DollarSign, Loader2, Lock } from 'lucide-react';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { showToast } from './Toast';
+import { useAuthStore } from '../hooks/store/useAuthStore';
+import { createSupervisorCommandId, restoreLocalRateState, SUPERVISOR_RATE_PENDING_KEY } from '../utils/supervisorCommandModel';
+
+const RATE_COMMAND_ACCEPTED_STATUSES = new Set(['pending', 'applied', 'applied_with_warnings']);
+const RATE_COMMAND_TERMINAL_SUCCESS_STATUSES = new Set(['applied', 'applied_with_warnings']);
+
+function isDefinitiveRateInsertFailure(error) {
+    const status = Number(error?.status);
+    if (Number.isFinite(status) && status >= 400 && status < 500 && ![408, 409, 425, 429].includes(status)) {
+        return true;
+    }
+    return ['23514', '42501'].includes(String(error?.code || ''));
+}
 
 export default function SupervisorRateModal({ isOpen, onClose, rates, primaryDeviceId, triggerHaptic, onOpenBsWizard }) {
     const [rateMode, setRateMode] = useState('bcv'); // 'bcv', 'euro', 'usdt', 'manual'
@@ -26,6 +39,11 @@ export default function SupervisorRateModal({ isOpen, onClose, rates, primaryDev
 
     const handleApply = async () => {
         triggerHaptic?.();
+
+        if (!supabaseCloud || !primaryDeviceId) {
+            showToast('No hay una caja principal vinculada para recibir la tasa.', 'error');
+            return;
+        }
         
         // Validar tasa manual
         if (rateMode === 'manual') {
@@ -36,44 +54,110 @@ export default function SupervisorRateModal({ isOpen, onClose, rates, primaryDev
             }
         }
 
+        const pendingRaw = localStorage.getItem(SUPERVISOR_RATE_PENDING_KEY);
+        if (pendingRaw) {
+            showToast('La caja todavía está confirmando la tasa anterior. Espera su respuesta antes de enviar otra.', 'info');
+            return;
+        }
+
         setLoading(true);
+        const commandId = createSupervisorCommandId();
+        const activeUser = useAuthStore.getState().usuarioActivo;
+        const previousRateState = {
+            rateMode: localStorage.getItem('bodega_rate_mode'),
+            useAutoRate: localStorage.getItem('bodega_use_auto_rate'),
+            customRate: localStorage.getItem('bodega_custom_rate'),
+        };
+        const desiredRateState = {
+            rateMode,
+            useAutoRate: JSON.stringify(rateMode !== 'manual'),
+            customRate: rateMode === 'manual' ? String(customRate) : null,
+        };
+
         try {
             const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
-            
-            // Insertar el comando en la base de datos de Supabase
+
+            // Optimistic UI: el Supervisor cambia de inmediato, pero conserva una
+            // fotografía local para restaurar el valor si la caja rechaza el comando.
+            localStorage.setItem('bodega_rate_mode', desiredRateState.rateMode);
+            localStorage.setItem('bodega_use_auto_rate', desiredRateState.useAutoRate);
+            if (desiredRateState.customRate === null) localStorage.removeItem('bodega_custom_rate');
+            else localStorage.setItem('bodega_custom_rate', desiredRateState.customRate);
+            localStorage.setItem(SUPERVISOR_RATE_PENDING_KEY, JSON.stringify({
+                commandId,
+                previous: previousRateState,
+                desired: desiredRateState,
+                issuedAt: new Date().toISOString(),
+            }));
+            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_rate_mode' } }));
+            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_custom_rate' } }));
+
+            // El id se fija desde el primer intento. Si la respuesta se pierde,
+            // un reintento no crea una segunda orden para la misma acción.
             const { error } = await supabaseCloud
                 .from('supervisor_commands')
                 .insert({
+                    id: commandId,
                     primary_device_id: primaryDeviceId,
                     monitor_device_id: monitorDeviceId,
                     command_type: 'rate_change',
                     payload: {
+                        commandId,
                         rateMode,
-                        customRate: rateMode === 'manual' ? parseFloat(customRate) : null
+                        customRate: rateMode === 'manual' ? parseFloat(customRate) : null,
+                        supervisorId: activeUser?.id || null,
+                        supervisorName: activeUser?.nombre || activeUser?.usuario || 'Supervisor',
+                        supervisorRole: activeUser?.rol || 'SUPERVISOR',
                     },
                     status: 'pending'
                 });
 
             if (error) throw error;
 
-            // Actualizar localmente también para consistencia visual del monitor
-            localStorage.setItem('bodega_rate_mode', rateMode);
-            localStorage.setItem('bodega_use_auto_rate', JSON.stringify(rateMode !== 'manual'));
-            if (rateMode === 'manual') {
-                localStorage.setItem('bodega_custom_rate', String(customRate));
-            } else {
-                // Limpiar la tasa manual vieja: si queda, el monitor la muestra
-                // como referencia aunque el modo activo sea BCV/euro/paralelo
-                localStorage.removeItem('bodega_custom_rate');
-            }
-            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_rate_mode' } }));
-            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_custom_rate' } }));
-
-            showToast('¡Comando enviado a la caja con éxito!', 'success');
+            showToast('¡Comando enviado a la caja! Aplicación pendiente de confirmación.', 'success');
             onClose();
         } catch (err) {
-            console.error('[SupervisorRateModal] Error al enviar comando:', err);
-            showToast('Error al enviar comando: ' + (err.message || 'Error de conexión'), 'error');
+            // Un timeout puede ocurrir DESPUÉS de que Supabase insertó la fila.
+            // Consultar el commandId estable antes de restaurar evita que el usuario
+            // reenvíe la misma orden y que la caja la procese dos veces.
+            let remoteCommand = null;
+            let lookupFailed = false;
+            try {
+                const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
+                const { data, error: lookupError } = await supabaseCloud
+                    .from('supervisor_commands')
+                    .select('id,status,primary_device_id,monitor_device_id,error_reason')
+                    .eq('id', commandId)
+                    .maybeSingle();
+                if (lookupError) lookupFailed = true;
+                else if (data
+                    && data.primary_device_id === primaryDeviceId
+                    && data.monitor_device_id === monitorDeviceId) {
+                    remoteCommand = data;
+                }
+            } catch {
+                lookupFailed = true;
+            }
+
+            if (remoteCommand && RATE_COMMAND_ACCEPTED_STATUSES.has(remoteCommand.status)) {
+                if (RATE_COMMAND_TERMINAL_SUCCESS_STATUSES.has(remoteCommand.status)) {
+                    localStorage.removeItem(SUPERVISOR_RATE_PENDING_KEY);
+                    showToast('La tasa ya fue recibida y aplicada por la caja.', 'success');
+                } else {
+                    showToast('La tasa quedó en espera en la nube; no la reenvíes. La caja la aplicará al conectarse.', 'warning');
+                }
+                onClose();
+            } else if (lookupFailed && !isDefinitiveRateInsertFailure(err)) {
+                // Estado de transporte ambiguo: conservar la proyección y el
+                // recibo local para que el polling/realtime resuelva la orden.
+                showToast('No se pudo confirmar el envío. La orden se conserva para evitar duplicarla.', 'warning');
+                onClose();
+            } else {
+                restoreLocalRateState(previousRateState);
+                localStorage.removeItem(SUPERVISOR_RATE_PENDING_KEY);
+                console.error('[SupervisorRateModal] Error al enviar comando:', err);
+                showToast('No se pudo enviar la tasa. Se restauró el valor anterior.', 'error');
+            }
         } finally {
             setLoading(false);
         }

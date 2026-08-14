@@ -213,17 +213,37 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
         if (!transactionAmount || isNaN(transactionAmount) || parseFloat(transactionAmount) <= 0) return;
         triggerHaptic();
 
-        const { newCustomers } = await processCustomerTransaction({
+        const methodForCurrency = activePaymentMethods.find(method => (
+            method.id === paymentMethod
+            && method.currency === currencyMode
+            && method.isEnabled !== false
+        )) || activePaymentMethods.find(method => (
+            method.currency === currencyMode && method.isEnabled !== false
+        ));
+
+        if (!methodForCurrency) {
+            showToast(`No hay un método de pago activo para ${currencyMode}`, 'error');
+            return;
+        }
+
+        const transactionResult = await processCustomerTransaction({
             transactionAmount,
             currencyMode,
             type: transactionModal.type,
             customer: transactionModal.customer,
-            paymentMethod,
+            paymentMethod: methodForCurrency.id,
             bcvRate,
             tasaCop,
-            copEnabled
+            copEnabled,
+            activePaymentMethods,
         });
 
+        if (transactionResult?.error) {
+            showToast(transactionResult.error, 'error');
+            return;
+        }
+
+        const { newCustomers } = transactionResult;
         await saveCustomers(newCustomers);
         showToast(`Operación de ${transactionModal.type} exitosa`, 'success');
         auditLog('CLIENTE', transactionModal.type === 'ABONO' ? 'ABONO_REGISTRADO' : 'CREDITO_REGISTRADO', `${transactionModal.type} de ${transactionAmount} ${currencyMode} para ${transactionModal.customer?.name}`);

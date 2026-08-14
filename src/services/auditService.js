@@ -19,7 +19,7 @@ const MAX_AGE_DAYS = 1825;
 // VENTA: tickets/ventas realizadas.
 // CLIENTE: estado de cuenta de clientes (saldos, fiados).
 // PAGO: pagos aplicados / cierres de caja.
-const FISCAL_CATEGORIES = Object.freeze(['VENTA', 'CLIENTE', 'PAGO']);
+const FISCAL_CATEGORIES = Object.freeze(['VENTA', 'CLIENTE', 'PAGO', 'INVENTARIO', 'KARDEX', 'CAJA']);
 
 // HOOK-008: Lock name para serializar read-modify-write del audit log.
 const AUDIT_LOCK = 'audit_log_lock';
@@ -41,15 +41,25 @@ const AUDIT_LOCK = 'audit_log_lock';
  */
 export async function logEvent(cat, action, desc, user = null, meta = null) {
     try {
+        const occurredAt = new Date().toISOString();
+        const actorId = user?.id ?? user?.usuarioId ?? user?.userId ?? null;
+        const actorName = user?.nombre ?? user?.usuarioNombre ?? user?.userName ?? user?.usuario ?? 'Sistema';
+        const actorRole = user?.rol ?? user?.userRole ?? 'SYSTEM';
+        const deviceId = typeof localStorage !== 'undefined'
+            ? localStorage.getItem('dj_device_id') || localStorage.getItem('dj_paired_device_id') || 'LOCAL'
+            : 'LOCAL';
         const entry = {
             id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
             ts: Date.now(),
+            timestamp: occurredAt,
+            createdAt: occurredAt,
+            deviceId,
             cat,
             action,
             desc,
-            userId: user?.id ?? null,
-            userName: user?.nombre ?? 'Sistema',
-            userRole: user?.rol ?? 'SYSTEM',
+            userId: actorId,
+            userName: actorName,
+            userRole: actorRole,
         };
         if (meta) entry.meta = meta;
 

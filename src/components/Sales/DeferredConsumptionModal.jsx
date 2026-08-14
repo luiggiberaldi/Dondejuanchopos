@@ -1,7 +1,7 @@
 // src/components/Sales/DeferredConsumptionModal.jsx
 // Modal de gestión de Fichas Activas de Consumo Diferido en Sitio (Caja de Cervezas / Combos)
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Beer, CheckCircle2, Clock, Plus, Minus, X, AlertTriangle, ChevronRight, History, PackageCheck, Loader2, Undo2, RotateCcw } from 'lucide-react';
 import { Modal } from '../Modal';
 import { getActiveSessions, registerPartialDispatch, revertDispatchRound } from '../../services/consumptionSessionService';
@@ -21,6 +21,7 @@ export default function DeferredConsumptionModal({
     const [activeTab, setActiveTab] = useState('active'); // 'active' | 'history'
     const [allSessionsHistory, setAllSessionsHistory] = useState([]);
     const [confirmRevertData, setConfirmRevertData] = useState(null); // { sessionId, dispatch }
+    const dispatchRequestIdRef = useRef(null);
 
     const loadSessions = useCallback(async () => {
         const active = await getActiveSessions();
@@ -38,6 +39,7 @@ export default function DeferredConsumptionModal({
             loadSessions();
             setSelectedSession(null);
             setDispatchSelections({});
+            dispatchRequestIdRef.current = null;
         }
     }, [isOpen, loadSessions]);
 
@@ -139,7 +141,16 @@ export default function DeferredConsumptionModal({
         triggerHaptic?.();
 
         try {
-            const res = await registerPartialDispatch(selectedSession.id, validItems, cajeroNombre);
+            // El mismo requestId sobrevive un fallo de respuesta para que un
+            // reintento no vuelva a descontar el despacho ya aplicado.
+            dispatchRequestIdRef.current ||= crypto.randomUUID();
+            const res = await registerPartialDispatch(
+                selectedSession.id,
+                validItems,
+                cajeroNombre,
+                dispatchRequestIdRef.current,
+                activeUser
+            );
             if (!res.success) {
                 showToast(res.error || 'Error al despachar cervezas', 'error');
                 return;
@@ -154,6 +165,7 @@ export default function DeferredConsumptionModal({
 
             setSelectedSession(null);
             setDispatchSelections({});
+            dispatchRequestIdRef.current = null;
             await loadSessions();
         } catch (err) {
             console.error('[DeferredModal] Error en despacho:', err);
@@ -168,7 +180,12 @@ export default function DeferredConsumptionModal({
         setIsSubmitting(true);
         triggerHaptic?.();
         try {
-            const res = await revertDispatchRound(confirmRevertData.sessionId, confirmRevertData.dispatch.id, cajeroNombre);
+            const res = await revertDispatchRound(
+                confirmRevertData.sessionId,
+                confirmRevertData.dispatch.id,
+                cajeroNombre,
+                activeUser
+            );
             if (!res.success) {
                 showToast(res.error || 'Error al revertir la entrega', 'error');
                 return;

@@ -429,7 +429,11 @@ export default function StockBatchModal({
         try {
             for (const { productId, deltaUnits } of activeAdjustments) {
                 const delta = direction === 'ingreso' ? deltaUnits : -deltaUnits;
-                await adjustStock(productId, delta);
+                await adjustStock(productId, delta, {
+                    motivo: direction === 'egreso'
+                        ? note.trim()
+                        : 'Ingreso lote'
+                });
             }
 
             // Persistir permanentemente los tamanos de empaque editados inline

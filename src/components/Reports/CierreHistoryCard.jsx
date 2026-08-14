@@ -5,6 +5,7 @@ import { getPaymentLabel, getPaymentIcon, toTitleCase, PAYMENT_ICONS } from '../
 import { generateDailyClosePDF } from '../../utils/dailyCloseGenerator';
 import { printerSerial } from '../../services/PrinterSerial';
 import { showToast } from '../Toast';
+import { summarizeChangeLedgers } from '../../utils/changeLedger';
 
 export default function CierreHistoryCard({ cierre, correlativo, bcvRate, products, copEnabled, copPrimary, tasaCop }) {
     const [isExpanded, setIsExpanded] = useState(false);
@@ -75,6 +76,14 @@ export default function CierreHistoryCard({ cierre, correlativo, bcvRate, produc
     const hasApertura = !!cierre.apertura;
     const fondoInicial = hasApertura ? (cierre.apertura.openingUsd || 0) : 0;
     const fondoInicialBs = hasApertura ? (cierre.apertura.openingBs || 0) : 0;
+    const changeSummary = summarizeChangeLedgers(cierre.salesForCashFlow, bcvRate);
+    const formatChangeSummaryAmount = (usd, bs, cop = 0) => {
+        const values = [];
+        if (usd > 0.009) values.push(`$${usd.toFixed(2)}`);
+        if (bs > 0.009) values.push(`Bs ${formatBs(bs)}`);
+        if (cop > 0.009) values.push(`COP ${formatCop(cop)}`);
+        return values.join(' · ') || '—';
+    };
 
     return (
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden mb-3 transition-all active:scale-[0.99] cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
@@ -134,6 +143,7 @@ export default function CierreHistoryCard({ cierre, correlativo, bcvRate, produc
                             <p className="text-xs text-slate-500 dark:text-slate-400">Sin movimientos</p>
                         )}
                         {Object.entries(cierre.paymentBreakdown).map(([method, data]) => {
+                            if (method.startsWith('_')) return null;
                             const PayIcon = getPaymentIcon(method) || PAYMENT_ICONS[method] || CheckCircle2;
                             const label = toTitleCase(getPaymentLabel(method, data.label));
                             let displayAmount = `${formatBs(data.total)} Bs`;
@@ -152,6 +162,25 @@ export default function CierreHistoryCard({ cierre, correlativo, bcvRate, produc
                             );
                         })}
                     </div>
+
+                    {changeSummary.count > 0 && (
+                        <div className="py-3 border-t border-amber-100 dark:border-amber-900/40">
+                            <div className="flex items-center justify-between mb-2">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-amber-700 dark:text-amber-300">Resolución de vueltos</p>
+                                <span className="text-[10px] font-bold text-slate-500">{changeSummary.count} venta(s)</span>
+                            </div>
+                            <div className="space-y-1 text-xs">
+                                <div className="flex justify-between font-black text-slate-700 dark:text-slate-200"><span>Vuelto real</span><span>{formatChangeSummaryAmount(changeSummary.totalDisplayUsd, changeSummary.totalDisplayBs, changeSummary.totalDisplayCop)}</span></div>
+                                <div className="flex justify-between text-emerald-700 dark:text-emerald-300"><span>Entregado</span><span>{formatChangeSummaryAmount(changeSummary.deliveredDisplayUsd, changeSummary.deliveredDisplayBs, changeSummary.deliveredDisplayCop)}</span></div>
+                                {(changeSummary.owedDisplayUsd > 0.009 || changeSummary.owedDisplayBs > 0.009 || changeSummary.owedDisplayCop > 0.009) && <div className="flex justify-between text-amber-700 dark:text-amber-300"><span>Por fuera</span><span>{formatChangeSummaryAmount(changeSummary.owedDisplayUsd, changeSummary.owedDisplayBs, changeSummary.owedDisplayCop)}</span></div>}
+                                {(changeSummary.walletDisplayUsd > 0.009 || changeSummary.walletDisplayBs > 0.009 || changeSummary.walletDisplayCop > 0.009) && <div className="flex justify-between text-sky-700 dark:text-sky-300"><span>Abono a cuenta</span><span>{formatChangeSummaryAmount(changeSummary.walletDisplayUsd, changeSummary.walletDisplayBs, changeSummary.walletDisplayCop)}</span></div>}
+                                {(changeSummary.voucherDisplayUsd > 0.009 || changeSummary.voucherDisplayBs > 0.009 || changeSummary.voucherDisplayCop > 0.009) && <div className="flex justify-between text-purple-700 dark:text-purple-300"><span>Voucher</span><span>{formatChangeSummaryAmount(changeSummary.voucherDisplayUsd, changeSummary.voucherDisplayBs, changeSummary.voucherDisplayCop)}</span></div>}
+                                {(changeSummary.donatedDisplayUsd > 0.009 || changeSummary.donatedDisplayBs > 0.009 || changeSummary.donatedDisplayCop > 0.009) && <div className="flex justify-between text-emerald-700 dark:text-emerald-300"><span>Cedido/donado</span><span>{formatChangeSummaryAmount(changeSummary.donatedDisplayUsd, changeSummary.donatedDisplayBs, changeSummary.donatedDisplayCop)}</span></div>}
+                                {changeSummary.unresolvedUsd > 0.009 && <div className="flex justify-between font-black text-red-700"><span>Sin resolver</span><span>${changeSummary.unresolvedUsd.toFixed(2)}</span></div>}
+                                {changeSummary.unbalancedCount > 0 && <p className="pt-1 text-[10px] font-bold text-red-700">Partición desbalanceada en {changeSummary.unbalancedCount} venta(s).</p>}
+                            </div>
+                        </div>
+                    )}
 
                     <div className="pt-3 mt-1 flex gap-2">
                         <button

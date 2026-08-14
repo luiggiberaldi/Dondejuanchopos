@@ -1,5 +1,6 @@
-import { formatBs } from '../../utils/calculatorUtils';
+import { formatBs, formatCop, formatUsd } from '../../utils/calculatorUtils';
 import { mulR } from '../../utils/dinero';
+import { getChangeLedger, getChangeDisplayParts } from '../../utils/changeLedger';
 import { calculatePricing } from '../../utils/productProcessor';
 
 /**
@@ -9,8 +10,20 @@ import { calculatePricing } from '../../utils/productProcessor';
  */
 export function buildReceiptWhatsAppUrl(receipt, currentRate) {
     const r = receipt;
+    const changeLedger = getChangeLedger(r, currentRate || r.rate);
     const isCop = r.copEnabled && r.tasaCop > 0;
-    const fmtUsd = (v) => isCop ? `USD ${parseFloat(v).toFixed(2)}` : `$${parseFloat(v).toFixed(2)}`;
+    const fmtUsd = (v) => isCop ? `USD ${formatUsd(v)}` : `$${formatUsd(v)}`;
+    const formatChangeDisplayPart = ({ currency, amount }) => {
+        if (currency === 'BS') return `Bs ${formatBs(amount)}`;
+        if (currency === 'COP') return `COP ${formatCop(amount)}`;
+        return fmtUsd(amount);
+    };
+    const formatPhysicalChange = (part) => getChangeDisplayParts(part, { physical: true })
+        .map(formatChangeDisplayPart)
+        .join(' + ') || '$0.00';
+    const formatDestinationAmount = (part) => getChangeDisplayParts(part)
+        .map(formatChangeDisplayPart)
+        .join(' · ') || '$0.00';
     const fecha = new Date(r.timestamp).toLocaleDateString('es-VE', {
         day: '2-digit', month: '2-digit', year: 'numeric',
         hour: '2-digit', minute: '2-digit'
@@ -88,14 +101,28 @@ export function buildReceiptWhatsAppUrl(receipt, currentRate) {
         totalLine = `TOTAL: ${totalUsdStr}  /  ${totalBsStr}${totalCopStr}`;
     }
 
-    // Vuelto
-    const changeLines = r.changeUsd > 0.005
-        ? receiptCurrencyMode === 'usd'
-            ? `\nVUELTO: ${fmtUsd(r.changeUsd)}`
-            : receiptCurrencyMode === 'bs'
-            ? `\nVUELTO: Bs ${formatBs(r.changeBs)}`
-            : `\nVUELTO: ${fmtUsd(r.changeUsd)} / Bs ${formatBs(r.changeBs)}`
-        : '';
+    // Vuelto: cada componente se imprime una sola vez y en la moneda física
+    // registrada. Los equivalentes contables no se presentan como otra salida.
+    const changeParts = [];
+    if (changeLedger.delivered.usd > 0.009 || changeLedger.delivered.bs > 0.009 || changeLedger.delivered.cop > 0.009) {
+        changeParts.push(`VUELTO ENTREGADO: ${formatPhysicalChange(changeLedger.delivered)}`);
+    }
+    if (changeLedger.wallet.usd > 0.009 || changeLedger.wallet.bs > 0.009) {
+        changeParts.push(`ABONO A CUENTA: ${formatDestinationAmount(changeLedger.wallet)}`);
+    }
+    if (changeLedger.owed.usd > 0.009 || changeLedger.owed.bs > 0.009) {
+        const methodNames = { pago_movil: 'PAGO MÓVIL', zelle: 'ZELLE', transferencia: 'TRANSFERENCIA', efectivo_externo: 'EFECTIVO EXTERNO', otro: 'OTRO' };
+        const method = methodNames[changeLedger.owed.method] || String(changeLedger.owed.method || 'POR FUERA').toUpperCase();
+        const note = changeLedger.owed.reference ? ` · Ref: ${changeLedger.owed.reference}` : '';
+        changeParts.push(`VUELTO POR FUERA (${method}): ${formatDestinationAmount(changeLedger.owed)}${note}`);
+    }
+    if (changeLedger.voucher.usd > 0.009 || changeLedger.voucher.bs > 0.009) {
+        changeParts.push(`VOUCHER EMITIDO: ${formatDestinationAmount(changeLedger.voucher)} (#${changeLedger.voucher.code || 'sin código'})`);
+    }
+    if (changeLedger.donated.usd > 0.009 || changeLedger.donated.bs > 0.009) {
+        changeParts.push(`VUELTO CEDIDO/DONADO: ${formatDestinationAmount(changeLedger.donated)}`);
+    }
+    const changeLines = changeParts.length > 0 ? `\n${changeParts.join('\n')}` : '';
 
     // Fiado
     const fiadoRate = currentRate || r.rate || 1;
@@ -130,31 +157,11 @@ export function buildReceiptWhatsAppUrl(receipt, currentRate) {
         headerBlocks.push(`COMPROBANTE DE VENTA | DONDE JUANCHO`);
     }
 
-    let changeOwedLine = '';
-    if (r.changeOwed) {
-        const methodNames = {
-            pago_movil: 'Pago Móvil',
-            zelle: 'Zelle',
-            transferencia: 'Transferencia',
-            efectivo_externo: 'Efectivo Externo',
-            otro: 'Otro'
-        };
-        const mName = methodNames[r.changeOwed.method] || r.changeOwed.method || 'Por Fuera';
-        changeOwedLine = `\nVUELTO POR FUERA (${mName.toUpperCase()}): ${fmtUsd(r.changeOwed.amountUsd)} (Bs ${formatBs(r.changeOwed.amountBs)})`;
-        if (r.changeOwed.note) {
-            changeOwedLine += `\n  Nota: ${r.changeOwed.note}`;
-        }
-    }
-
-    let changeVoucherLine = '';
-    if (r.changeVoucher) {
-        changeVoucherLine = `\nVOUCHER EMITIDO: ${fmtUsd(r.changeVoucher.amountUsd)} (#${r.changeVoucher.voucherCode})`;
-    }
-
-    let tipDonatedLine = '';
-    if (r.tipDonated) {
-        tipDonatedLine = `\nVUELTO CEDIDO/DONADO: ${fmtUsd(r.tipDonated.amountUsd)}`;
-    }
+    // Se conservan estos aliases vacíos para mantener la composición histórica
+    // del mensaje; todos los destinos ya están incluidos en changeLines.
+    const changeOwedLine = '';
+    const changeVoucherLine = '';
+    const tipDonatedLine = '';
 
     const text = [
         ...headerBlocks,

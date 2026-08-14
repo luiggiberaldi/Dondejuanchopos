@@ -9,6 +9,7 @@ import { buildTicketHtml } from './ticketHtmlTemplate';
 import { openPrintWindow } from './printerUtils';
 // FIN-024: reemplazar `* rate` raw y `.toFixed(2)` con mulR + formatUsd (sin Math.round/toFixed).
 import { mulR } from './dinero';
+import { getChangeLedger, getChangeDisplayParts } from './changeLedger';
 
 // Re-export generarEtiquetas so existing imports keep working
 export { generarEtiquetas } from './labelGenerator';
@@ -32,9 +33,22 @@ export async function generateTicketPDF(sale, bcvRate) {
     const itemCount = sale.items?.length || 0;
     const paymentCount = sale.payments?.length || 0;
     const hasFiado = sale.fiadoUsd > 0;
+    const changeLedger = getChangeLedger(sale, rate);
+    const changeRows = changeLedger.parts.length + (changeLedger.owed.reference ? 1 : 0);
+    const formatChangeDisplayPart = ({ currency, amount }) => {
+        if (currency === 'BS') return 'Bs ' + formatBs(amount);
+        if (currency === 'COP') return 'COP ' + formatCop(amount);
+        return '$' + formatUsd(amount);
+    };
+    const formatPhysicalChange = () => getChangeDisplayParts(changeLedger.delivered, { physical: true })
+        .map(formatChangeDisplayPart)
+        .join(' + ');
+    const formatDestinationAmount = (part) => getChangeDisplayParts(part)
+        .map(formatChangeDisplayPart)
+        .join(' · ') || '$0.00';
 
     // Altura MUY generosa para que nunca se corte
-    const H = 160 + (itemCount * 14) + (paymentCount * 7) + (hasFiado ? 18 : 0);
+    const H = 160 + (itemCount * 14) + (paymentCount * 7) + (changeRows * 7) + (hasFiado ? 18 : 0);
 
     const doc = new jsPDF('p', 'mm', [WIDTH, H]);
 
@@ -266,7 +280,7 @@ export async function generateTicketPDF(sale, bcvRate) {
     // ════════════════════════════════════
     //  PAGOS REALIZADOS
     // ════════════════════════════════════
-    const showPayments = (sale.payments && sale.payments.length > 0) || hasFiado;
+    const showPayments = (sale.payments && sale.payments.length > 0) || hasFiado || changeLedger.parts.length > 0;
     if (showPayments) {
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(6.5);
@@ -296,7 +310,29 @@ export async function generateTicketPDF(sale, bcvRate) {
             });
         }
 
-        if (sale.changeOwed) {
+        if (changeLedger.delivered.usd > 0.009 || changeLedger.delivered.bs > 0.009 || changeLedger.delivered.cop > 0.009) {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7.5);
+            doc.setTextColor(...BODY);
+            doc.text('Vuelto Entregado:', M, y);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(...INK);
+            doc.text(formatPhysicalChange(), RIGHT, y, { align: 'right' });
+            y += 5;
+        }
+
+        if (changeLedger.wallet.usd > 0.009 || changeLedger.wallet.bs > 0.009) {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7.5);
+            doc.setTextColor(...BODY);
+            doc.text('Abono a cuenta:', M, y);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(...INK);
+            doc.text(formatDestinationAmount(changeLedger.wallet), RIGHT, y, { align: 'right' });
+            y += 5;
+        }
+
+        if (changeLedger.owed.usd > 0.009 || changeLedger.owed.bs > 0.009) {
             const methodNames = {
                 pago_movil: 'Pago Móvil',
                 zelle: 'Zelle',
@@ -304,36 +340,43 @@ export async function generateTicketPDF(sale, bcvRate) {
                 efectivo_externo: 'Efectivo Externo',
                 otro: 'Otro'
             };
-            const mName = methodNames[sale.changeOwed.method] || sale.changeOwed.method || 'Por Fuera';
+            const mName = methodNames[changeLedger.owed.method] || changeLedger.owed.method || 'Por Fuera';
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(7.5);
             doc.setTextColor(...BODY);
             doc.text(`Vuelto Fuera (${mName}):`, M, y);
             doc.setFont('helvetica', 'bold');
             doc.setTextColor(...INK);
-            doc.text(`$${formatUsd(sale.changeOwed.amountUsd)} (Bs ${formatBs(sale.changeOwed.amountBs)})`, RIGHT, y, { align: 'right' });
+            doc.text(formatDestinationAmount(changeLedger.owed), RIGHT, y, { align: 'right' });
             y += 5;
+            if (changeLedger.owed.reference) {
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(6.5);
+                doc.setTextColor(...MUTED);
+                doc.text(`Ref: ${changeLedger.owed.reference}`, M, y);
+                y += 4;
+            }
         }
 
-        if (sale.changeVoucher) {
+        if (changeLedger.voucher.usd > 0.009 || changeLedger.voucher.bs > 0.009) {
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(7.5);
             doc.setTextColor(...BODY);
-            doc.text(`Voucher (${sale.changeVoucher.voucherCode}):`, M, y);
+            doc.text(`Voucher (${changeLedger.voucher.code || 'sin código'}):`, M, y);
             doc.setFont('helvetica', 'bold');
             doc.setTextColor(...INK);
-            doc.text(`$${formatUsd(sale.changeVoucher.amountUsd)}`, RIGHT, y, { align: 'right' });
+            doc.text(formatDestinationAmount(changeLedger.voucher), RIGHT, y, { align: 'right' });
             y += 5;
         }
 
-        if (sale.tipDonated) {
+        if (changeLedger.donated.usd > 0.009 || changeLedger.donated.bs > 0.009) {
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(7.5);
             doc.setTextColor(...BODY);
             doc.text('Vuelto Cedido/Donado:', M, y);
             doc.setFont('helvetica', 'bold');
             doc.setTextColor(...INK);
-            doc.text(`$${formatUsd(sale.tipDonated.amountUsd)}`, RIGHT, y, { align: 'right' });
+            doc.text(formatDestinationAmount(changeLedger.donated), RIGHT, y, { align: 'right' });
             y += 5;
         }
 

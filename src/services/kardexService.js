@@ -4,6 +4,7 @@
 import { storageService } from '../utils/storageService';
 import { withLock } from '../utils/withLock';
 import { logEvent } from './auditService';
+import { useAuthStore } from '../hooks/store/useAuthStore';
 import { queueCloudSync } from '../hooks/useCloudSync';
 
 const KARDEX_KEY = 'bodega_kardex_v1';
@@ -26,6 +27,12 @@ export async function recordKardexMovementUnlocked(params) {
         subtipo = 'SISTEMA',
         cantidad,          // Positivo (+) Entradas, Negativo (-) Salidas
         unidad = 'unidad',
+        stockAntes: stockAntesParam = null,
+        stockDespues: stockDespuesParam = null,
+        stock_antes = null,
+        stock_despues = null,
+        movementId = null,
+        operationId = null,
         costoUnitario = 0,
         moneda = 'USD',
         referenciaId = null,
@@ -35,6 +42,7 @@ export async function recordKardexMovementUnlocked(params) {
         turnoId = null,
         usuarioId = null,
         usuarioNombre = null,
+        usuarioRol = null,
         supervisorId = null,
         motivo = null,
         observaciones = null,
@@ -43,6 +51,10 @@ export async function recordKardexMovementUnlocked(params) {
 
     if (!productoId) return { success: false, error: 'productoId es requerido' };
     if (!tipo) return { success: false, error: 'tipo de movimiento es requerido' };
+    const activeUser = useAuthStore.getState().usuarioActivo;
+    const resolvedUsuarioId = usuarioId ?? activeUser?.id ?? null;
+    const resolvedUsuarioNombre = usuarioNombre || activeUser?.nombre || activeUser?.usuario || 'Sistema';
+    const resolvedUsuarioRol = usuarioRol || activeUser?.rol || 'SYSTEM';
     const numQty = Number(cantidad);
     if (isNaN(numQty) || numQty === 0) return { success: false, error: 'cantidad inválida (debe ser distinta de 0)' };
 
@@ -50,18 +62,19 @@ export async function recordKardexMovementUnlocked(params) {
         const kardex = await storageService.getItem(KARDEX_KEY, []) || [];
         const products = await storageService.getItem(PRODUCTS_KEY, []) || [];
 
-        // ── Guardián de Idempotencia por Referencia ──────────────────
-        if (referenciaId && referenciaTipo) {
-            const existing = kardex.find(m =>
-                m &&
-                m.referencia_id === referenciaId &&
-                m.referencia_tipo === referenciaTipo &&
-                m.producto_id === productoId
-            );
-            if (existing) {
-                console.log(`[KardexService] Movimiento duplicado omitido por idempotencia (${referenciaTipo}:${referenciaId}:${productoId})`);
-                return { success: true, movement: existing, duplicated: true };
-            }
+        // ── Guardián de Idempotencia por Operación/Referencia ─────────
+        const stableMovementId = movementId || (operationId ? `kdx_${operationId}_${productoId}` : null);
+        const existing = kardex.find(m => {
+            if (!m) return false;
+            if (stableMovementId && m.id === stableMovementId) return true;
+            return Boolean(referenciaId && referenciaTipo)
+                && m.referencia_id === referenciaId
+                && m.referencia_tipo === referenciaTipo
+                && m.producto_id === productoId;
+        });
+        if (existing) {
+            console.info(`[KardexService] Movimiento duplicado omitido por idempotencia (${referenciaTipo || operationId}:${referenciaId || operationId}:${productoId})`);
+            return { success: true, movement: existing, duplicated: true };
         }
 
         const targetProd = products.find(p => p.id === productoId);
@@ -70,12 +83,27 @@ export async function recordKardexMovementUnlocked(params) {
         const pUnit = unidad || targetProd?.unit || 'unidad';
         const unitCost = Number(costoUnitario || targetProd?.costUsd || targetProd?.cost || 0);
 
-        // Re-leer stock actual fresco desde el producto
-        const stockAntes = Number(targetProd?.stock) || 0;
-        const stockDespues = stockAntes + numQty;
+        // Los callers de operaciones atómicas deben enviar el snapshot exacto.
+        // El fallback al producto existe solo para compatibilidad legacy.
+        const explicitStockAntes = stockAntesParam ?? stock_antes;
+        const explicitStockDespues = stockDespuesParam ?? stock_despues;
+        const stockAntes = explicitStockAntes !== null && explicitStockAntes !== ''
+            && Number.isFinite(Number(explicitStockAntes))
+            ? Number(explicitStockAntes)
+            : Number(targetProd?.stock) || 0;
+        const stockDespues = explicitStockDespues !== null && explicitStockDespues !== ''
+            && Number.isFinite(Number(explicitStockDespues))
+            ? Number(explicitStockDespues)
+            : stockAntes + numQty;
 
+        if (Math.abs((stockAntes + numQty) - stockDespues) > 0.000001) {
+            return { success: false, error: 'Snapshot de stock inválido: stock_antes + cantidad debe ser stock_despues' };
+        }
+
+        const movementTimestamp = new Date().toISOString();
         const movement = {
-            id: crypto.randomUUID(),
+            id: stableMovementId || crypto.randomUUID(),
+            operation_id: operationId || null,
             device_id: deviceId,
             sucursal_id: sucursalId,
             producto_id: productoId,
@@ -95,13 +123,23 @@ export async function recordKardexMovementUnlocked(params) {
             referencia_numero: referenciaNumero,
             cierre_id: cierreId,
             turno_id: turnoId,
-            usuario_id: usuarioId,
-            usuario_nombre: usuarioNombre,
+            usuario_id: resolvedUsuarioId,
+            usuario_nombre: resolvedUsuarioNombre,
+            usuario_rol: resolvedUsuarioRol,
+            actor_id: resolvedUsuarioId,
+            actor_name: resolvedUsuarioNombre,
+            actor_role: resolvedUsuarioRol,
             supervisor_id: supervisorId,
             motivo,
             observaciones,
-            metadata,
-            created_at: new Date().toISOString()
+            metadata: {
+                ...(metadata || {}),
+                operationId: operationId || metadata?.operationId || null
+            },
+            created_at: movementTimestamp,
+            timestamp: movementTimestamp,
+            createdAt: movementTimestamp,
+            updatedAt: movementTimestamp,
         };
 
         const updatedKardex = [movement, ...kardex];
@@ -109,7 +147,13 @@ export async function recordKardexMovementUnlocked(params) {
         queueCloudSync(KARDEX_KEY, updatedKardex);
 
         window.dispatchEvent(new CustomEvent('kardex_movement_recorded', { detail: movement }));
-        logEvent('KARDEX', `MOVIMIENTO_${tipo}`, `${tipo} de ${numQty > 0 ? '+' : ''}${numQty} u en "${pName}" (Stock: ${stockAntes} → ${stockDespues})`);
+        logEvent(
+            'KARDEX',
+            `MOVIMIENTO_${tipo}`,
+            `${tipo} de ${numQty > 0 ? '+' : ''}${numQty} u en "${pName}" (Stock: ${stockAntes} → ${stockDespues})`,
+            { id: resolvedUsuarioId, nombre: resolvedUsuarioNombre, rol: resolvedUsuarioRol },
+            { movementId: movement.id, operationId, productoId, referenciaId, referenciaTipo }
+        );
 
         return { success: true, movement };
     } catch (err) {
@@ -151,6 +195,7 @@ let _isSeeding = false;
  */
 export async function seedInitialKardexIfEmpty(products, deviceId, user) {
     if (_isSeeding) return;
+    const resolvedUser = user || useAuthStore.getState().usuarioActivo;
     if (!Array.isArray(products) || products.length === 0) return;
 
     return await withLock('pos_write_lock', async () => {
@@ -189,13 +234,20 @@ export async function seedInitialKardexIfEmpty(products, deviceId, user) {
                     referencia_numero: 'INICIAL',
                     cierre_id: null,
                     turno_id: null,
-                    usuario_id: user?.id || 'SISTEMA',
-                    usuario_nombre: user?.nombre || 'Sistema',
+                    usuario_id: resolvedUser?.id || 'SISTEMA',
+                    usuario_nombre: resolvedUser?.nombre || 'Sistema',
+                    usuario_rol: resolvedUser?.rol || 'SYSTEM',
+                    actor_id: resolvedUser?.id || 'SISTEMA',
+                    actor_name: resolvedUser?.nombre || 'Sistema',
+                    actor_role: resolvedUser?.rol || 'SYSTEM',
                     supervisor_id: null,
-                    motivo: 'Inventario inicial fundacional al activar Kardex',
+                    motivo: 'Inventario inicial',
                     observaciones: null,
-                    metadata: {},
-                    created_at: nowIso
+                    metadata: { source: 'KARDEX_SEED' },
+                    created_at: nowIso,
+                    timestamp: nowIso,
+                    createdAt: nowIso,
+                    updatedAt: nowIso
                 });
             }
 
@@ -217,6 +269,7 @@ export async function seedInitialKardexIfEmpty(products, deviceId, user) {
  */
 export async function createInventorySnapshot(cierreId, products, user) {
     if (!cierreId || !Array.isArray(products)) return;
+    const resolvedUser = user || useAuthStore.getState().usuarioActivo;
     const deviceId = localStorage.getItem('dj_device_id') || 'CAJA_PRINCIPAL';
 
     let totalValor = 0;
@@ -242,12 +295,18 @@ export async function createInventorySnapshot(cierreId, products, user) {
         device_id: deviceId,
         cierre_id: cierreId,
         fecha_corte: new Date().toISOString(),
-        usuario_id: user?.id || null,
-        usuario_nombre: user?.nombre || 'Sistema',
+        usuario_id: resolvedUser?.id || null,
+        usuario_nombre: resolvedUser?.nombre || 'Sistema',
+        usuario_rol: resolvedUser?.rol || 'SYSTEM',
+        actor_id: resolvedUser?.id || null,
+        actor_name: resolvedUser?.nombre || 'Sistema',
+        actor_role: resolvedUser?.rol || 'SYSTEM',
         total_items: totalItems,
         total_valorizado_usd: Math.round(totalValor * 100) / 100,
         resumen_productos: resumen,
-        created_at: new Date().toISOString()
+        created_at: snapshotTimestamp,
+        createdAt: snapshotTimestamp,
+        updatedAt: snapshotTimestamp
     };
 
     return await withLock('pos_write_lock', async () => {

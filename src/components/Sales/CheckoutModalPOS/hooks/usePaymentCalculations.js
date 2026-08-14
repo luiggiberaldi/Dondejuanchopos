@@ -92,6 +92,8 @@ export const usePaymentCalculations = ({
             ? divR(state.change.bs, tasaSegura)
             : state.change.usd,
         cambioBS: state.change.bs,
+        changeTotalBs: state.change.totalBs ?? state.change.bs,
+        paymentRegime: state.regime,
         physicalCashReceived: state.physicalCashReceived,
         paymentState: state,
         montoIGTF: 0,

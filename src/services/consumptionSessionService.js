@@ -3,11 +3,24 @@
 
 import { storageService } from '../utils/storageService';
 import { withLock } from '../utils/withLock';
-import { recordKardexMovementUnlocked } from './kardexService';
+import { applyInventoryOperationUnlocked } from './inventoryOperationService';
 import { pushCloudSync } from '../hooks/useCloudSync';
 
 export const CONSUMPTION_SESSIONS_KEY = 'bodega_consumption_sessions_v1';
 const PRODUCTS_KEY = 'bodega_products_v1';
+
+function normalizeActor(actorOrName, fallback = {}) {
+    const actor = typeof actorOrName === 'object' && actorOrName !== null
+        ? actorOrName
+        : fallback;
+    return {
+        usuarioId: actor.usuarioId || actor.id || actor.userId || null,
+        usuarioNombre: actor.usuarioNombre || actor.nombre || actor.usuario || actor.userName
+            || (typeof actorOrName === 'string' ? actorOrName : 'Sistema'),
+        usuarioRol: actor.usuarioRol || actor.rol || actor.userRole || 'SYSTEM',
+        supervisorId: actor.supervisorId || null,
+    };
+}
 
 /**
  * Crea una nueva Ficha de Consumo Activa vinculada a una Venta (versión interna sin cerrojo).
@@ -16,6 +29,13 @@ export async function createSessionFromSaleUnlocked(sale, cartItem) {
     if (!sale || !cartItem) return null;
 
     const customerRef = (cartItem.deferredCustomerRef || sale.customerName || 'Cliente en Sitio').trim();
+    const sessionId = `session_${String(sale.id)}_${String(cartItem.id || cartItem._originalId || 'item')}`
+        .replace(/[^a-zA-Z0-9:_-]/g, '_');
+    const sessions = await storageService.getItem(CONSUMPTION_SESSIONS_KEY, []) || [];
+    const existingSession = sessions.find(session => (
+        session.saleId === sale.id && session.comboId === cartItem.id
+    ));
+    if (existingSession) return existingSession;
     
     // Determinar la cuota total de unidades del combo
     let totalQuota = 0;
@@ -25,18 +45,25 @@ export async function createSessionFromSaleUnlocked(sale, cartItem) {
     if (totalQuota <= 0) {
         totalQuota = Number(cartItem.totalUnits) || 36;
     }
-    totalQuota = totalQuota * (Number(cartItem.quantity) || 1);
+    totalQuota = totalQuota * (Number(cartItem.qty ?? cartItem.quantity) || 1);
 
     // Selecciones iniciales realizadas en caja al cobrar (si las hay)
     const initialItems = (cartItem.modularSelections || []).filter(s => s.productId && Number(s.qty) > 0);
     const initialServedCount = initialItems.reduce((sum, i) => sum + Number(i.qty), 0);
     const isInitialCompleted = initialServedCount >= totalQuota;
 
-    const initialDispatchId = crypto.randomUUID();
+    const initialDispatchId = `dispatch_${sessionId}_initial`;
+    const saleActor = normalizeActor(sale.actor || {
+        id: sale.cajeroId || sale.usuarioId,
+        nombre: sale.cajero || sale.usuarioNombre,
+        rol: sale.cajeroRol || sale.usuarioRol,
+    });
     const initialDispatches = initialItems.length > 0 ? [{
         id: initialDispatchId,
         timestamp: new Date().toISOString(),
-        cashier: sale.cashier || 'Cajero',
+        cashier: saleActor.usuarioNombre,
+        actorId: saleActor.usuarioId,
+        actorRole: saleActor.usuarioRol,
         items: initialItems.map(i => ({
             productId: i.productId,
             productName: i.productName || 'Cerveza',
@@ -46,7 +73,7 @@ export async function createSessionFromSaleUnlocked(sale, cartItem) {
     }] : [];
 
     const newSession = {
-        id: `session_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        id: sessionId,
         saleId: sale.id,
         saleNumber: sale.saleNumber || (sale.id ? sale.id.slice(-6) : 'N/A'),
         customerRef,
@@ -58,48 +85,42 @@ export async function createSessionFromSaleUnlocked(sale, cartItem) {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         completedAt: isInitialCompleted ? new Date().toISOString() : null,
+        createdBy: saleActor,
+        deviceId: typeof localStorage !== 'undefined' ? localStorage.getItem('dj_device_id') || 'CAJA_PRINCIPAL' : 'CAJA_PRINCIPAL',
         dispatches: initialDispatches
     };
 
     try {
-        // Descontar inventario físico y registrar en Kardex si hubo selección inicial
+        // Descontar inventario físico y registrar Kardex como una sola operación.
         if (initialItems.length > 0) {
-            const products = await storageService.getItem(PRODUCTS_KEY, []) || [];
-            const updatedProducts = products.map(p => {
-                const foundSel = initialItems.find(it => it.productId === p.id);
-                if (foundSel) {
-                    const newStock = Math.max(0, (Number(p.stock) || 0) - Number(foundSel.qty));
-                    return { ...p, stock: newStock };
-                }
-                return p;
-            });
-            await storageService.setItem(PRODUCTS_KEY, updatedProducts);
-
-            for (const item of initialItems) {
-                const targetProd = products.find(p => p.id === item.productId);
-                await recordKardexMovementUnlocked({
+            const inventoryResult = await applyInventoryOperationUnlocked({
+                operationId: `dispatch_${initialDispatchId}`,
+                referenceId: initialDispatchId,
+                referenceType: 'CONSUMO_DIFERIDO',
+                source: 'CONSUMO_DIFERIDO',
+                tipo: 'SALIDA_CONSUMO_DIFERIDO',
+                subtipo: 'ENTREGA_INICIAL',
+                reason: 'Entrega inicial',
+                allowNegative: false,
+                actor: saleActor,
+                deductions: initialItems.map(item => ({
                     productoId: item.productId,
-                    productoNombre: targetProd?.name || item.productName || 'Producto Cerveza',
-                    sku: targetProd?.barcode || targetProd?.sku || '',
-                    tipo: 'SALIDA_CONSUMO_DIFERIDO',
-                    subtipo: 'ENTREGA_INICIAL',
                     cantidad: -Math.abs(Number(item.qty)),
-                    costoUnitario: Number(targetProd?.costUsd || targetProd?.cost || 0),
-                    referenciaId: initialDispatchId,
-                    referenciaTipo: 'CONSUMO_DIFERIDO',
-                    referenciaNumero: newSession.saleNumber,
-                    usuarioNombre: sale.cashier || 'Cajero',
-                    motivo: `Entrega inicial Ficha: ${customerRef} (${item.qty} u)`,
-                    metadata: {
-                        sessionId: newSession.id,
-                        saleId: sale.id,
-                        customerRef
-                    }
-                });
+                    unidad: item.unit || 'unidad',
+                    origen: 'CONSUMO_DIFERIDO'
+                })),
+                metadata: {
+                    sessionId: newSession.id,
+                    saleId: sale.id,
+                    customerRef,
+                    dispatchId: initialDispatchId
+                }
+            });
+            if (!inventoryResult.success) {
+                return null;
             }
         }
 
-        const sessions = await storageService.getItem(CONSUMPTION_SESSIONS_KEY, []) || [];
         const updatedSessions = [newSession, ...sessions];
         await storageService.setItem(CONSUMPTION_SESSIONS_KEY, updatedSessions);
 
@@ -153,7 +174,7 @@ export async function getAllSessions() {
 /**
  * Registra una entrega parcial de productos en una ficha de consumo (versión interna sin cerrojo).
  */
-export async function registerPartialDispatchUnlocked(sessionId, dispatchedItems, cashierName = 'Cajero') {
+export async function registerPartialDispatchUnlocked(sessionId, dispatchedItems, cashierName = 'Cajero', requestId = null, actorOverride = null) {
     if (!sessionId || !Array.isArray(dispatchedItems) || dispatchedItems.length === 0) {
         return { success: false, error: 'Parámetros de despacho inválidos' };
     }
@@ -164,6 +185,7 @@ export async function registerPartialDispatchUnlocked(sessionId, dispatchedItems
     }
 
     const dispatchTotalQty = validItems.reduce((sum, i) => sum + Number(i.qty), 0);
+    const dispatchActor = normalizeActor(actorOverride, { nombre: cashierName });
 
     try {
         const sessions = await storageService.getItem(CONSUMPTION_SESSIONS_KEY, []) || [];
@@ -179,6 +201,28 @@ export async function registerPartialDispatchUnlocked(sessionId, dispatchedItems
             return { success: false, error: 'Esta ficha de consumo ya no está activa' };
         }
 
+        const dispatchId = requestId || crypto.randomUUID();
+        const operationId = `dispatch_${dispatchId}`;
+
+        // Si el cliente reintenta una solicitud cuyo despacho ya se confirmó,
+        // no se vuelve a descontar stock ni se crea otra ronda.
+        const existingDispatch = (session.dispatches || []).find(dispatch => dispatch.id === dispatchId);
+        if (existingDispatch) {
+            return {
+                success: true,
+                session,
+                updatedProducts: products,
+                isCompleted: session.status === 'COMPLETED',
+                idempotent: true
+            };
+        }
+
+        const operationRecords = await storageService.getItem('bodega_inventory_operations_v1', []) || [];
+        const existingOperation = operationRecords.find(operation => (
+            operation.operationId === operationId
+            && operation.metadata?.sessionId === session.id
+        ));
+
         // 1. Guardagujas Guardrail: Límite de Cuota
         const remainingQuota = session.totalQuota - session.servedCount;
         if (dispatchTotalQty > remainingQuota) {
@@ -188,8 +232,10 @@ export async function registerPartialDispatchUnlocked(sessionId, dispatchedItems
             };
         }
 
-        // 2. Guardagujas Guardrail: Stock Disponible por Producto
-        for (const item of validItems) {
+        // 2. Guardagujas Guardrail: Stock Disponible por Producto.
+        // Si ya existe la operación persistida, el primer intento pudo haber
+        // aplicado stock y fallado antes de guardar la ficha.
+        if (!existingOperation) for (const item of validItems) {
             const prod = products.find(p => p.id === item.productId);
             if (!prod) {
                 return { success: false, error: `Producto con ID "${item.productId}" no encontrado` };
@@ -203,25 +249,13 @@ export async function registerPartialDispatchUnlocked(sessionId, dispatchedItems
             }
         }
 
-        // 3. Descontar Inventario Físico de Productos y Registrar Kardex
-        const updatedProducts = products.map(p => {
-            const matchItem = validItems.find(i => i.productId === p.id);
-            if (matchItem) {
-                const oldStock = Number(p.stock) || 0;
-                return {
-                    ...p,
-                    stock: oldStock - Number(matchItem.qty),
-                    updatedAt: new Date().toISOString()
-                };
-            }
-            return p;
-        });
-
-        // 4. Crear registro de despacho con ID único
+        // 3. Crear registro de despacho con ID estable para reintentos.
         const dispatchRecord = {
-            id: crypto.randomUUID(),
+            id: dispatchId,
             timestamp: new Date().toISOString(),
-            cashier: cashierName,
+            cashier: dispatchActor.usuarioNombre,
+            actorId: dispatchActor.usuarioId,
+            actorRole: dispatchActor.usuarioRol,
             items: validItems.map(i => {
                 const targetProd = products.find(p => p.id === i.productId);
                 return {
@@ -233,30 +267,35 @@ export async function registerPartialDispatchUnlocked(sessionId, dispatchedItems
             })
         };
 
-        // Registrar movimientos en Kardex para cada producto despachado
-        for (const item of validItems) {
-            const targetProd = products.find(p => p.id === item.productId);
-            await recordKardexMovementUnlocked({
+        // 4. Descontar productos y registrar Kardex con snapshots explícitos.
+        const inventoryResult = await applyInventoryOperationUnlocked({
+            operationId,
+            referenceId: dispatchRecord.id,
+            referenceType: 'CONSUMO_DIFERIDO',
+            source: 'CONSUMO_DIFERIDO',
+            tipo: 'SALIDA_CONSUMO_DIFERIDO',
+            subtipo: 'ENTREGA_PARCIAL',
+            reason: 'Despacho',
+            allowNegative: false,
+            actor: dispatchActor,
+            deductions: validItems.map(item => ({
                 productoId: item.productId,
-                productoNombre: targetProd?.name || item.productName || 'Producto Cerveza',
-                sku: targetProd?.barcode || targetProd?.sku || '',
-                tipo: 'SALIDA_CONSUMO_DIFERIDO',
-                subtipo: 'ENTREGA_PARCIAL',
                 cantidad: -Math.abs(Number(item.qty)),
-                costoUnitario: Number(targetProd?.costUsd || targetProd?.cost || 0),
-                referenciaId: dispatchRecord.id,
-                referenciaTipo: 'CONSUMO_DIFERIDO',
-                referenciaNumero: session.saleNumber,
-                usuarioNombre: cashierName,
-                motivo: `Despacho Ficha: ${session.customerRef} (${item.qty} u)`,
-                metadata: {
-                    sessionId: session.id,
-                    saleId: session.saleId,
-                    customerRef: session.customerRef,
-                    comboName: session.comboName
-                }
-            });
+                unidad: item.unit || 'unidad',
+                origen: 'CONSUMO_DIFERIDO'
+            })),
+            metadata: {
+                sessionId: session.id,
+                saleId: session.saleId,
+                customerRef: session.customerRef,
+                comboName: session.comboName,
+                dispatchId: dispatchRecord.id
+            }
+        });
+        if (!inventoryResult.success) {
+            return { success: false, pending: inventoryResult.pending === true, error: inventoryResult.error };
         }
+        const updatedProducts = inventoryResult.updatedProducts || products;
 
         const newServedCount = session.servedCount + dispatchTotalQty;
         const isFullyCompleted = newServedCount >= session.totalQuota;
@@ -273,12 +312,10 @@ export async function registerPartialDispatchUnlocked(sessionId, dispatchedItems
         const updatedSessions = [...sessions];
         updatedSessions[sessionIndex] = updatedSession;
 
-        // 5. Persistir en IndexedDB y Sincronizar en la Nube
-        await storageService.setItem(PRODUCTS_KEY, updatedProducts);
+        // 5. Persistir la ficha; el catálogo ya fue aplicado por la operación.
         await storageService.setItem(CONSUMPTION_SESSIONS_KEY, updatedSessions);
 
         try {
-            await pushCloudSync(PRODUCTS_KEY, updatedProducts, true);
             await pushCloudSync(CONSUMPTION_SESSIONS_KEY, updatedSessions, true);
         } catch (syncErr) {
             console.warn('[ConsumptionService] Error en push de sincronización post-despacho:', syncErr);
@@ -304,25 +341,25 @@ export async function registerPartialDispatchUnlocked(sessionId, dispatchedItems
  * Registra una entrega parcial de productos en una ficha de consumo.
  * Descuenta stock físico de cada SKU servido, registra en Kardex y actualiza la cuota.
  */
-export async function registerPartialDispatch(sessionId, dispatchedItems, cashierName = 'Cajero') {
+export async function registerPartialDispatch(sessionId, dispatchedItems, cashierName = 'Cajero', requestId = null, actorOverride = null) {
     return await withLock('pos_write_lock', async () => {
-        return await registerPartialDispatchUnlocked(sessionId, dispatchedItems, cashierName);
+        return await registerPartialDispatchUnlocked(sessionId, dispatchedItems, cashierName, requestId, actorOverride);
     });
 }
 
 /**
  * Anula una ficha de consumo asociada a una venta anulada (versión interna sin cerrojo).
  */
-export async function cancelSessionBySaleIdUnlocked(saleId, cashierName = 'Supervisor') {
+export async function cancelSessionBySaleIdUnlocked(saleId, cashierName = 'Supervisor', actorOverride = null) {
     if (!saleId) return false;
 
     try {
+        const cancellationActor = normalizeActor(actorOverride, { nombre: cashierName });
         const sessions = await storageService.getItem(CONSUMPTION_SESSIONS_KEY, []) || [];
         const sessionIndex = sessions.findIndex(s => s.saleId === saleId && s.status !== 'CANCELLED');
         if (sessionIndex === -1) return false;
 
         const session = sessions[sessionIndex];
-        const products = await storageService.getItem(PRODUCTS_KEY, []) || [];
 
         // Si se despacharon unidades, devolverlas al stock físico
         const itemsToRefund = {};
@@ -336,52 +373,47 @@ export async function cancelSessionBySaleIdUnlocked(saleId, cashierName = 'Super
             });
         }
 
-        const updatedProducts = products.map(p => {
-            const refundQty = itemsToRefund[p.id];
-            if (refundQty && refundQty > 0) {
-                return {
-                    ...p,
-                    stock: (Number(p.stock) || 0) + refundQty,
-                    updatedAt: new Date().toISOString()
-                };
-            }
-            return p;
-        });
+        const refundEntries = Object.entries(itemsToRefund)
+            .filter(([, qty]) => Number(qty) > 0)
+            .map(([prodId, qty]) => ({
+                productoId: prodId,
+                cantidad: Math.abs(Number(qty)),
+                origen: 'DEVOLUCION'
+            }));
 
-        // Registrar movimientos de reversión en Kardex
-        for (const [prodId, qty] of Object.entries(itemsToRefund)) {
-            if (qty > 0) {
-                const targetProd = products.find(p => p.id === prodId);
-                await recordKardexMovementUnlocked({
-                    productoId: prodId,
-                    productoNombre: targetProd?.name || 'Cerveza',
-                    sku: targetProd?.barcode || targetProd?.sku || '',
-                    tipo: 'DEVOLUCION',
-                    subtipo: 'ANULACION_CONSUMO_DIFERIDO',
-                    cantidad: qty,
-                    referenciaId: session.id,
-                    referenciaTipo: 'ANULACION_CONSUMO_DIFERIDO',
-                    usuarioNombre: cashierName,
-                    motivo: `Anulación Venta ${saleId} - Devolución Ficha Consumo (${qty} u)`
-                });
-            }
+        if (refundEntries.length > 0) {
+            const inventoryResult = await applyInventoryOperationUnlocked({
+                operationId: `cancel_session_${session.id}`,
+                referenceId: session.id,
+                referenceType: 'ANULACION_CONSUMO_DIFERIDO',
+                source: 'ANULACION_CONSUMO_DIFERIDO',
+                tipo: 'DEVOLUCION',
+                subtipo: 'ANULACION_CONSUMO_DIFERIDO',
+                reason: 'Anulación venta',
+                allowNegative: true,
+                actor: cancellationActor,
+                deductions: refundEntries,
+                metadata: { saleId, sessionId: session.id }
+            });
+            if (!inventoryResult.success) return false;
         }
 
         const updatedSession = {
             ...session,
             status: 'CANCELLED',
             cancelledAt: new Date().toISOString(),
+            cancelledBy: cancellationActor,
             updatedAt: new Date().toISOString()
         };
 
         const updatedSessions = [...sessions];
         updatedSessions[sessionIndex] = updatedSession;
 
-        await storageService.setItem(PRODUCTS_KEY, updatedProducts);
+        // `applyInventoryOperationUnlocked` ya persistió el catálogo y el
+        // movimiento. Solo se confirma el documento de la ficha aquí.
         await storageService.setItem(CONSUMPTION_SESSIONS_KEY, updatedSessions);
 
         try {
-            await pushCloudSync(PRODUCTS_KEY, updatedProducts, true);
             await pushCloudSync(CONSUMPTION_SESSIONS_KEY, updatedSessions, true);
         } catch (e) {}
 
@@ -399,23 +431,23 @@ export async function cancelSessionBySaleIdUnlocked(saleId, cashierName = 'Super
  * Anula una ficha de consumo asociada a una venta anulada y restituye el stock
  * de las unidades que ya hubiesen sido despachadas físicamente.
  */
-export async function cancelSessionBySaleId(saleId, cashierName = 'Supervisor') {
+export async function cancelSessionBySaleId(saleId, cashierName = 'Supervisor', actorOverride = null) {
     return await withLock('pos_write_lock', async () => {
-        return await cancelSessionBySaleIdUnlocked(saleId, cashierName);
+        return await cancelSessionBySaleIdUnlocked(saleId, cashierName, actorOverride);
     });
 }
 
 /**
  * Revierte una ronda de entrega parcial de consumo diferido (versión interna sin cerrojo).
  */
-export async function revertDispatchRoundUnlocked(sessionId, dispatchId, cashierName = 'Cajero') {
+export async function revertDispatchRoundUnlocked(sessionId, dispatchId, cashierName = 'Cajero', actorOverride = null) {
     if (!sessionId || !dispatchId) {
         return { success: false, error: 'Parámetros insuficientes para revertir' };
     }
 
     try {
+        const revertActor = normalizeActor(actorOverride, { nombre: cashierName });
         const sessions = await storageService.getItem(CONSUMPTION_SESSIONS_KEY, []) || [];
-        const products = await storageService.getItem(PRODUCTS_KEY, []) || [];
 
         const sessionIndex = sessions.findIndex(s => s.id === sessionId);
         if (sessionIndex === -1) {
@@ -434,45 +466,35 @@ export async function revertDispatchRoundUnlocked(sessionId, dispatchId, cashier
         const dispatchItems = targetDispatch.items || [];
         const revertTotalQty = dispatchItems.reduce((sum, i) => sum + (Number(i.qty) || 0), 0);
 
-        // 1. Restituir inventario físico de productos
-        const updatedProducts = products.map(p => {
-            const matchItem = dispatchItems.find(i => i.productId === p.id);
-            if (matchItem) {
-                const currentStock = Number(p.stock) || 0;
-                return {
-                    ...p,
-                    stock: currentStock + Number(matchItem.qty),
-                    updatedAt: new Date().toISOString()
-                };
-            }
-            return p;
-        });
-
-        // 2. Registrar movimientos de reversión en Kardex
-        for (const item of dispatchItems) {
-            const targetProd = products.find(p => p.id === item.productId);
-            await recordKardexMovementUnlocked({
+        // 1. Restituir inventario físico y registrar Kardex mediante la
+        // fachada única. El operationId estable hace segura la repetición si
+        // falla la persistencia de la ficha después del movimiento.
+        const inventoryResult = await applyInventoryOperationUnlocked({
+            operationId: `revert_dispatch_${session.id}_${targetDispatch.id}`,
+            referenceId: targetDispatch.id,
+            referenceType: 'REVERSION_CONSUMO_DIFERIDO',
+            source: 'CONSUMO_DIFERIDO',
+            tipo: 'DEVOLUCION',
+            subtipo: 'REVERSION_CONSUMO_DIFERIDO',
+            reason: 'Reversión despacho',
+            allowNegative: true,
+            actor: revertActor,
+            deductions: dispatchItems.map(item => ({
                 productoId: item.productId,
-                productoNombre: targetProd?.name || item.productName || 'Producto Cerveza',
-                sku: targetProd?.barcode || targetProd?.sku || '',
-                tipo: 'DEVOLUCION',
-                subtipo: 'REVERSION_CONSUMO_DIFERIDO',
-                cantidad: Math.abs(Number(item.qty)), // Entra (+) al inventario
-                costoUnitario: Number(targetProd?.costUsd || targetProd?.cost || 0),
-                referenciaId: targetDispatch.id,
-                referenciaTipo: 'REVERSION_CONSUMO_DIFERIDO',
-                referenciaNumero: session.saleNumber,
-                usuarioNombre: cashierName,
-                motivo: `Reversión entrega parcial: ${session.customerRef} (${item.qty} u)`,
-                metadata: {
-                    saleId: session.saleId,
-                    customerRef: session.customerRef,
-                    comboName: session.comboName,
-                    dispatchId: targetDispatch.id
-                }
-            });
+                cantidad: Math.abs(Number(item.qty)),
+                origen: 'DEVOLUCION'
+            })),
+            metadata: {
+                saleId: session.saleId,
+                sessionId: session.id,
+                customerRef: session.customerRef,
+                comboName: session.comboName,
+                dispatchId: targetDispatch.id
+            }
+        });
+        if (!inventoryResult.success) {
+            return { success: false, pending: inventoryResult.pending === true, error: inventoryResult.error };
         }
-
         // 3. Actualizar Estado de la Ficha
         const updatedDispatches = dispatches.filter(d => d.id !== dispatchId);
         const newServedCount = Math.max(0, session.servedCount - revertTotalQty);
@@ -490,11 +512,11 @@ export async function revertDispatchRoundUnlocked(sessionId, dispatchId, cashier
         updatedSessions[sessionIndex] = updatedSession;
 
         // 4. Persistir en IndexedDB y Sincronizar en la Nube
-        await storageService.setItem(PRODUCTS_KEY, updatedProducts);
+        // `applyInventoryOperationUnlocked` ya persistió el catálogo y el
+        // movimiento. Solo se confirma el documento de la ficha aquí.
         await storageService.setItem(CONSUMPTION_SESSIONS_KEY, updatedSessions);
 
         try {
-            await pushCloudSync(PRODUCTS_KEY, updatedProducts, true);
             await pushCloudSync(CONSUMPTION_SESSIONS_KEY, updatedSessions, true);
         } catch (syncErr) {
             console.warn('[ConsumptionService] Error al sincronizar reversión en la nube:', syncErr);
@@ -520,9 +542,9 @@ export async function revertDispatchRoundUnlocked(sessionId, dispatchId, cashier
  * Reintegra las unidades al stock físico de los productos, descuenta la cuota servida,
  * reabre la ficha si estaba completada y registra movimiento en Kardex.
  */
-export async function revertDispatchRound(sessionId, dispatchId, cashierName = 'Cajero') {
+export async function revertDispatchRound(sessionId, dispatchId, cashierName = 'Cajero', actorOverride = null) {
     return await withLock('pos_write_lock', async () => {
-        return await revertDispatchRoundUnlocked(sessionId, dispatchId, cashierName);
+        return await revertDispatchRoundUnlocked(sessionId, dispatchId, cashierName, actorOverride);
     });
 }
 

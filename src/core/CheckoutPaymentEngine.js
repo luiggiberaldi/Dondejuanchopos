@@ -4,12 +4,55 @@ import { CHECKOUT_POLICY } from '../utils/securityConstants';
 const VIRTUAL_METHODS = new Set(['cashea', 'saldo_favor']);
 const CASH_METHODS = new Set(['efectivo_usd', 'efectivo_bs', 'efectivo_cop']);
 
+// Métodos permitidos para liquidar el faltante de vuelto fuera de la gaveta.
+// Se valida otra vez en el processor: la UI nunca es la autoridad financiera.
+export const CHANGE_OWED_METHODS = Object.freeze([
+    'pago_movil',
+    'zelle',
+    'transferencia',
+    'efectivo_externo',
+    'otro',
+]);
+
 const normalizeCurrency = (currency) => {
     const normalized = String(currency || '').toUpperCase();
     return normalized === 'VES' ? 'BS' : normalized;
 };
 
 const finiteMoney = (value) => Number.isFinite(Number(value)) && Number(value) >= 0;
+
+export function validateChangeOwed(changeOwed, { rate = 0 } = {}) {
+    if (!changeOwed || typeof changeOwed !== 'object') {
+        return { valid: false, error: 'El vuelto por fuera no está configurado.' };
+    }
+
+    const method = String(changeOwed.method || '').trim();
+    if (!CHANGE_OWED_METHODS.includes(method)) {
+        return { valid: false, error: `Método de vuelto por fuera inválido: ${method || '(vacío)'}.` };
+    }
+
+    const amountUsd = Number(changeOwed.amountUsd);
+    if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
+        return { valid: false, error: 'El monto de vuelto por fuera es inválido.' };
+    }
+
+    const hasAmountBs = Object.prototype.hasOwnProperty.call(changeOwed, 'amountBs');
+    const amountBs = hasAmountBs ? Number(changeOwed.amountBs) : null;
+    if (hasAmountBs && (!Number.isFinite(amountBs) || amountBs < 0)) {
+        return { valid: false, error: 'El equivalente en bolívares del vuelto por fuera es inválido.' };
+    }
+    if (hasAmountBs && Number(rate) > 0 && Math.abs(subR(divR(amountBs, rate), round2(amountUsd))) > CHECKOUT_POLICY.TOTAL_DRIFT_USD) {
+        return { valid: false, error: 'El vuelto por fuera no cuadra entre USD y bolívares.' };
+    }
+
+    return {
+        valid: true,
+        method,
+        amountUsd: round2(amountUsd),
+        amountBs: amountBs === null ? null : round2(amountBs),
+        note: typeof changeOwed.note === 'string' ? changeOwed.note.trim().slice(0, 240) : '',
+    };
+}
 
 export const isCashPayment = (payment, activeMethods = []) => {
     if (typeof payment?.isCash === 'boolean') return payment.isCash;
@@ -66,25 +109,25 @@ export function calculatePaymentState({
             continue;
         }
         const currency = normalizeCurrency(payment.currency);
-        const amountInput = Number(payment.amountInput ?? (currency === 'USD' ? payment.amountUsd : currency === 'BS' ? payment.amountBs : payment.amountCop));
-        const amountUsd = payment.amountUsd != null
-            ? Number(payment.amountUsd)
+        const amountInput = round2(Number(payment.amountInput ?? (currency === 'USD' ? payment.amountUsd : currency === 'BS' ? payment.amountBs : payment.amountCop)) || 0);
+        const amountUsd = round2(payment.amountUsd != null
+            ? Number(payment.amountUsd) || 0
             : currency === 'USD'
                 ? amountInput
                 : currency === 'COP' && safeTasaCop > 0
                     ? divR(amountInput, safeTasaCop)
                     : safeRate > 0
                         ? divR(amountInput, safeRate)
-                        : 0;
-        const amountBs = payment.amountBs != null
-            ? Number(payment.amountBs)
+                        : 0);
+        const amountBs = round2(payment.amountBs != null
+            ? Number(payment.amountBs) || 0
             : currency === 'BS'
                 ? amountInput
                 : currency === 'COP' && safeTasaCop > 0 && safeRate > 0
                     ? mulR(divR(amountInput, safeTasaCop), safeRate)
                     : safeRate > 0
                         ? mulR(amountInput, safeRate)
-                        : 0;
+                        : 0);
         if (!finiteMoney(amountUsd) || !finiteMoney(amountBs)) {
             errors.push(`Conversión inválida para ${payment.methodId}.`);
             continue;
@@ -124,18 +167,32 @@ export function calculatePaymentState({
             // En régimen puro Bs el vuelto real y operativo está en Bs. El USD es
             // únicamente una equivalencia visual; no debe alimentar la caja ni el
             // registro de vuelto y provocar una doble contabilización.
-            change: { usd: 0, bs: changeBs },
+            change: {
+                usd: 0,
+                bs: changeBs,
+                totalUsd: safeRate > 0 ? divR(changeBs, safeRate) : 0,
+                totalBs: changeBs,
+                authority: 'BS',
+            },
         };
+
     } else {
         const paidUsd = sumR([foreignUsd, safeRate > 0 ? divR(paidBs, safeRate) : 0]);
         const remainingUsd = round2(Math.max(0, subR(totalUsd, paidUsd)));
         const changeUsd = round2(Math.max(0, subR(paidUsd, totalUsd)));
 
+        const changeTotalBs = round2(mulR(changeUsd, safeRate));
         state = {
             regime: 'USD',
             paid: { usd: paidUsd, bs: round2(mulR(paidUsd, safeRate)), cop: sumR(normalizedPayments.filter((payment) => payment.currency === 'COP').map((payment) => payment.amountInput)) },
             remaining: { usd: remainingUsd, bs: round2(mulR(remainingUsd, safeRate)) },
-            change: { usd: changeUsd, bs: round2(mulR(changeUsd, safeRate)) },
+            change: {
+                usd: changeUsd,
+                bs: changeTotalBs,
+                totalUsd: changeUsd,
+                totalBs: changeTotalBs,
+                authority: 'USD',
+            },
         };
     }
 
@@ -159,54 +216,250 @@ export function calculatePaymentState({
     };
 }
 
+/**
+ * Calcula una partición de vuelto sin convertir de una moneda a otra y volver a
+ * redondear el total. `totalChangeBs` es la autoridad cuando se proporciona;
+ * así un vuelto puro en Bs de 50 no se transforma en 1.09 USD y luego en 50.14 Bs.
+ */
+export function calculateChangeAllocation({
+    totalChangeUsd = 0,
+    totalChangeBs = null,
+    physicalUsd = 0,
+    physicalBs = 0,
+    rate,
+}) {
+    const safeRate = Number(rate) > 0 ? Number(rate) : 0;
+    const hasBsAuthority = totalChangeBs !== null && totalChangeBs !== undefined;
+    const targetBs = hasBsAuthority
+        ? round2(Number(totalChangeBs) || 0)
+        : safeRate > 0
+            ? mulR(Number(totalChangeUsd) || 0, safeRate)
+            : 0;
+    const givenUsd = round2(Number(physicalUsd) || 0);
+    const givenBs = round2(Number(physicalBs) || 0);
+    const givenBsFromUsd = safeRate > 0 ? mulR(givenUsd, safeRate) : 0;
+    const distributedBs = sumR([givenBsFromUsd, givenBs]);
+    const remainingBs = round2(Math.max(0, subR(targetBs, distributedBs)));
+
+    return {
+        givenUsd,
+        givenBs,
+        givenBsFromUsd,
+        distributedBs,
+        totalChangeBs: targetBs,
+        remainingBs,
+        totalChangeUsd: safeRate > 0 ? divR(targetBs, safeRate) : round2(Number(totalChangeUsd) || 0),
+        remainingUsd: safeRate > 0 ? divR(remainingBs, safeRate) : 0,
+    };
+}
+
+/**
+ * Actualiza un campo de partición de vuelto sin modificar silenciosamente el
+ * otro campo. El cajero puede registrar, por ejemplo, $4 + Bs 500; solo se
+ * limita el campo que exceda el vuelto disponible.
+ */
+export function calculateChangeInputUpdate({
+    currency,
+    requestedValue = 0,
+    currentUsd = 0,
+    currentBs = 0,
+    totalChangeBs = 0,
+    rate,
+}) {
+    const safeRate = Number(rate) > 0 ? Number(rate) : 0;
+    const targetBs = round2(Math.max(0, Number(totalChangeBs) || 0));
+    const existingUsd = round2(Math.max(0, Number(currentUsd) || 0));
+    const existingBs = round2(Math.max(0, Number(currentBs) || 0));
+    const requested = round2(Math.max(0, Number(requestedValue) || 0));
+
+    if (currency === 'usd') {
+        const maxUsd = safeRate > 0
+            ? divR(Math.max(0, subR(targetBs, existingBs)), safeRate)
+            : 0;
+        const usd = Math.min(requested, maxUsd);
+        return {
+            usd: round2(usd),
+            bs: existingBs,
+            wasClamped: requested > maxUsd + CHECKOUT_POLICY.CHANGE_SPLIT_TOLERANCE,
+            max: round2(maxUsd),
+        };
+    }
+
+    const maxBs = round2(Math.max(0, subR(targetBs, mulR(existingUsd, safeRate))));
+    const bs = Math.min(requested, maxBs);
+    return {
+        usd: existingUsd,
+        bs: round2(bs),
+        wasClamped: requested > maxBs + CHECKOUT_POLICY.CHANGE_SPLIT_TOLERANCE,
+        max: maxBs,
+    };
+}
+
 export function calculateChangeDistribution({
     changeUsd = 0,
+    changeBs = null,
     physicalUsd = 0,
     physicalBs = 0,
     rate,
     resolution = null,
 }) {
-    const safeRate = Number(rate) > 0 ? Number(rate) : 0;
-    const givenUsd = round2(Number(physicalUsd) || 0);
-    const givenBs = round2(Number(physicalBs) || 0);
-    const givenEquivalentUsd = sumR([givenUsd, safeRate > 0 ? divR(givenBs, safeRate) : 0]);
-    const remainingUsd = round2(Math.max(0, subR(changeUsd, givenEquivalentUsd)));
-
+    const allocation = calculateChangeAllocation({
+        totalChangeUsd: changeUsd,
+        totalChangeBs: changeBs,
+        physicalUsd,
+        physicalBs,
+        rate,
+    });
     const output = {
-        givenUsd,
-        givenBs,
-        remainingUsd,
+        givenUsd: allocation.givenUsd,
+        givenBs: allocation.givenBs,
+        remainingUsd: allocation.remainingUsd,
+        remainingBs: allocation.remainingBs,
         resolution,
     };
 
     if (resolution && !['tip', 'owed', 'voucher', 'wallet'].includes(resolution)) {
         return { ...output, error: 'Resolución de vuelto inválida.' };
     }
-    if (givenEquivalentUsd > Number(changeUsd) + CHECKOUT_POLICY.CHANGE_SPLIT_TOLERANCE) {
+    const targetBs = allocation.totalChangeBs;
+    if (allocation.distributedBs > targetBs + CHECKOUT_POLICY.CHANGE_SPLIT_TOLERANCE) {
         return { ...output, error: 'El vuelto físico excede el vuelto real.' };
     }
     return output;
 }
 
-export function assertCheckoutInvariants({ changeUsd = 0, changeBreakdown = {} }) {
-    const physicalUsd = Number(changeBreakdown.changeUsdGiven) || 0;
-    const physicalBsUsd = Number(changeBreakdown.changeBsGivenUsd) || 0;
-    const walletUsd = Number(changeBreakdown.walletUsd) || 0;
-    const owedUsd = Number(changeBreakdown.owedUsd) || 0;
-    const donatedUsd = Number(changeBreakdown.donatedUsd) || 0;
-    const voucherUsd = Number(changeBreakdown.voucherUsd) || 0;
-    const allocated = sumR([physicalUsd, physicalBsUsd, walletUsd, owedUsd, donatedUsd, voucherUsd]);
+export function assertCheckoutInvariants({
+    changeUsd = 0,
+    changeTotalBs = null,
+    rate = 0,
+    changeBreakdown = {},
+    requireComplete = false,
+}) {
+    const changeUsdGiven = Number(changeBreakdown.changeUsdGiven ?? 0);
+    const changeBsGiven = Number(changeBreakdown.changeBsGiven ?? 0);
+    const changeBsGivenUsd = Number(changeBreakdown.changeBsGivenUsd ?? 0);
+    const walletUsd = Number(changeBreakdown.walletUsd ?? 0);
+    const owedUsd = Number(changeBreakdown.owedUsd ?? 0);
+    const donatedUsd = Number(changeBreakdown.donatedUsd ?? 0);
+    const voucherUsd = Number(changeBreakdown.voucherUsd ?? 0);
 
-    if (allocated > Number(changeUsd) + CHECKOUT_POLICY.CHANGE_SPLIT_TOLERANCE) {
+    const explicitBsAmounts = [
+        changeBreakdown.walletBs,
+        changeBreakdown.owedBs,
+        changeBreakdown.donatedBs,
+        changeBreakdown.voucherBs,
+    ];
+    const rawAmounts = [
+        changeUsdGiven,
+        changeBsGiven,
+        changeBsGivenUsd,
+        walletUsd,
+        owedUsd,
+        donatedUsd,
+        voucherUsd,
+        ...explicitBsAmounts.filter((amount) => amount !== null && amount !== undefined).map(Number),
+    ];
+    if (rawAmounts.some((amount) => !Number.isFinite(amount) || amount < 0)) {
+        return { valid: false, error: 'La distribución de vuelto contiene un monto inválido.' };
+    }
+
+    const normalizedChangeUsd = Number(changeUsd ?? 0);
+    if (!Number.isFinite(normalizedChangeUsd) || normalizedChangeUsd < 0) {
+        return { valid: false, error: 'El vuelto total contiene un monto inválido.' };
+    }
+
+    const hasBsAuthority = changeTotalBs !== null && changeTotalBs !== undefined && Number(rate) > 0;
+    const normalizedLimit = Number(changeTotalBs);
+    if (hasBsAuthority && (!Number.isFinite(normalizedLimit) || normalizedLimit < 0)) {
+        return { valid: false, error: 'El vuelto total contiene un monto inválido.' };
+    }
+
+    const walletBs = changeBreakdown.walletBs === null || changeBreakdown.walletBs === undefined
+        ? mulR(walletUsd, rate)
+        : Number(changeBreakdown.walletBs);
+    const owedBs = changeBreakdown.owedBs === null || changeBreakdown.owedBs === undefined
+        ? mulR(owedUsd, rate)
+        : Number(changeBreakdown.owedBs);
+    const donatedBs = changeBreakdown.donatedBs === null || changeBreakdown.donatedBs === undefined
+        ? mulR(donatedUsd, rate)
+        : Number(changeBreakdown.donatedBs);
+    const voucherBs = changeBreakdown.voucherBs === null || changeBreakdown.voucherBs === undefined
+        ? mulR(voucherUsd, rate)
+        : Number(changeBreakdown.voucherBs);
+
+    if ([walletBs, owedBs, donatedBs, voucherBs].some((amount) => !Number.isFinite(amount) || amount < 0)) {
+        return { valid: false, error: 'La distribución de vuelto contiene un equivalente inválido.' };
+    }
+
+    // Cada destino digital debe conservar la misma cifra en USD y Bs. Sin esta
+    // comprobación un caller podría registrar $2 de abono y Bs 80 a una tasa 40,
+    // pero persistir Bs 40 y descuadrar cliente, ticket y caja.
+    if (Number(rate) > 0) {
+        const pairedParts = [
+            ['abono a cuenta', walletUsd, walletBs],
+            ['vuelto por fuera', owedUsd, owedBs],
+            ['donación de vuelto', donatedUsd, donatedBs],
+            ['voucher de vuelto', voucherUsd, voucherBs],
+        ];
+        for (const [label, usd, bs] of pairedParts) {
+            if (Math.abs(subR(divR(bs, rate), round2(usd))) > CHECKOUT_POLICY.TOTAL_DRIFT_USD) {
+                return { valid: false, error: `El ${label} no cuadra entre USD y bolívares.` };
+            }
+        }
+    }
+
+    const allocated = hasBsAuthority
+        ? sumR([
+            mulR(changeUsdGiven, rate),
+            changeBsGiven,
+            walletBs,
+            owedBs,
+            donatedBs,
+            voucherBs,
+        ])
+        : sumR([
+            changeUsdGiven,
+            changeBsGivenUsd,
+            walletUsd,
+            owedUsd,
+            donatedUsd,
+            voucherUsd,
+        ]);
+    const limit = hasBsAuthority ? round2(normalizedLimit) : normalizedChangeUsd;
+
+    if (allocated > limit + CHECKOUT_POLICY.CHANGE_SPLIT_TOLERANCE) {
         return { valid: false, error: 'La distribución de vuelto excede el cambio real.' };
     }
-    return { valid: true, allocated };
+
+    // La UI ofrece un solo destino para el faltante. Mantener esta regla también
+    // en el processor evita particiones ambiguas creadas por reintentos o callers
+    // antiguos que envíen dos destinos a la vez.
+    const activeResolutions = [
+        walletUsd > CHECKOUT_POLICY.PAYMENT_ZERO || walletBs > CHECKOUT_POLICY.TOTAL_DRIFT_BS,
+        owedUsd > CHECKOUT_POLICY.PAYMENT_ZERO || owedBs > CHECKOUT_POLICY.TOTAL_DRIFT_BS,
+        donatedUsd > CHECKOUT_POLICY.PAYMENT_ZERO || donatedBs > CHECKOUT_POLICY.TOTAL_DRIFT_BS,
+        voucherUsd > CHECKOUT_POLICY.PAYMENT_ZERO || voucherBs > CHECKOUT_POLICY.TOTAL_DRIFT_BS,
+    ].filter(Boolean).length;
+    if (activeResolutions > 1) {
+        return { valid: false, error: 'El vuelto solo puede tener un destino pendiente a la vez.' };
+    }
+
+    if (requireComplete
+        && limit > CHECKOUT_POLICY.PAYMENT_ZERO
+        && subR(limit, allocated) > CHECKOUT_POLICY.CHANGE_SPLIT_TOLERANCE) {
+        return { valid: false, error: 'La distribución de vuelto no cuadra con el cambio real.' };
+    }
+
+    return { valid: true, allocated, allocatedUsd: hasBsAuthority ? divR(allocated, rate) : allocated };
 }
 
 export default {
+    calculateChangeAllocation,
     calculateChangeDistribution,
+    calculateChangeInputUpdate,
     calculatePaymentState,
     isCashPayment,
     validatePaymentInput,
+    validateChangeOwed,
     assertCheckoutInvariants,
 };

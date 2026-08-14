@@ -7,8 +7,11 @@ import { withLock } from './withLock';          // FIN-007: feature detection + 
 import { deepFreeze } from './deepFreeze';      // FIN-008: deep freeze (no solo shallow).
 import { FINANCIAL_EPSILON } from './securityConstants';
 import { FinancialEngine } from '../core/FinancialEngine';
-import { assertCheckoutInvariants, calculatePaymentState } from '../core/CheckoutPaymentEngine';
+import { assertCheckoutInvariants, calculatePaymentState, validateChangeOwed } from '../core/CheckoutPaymentEngine';
 import { calculatePricing } from './productProcessor';
+import { getChangeLedger, normalizeChangeCurrency } from './changeLedger';
+import { expandCartToPhysicalDeductions, aggregatePhysicalDeductions } from './inventoryMovementModel';
+import { applyInventoryOperationUnlocked } from '../services/inventoryOperationService';
 
 const SALES_KEY = 'bodega_sales_v1';
 const PRODUCTS_KEY = 'bodega_products_v1';
@@ -96,12 +99,39 @@ export async function processSaleTransaction({
     }
 
     const remainingUsd = paymentState.remaining.usd;
-    const changeUsd = round2(paymentState.regime === 'PURE_BS' && effectiveRate > 0
-        ? divR(paymentState.change.bs, effectiveRate)
-        : paymentState.change.usd);
+    const changeUsd = round2(paymentState.change.totalUsd ?? (
+        paymentState.regime === 'PURE_BS' && effectiveRate > 0
+            ? divR(paymentState.change.bs, effectiveRate)
+            : paymentState.change.usd
+    ));
+    const changeTotalBs = round2(paymentState.change.totalBs ?? paymentState.change.bs ?? 0);
+    const walletChangeCandidate = Number(changeBreakdown?.vueltoParaMonederoUsd ?? 0);
+    if (!Number.isFinite(walletChangeCandidate) || walletChangeCandidate < 0) {
+        return { success: false, error: 'Monto de abono a cuenta inválido.' };
+    }
+    const walletChangeUsd = round2(walletChangeCandidate);
+    const hasWalletChangeBs = Object.prototype.hasOwnProperty.call(changeBreakdown || {}, 'vueltoParaMonederoBs');
+    const walletChangeBsCandidate = hasWalletChangeBs ? Number(changeBreakdown.vueltoParaMonederoBs) : null;
+    if (hasWalletChangeBs && (!Number.isFinite(walletChangeBsCandidate) || walletChangeBsCandidate < 0)) {
+        return { success: false, error: 'Equivalente en bolívares del abono a cuenta inválido.' };
+    }
+    const walletChangeBs = hasWalletChangeBs ? round2(walletChangeBsCandidate) : null;
 
-    if (!selectedCustomer && (remainingUsd > 0.01 || casheaUsd > 0)) {
-        return { success: false, error: remainingUsd > 0.01 ? 'Se requiere cliente para ventas fiadas' : 'Se requiere cliente para ventas con Cashea' };
+    if (selectedCustomerId && !selectedCustomer) {
+        return { success: false, error: 'El cliente seleccionado ya no está disponible.' };
+    }
+    if (!selectedCustomer && (remainingUsd > 0.01 || casheaUsd > 0 || walletChangeUsd > 0.01)) {
+        return {
+            success: false,
+            error: remainingUsd > 0.01
+                ? 'Se requiere cliente para ventas fiadas'
+                : casheaUsd > 0
+                    ? 'Se requiere cliente para ventas con Cashea'
+                    : 'Se requiere cliente para abonar el vuelto a cuenta'
+        };
+    }
+    if (walletChangeUsd > changeUsd + 0.009) {
+        return { success: false, error: 'El abono a cuenta excede el vuelto real.' };
     }
 
     // FIN-005: Bloquear ventas con anomalía de vuelto (changeUsd > total * 5).
@@ -115,13 +145,27 @@ export async function processSaleTransaction({
 
     const fiadoAmountUsd = remainingUsd > 0.01 ? remainingUsd : 0;
     const tipoVenta = casheaUsd > 0 ? 'VENTA_CASHEA' : (fiadoAmountUsd > 0 ? 'VENTA_FIADA' : 'VENTA');
+    const rawChangeOwed = changeBreakdown?.changeOwed || null;
+    const owedAmountUsd = Number(rawChangeOwed?.amountUsd) || 0;
+    const owedAmountBs = rawChangeOwed && Object.prototype.hasOwnProperty.call(rawChangeOwed, 'amountBs')
+        ? Number(rawChangeOwed.amountBs)
+        : mulR(owedAmountUsd, effectiveRate);
+    // Registrar cómo se aplicó el abono para que una anulación pueda restaurar
+    // deuda o saldo a favor sin inferirlo desde el estado posterior del cliente.
+    const walletDebtAppliedUsd = selectedCustomer
+        ? round2(Math.min(walletChangeUsd, Math.max(0, Number(selectedCustomer.deuda) || 0)))
+        : 0;
+    const walletFavorAppliedUsd = round2(Math.max(0, subR(walletChangeUsd, walletDebtAppliedUsd)));
 
     // ── Normalizar payments: asegurar currency y methodLabel ──
     // Esto permite que el FinancialEngine calcule el breakdown correctamente
     // sin depender de campos que podían llegar undefined en versiones anteriores.
     const activeUser = useAuthStore.getState().usuarioActivo;
     const cajeroNombre = activeUser ? (activeUser.nombre || activeUser.usuario || 'Cajero') : null;
-
+    const saleTimestamp = new Date().toISOString();
+    const deviceId = typeof localStorage !== 'undefined'
+        ? localStorage.getItem('dj_device_id') || 'CAJA_PRINCIPAL'
+        : 'CAJA_PRINCIPAL';
 
     const sale = {
         id: crypto.randomUUID(),
@@ -130,10 +174,23 @@ export async function processSaleTransaction({
         status: 'COMPLETADA',
         cajero: cajeroNombre,
         cajeroId: activeUser?.id || null,
+        cajeroRol: activeUser?.rol || 'SYSTEM',
+        usuarioId: activeUser?.id || null,
+        usuarioNombre: cajeroNombre || 'Sistema',
+        usuarioRol: activeUser?.rol || 'SYSTEM',
+        actor: {
+            id: activeUser?.id || null,
+            nombre: cajeroNombre || 'Sistema',
+            rol: activeUser?.rol || 'SYSTEM',
+        },
+        deviceId,
+        createdAt: saleTimestamp,
+        updatedAt: saleTimestamp,
         items: cart.map(i => {
             const { unitPriceBs: _unitBs } = calculatePricing(i, effectiveRate, bcvRate);
             return {
                 id: i.id,
+                _originalId: i._originalId || i.id,
                 name: i.name,
                 qty: i.qty,
                 priceUsd: i.priceUsd,
@@ -169,15 +226,18 @@ export async function processSaleTransaction({
         totalBs:   cartTotalBs,
         totalCop:  totals.totalCop,
         payments:  normalizedPayments,          // ← Con currency + methodLabel
+        paymentRegime: paymentState.regime,
+        changeCurrency: paymentState.regime === 'PURE_BS' ? 'BS' : 'USD',
         rate:      effectiveRate,
         bcvRate:   bcvRate,
         tasaCop:   copEnabled ? tasaCop : 0,
         copEnabled: copEnabled,
         rateSource: useAutoRate ? 'BCV Auto' : 'Manual',
-        timestamp: new Date().toISOString(),
+        timestamp: saleTimestamp,
         changeUsd: round2(changeBreakdown?.changeUsdGiven || 0),
         changeBs:  round2(changeBreakdown?.changeBsGiven  || 0),
         changeRealUsd: changeUsd,
+        changeRealBs: changeTotalBs,
         changeGiven: {
             usd: round2(changeBreakdown?.changeUsdGiven || 0),
             bs:  round2(changeBreakdown?.changeBsGiven  || 0),
@@ -186,10 +246,14 @@ export async function processSaleTransaction({
         // precios manuales en Bs). Se persiste para poder sumarla en el cierre: de signo
         // variable por línea, pero el acumulado del turno sí es una cifra auditable.
         bsVsUsdDiffBs: round2(totals.bsVsUsdDiffBs || 0),
-        // FIN-012: Guardar vueltoParaMonedero para revertir al anular.
-        // Por ahora el flujo de checkout no enruta vuelto a favor (siempre 0),
-        // pero dejamos el campo para ventas futuras y abonos manuales.
-        vueltoParaMonedero: round2(changeBreakdown?.vueltoParaMonederoUsd || 0),
+        // FIN-012: Guardar el abono y su distribución para revertirlo sin
+        // heurísticas al anular una venta.
+        vueltoParaMonedero: walletChangeUsd,
+        vueltoParaMonederoBs: walletChangeBs ?? 0,
+        vueltoParaMonederoCurrency: changeBreakdown?.vueltoParaMonederoCurrency || (paymentState.regime === 'PURE_BS' ? 'BS' : 'USD'),
+        vueltoCredito: walletChangeUsd > 0.009 || (walletChangeBs ?? 0) > 0.009,
+        vueltoParaMonederoDebtUsd: walletDebtAppliedUsd,
+        vueltoParaMonederoFavorUsd: walletFavorAppliedUsd,
         customerId:       selectedCustomerId || null,
         customerName:     selectedCustomer ? selectedCustomer.name : 'Consumidor Final',
         customerDocument: selectedCustomer?.documentId || null,
@@ -197,8 +261,9 @@ export async function processSaleTransaction({
         fiadoUsd: fiadoAmountUsd,
         casheaUsd: casheaUsd,
         tipDonated: changeBreakdown?.tipDonated || null,
-        // FX19-S2: Vuelto que la caja adeuda al cliente por vía externa
-        changeOwed: changeBreakdown?.changeOwed || null,
+        // FX19-S2: Vuelto que la caja adeuda al cliente por vía externa.
+        // Se normaliza y se sella después de validar la partición completa.
+        changeOwed: rawChangeOwed,
         // FX19-S3: Voucher textual (no afecta balance)
         changeVoucher: changeBreakdown?.changeVoucher || null,
     };
@@ -209,17 +274,50 @@ export async function processSaleTransaction({
     const voucherAmt = Number(changeBreakdown?.changeVoucher?.amountUsd) || 0;
     const invariant = assertCheckoutInvariants({
         changeUsd,
+        changeTotalBs,
+        rate: effectiveRate,
         changeBreakdown: {
             changeUsdGiven: Number(changeBreakdown?.changeUsdGiven) || 0,
+            changeBsGiven: Number(changeBreakdown?.changeBsGiven) || 0,
             changeBsGivenUsd: effectiveRate > 0 ? divR(Number(changeBreakdown?.changeBsGiven) || 0, effectiveRate) : 0,
-            walletUsd: Number(changeBreakdown?.vueltoParaMonederoUsd) || 0,
+            walletUsd: walletChangeUsd,
+            walletBs: walletChangeBs,
             owedUsd: owedAmt,
+            owedBs: owedAmountBs,
             donatedUsd: tipAmt,
+            donatedBs: Number(changeBreakdown?.tipDonated?.amountBs) || null,
             voucherUsd: voucherAmt,
+            voucherBs: Number(changeBreakdown?.changeVoucher?.amountBs) || null,
         },
+        requireComplete: true,
     });
     if (!invariant.valid) return { success: false, error: invariant.error };
 
+    if (rawChangeOwed) {
+        const owedValidation = validateChangeOwed({
+            ...rawChangeOwed,
+            amountUsd: owedAmountUsd,
+            amountBs: owedAmountBs,
+        }, { rate: effectiveRate });
+        if (!owedValidation.valid) return { success: false, error: owedValidation.error };
+
+        sale.changeOwed = {
+            amountUsd: owedValidation.amountUsd,
+            amountBs: owedValidation.amountBs,
+            currency: normalizeChangeCurrency(rawChangeOwed.currency) || sale.changeCurrency,
+            method: owedValidation.method,
+            note: owedValidation.note,
+            reference: owedValidation.note || null,
+            status: 'PENDIENTE',
+            resolvedAt: null,
+            createdAt: saleTimestamp,
+            createdBy: {
+                id: activeUser?.id || null,
+                nombre: cajeroNombre || 'Sistema',
+                rol: activeUser?.rol || 'SYSTEM',
+            },
+        };
+    }
 
     // GR-FX19-3: Coherencia en donación parcial
     if (changeBreakdown?.tipDonated?.partial === true) {
@@ -232,6 +330,37 @@ export async function processSaleTransaction({
         }
     }
 
+    // Sellar cada destino de vuelto con actor y fecha. Los aliases anteriores
+    // siguen presentes para compatibilidad, pero tickets/reportes consumen este
+    // libro canónico y no vuelven a inferir la partición desde el total pagado.
+    if (sale.changeVoucher) {
+        sale.changeVoucher = {
+            ...sale.changeVoucher,
+            status: sale.changeVoucher.status || 'EMITIDO',
+            createdAt: sale.changeVoucher.createdAt || saleTimestamp,
+            createdBy: sale.changeVoucher.createdBy || {
+                id: activeUser?.id || null,
+                nombre: cajeroNombre || 'Sistema',
+                rol: activeUser?.rol || 'SYSTEM',
+            },
+        };
+    }
+    if (sale.tipDonated) {
+        sale.tipDonated = {
+            ...sale.tipDonated,
+            createdAt: sale.tipDonated.createdAt || saleTimestamp,
+            createdBy: sale.tipDonated.createdBy || {
+                id: activeUser?.id || null,
+                nombre: cajeroNombre || 'Sistema',
+                rol: activeUser?.rol || 'SYSTEM',
+            },
+        };
+    }
+    sale.changeLedger = getChangeLedger(sale, effectiveRate);
+    if (!sale.changeLedger.balanced) {
+        return { success: false, error: 'La partición final del vuelto no cuadra con el vuelto real.' };
+    }
+
     // FIN-008: deepFreeze en lugar de Object.freeze (congela items[] y payments[]).
     deepFreeze(sale);
 
@@ -241,14 +370,40 @@ export async function processSaleTransaction({
         if (checkoutOperationId) {
             const duplicate = existingSales.find(s => s.checkoutOperationId === checkoutOperationId);
             if (duplicate) {
-                return { success: true, sale: duplicate, updatedProducts: products, updatedCustomers: customers, duplicate: true };
+                // El reintento debe devolver el estado persistido, no los arrays
+                // capturados antes del primer intento (podrían reintroducir stock
+                // viejo en React después de una respuesta duplicada).
+                const freshProducts = await storageService.getItem(PRODUCTS_KEY, products) || products;
+                const freshCustomers = await storageService.getItem(CUSTOMERS_KEY, customers) || customers;
+                return {
+                    success: true,
+                    sale: duplicate,
+                    updatedProducts: freshProducts,
+                    updatedCustomers: freshCustomers,
+                    duplicate: true
+                };
             }
         }
         const saleNumber = existingSales.reduce((mx, s) => Math.max(mx, s.saleNumber || 0), 0) + 1;
-        // FIN-008: deep-freeze el sale persistido final.
-        const finalPersistedSale = deepFreeze({ ...sale, saleNumber });
 
-        const updatedSales = [finalPersistedSale, ...existingSales];
+        // Capturar la composición física con el catálogo vigente antes de
+        // persistir la venta. La anulación usa esta fotografía y no vuelve a
+        // interpretar un combo que pudo haber sido editado después.
+        const freshProducts = await storageService.getItem(PRODUCTS_KEY, products) || products;
+        const allowNeg = localStorage.getItem('allow_negative_stock') === 'true';
+        const expanded = expandCartToPhysicalDeductions(cart, freshProducts);
+        const physicalDeductions = aggregatePhysicalDeductions(expanded.deductions);
+
+        // FIN-008: deep-freeze el sale persistido final.
+        const finalPersistedSale = deepFreeze({
+            ...sale,
+            saleNumber,
+            inventoryDeductions: physicalDeductions,
+            inventoryDeductionsApplied: [],
+            inventoryAnomalies: expanded.anomalies
+        });
+
+        let updatedSales = [finalPersistedSale, ...existingSales];
         await storageService.setItem(SALES_KEY, updatedSales);
 
         // ── BLINDAJE ANTI-PÉRDIDA DE DATOS: Espejo Inmutable de Ventas ──
@@ -268,7 +423,25 @@ export async function processSaleTransaction({
         logEvent('VENTA', tipo,
             `Venta #${saleNumber} - $${round2(cartTotalUsd)} - ${cart.length} items - ${selectedCustomer?.name || 'Consumidor Final'}`,
             user,
-            { saleId: finalPersistedSale.id, total: cartTotalUsd, items: cart.length }
+            {
+                saleId: finalPersistedSale.id,
+                total: cartTotalUsd,
+                items: cart.length,
+                vueltoCredito: walletChangeUsd > 0.009,
+                vueltoParaMonederoUsd: walletChangeUsd,
+                vueltoParaMonederoDebtUsd: walletDebtAppliedUsd,
+                vueltoParaMonederoFavorUsd: walletFavorAppliedUsd,
+                changeGiven: finalPersistedSale.changeGiven,
+                changeOwed: finalPersistedSale.changeOwed
+                    ? {
+                        amountUsd: finalPersistedSale.changeOwed.amountUsd,
+                        amountBs: finalPersistedSale.changeOwed.amountBs,
+                        method: finalPersistedSale.changeOwed.method,
+                        reference: finalPersistedSale.changeOwed.reference,
+                        status: finalPersistedSale.changeOwed.status,
+                    }
+                    : null,
+            }
         );
 
         // ── Crear Fichas de Consumo Activas para ítems con Consumo Diferido en Sitio ──
@@ -285,76 +458,96 @@ export async function processSaleTransaction({
         }
 
         // ── Deducir stock con precisión ──
-        // FIN-027-pattern: re-leer productos fresco aquí para evitar stale state.
-        const freshProducts = await storageService.getItem(PRODUCTS_KEY, products);
-        const allowNeg = localStorage.getItem('allow_negative_stock') === 'true';
+        // La expansión se calculó dentro del mismo lock y quedó guardada en la
+        // venta como inventoryDeductions para que la devolución sea idéntica.
+        // Una ficha diferida pudo haber descontado su entrega inicial antes de
+        // llegar aquí; volver a leer evita devolver un snapshot obsoleto al UI.
+        const productsAfterDeferred = await storageService.getItem(PRODUCTS_KEY, freshProducts) || freshProducts;
         let negativeStockUsed = false;
         const negativeItems = [];
+        if (expanded.anomalies.length > 0) {
+            logEvent('INVENTARIO', 'ANOMALIA_MOVIMIENTO',
+                `Venta #${saleNumber} contiene ${expanded.anomalies.length} anomalía(s) de expansión física`,
+                useAuthStore.getState().usuarioActivo,
+                { saleId: finalPersistedSale.id, anomalies: expanded.anomalies }
+            );
+        }
 
-        // ── Calcular mapa de deducciones de stock ──
-        const deduccionesMap = {}; // { [productId]: totalQtyToDeduct }
-        const addDeduccion = (productId, qtyToDeduct) => {
-            deduccionesMap[productId] = sumR(deduccionesMap[productId] || 0, qtyToDeduct);
-        };
-
-        cart.forEach(item => {
-            // Consumo Diferido en Sitio: NO se descuenta inventario al cobrar el combo.
-            // Las cervezas se irán descontando progresivamente con cada despacho en el local.
-            if (item.isDeferredConsumption) {
-                return;
-            }
-
-            const itemId = item._originalId || item.id;
-            const itemQty = item.qty;
-            const isWeight = item.isWeight;
-            const mode = item._mode || 'unit';
-
-            let physicalQty = itemQty;
-            if (isWeight) {
-                physicalQty = itemQty;
-            } else if (mode === 'box') {
-                const boxUnits = parseInt(item.boxUnits, 10) || 1;
-                physicalQty = mulR(itemQty, boxUnits);
-            } else if (mode === 'halfBox') {
-                const halfBoxUnits = parseInt(item.halfBoxUnits, 10) || 1;
-                physicalQty = mulR(itemQty, halfBoxUnits);
-            }
-
-            const prodObj = freshProducts.find(p => p.id === itemId);
-            if (prodObj && prodObj.isCombo && prodObj.comboItems?.length > 0) {
-                prodObj.comboItems.forEach(ci => {
-                    const compDeduction = mulR(ci.qty, physicalQty);
-                    addDeduccion(ci.productId, compDeduction);
-                });
-            }
-
-            if (item.isModular && item.modularSelections?.length > 0) {
-                item.modularSelections.forEach(sel => {
-                    const compDeduction = mulR(sel.qty, physicalQty);
-                    addDeduccion(sel.productId, compDeduction);
-                });
-            }
-
-            if (!prodObj?.isCombo && !item.isModular) {
-                addDeduccion(itemId, physicalQty);
-            }
-        });
-
-        const updatedProducts = freshProducts.map(p => {
-            const deduction = deduccionesMap[p.id];
-            if (deduction && deduction > 0) {
-                if (p.isCombo) return p; // Los combos no tienen stock fisico directo
-
-                const newStock = subR(p.stock ?? 0, deduction);
-                // FIN-014: auditar uso de stock negativo (no mover el flag, solo loguear).
-                if (newStock < 0 && allowNeg) {
-                    negativeStockUsed = true;
-                    negativeItems.push({ productId: p.id, name: p.name, stockBefore: p.stock ?? 0, deducted: deduction, stockAfter: newStock });
+        let updatedProducts = productsAfterDeferred;
+        let inventoryOperation = { success: true, pending: false, transitions: [], movements: [] };
+        if (physicalDeductions.length > 0) {
+            inventoryOperation = await applyInventoryOperationUnlocked({
+                operationId: `sale_${finalPersistedSale.id}`,
+                referenceId: finalPersistedSale.id,
+                referenceType: 'VENTA',
+                source: 'POS_CHECKOUT',
+                tipo: 'VENTA',
+                subtipo: 'POS_CHECKOUT',
+                reason: `Venta #${saleNumber}`,
+                allowNegative: allowNeg,
+                actor: {
+                    usuarioId: activeUser?.id || null,
+                    usuarioNombre: activeUser?.nombre || 'Cajero',
+                    usuarioRol: activeUser?.rol || 'SYSTEM',
+                },
+                deductions: physicalDeductions,
+                productsFallback: freshProducts,
+                metadata: {
+                    saleId: finalPersistedSale.id,
+                    saleNumber,
+                    checkoutOperationId: checkoutOperationId || null
                 }
-                return { ...p, stock: allowNeg ? newStock : Math.max(0, newStock) };
+            });
+            updatedProducts = inventoryOperation.updatedProducts || freshProducts;
+        }
+
+        // Guardar la cantidad realmente aplicada, no solo la solicitada. Si el
+        // stock fue limitado por clamp, la anulación debe devolver únicamente
+        // las unidades que salieron físicamente.
+        let saleForResult = finalPersistedSale;
+        if (physicalDeductions.length > 0 && inventoryOperation.success) {
+            const appliedInventoryDeductions = (inventoryOperation.transitions || [])
+                .filter(transition => Number(transition.cantidad) !== 0)
+                .map(transition => ({
+                    productoId: transition.productoId,
+                    cantidad: transition.cantidad,
+                    cantidadSolicitada: transition.cantidadSolicitada,
+                    unidad: transition.unidad,
+                    origen: transition.origen,
+                    metadata: transition.metadata
+                }));
+            saleForResult = deepFreeze({
+                ...finalPersistedSale,
+                inventoryDeductionsApplied: appliedInventoryDeductions
+            });
+            updatedSales = updatedSales.map(item => item.id === saleForResult.id ? saleForResult : item);
+            await storageService.setItem(SALES_KEY, updatedSales);
+
+            try {
+                const MIRROR_KEY = 'bodega_sales_mirror_v1';
+                const mirrorSales = await storageService.getItem(MIRROR_KEY, []);
+                const updatedMirror = mirrorSales.some(item => item.id === saleForResult.id)
+                    ? mirrorSales.map(item => item.id === saleForResult.id ? saleForResult : item)
+                    : [saleForResult, ...mirrorSales];
+                await storageService.setItem(MIRROR_KEY, updatedMirror);
+            } catch (mirrorErr) {
+                console.warn('[checkoutProcessor] Error al actualizar composición aplicada en espejo:', mirrorErr);
             }
-            return p;
-        });
+        }
+
+        // FIN-014: auditar uso de stock negativo y cantidades limitadas por clamp.
+        for (const transition of inventoryOperation.transitions || []) {
+            if (transition.negativeStockUsed && allowNeg) {
+                negativeStockUsed = true;
+                negativeItems.push({
+                    productId: transition.productoId,
+                    name: transition.productoNombre,
+                    stockBefore: transition.stockAntes,
+                    deducted: transition.cantidad,
+                    stockAfter: transition.stockDespues
+                });
+            }
+        }
 
         if (negativeStockUsed) {
             const user = useAuthStore.getState().usuarioActivo;
@@ -366,43 +559,7 @@ export async function processSaleTransaction({
         }
 
         // FIN-008: deep-freeze products antes de retornar.
-        await storageService.setItem(PRODUCTS_KEY, updatedProducts);
         deepFreeze(updatedProducts);
-
-        // ── Registro inmutable en Kardex ──
-        try {
-            const { recordKardexMovementUnlocked } = await import('../services/kardexService');
-            for (const item of cart) {
-                let physicalQty = Number(item.qty || item.quantity) || 1;
-                const mode = item._mode || item.mode || 'unit';
-                if (mode === 'box') {
-                    const boxUnits = parseInt(item.boxUnits, 10) || 1;
-                    physicalQty = mulR(physicalQty, boxUnits);
-                } else if (mode === 'halfBox') {
-                    const halfBoxUnits = parseInt(item.halfBoxUnits, 10) || 1;
-                    physicalQty = mulR(physicalQty, halfBoxUnits);
-                }
-                const qtySold = -physicalQty;
-
-                await recordKardexMovementUnlocked({
-                    productoId: item._originalId || item.id,
-                    productoNombre: item.name,
-                    sku: item.barcode || item.sku || '',
-                    tipo: 'VENTA',
-                    subtipo: 'POS_CHECKOUT',
-                    cantidad: qtySold,
-                    unidad: item.unit || 'unidad',
-                    costoUnitario: Number(item.costUsd || item.cost || 0),
-                    referenciaId: finalPersistedSale.id,
-                    referenciaTipo: 'VENTA',
-                    referenciaNumero: `#${finalPersistedSale.saleNumber || finalPersistedSale.id.slice(0, 8)}`,
-                    usuarioId: activeUser?.id || null,
-                    usuarioNombre: activeUser?.nombre || 'Cajero'
-                });
-            }
-        } catch (kardexErr) {
-            console.error('[checkoutProcessor] Error registrando Kardex de venta:', kardexErr);
-        }
 
         let updatedCustomer = null;
         let updatedCustomers = customers;
@@ -418,7 +575,7 @@ export async function processSaleTransaction({
                 usaSaldoFavor:    amount_favor_used,
                 esCredito:        deudaParaCliente > FINANCIAL_EPSILON.PAYMENT_ZERO,
                 deudaGenerada:    deudaParaCliente,
-                vueltoParaMonedero: round2(changeBreakdown?.vueltoParaMonederoUsd || 0),
+                vueltoParaMonedero: walletChangeUsd,
                 esCashea:         casheaUsd > 0
             };
 
@@ -432,9 +589,12 @@ export async function processSaleTransaction({
 
         return {
             success: true,
-            sale: finalPersistedSale,
+            sale: saleForResult,
             updatedProducts,
-            updatedCustomers
+            updatedCustomers,
+            inventoryPending: inventoryOperation.pending === true,
+            inventoryError: inventoryOperation.error || null,
+            inventoryOperationId: inventoryOperation.operationId || null
         };
     });
 

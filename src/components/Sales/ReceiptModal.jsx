@@ -2,6 +2,7 @@ import React from 'react';
 import { CheckCircle, Wallet, Send, X, Printer, Clock } from 'lucide-react';
 import { formatBs, formatCop } from '../../utils/calculatorUtils';
 import { mulR } from '../../utils/dinero';
+import { getChangeLedger, getChangeDisplayParts } from '../../utils/changeLedger';
 import { calculatePricing } from '../../utils/productProcessor';
 import { printThermalTicket } from '../../utils/ticketGenerator';
 import CasheaIcon from '../CasheaIcon';
@@ -11,6 +12,18 @@ export default function ReceiptModal({ receipt, onClose, onShareWhatsApp, curren
 
     const receiptCurrencyMode = localStorage.getItem('receipt_currency_mode') || 'bs';
     const isFiado = (receipt.fiadoUsd > 0) || (receipt.tipo === 'VENTA_FIADA');
+    const changeLedger = getChangeLedger(receipt, currentRate || receipt.rate);
+    const formatChangeDisplayPart = ({ currency, amount }) => {
+        if (currency === 'BS') return `Bs ${formatBs(amount)}`;
+        if (currency === 'COP') return `COP ${formatCop(amount)}`;
+        return `$${amount.toFixed(2)} USD`;
+    };
+    const formatDeliveredChange = () => getChangeDisplayParts(changeLedger.delivered, { physical: true })
+        .map(formatChangeDisplayPart)
+        .join(' + ');
+    const formatDestinationAmount = (part) => getChangeDisplayParts(part)
+        .map(formatChangeDisplayPart)
+        .join(' · ') || '$0.00';
 
     return (
         <div className="fixed inset-0 z-[60] bg-slate-900/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -225,48 +238,49 @@ export default function ReceiptModal({ receipt, onClose, onShareWhatsApp, curren
                                     </div>
                                 )}
 
-                                {receipt.changeOwed && (
-                                    <div className="flex justify-between text-amber-700 dark:text-amber-300 font-bold mt-2 pt-2 border-t border-slate-200">
-                                        <span>Vuelto por Fuera ({receipt.changeOwed.method === 'pago_movil' ? 'Pago Móvil' : receipt.changeOwed.method === 'zelle' ? 'Zelle' : receipt.changeOwed.method === 'transferencia' ? 'Transferencia' : receipt.changeOwed.method === 'efectivo_externo' ? 'Efectivo Externo' : 'Otro'}):</span>
-                                        <span className="font-extrabold text-amber-800 dark:text-amber-200">
-                                            ${(receipt.changeOwed.amountUsd || 0).toFixed(2)} USD (Bs {formatBs(receipt.changeOwed.amountBs)})
-                                        </span>
-                                    </div>
+                                {(changeLedger.owed.usd > 0.009 || changeLedger.owed.bs > 0.009) && (
+                                    <>
+                                        <div className="flex justify-between text-amber-700 dark:text-amber-300 font-bold mt-2 pt-2 border-t border-slate-200">
+                                            <span>Vuelto por Fuera ({changeLedger.owed.method === 'pago_movil' ? 'Pago Móvil' : changeLedger.owed.method === 'zelle' ? 'Zelle' : changeLedger.owed.method === 'transferencia' ? 'Transferencia' : changeLedger.owed.method === 'efectivo_externo' ? 'Efectivo Externo' : 'Otro'}):</span>
+                                            <span className="font-extrabold text-amber-800 dark:text-amber-200">
+                                                {formatDestinationAmount(changeLedger.owed)}
+                                            </span>
+                                        </div>
+                                        {changeLedger.owed.reference && (
+                                            <p className="text-right text-[10px] font-bold text-amber-600 dark:text-amber-300">Ref: {changeLedger.owed.reference} · {changeLedger.owed.status || 'PENDIENTE'}</p>
+                                        )}
+                                    </>
                                 )}
 
-                                {receipt.changeVoucher && (
+                                {(changeLedger.voucher.usd > 0.009 || changeLedger.voucher.bs > 0.009) && (
                                     <div className="flex justify-between text-purple-700 dark:text-purple-300 font-bold mt-2 pt-2 border-t border-slate-200">
-                                        <span>Voucher Emitido (#{receipt.changeVoucher.voucherCode}):</span>
+                                        <span>Voucher Emitido (#{changeLedger.voucher.code || 'sin código'}):</span>
                                         <span className="font-extrabold text-purple-800 dark:text-purple-200">
-                                            ${(receipt.changeVoucher.amountUsd || 0).toFixed(2)} USD
+                                            {formatDestinationAmount(changeLedger.voucher)}
                                         </span>
                                     </div>
                                 )}
 
-                                {receipt.tipDonated && (
+                                {(changeLedger.donated.usd > 0.009 || changeLedger.donated.bs > 0.009) && (
                                     <div className="flex justify-between text-emerald-700 dark:text-emerald-300 font-bold mt-2 pt-2 border-t border-slate-200">
                                         <span>Cambio Cedido/Donado:</span>
                                         <span className="font-extrabold text-emerald-800 dark:text-emerald-200">
-                                            {receipt.tipDonated.currency === 'BS' ? `Bs ${formatBs(receipt.tipDonated.amountBs)}` : `$${(receipt.tipDonated.amountUsd || 0).toFixed(2)} USD`}
+                                            {formatDestinationAmount(changeLedger.donated)}
                                         </span>
                                     </div>
                                 )}
 
-                                {receipt.changeUsd > 0 && (
+                                {changeLedger.delivered.usd > 0.009 || changeLedger.delivered.bs > 0.009 || changeLedger.delivered.cop > 0.009 ? (
                                     <div className="flex justify-between text-emerald-600 font-bold mt-2 pt-2 border-t border-slate-200">
                                         <span>Vuelto Entregado en Efectivo:</span>
-                                        <span>
-                                            {receiptCurrencyMode === 'usd'
-                                                ? `$${receipt.changeUsd.toFixed(2)}`
-                                                : receiptCurrencyMode === 'bs'
-                                                ? `Bs ${formatBs(receipt.changeBs)}`
-                                                : receipt.copEnabled && receipt.tasaCop > 0
-                                                ? copPrimary
-                                                    ? `${formatCop(receipt.changeUsd * receipt.tasaCop)} COP / $${receipt.changeUsd.toFixed(2)} / ${formatBs(receipt.changeBs)} Bs`
-                                                    : `$${receipt.changeUsd.toFixed(2)} / ${formatCop(receipt.changeUsd * receipt.tasaCop)} COP / ${formatBs(receipt.changeBs)} Bs`
-                                                : `$${receipt.changeUsd.toFixed(2)} / ${formatBs(receipt.changeBs)}`
-                                            }
-                                        </span>
+                                        <span>{formatDeliveredChange()}</span>
+                                    </div>
+                                ) : null}
+
+                                {(changeLedger.wallet.usd > 0.009 || changeLedger.wallet.bs > 0.009) && (
+                                    <div className="flex justify-between text-sky-700 dark:text-sky-300 font-bold mt-2 pt-2 border-t border-slate-200">
+                                        <span>Abono a cuenta:</span>
+                                        <span>{formatDestinationAmount(changeLedger.wallet)}</span>
                                     </div>
                                 )}
 

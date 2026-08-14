@@ -5,11 +5,18 @@ import localforage from 'localforage';
 import { shouldApplySyncVersion } from '../utils/syncVersionGuard';
 import { mergeCloudProductImages } from '../utils/productImageRecovery';
 import { fetchRemoteDocuments, REMOTE_MONITOR_DOC_IDS } from '../services/remoteAuditService';
+import { SUPERVISOR_RATE_PENDING_KEY } from '../utils/supervisorCommandModel';
 
 // Configurar localforage a nivel de módulo
 localforage.config({ name: 'BodegaApp', storeName: 'bodega_app_data' });
 
 // Documentos que el Monitor consume activamente para renderizar métricas, inventario, ventas y usuarios
+const RATE_CONFIG_DOC_IDS = Object.freeze([
+    'bodega_rate_mode',
+    'bodega_use_auto_rate',
+    'bodega_custom_rate',
+]);
+
 const MONITOR_DOC_IDS = [
     'bodega_products_v1',
     'bodega_sales_v1',
@@ -143,7 +150,37 @@ export function useMonitorSync(pairedDeviceId) {
     }, [pairedDeviceId]);
 
     const persistDocToLocal = async (docId, collection, payload, syncVersion = null, source = 'unknown') => {
-        if (payload == null) return;
+        // `null` es un valor válido para bodega_custom_rate cuando se cambia
+        // desde manual a BCV/USDT. Los demás documentos nulos siguen siendo
+        // inválidos y no deben borrar datos locales.
+        if (payload == null && !RATE_CONFIG_DOC_IDS.includes(docId)) return;
+
+        let expectedRateValue = null;
+        // Un pull viejo de la tasa no debe pisar la proyección optimista del
+        // Supervisor mientras la caja aún confirma el commandId. Sin este
+        // guard, la vista cambiaba inmediatamente y volvía al valor anterior,
+        // obligando a pulsar "Aplicar" dos veces.
+        if (RATE_CONFIG_DOC_IDS.includes(docId)) {
+            try {
+                const rawPendingRate = localStorage.getItem(SUPERVISOR_RATE_PENDING_KEY);
+                if (rawPendingRate) {
+                    const pendingRate = JSON.parse(rawPendingRate);
+                    const desired = pendingRate?.desired || {};
+                    expectedRateValue = docId === 'bodega_rate_mode'
+                        ? desired.rateMode
+                        : docId === 'bodega_use_auto_rate'
+                            ? desired.useAutoRate
+                            : desired.customRate;
+                    const normalize = value => value === null || value === undefined || value === ''
+                        ? null
+                        : String(value);
+                    if (normalize(expectedRateValue) !== normalize(payload)) return false;
+                }
+            } catch {
+                // Un registro corrupto no debe bloquear el pull; el monitor lo
+                // limpiará al resolver el comando.
+            }
+        }
         // Bloqueo de seguridad: nunca guardar credenciales de autenticación del admin en el monitor
         if (docId === 'abasto-auth-storage') return;
 
@@ -162,11 +199,16 @@ export function useMonitorSync(pairedDeviceId) {
         await runWithoutEco(async () => {
             if (collection === 'local') {
                 let stringPayload = typeof payload === 'string' ? payload : JSON.stringify(payload);
-                if (docId === 'bodega_rate_mode') {
-                    const { sanitizeRateMode } = await import('../context/ProductContext');
-                    stringPayload = sanitizeRateMode(payload);
+                if (payload == null) {
+                    localStorage.removeItem(docId);
+                    stringPayload = null;
+                } else {
+                    if (docId === 'bodega_rate_mode') {
+                        const { sanitizeRateMode } = await import('../context/ProductContext');
+                        stringPayload = sanitizeRateMode(payload);
+                    }
+                    localStorage.setItem(docId, stringPayload);
                 }
-                localStorage.setItem(docId, stringPayload);
                 window.dispatchEvent(new StorageEvent('storage', {
                     key: docId,
                     newValue: stringPayload,
@@ -195,11 +237,35 @@ export function useMonitorSync(pairedDeviceId) {
             appliedVersionsRef.current.set(versionKey, syncVersion);
             persistAppliedVersion(versionKey, syncVersion);
         }
+
+        // El recibo de la tasa se conserva hasta observar todos los documentos
+        // esperados. Esto evita que un UPDATE `applied` llegue antes que el push
+        // de configuración y un pull viejo vuelva a pintar el valor anterior.
+        if (RATE_CONFIG_DOC_IDS.includes(docId) && expectedRateValue !== null || RATE_CONFIG_DOC_IDS.includes(docId) && localStorage.getItem(SUPERVISOR_RATE_PENDING_KEY)) {
+            try {
+                const rawPendingRate = localStorage.getItem(SUPERVISOR_RATE_PENDING_KEY);
+                if (rawPendingRate) {
+                    const pendingRate = JSON.parse(rawPendingRate);
+                    const observed = {
+                        ...(pendingRate.observed || {}),
+                        [docId]: true,
+                    };
+                    const allObserved = RATE_CONFIG_DOC_IDS.every(key => observed[key]);
+                    if (allObserved) {
+                        localStorage.removeItem(SUPERVISOR_RATE_PENDING_KEY);
+                    } else {
+                        localStorage.setItem(SUPERVISOR_RATE_PENDING_KEY, JSON.stringify({ ...pendingRate, observed }));
+                    }
+                }
+            } catch {
+                // La barrera se resolverá en el siguiente pull válido.
+            }
+        }
         return true;
     };
 
     const applyDocToLocal = (docId, collection, payload, syncVersion = null, source = 'unknown') => {
-        if (payload == null) return Promise.resolve();
+        if (payload == null && !RATE_CONFIG_DOC_IDS.includes(docId)) return Promise.resolve();
         const versionKey = getVersionKey(docId);
         const previous = applyDocQueueRef.current.get(versionKey) || Promise.resolve();
         const current = previous

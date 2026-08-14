@@ -1,6 +1,7 @@
 import { formatBs, formatCop, formatUsd } from './calculatorUtils';
 // FIN-024: reemplazar `* rate` raw y `.toFixed(2)` con mulR + formatUsd (sin Math.round/toFixed).
 import { mulR } from './dinero';
+import { getChangeLedger, getChangeDisplayParts } from './changeLedger';
 
 function escapeHtml(str) {
     if (str === null || str === undefined) return '';
@@ -32,6 +33,18 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
     const fecha = d.toLocaleDateString('es-VE');
     const hora = d.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' });
     const hasFiado = sale.fiadoUsd > 0;
+    const changeLedger = getChangeLedger(sale, rate);
+    const formatChangeDisplayPart = ({ currency, amount }) => {
+        if (currency === 'BS') return 'Bs ' + formatBs(amount);
+        if (currency === 'COP') return 'COP ' + formatCop(amount);
+        return '$' + formatUsd(amount);
+    };
+    const formatPhysicalChange = () => getChangeDisplayParts(changeLedger.delivered, { physical: true })
+        .map(formatChangeDisplayPart)
+        .join(' + ');
+    const formatDestinationAmount = (part) => getChangeDisplayParts(part)
+        .map(formatChangeDisplayPart)
+        .join(' · ') || '$0.00';
 
     // Generar filas de productos
     const itemsHtml = (sale.items || []).map(item => {
@@ -58,7 +71,7 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
         } else {
             totalStr = fmtUsd(sub);
             unitPriceStr = isCop
-                ? 'USD ' + formatUsd(item.priceUsd) + ' (' + formatCop(item.priceCop || Math.round(item.priceUsd * sale.tasaCop)) + ' COP)'
+                ? 'USD ' + formatUsd(item.priceUsd) + ' (' + formatCop(item.priceCop || mulR(item.priceUsd, sale.tasaCop)) + ' COP)'
                 : `$${formatUsd(item.priceUsd)}`;
         }
 
@@ -176,9 +189,24 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
         <div class="total-bs" style="margin-bottom:4px">Bs ${formatBs(sale.totalBs || 0)}</div>`;
     }
 
-    // Generar filas de vuelto por fuera / voucher / donado
+    // Generar filas de vuelto físico y destinos digitales. Cada fila representa
+    // una sola salida; los equivalentes Bs nunca se vuelven a sumar.
     let changeExtraHtml = '';
-    if (sale.changeOwed) {
+    if (changeLedger.delivered.usd > 0.009 || changeLedger.delivered.bs > 0.009 || changeLedger.delivered.cop > 0.009) {
+        changeExtraHtml += `
+            <tr>
+                <td style="font-size:11px;padding:2px 4px 2px 0;text-align:left;width:55%;">Vuelto Entregado:</td>
+                <td style="font-size:11px;font-weight:bold;text-align:right;width:45%;">${escapeHtml(formatPhysicalChange())}</td>
+            </tr>`;
+    }
+    if (changeLedger.wallet.usd > 0.009 || changeLedger.wallet.bs > 0.009) {
+        changeExtraHtml += `
+            <tr>
+                <td style="font-size:11px;padding:2px 4px 2px 0;text-align:left;width:55%;">Abono a cuenta:</td>
+                <td style="font-size:11px;font-weight:bold;text-align:right;width:45%;">${escapeHtml(formatDestinationAmount(changeLedger.wallet))}</td>
+            </tr>`;
+    }
+    if (changeLedger.owed.usd > 0.009 || changeLedger.owed.bs > 0.009) {
         const methodNames = {
             pago_movil: 'Pago Móvil',
             zelle: 'Zelle',
@@ -186,25 +214,31 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
             efectivo_externo: 'Efectivo Externo',
             otro: 'Otro'
         };
-        const mName = methodNames[sale.changeOwed.method] || sale.changeOwed.method || 'Por Fuera';
+        const mName = methodNames[changeLedger.owed.method] || changeLedger.owed.method || 'Por Fuera';
         changeExtraHtml += `
             <tr>
                 <td style="font-size:11px;padding:2px 4px 2px 0;text-align:left;width:55%;">Vuelto Fuera (${escapeHtml(mName)}):</td>
-                <td style="font-size:11px;font-weight:bold;text-align:right;width:45%;">$${formatUsd(sale.changeOwed.amountUsd)} (Bs ${formatBs(sale.changeOwed.amountBs)})</td>
+                <td style="font-size:11px;font-weight:bold;text-align:right;width:45%;">${escapeHtml(formatDestinationAmount(changeLedger.owed))}</td>
             </tr>`;
+        if (changeLedger.owed.reference) {
+            changeExtraHtml += `
+            <tr>
+                <td colspan="2" style="font-size:9px;color:#666;text-align:left;padding:0 0 2px 10px;">Ref: ${escapeHtml(changeLedger.owed.reference)}</td>
+            </tr>`;
+        }
     }
-    if (sale.changeVoucher) {
+    if (changeLedger.voucher.usd > 0.009 || changeLedger.voucher.bs > 0.009) {
         changeExtraHtml += `
             <tr>
-                <td style="font-size:11px;padding:2px 4px 2px 0;text-align:left;width:55%;">Voucher (${escapeHtml(sale.changeVoucher.voucherCode)}):</td>
-                <td style="font-size:11px;font-weight:bold;text-align:right;width:45%;">$${formatUsd(sale.changeVoucher.amountUsd)}</td>
+                <td style="font-size:11px;padding:2px 4px 2px 0;text-align:left;width:55%;">Voucher (${escapeHtml(changeLedger.voucher.code || 'sin código')}):</td>
+                <td style="font-size:11px;font-weight:bold;text-align:right;width:45%;">${escapeHtml(formatDestinationAmount(changeLedger.voucher))}</td>
             </tr>`;
     }
-    if (sale.tipDonated) {
+    if (changeLedger.donated.usd > 0.009 || changeLedger.donated.bs > 0.009) {
         changeExtraHtml += `
             <tr>
                 <td style="font-size:11px;padding:2px 4px 2px 0;text-align:left;width:55%;">Vuelto Cedido/Donado:</td>
-                <td style="font-size:11px;font-weight:bold;text-align:right;width:45%;">$${formatUsd(sale.tipDonated.amountUsd)}</td>
+                <td style="font-size:11px;font-weight:bold;text-align:right;width:45%;">${escapeHtml(formatDestinationAmount(changeLedger.donated))}</td>
             </tr>`;
     }
 

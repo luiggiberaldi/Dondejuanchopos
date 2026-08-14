@@ -14,6 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "inventory:dry-run": "bun scripts/historical-inventory-dry-run.mjs",
     "typecheck": "tsc --noEmit --allowJs --checkJs --skipLibCheck || true",
     "preview": "vite preview",
     "desktop:start": "cross-env ELECTRON_BUILD=true npm run build && cd desktop && npx electron .",

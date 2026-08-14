@@ -1,6 +1,8 @@
 import { useState } from 'react';
-import { Calendar, DollarSign, TrendingUp, ShoppingBag, Package, ChevronDown, ChevronUp, Clock, Send, Ban, Shuffle, Search, X, Recycle, LockIcon, CornerDownLeft, Printer, HandCoins } from 'lucide-react';
+import { Calendar, DollarSign, TrendingUp, ShoppingBag, Package, ChevronDown, ChevronUp, Clock, Send, Ban, Shuffle, Search, X, Recycle, LockIcon, Printer } from 'lucide-react';
 import { formatBs, formatCop } from '../../utils/calculatorUtils';
+import { mulR } from '../../utils/dinero';
+import { getChangeLedger, getChangeDisplayParts, summarizeChangeLedgers } from '../../utils/changeLedger';
 import { getPaymentLabel, getPaymentMethod, PAYMENT_ICONS, toTitleCase, getPaymentIcon } from '../../config/paymentMethods';
 import { generateTicketPDF, printThermalTicket } from '../../utils/ticketGenerator';
 import EmptyState from '../EmptyState';
@@ -59,6 +61,16 @@ function TransactionRow({ sale: s, bcvRate, isExpanded, onToggle, onVoidSale, on
     }
 
     const isCanceled = s.status === 'ANULADA';
+    const changeLedger = getChangeLedger(s, bcvRate);
+    const formatChangePart = (part) => getChangeDisplayParts(
+        part,
+        { physical: part.kind === 'delivered' },
+    ).map(({ currency, amount }) => currency === 'BS'
+        ? `Bs ${formatBs(amount)}`
+        : currency === 'COP'
+            ? `COP ${formatCop(amount)}`
+            : `$${amount.toFixed(2)}`
+    ).join(' + ') || '—';
     const dateLabel = d.toLocaleDateString('es-VE', { day: '2-digit', month: 'short' });
 
     const handleShare = (e) => {
@@ -85,6 +97,18 @@ function TransactionRow({ sale: s, bcvRate, isExpanded, onToggle, onVoidSale, on
             text += `\n*TOTAL: $${(s.totalUsd || 0).toFixed(2)}*\n`;
             text += `Ref: ${formatBs(s.totalBs || 0)} Bs\n`;
         }
+        changeLedger.parts.forEach((part) => {
+            const label = part.kind === 'owed'
+                ? `VUELTO POR FUERA (${part.method || 'otro'})`
+                : part.kind === 'wallet'
+                    ? 'ABONO A CUENTA'
+                    : part.kind === 'voucher'
+                        ? `VOUCHER (${part.code || 'sin código'})`
+                        : part.kind === 'donated'
+                            ? 'VUELTO CEDIDO/DONADO'
+                            : 'VUELTO ENTREGADO';
+            text += `${label}: ${formatChangePart(part)}\n`;
+        });
         const encoded = encodeURIComponent(text);
         window.open(`https://wa.me/?text=${encoded}`, '_blank');
     };
@@ -190,16 +214,26 @@ function TransactionRow({ sale: s, bcvRate, isExpanded, onToggle, onVoidSale, on
                             <span>Ref: {formatBs(s.totalBs)} Bs @ {formatBs(s.rate || bcvRate)}</span>
                             {s.tasaCop > 0 && <span>COP: {(s.totalCop || (s.totalUsd * s.tasaCop)).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} @ {s.tasaCop}</span>}
                         </div>
-                        {s.tipDonated && (
-                            <div className="flex items-center gap-1 self-start mt-0.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-extrabold px-2 py-1 rounded-md border border-emerald-300 dark:border-emerald-700 text-[10px]">
-                                <HandCoins size={12} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
-                                <span>Cambio Dejado en Caja: {s.tipDonated.currency === 'BS' ? `Bs ${formatBs(s.tipDonated.amountBs)}` : `$${(s.tipDonated.amountUsd || 0).toFixed(2)} USD`}</span>
-                            </div>
-                        )}
-                        {s.changeUsd > 0 && (
-                            <div className="flex items-center gap-1 self-start mt-0.5 bg-orange-50 dark:bg-orange-900/20 text-orange-500 dark:text-orange-400 font-bold px-1.5 py-0.5 rounded-md border border-orange-100 dark:border-orange-800/40 text-[10px]">
-                                <CornerDownLeft size={10} />
-                                <span>−${s.changeUsd.toFixed(2)}</span>
+                        {changeLedger.parts.length > 0 && (
+                            <div className="mb-3 space-y-1.5 rounded-lg border border-amber-100 dark:border-amber-900/40 bg-amber-50/50 dark:bg-amber-950/20 p-2">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-amber-700 dark:text-amber-300">Desglose exacto del vuelto</p>
+                                {changeLedger.parts.map((part) => {
+                                    const label = part.kind === 'owed'
+                                        ? `Vuelto por fuera (${part.method || 'otro'})`
+                                        : part.kind === 'wallet'
+                                            ? 'Abono a cuenta'
+                                            : part.kind === 'voucher'
+                                                ? `Voucher (${part.code || 'sin código'})`
+                                                : part.kind === 'donated'
+                                                    ? 'Vuelto cedido/donado'
+                                                    : 'Vuelto entregado';
+                                    return (
+                                        <div key={part.kind} className="flex justify-between gap-2 text-[11px] font-bold text-slate-700 dark:text-slate-200">
+                                            <span>{label}</span>
+                                            <span className="text-right">{formatChangePart(part)}</span>
+                                        </div>
+                                    );
+                                })}
                             </div>
                         )}
                     </div>
@@ -293,6 +327,15 @@ export default function ReportsMetricsTab({
     onlyHistory = false,
     onPrintTicket,
 }) {
+    const changeSummary = summarizeChangeLedgers(salesForCashFlow, bcvRate);
+    const formatSummaryAmount = (usd, bs, cop = 0) => {
+        const values = [];
+        if (usd > 0.009) values.push(`$${usd.toFixed(2)}`);
+        if (bs > 0.009) values.push(`Bs ${formatBs(bs)}`);
+        if (cop > 0.009) values.push(`COP ${formatCop(cop)}`);
+        return values.join(' · ') || '—';
+    };
+
     return (
         <>
             {/* Summary Cards — ocultar si onlyHistory */}
@@ -341,6 +384,7 @@ export default function ReportsMetricsTab({
                 const copMethods   = allEntries.filter(([, d]) => d.currency === 'COP' && !d.isChange);
                 const vueltoBs     = allEntries.filter(([, d]) => d.isChange && d.currency === 'BS');
                 const vueltoUsd    = allEntries.filter(([, d]) => d.isChange && d.currency === 'USD');
+                const vueltoCop    = allEntries.filter(([, d]) => d.isChange && d.currency === 'COP');
                 const fmtCop = (v) => v.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
                 const subtotalBs     = bsMethods.reduce((s, [, d]) => s + d.total, 0);
@@ -348,8 +392,10 @@ export default function ReportsMetricsTab({
                 const subtotalCop    = copMethods.reduce((s, [, d]) => s + d.total, 0);
                 const totalVueltoBs  = vueltoBs.reduce((s, [, d]) => s + d.total, 0);
                 const totalVueltoUsd = vueltoUsd.reduce((s, [, d]) => s + d.total, 0);
+                const totalVueltoCop = vueltoCop.reduce((s, [, d]) => s + d.total, 0);
                 const netoBs  = subtotalBs - totalVueltoBs;
                 const netoUsd = subtotalUsd - totalVueltoUsd;
+                const netoCop = subtotalCop - totalVueltoCop;
 
                 const toBsEquiv = (data) => {
                     if (data.currency === 'USD' || data.currency === 'FIADO') return data.total * bcvRate;
@@ -398,10 +444,19 @@ export default function ReportsMetricsTab({
                 };
 
                 const renderVuelto = ([method, data]) => {
-                    const bsEquiv = data.currency === 'USD' ? data.total * bcvRate : data.total;
+                    const bsEquiv = data.currency === 'USD'
+                        ? data.total * bcvRate
+                        : data.currency === 'COP' && tasaCop > 0
+                            ? (data.total / tasaCop) * bcvRate
+                            : data.total;
                     const pct = grandTotalBsEquiv > 0 ? (bsEquiv / grandTotalBsEquiv * 100) : 0;
                     const isUsd = data.currency === 'USD';
-                    const displayAmount = isUsd ? `USD ${data.total.toFixed(2)}` : `${formatBs(data.total)} Bs`;
+                    const isCop = data.currency === 'COP';
+                    const displayAmount = isUsd
+                        ? `USD ${data.total.toFixed(2)}`
+                        : isCop
+                            ? `${fmtCop(data.total)} COP`
+                            : `${formatBs(data.total)} Bs`;
 
                     return (
                         <div key={method}>
@@ -473,18 +528,42 @@ export default function ReportsMetricsTab({
                         </div>
                     )}
 
-                    {copEnabled && copMethods.length > 0 && (
+                    {copEnabled && (copMethods.length > 0 || vueltoCop.length > 0) && (
                         <div>
                             <div className="flex items-center justify-between mb-3">
                                 <span className="text-[11px] font-bold text-amber-500 uppercase tracking-wider">Pesos Colombianos</span>
-                                <span className="text-xs font-black text-amber-600 dark:text-amber-400">{fmtCop(subtotalCop)} COP</span>
+                                <span className="text-xs font-black text-amber-600 dark:text-amber-400">
+                                    {totalVueltoCop > 0 ? `${fmtCop(netoCop)} COP neto` : `${fmtCop(subtotalCop)} COP`}
+                                </span>
                             </div>
-                            <div className="space-y-4">{copMethods.map(e => renderMethod(e))}</div>
+                            <div className="space-y-4">
+                                {copMethods.map(e => renderMethod(e))}
+                                {vueltoCop.map(e => renderVuelto(e))}
+                            </div>
                         </div>
                     )}
                 </div>
                 );
             })()}
+
+            {!onlyHistory && changeSummary.count > 0 && (
+                <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-amber-100 dark:border-amber-900/40 shadow-sm">
+                    <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-[10px] font-black text-amber-700 dark:text-amber-300 uppercase tracking-widest">Resolución de vueltos</h3>
+                        <span className="text-[10px] font-bold text-slate-500">{changeSummary.count} venta{changeSummary.count === 1 ? '' : 's'}</span>
+                    </div>
+                    <div className="space-y-2 text-xs">
+                        <div className="flex justify-between font-black text-slate-700 dark:text-slate-200"><span>Vuelto real</span><span>{formatSummaryAmount(changeSummary.totalDisplayUsd, changeSummary.totalDisplayBs, changeSummary.totalDisplayCop)}</span></div>
+                        <div className="flex justify-between text-emerald-700 dark:text-emerald-300"><span>Entregado en efectivo</span><span>{formatSummaryAmount(changeSummary.deliveredDisplayUsd, changeSummary.deliveredDisplayBs, changeSummary.deliveredDisplayCop)}</span></div>
+                        {(changeSummary.owedDisplayUsd > 0.009 || changeSummary.owedDisplayBs > 0.009 || changeSummary.owedDisplayCop > 0.009) && <div className="flex justify-between text-amber-700 dark:text-amber-300"><span>Pagado por fuera</span><span>{formatSummaryAmount(changeSummary.owedDisplayUsd, changeSummary.owedDisplayBs, changeSummary.owedDisplayCop)}</span></div>}
+                        {(changeSummary.walletDisplayUsd > 0.009 || changeSummary.walletDisplayBs > 0.009 || changeSummary.walletDisplayCop > 0.009) && <div className="flex justify-between text-sky-700 dark:text-sky-300"><span>Abonado a cuenta</span><span>{formatSummaryAmount(changeSummary.walletDisplayUsd, changeSummary.walletDisplayBs, changeSummary.walletDisplayCop)}</span></div>}
+                        {(changeSummary.voucherDisplayUsd > 0.009 || changeSummary.voucherDisplayBs > 0.009 || changeSummary.voucherDisplayCop > 0.009) && <div className="flex justify-between text-purple-700 dark:text-purple-300"><span>Voucher emitido</span><span>{formatSummaryAmount(changeSummary.voucherDisplayUsd, changeSummary.voucherDisplayBs, changeSummary.voucherDisplayCop)}</span></div>}
+                        {(changeSummary.donatedDisplayUsd > 0.009 || changeSummary.donatedDisplayBs > 0.009 || changeSummary.donatedDisplayCop > 0.009) && <div className="flex justify-between text-emerald-700 dark:text-emerald-300"><span>Cedido/donado</span><span>{formatSummaryAmount(changeSummary.donatedDisplayUsd, changeSummary.donatedDisplayBs, changeSummary.donatedDisplayCop)}</span></div>}
+                        {changeSummary.unresolvedUsd > 0.009 && <div className="flex justify-between font-black text-red-700 dark:text-red-300"><span>Sin resolver</span><span>${changeSummary.unresolvedUsd.toFixed(2)}</span></div>}
+                        {changeSummary.unbalancedCount > 0 && <p className="pt-2 border-t border-red-200 text-[10px] font-bold text-red-700">Hay {changeSummary.unbalancedCount} venta(s) con partición que requiere auditoría.</p>}
+                    </div>
+                </div>
+            )}
 
             {/* Top Products */}
             {!onlyHistory && topProducts.length > 0 && (

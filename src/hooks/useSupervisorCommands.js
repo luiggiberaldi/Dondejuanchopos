@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { applyInventoryCommand, isReappliableCommand } from '../utils/remoteInventoryProcessor';
-import { COMMAND_STATUS, VALID_COMMAND_STATUSES } from '../constants/commandStatus';
+import { COMMAND_STATUS } from '../constants/commandStatus';
 import { IDB_KEYS, LS_KEYS } from '../config/backupKeys';
 import { REMOTE_BACKUP_EXCLUDED_KEYS } from '../services/remoteAuditService';
+import { restoreLocalRateState } from '../utils/supervisorCommandModel';
+import { logEvent } from '../services/auditService';
 
 // ── Deduplicación por ID de comando ─────────────────────────────────────────
 // El catch-up (select de pendientes) y el stream realtime pueden entregar el
@@ -48,6 +50,11 @@ let cloudSyncPending = false;
 // crearía su propio canal Realtime y su propio intervalo de polling,
 // disparando cada comando 2–3 veces.
 let _activeSubscriberCount = 0;
+// Realtime INSERT y catch-up pueden entregar la misma fila en paralelo. El
+// id estable del comando se procesa una sola vez por sesión; la idempotencia
+// persistida de cada operación cubre además una recarga completa.
+const _processingCommandIds = new Set();
+const _activeSubscriberDevices = new Set();
 
 export async function flushCloudProductsSync() {
     if (!cloudSyncPending) return;
@@ -110,6 +117,11 @@ async function updateCommandStatus(commandId, status, errorReason = null) {
 
 async function applyRateChange(command) {
     const { rateMode, customRate } = command.payload || {};
+    const previous = {
+        rateMode: localStorage.getItem('bodega_rate_mode'),
+        useAutoRate: localStorage.getItem('bodega_use_auto_rate'),
+        customRate: localStorage.getItem('bodega_custom_rate'),
+    };
 
     let pushLocalSync = null;
     try {
@@ -119,27 +131,58 @@ async function applyRateChange(command) {
         console.error('[SupervisorCommands] Error al importar dinámicamente pushLocalSync:', e);
     }
 
-    if (rateMode) {
-        localStorage.setItem('bodega_rate_mode', rateMode);
-        localStorage.setItem('bodega_use_auto_rate', JSON.stringify(rateMode !== 'manual'));
-        if (pushLocalSync) {
-            pushLocalSync('bodega_rate_mode', rateMode);
-            pushLocalSync('bodega_use_auto_rate', rateMode !== 'manual');
+    try {
+        if (rateMode) {
+            localStorage.setItem('bodega_rate_mode', rateMode);
+            localStorage.setItem('bodega_use_auto_rate', JSON.stringify(rateMode !== 'manual'));
         }
-    }
 
-    if (customRate !== undefined && customRate !== null) {
-        localStorage.setItem('bodega_custom_rate', String(customRate));
-        if (pushLocalSync) {
-            pushLocalSync('bodega_custom_rate', parseFloat(customRate));
+        if (customRate !== undefined && customRate !== null) {
+            localStorage.setItem('bodega_custom_rate', String(customRate));
+        } else if (rateMode && rateMode !== 'manual') {
+            localStorage.removeItem('bodega_custom_rate');
         }
-    }
 
-    window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_rate_mode' } }));
-    window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_custom_rate' } }));
-    window.dispatchEvent(new CustomEvent('supervisor_rate_applied', {
-        detail: { rateMode, customRate }
-    }));
+        if (pushLocalSync) {
+            if (rateMode) {
+                pushLocalSync('bodega_rate_mode', rateMode);
+                pushLocalSync('bodega_use_auto_rate', rateMode !== 'manual');
+            }
+            if (customRate !== undefined && customRate !== null) {
+                pushLocalSync('bodega_custom_rate', parseFloat(customRate));
+            } else if (rateMode && rateMode !== 'manual') {
+                // Publicar también la eliminación de la tasa manual; de lo
+                // contrario el monitor podía conservar un customRate antiguo y
+                // la barrera de confirmación nunca observaba el estado completo.
+                pushLocalSync('bodega_custom_rate', null);
+            }
+        }
+
+        window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_rate_mode' } }));
+        window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_custom_rate' } }));
+        window.dispatchEvent(new CustomEvent('supervisor_rate_applied', {
+            detail: { rateMode, customRate }
+        }));
+        logEvent(
+            'CONFIG',
+            'TASA_REMOTA_APLICADA',
+            `Caja aplicó tasa ${rateMode}${customRate != null ? ` (${customRate})` : ''}`,
+            {
+                id: command.payload?.supervisorId || null,
+                nombre: command.payload?.supervisorName || 'Supervisor',
+                rol: command.payload?.supervisorRole || 'SUPERVISOR',
+            },
+            { commandId: command.id, rateMode, customRate }
+        );
+    } catch (error) {
+        restoreLocalRateState(previous);
+        if (pushLocalSync) {
+            if (previous.rateMode != null) pushLocalSync('bodega_rate_mode', previous.rateMode);
+            if (previous.useAutoRate != null) pushLocalSync('bodega_use_auto_rate', previous.useAutoRate);
+            if (previous.customRate != null) pushLocalSync('bodega_custom_rate', previous.customRate);
+        }
+        throw error;
+    }
 }
 
 export function useSupervisorCommands(deviceId) {
@@ -148,13 +191,16 @@ export function useSupervisorCommands(deviceId) {
 
         // Singleton guard: si ya hay una instancia activa con este deviceId,
         // no crear un segundo canal. Incrementar contador; decrementar al desmontar.
+        const subscriberKey = String(deviceId);
         _activeSubscriberCount++;
-        if (_activeSubscriberCount > 1) {
-            // Ya existe una instancia manejando los comandos — salir sin suscribirse.
+        if (_activeSubscriberCount > 1 && _activeSubscriberDevices.has(subscriberKey)) {
+            // Ya existe una instancia manejando los comandos de ESTE dispositivo.
+            // Otra caja montada en la misma página conserva su propio canal.
             return () => {
                 _activeSubscriberCount--;
             };
         }
+        _activeSubscriberDevices.add(subscriberKey);
 
         // Set en memoria sembrado desde localStorage (sobrevive recargas)
         const appliedIds = new Set(loadAppliedIds());
@@ -163,6 +209,8 @@ export function useSupervisorCommands(deviceId) {
         const processCommand = async (command) => {
             if (!command || command.status !== 'pending') return;
             if (appliedIds.has(command.id)) return; // dedup: catch-up + realtime
+            if (_processingCommandIds.has(command.id)) return;
+            _processingCommandIds.add(command.id);
 
             if (command.command_type === 'request_full_backup') {
                 try {
@@ -211,22 +259,38 @@ export function useSupervisorCommands(deviceId) {
                 }
             } else if (command.command_type === 'rate_change') {
                 try {
+                    // Marcar después de terminar la mutación local. Si una de las
+                    // claves falla, el comando queda reintentable y applyRateChange
+                    // restaura la fotografía anterior.
+                    await applyRateChange(command);
                     appliedIds.add(command.id);
                     markApplied(command.id);
-                    await applyRateChange(command);
                     await updateCommandStatus(command.id, 'applied');
                 } catch (err) {
+                    appliedIds.delete(command.id);
+                    unmarkApplied(command.id);
                     console.error('[SupervisorCommands] Error al aplicar rate_change:', err);
                     await updateCommandStatus(command.id, 'failed', err?.message);
                 }
             } else if (command.command_type === 'inventory_update') {
                 try {
-                    appliedIds.add(command.id);
-                    markApplied(command.id);
-                    const result = await applyInventoryCommand(command.payload);
+                    const result = await applyInventoryCommand({
+                        ...(command.payload || {}),
+                        operationId: command.id
+                    });
                     if (result.success) {
-                        const nextStatus = result.failedCount > 0 ? COMMAND_STATUS.APPLIED_WITH_WARNINGS : COMMAND_STATUS.APPLIED;
-                        const warnMsg = result.failedCount > 0 ? `${result.appliedCount} aplicados, ${result.failedCount} fallaron (${result.failedItems?.map(f => f.productName || f.productId).join(', ')})` : null;
+                        // Marcar solo después de que la caja confirmó la mutación
+                        // local. Si falla el comando, el catch-up debe poder reintentarlo.
+                        appliedIds.add(command.id);
+                        markApplied(command.id);
+                        const nextStatus = result.pending || result.failedCount > 0
+                            ? COMMAND_STATUS.APPLIED_WITH_WARNINGS
+                            : COMMAND_STATUS.APPLIED;
+                        const warnMsg = result.pending
+                            ? `Operación ${result.operationId || command.id} quedó persistida para recuperación local.`
+                            : (result.failedCount > 0
+                                ? `${result.appliedCount} aplicados, ${result.failedCount} fallaron (${result.failedItems?.map(f => f.productName || f.productId).join(', ')})`
+                                : null);
                         const ok = await updateCommandStatus(command.id, nextStatus, warnMsg);
                         if (!ok) {
                             if (isReappliableCommand(command.payload)) {
@@ -248,9 +312,13 @@ export function useSupervisorCommands(deviceId) {
                         // Sincronización diferida (Debounce) a la nube para no estrangular el procesamiento en lote
                         scheduleCloudProductsSync();
                     } else {
+                        appliedIds.delete(command.id);
+                        unmarkApplied(command.id);
                         await updateCommandStatus(command.id, 'failed', result.error);
                     }
                 } catch (err) {
+                    appliedIds.delete(command.id);
+                    unmarkApplied(command.id);
                     console.error('[SupervisorCommands] Error al aplicar inventory_update:', err);
                     await updateCommandStatus(command.id, 'failed', err?.message);
                 }
@@ -345,8 +413,6 @@ export function useSupervisorCommands(deviceId) {
                 }
             } else if (command.command_type === 'void_sale') {
                 try {
-                    appliedIds.add(command.id);
-                    markApplied(command.id);
                     const { saleId } = command.payload || {};
                     const { storageService } = await import('../utils/storageService');
                     const { processVoidSale } = await import('../utils/voidSaleProcessor');
@@ -359,9 +425,18 @@ export function useSupervisorCommands(deviceId) {
                     if (!targetSale) {
                         await updateCommandStatus(command.id, 'failed', 'Venta no encontrada en la caja');
                     } else if (targetSale.status === 'ANULADA') {
+                        appliedIds.add(command.id);
+                        markApplied(command.id);
                         await updateCommandStatus(command.id, 'applied');
                     } else {
-                        const result = await processVoidSale(targetSale, freshSales, freshProducts);
+                        const result = await processVoidSale(targetSale, freshSales, freshProducts, {
+                            id: command.payload?.supervisorId,
+                            nombre: command.payload?.supervisorName,
+                            rol: command.payload?.supervisorRole,
+                            commandId: command.id,
+                        });
+                        appliedIds.add(command.id);
+                        markApplied(command.id);
                         await updateCommandStatus(command.id, 'applied');
 
                         window.dispatchEvent(new CustomEvent('supervisor_sale_voided', {
@@ -379,6 +454,8 @@ export function useSupervisorCommands(deviceId) {
                         }
                     }
                 } catch (err) {
+                    appliedIds.delete(command.id);
+                    unmarkApplied(command.id);
                     console.error('[SupervisorCommands] Error al anular venta remota:', err);
                     await updateCommandStatus(command.id, 'failed', err?.message);
                 }
@@ -512,6 +589,14 @@ export function useSupervisorCommands(deviceId) {
             // Tipos desconocidos: se ignoran (comportamiento histórico)
         };
 
+        const processCommandOnce = async (command) => {
+            try {
+                return await processCommand(command);
+            } finally {
+                if (command?.id) _processingCommandIds.delete(command.id);
+            }
+        };
+
         // Catch-up: el realtime de Supabase NO re-emite INSERTs perdidos
         // (caja cerrada u offline/micro-cortes). Al montar, en cada reconexión
         // y periódicamente se consultan los comandos pendientes y se procesan.
@@ -539,7 +624,7 @@ export function useSupervisorCommands(deviceId) {
                 if (disposed) return;
 
                 for (const command of data || []) {
-                    await processCommand(command);
+                    await processCommandOnce(command);
                 }
             } catch (err) {
                 console.error('[SupervisorCommands] Excepción en catch-up:', err);
@@ -558,7 +643,7 @@ export function useSupervisorCommands(deviceId) {
                 schema: 'public',
                 table: 'supervisor_commands',
                 filter: `primary_device_id=eq.${deviceId}`
-            }, (payload) => processCommand(payload.new))
+            }, (payload) => processCommandOnce(payload.new))
             .subscribe((status) => {
                 // SUBSCRIBED se emite al conectar Y al reconectar: cubre los
                 // comandos que llegaron mientras el websocket estuvo caído.
@@ -599,6 +684,7 @@ export function useSupervisorCommands(deviceId) {
         return () => {
             disposed = true;
             _activeSubscriberCount--;
+            _activeSubscriberDevices.delete(subscriberKey);
             clearInterval(intervalId);
             window.removeEventListener('online', handleOnline);
             document.removeEventListener('visibilitychange', handleVisibility);

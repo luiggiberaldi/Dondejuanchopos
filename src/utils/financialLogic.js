@@ -1,9 +1,44 @@
 // FIN-015: Toda operación aritmética con dinero pasa por dinero.js (subR/sumR/round2).
 import { round2, subR, sumR } from './dinero';
 
+const safeCustomerAmount = (value) => {
+    const amount = Number(value);
+    return Number.isFinite(amount) && amount > 0 ? round2(amount) : 0;
+};
+
+/**
+ * Snapshot común para mostrar el estado de cuenta sin confundir `favor` con
+ * `deuda`. Ambos campos son USD; `saldoFavor` se acepta solo como alias legacy.
+ */
+export function getCustomerBalanceSnapshot(customer) {
+    const rawDeuda = Number(customer?.deuda);
+    const deuda = Number.isFinite(rawDeuda) && rawDeuda > 0 ? round2(rawDeuda) : 0;
+    const storedFavor = safeCustomerAmount(customer?.favor ?? customer?.saldoFavor);
+    // Versiones antiguas representaban el favor como `deuda < 0`.
+    const legacyFavor = Number.isFinite(rawDeuda) && rawDeuda < 0 ? round2(Math.abs(rawDeuda)) : 0;
+    const favor = storedFavor > 0 ? storedFavor : legacyFavor;
+    const casheaDeuda = safeCustomerAmount(customer?.casheaDeuda);
+
+    return {
+        deuda,
+        favor,
+        casheaDeuda,
+        neto: subR(favor, deuda),
+        tieneDeuda: deuda > 0.009,
+        tieneFavor: favor > 0.009,
+        tieneCasheaDeuda: casheaDeuda > 0.009,
+    };
+}
+
 export function procesarImpactoCliente(clienteInicial, transaccion) {
-    // CLONAR PARA INMUTABILIDAD
+    // CLONAR PARA INMUTABILIDAD y migrar en memoria el formato legacy
+    // `deuda < 0` (saldo a favor) antes de aplicar la nueva operación.
     let cliente = { ...clienteInicial };
+    const legacyDeuda = Number(cliente.deuda);
+    if (Number.isFinite(legacyDeuda) && legacyDeuda < 0) {
+        cliente.deuda = 0;
+        cliente.favor = sumR(cliente.favor || 0, Math.abs(legacyDeuda));
+    }
 
     // INPUTS INTERMEDIOS
     const { usaSaldoFavor = 0, esCredito = false, deudaGenerada = 0, vueltoParaMonedero = 0, esCashea = false } = transaccion;

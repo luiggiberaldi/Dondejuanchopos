@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import { formatBs, formatCop, formatUsd } from './calculatorUtils';
 import { getPaymentLabel, toTitleCase } from '../config/paymentMethods';
 import { round2, mulR, divR } from './dinero';
+import { getChangeLedger, summarizeChangeLedgers } from './changeLedger';
 
 /**
  * Genera un PDF de Cierre del Día con reporte detallado.
@@ -30,6 +31,15 @@ export async function generateDailyClosePDF({
     const now = new Date();
     const usdLabel = '$';
     const fmtUsd = (v) => `$${formatUsd(v)}`;
+    const fmtChangeAmount = (usd, bs, cop = 0) => {
+        const values = [];
+        if (usd > 0.009) values.push(fmtUsd(usd));
+        if (bs > 0.009) values.push(`Bs ${formatBs(bs)}`);
+        if (cop > 0.009) values.push(`COP ${formatCop(cop)}`);
+        return values.join(' · ') || '$0.00';
+    };
+    const changeSummary = summarizeChangeLedgers(sales, bcvRate);
+    const changeSummaryRows = changeSummary.count > 0 ? 6 : 0;
 
     // Detección de configuración de COP
     let isCop = false;
@@ -291,7 +301,7 @@ export async function generateDailyClosePDF({
         }
 
         // Tarjeta Pagos por Método
-        const paymentEntries = Object.entries(paymentBreakdown || {});
+        const paymentEntries = Object.entries(paymentBreakdown || {}).filter(([methodId]) => !methodId.startsWith('_'));
         if (paymentEntries.length > 0) {
             const payH = 10 + (paymentEntries.length * 4.5);
             contentY = drawCard(colR_X, rightY, colW, payH, 'Ingresos por Método');
@@ -333,6 +343,30 @@ export async function generateDailyClosePDF({
                 contentY += 4.5;
             });
             rightY += payH;
+        }
+
+        if (changeSummary.count > 0) {
+            const resolutionRows = [
+                ['Vuelto real', fmtChangeAmount(changeSummary.totalDisplayUsd, changeSummary.totalDisplayBs, changeSummary.totalDisplayCop)],
+                ['Entregado en efectivo', fmtChangeAmount(changeSummary.deliveredDisplayUsd, changeSummary.deliveredDisplayBs, changeSummary.deliveredDisplayCop)],
+                ['Pagado por fuera', fmtChangeAmount(changeSummary.owedDisplayUsd, changeSummary.owedDisplayBs, changeSummary.owedDisplayCop)],
+                ['Abonado a cuenta', fmtChangeAmount(changeSummary.walletDisplayUsd, changeSummary.walletDisplayBs, changeSummary.walletDisplayCop)],
+                ['Voucher emitido', fmtChangeAmount(changeSummary.voucherDisplayUsd, changeSummary.voucherDisplayBs, changeSummary.voucherDisplayCop)],
+                ['Cedido / donado', fmtChangeAmount(changeSummary.donatedDisplayUsd, changeSummary.donatedDisplayBs, changeSummary.donatedDisplayCop)],
+            ];
+            const resolutionH = 10 + (resolutionRows.length * 4.5);
+            contentY = drawCard(colR_X, rightY, colW, resolutionH, 'Resolución de Vueltos');
+            resolutionRows.forEach(([label, value]) => {
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(7.5);
+                doc.setTextColor(...BODY);
+                doc.text(label, colR_X + 4, contentY);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(...INK);
+                doc.text(value, colR_X + colW - 4, contentY, { align: 'right' });
+                contentY += 4.5;
+            });
+            rightY += resolutionH;
         }
 
         // Sincronizar Y
@@ -430,13 +464,43 @@ export async function generateDailyClosePDF({
                     }).join(' • ');
                 }
 
-                // Vuelto desglosado (Bs, USD, COP)
+                // Vuelto desglosado: cada destino se muestra separado para que
+                // $3 entregados y $2 por fuera no aparezcan como $5 entregados.
+                const saleChangeLedger = getChangeLedger(s, bcvRate);
+                const formatLedgerPart = (part) => {
+                    const values = [];
+                    if (part.usd > 0.009) values.push(fmtUsd(part.usd));
+                    if (part.bs > 0.009) values.push(`Bs ${formatBs(part.bs)}`);
+                    if (part.cop > 0.009) values.push(`COP ${formatCop(part.cop)}`);
+                    return values.join(' · ') || '—';
+                };
+                const methodNames = {
+                    pago_movil: 'Pago Móvil',
+                    zelle: 'Zelle',
+                    transferencia: 'Transferencia',
+                    efectivo_externo: 'Efectivo Externo',
+                    otro: 'Otro',
+                };
                 const changeParts = [];
-                if (s.changeBs > 0) changeParts.push(`Bs ${formatBs(s.changeBs)}`);
-                if (s.changeUsd > 0) changeParts.push(fmtUsd(s.changeUsd));
-                if (s.changeCop > 0) changeParts.push(`${formatCop(s.changeCop)} COP`);
+                if (saleChangeLedger.delivered.usd > 0.009 || saleChangeLedger.delivered.bs > 0.009) {
+                    changeParts.push(`Entregado ${formatLedgerPart(saleChangeLedger.delivered)}`);
+                }
+                if (saleChangeLedger.wallet.usd > 0.009 || saleChangeLedger.wallet.bs > 0.009) {
+                    changeParts.push(`Abono ${formatLedgerPart(saleChangeLedger.wallet)}`);
+                }
+                if (saleChangeLedger.owed.usd > 0.009 || saleChangeLedger.owed.bs > 0.009) {
+                    const method = methodNames[saleChangeLedger.owed.method] || saleChangeLedger.owed.method || 'Por Fuera';
+                    const reference = saleChangeLedger.owed.reference ? ` · Ref ${saleChangeLedger.owed.reference}` : '';
+                    changeParts.push(`Por fuera (${method}) ${formatLedgerPart(saleChangeLedger.owed)}${reference}`);
+                }
+                if (saleChangeLedger.voucher.usd > 0.009 || saleChangeLedger.voucher.bs > 0.009) {
+                    changeParts.push(`Voucher (${saleChangeLedger.voucher.code || 'sin código'}) ${formatLedgerPart(saleChangeLedger.voucher)}`);
+                }
+                if (saleChangeLedger.donated.usd > 0.009 || saleChangeLedger.donated.bs > 0.009) {
+                    changeParts.push(`Donado ${formatLedgerPart(saleChangeLedger.donated)}`);
+                }
 
-                const vueltoText = changeParts.length > 0 ? `↩ Vuelto Entregado: ${changeParts.join(' + ')}` : '';
+                const vueltoText = changeParts.length > 0 ? `↩ Vuelto: ${changeParts.join(' · ')}` : '';
 
                 const itemsLines = itemsText ? doc.splitTextToSize(itemsText, 96) : [];
                 const paymentsLines = paymentsText ? doc.splitTextToSize(paymentsText, 96) : [];
@@ -545,10 +609,11 @@ export async function generateDailyClosePDF({
     const fBody = is80 ? 7 : 6.2;
     const fMuted = is80 ? 6.5 : 5.8;
 
-    const paymentRows = Object.keys(paymentBreakdown || {}).length;
+    const paymentRows = Object.keys(paymentBreakdown || {}).filter((methodId) => !methodId.startsWith('_')).length;
     const topProdRows = topProducts ? topProducts.length : 0;
     const H = 145
         + (paymentRows * 6.5)
+        + (changeSummaryRows * 5.5)
         + (topProdRows * 9.5)
         + (apertura ? 24 : 0)
         + (reconData ? 32 : 0);
@@ -666,7 +731,9 @@ export async function generateDailyClosePDF({
     if (paymentRows > 0) {
         y = sectionTitle('INGRESOS POR MÉTODO', y);
 
-        Object.entries(paymentBreakdown).forEach(([methodId, data]) => {
+        Object.entries(paymentBreakdown)
+            .filter(([methodId]) => !methodId.startsWith('_'))
+            .forEach(([methodId, data]) => {
             const label = toTitleCase(getPaymentLabel(methodId, data?.label));
             let val = '';
             if (typeof data === 'number') {
@@ -704,6 +771,34 @@ export async function generateDailyClosePDF({
             y += 5;
         });
 
+        y += 1;
+        dash(y); y += 6;
+    }
+
+    if (changeSummary.count > 0) {
+        y = sectionTitle('RESOLUCIÓN DE VUELTOS', y);
+        const resolutionRows = [
+            ['Vuelto real', fmtChangeAmount(changeSummary.totalDisplayUsd, changeSummary.totalDisplayBs, changeSummary.totalDisplayCop)],
+            ['Entregado en efectivo', fmtChangeAmount(changeSummary.deliveredDisplayUsd, changeSummary.deliveredDisplayBs, changeSummary.deliveredDisplayCop)],
+            ['Pagado por fuera', fmtChangeAmount(changeSummary.owedDisplayUsd, changeSummary.owedDisplayBs, changeSummary.owedDisplayCop)],
+            ['Abonado a cuenta', fmtChangeAmount(changeSummary.walletDisplayUsd, changeSummary.walletDisplayBs, changeSummary.walletDisplayCop)],
+            ['Voucher emitido', fmtChangeAmount(changeSummary.voucherDisplayUsd, changeSummary.voucherDisplayBs, changeSummary.voucherDisplayCop)],
+            ['Cedido / donado', fmtChangeAmount(changeSummary.donatedDisplayUsd, changeSummary.donatedDisplayBs, changeSummary.donatedDisplayCop)],
+        ];
+        resolutionRows.forEach(([label, value]) => {
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(fBody);
+            doc.setTextColor(...BODY);
+            doc.text(label, M, y);
+            doc.setTextColor(...INK);
+            doc.text(value, VALUE_RIGHT, y, { align: 'right' });
+            y += 5;
+        });
+        if (changeSummary.unresolvedUsd > 0.009 || changeSummary.unbalancedCount > 0) {
+            doc.setTextColor(...RED);
+            doc.text(`ALERTA: ${fmtUsd(changeSummary.unresolvedUsd)} sin resolver en ${changeSummary.unbalancedCount} venta(s)`, M, y);
+            y += 5;
+        }
         y += 1;
         dash(y); y += 6;
     }

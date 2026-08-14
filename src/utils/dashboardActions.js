@@ -1,5 +1,6 @@
 import { formatBs, formatVzlaPhone, formatCop } from './calculatorUtils';
 import { round2, round3, mulR } from './dinero';
+import { getChangeLedger, getChangeDisplayParts } from './changeLedger';
 
 /**
  * dashboardActions.js — Acciones del dashboard (compartir venta por WhatsApp).
@@ -13,9 +14,21 @@ import { round2, round3, mulR } from './dinero';
  */
 
 export function shareSaleWhatsApp(sale, saleCustomer, bcvRate) {
+    const changeLedger = getChangeLedger(sale, bcvRate);
     const isCop = sale.copEnabled && sale.tasaCop > 0;
     // Display de USD: round2 + template (no toFixed).
     const fmtUsd = (v) => isCop ? `USD ${round2(v)}` : `$${round2(v)}`;
+    const formatChangeDisplayPart = ({ currency, amount }) => {
+        if (currency === 'BS') return `Bs ${formatBs(amount)}`;
+        if (currency === 'COP') return `COP ${formatCop(amount)}`;
+        return fmtUsd(amount);
+    };
+    const formatPhysicalChange = (part) => getChangeDisplayParts(part, { physical: true })
+        .map(formatChangeDisplayPart)
+        .join(' + ') || '$0.00';
+    const formatDestinationAmount = (part) => getChangeDisplayParts(part)
+        .map(formatChangeDisplayPart)
+        .join(' · ') || '$0.00';
     let text = `*COMPROBANTE DE VENTA | DONDE JUANCHO*\n`;
     text += `--------------------------------\n`;
     text += `*Orden:* #${sale.id.substring(0, 6).toUpperCase()}\n`;
@@ -43,7 +56,13 @@ export function shareSaleWhatsApp(sale, saleCustomer, bcvRate) {
         text += ` COP: ${formatCop(totalCop)} COP\n`;
     }
 
-    if (sale.changeOwed) {
+    if (changeLedger.delivered.usd > 0.009 || changeLedger.delivered.bs > 0.009 || changeLedger.delivered.cop > 0.009) {
+        text += `\n*VUELTO ENTREGADO:* ${formatPhysicalChange(changeLedger.delivered)}\n`;
+    }
+    if (changeLedger.wallet.usd > 0.009 || changeLedger.wallet.bs > 0.009) {
+        text += `*ABONO A CUENTA:* ${formatDestinationAmount(changeLedger.wallet)}\n`;
+    }
+    if (changeLedger.owed.usd > 0.009 || changeLedger.owed.bs > 0.009) {
         const methodNames = {
             pago_movil: 'Pago Móvil',
             zelle: 'Zelle',
@@ -51,17 +70,17 @@ export function shareSaleWhatsApp(sale, saleCustomer, bcvRate) {
             efectivo_externo: 'Efectivo Externo',
             otro: 'Otro'
         };
-        const mName = methodNames[sale.changeOwed.method] || sale.changeOwed.method || 'Por Fuera';
-        text += `\n*VUELTO POR FUERA (${mName.toUpperCase()}):* ${fmtUsd(sale.changeOwed.amountUsd)} (${formatBs(sale.changeOwed.amountBs)} Bs)\n`;
-        if (sale.changeOwed.note) {
-            text += `  Nota: ${sale.changeOwed.note}\n`;
+        const mName = methodNames[changeLedger.owed.method] || changeLedger.owed.method || 'Por Fuera';
+        text += `*VUELTO POR FUERA (${mName.toUpperCase()}):* ${formatDestinationAmount(changeLedger.owed)}\n`;
+        if (changeLedger.owed.reference) {
+            text += `  Nota/Referencia: ${changeLedger.owed.reference}\n`;
         }
     }
-    if (sale.changeVoucher) {
-        text += `\n*VOUCHER EMITIDO:* ${fmtUsd(sale.changeVoucher.amountUsd)} (#${sale.changeVoucher.voucherCode})\n`;
+    if (changeLedger.voucher.usd > 0.009 || changeLedger.voucher.bs > 0.009) {
+        text += `*VOUCHER EMITIDO:* ${formatDestinationAmount(changeLedger.voucher)} (#${changeLedger.voucher.code || 'sin código'})\n`;
     }
-    if (sale.tipDonated) {
-        text += `\n*VUELTO CEDIDO/DONADO:* ${fmtUsd(sale.tipDonated.amountUsd)}\n`;
+    if (changeLedger.donated.usd > 0.009 || changeLedger.donated.bs > 0.009) {
+        text += `*VUELTO CEDIDO/DONADO:* ${formatDestinationAmount(changeLedger.donated)}\n`;
     }
 
     if (sale.fiadoUsd > 0) {

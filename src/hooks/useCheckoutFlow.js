@@ -20,6 +20,11 @@ export function useCheckoutFlow({
         triggerHaptic && triggerHaptic();
         sniperLog('2_HANDLE_CHECKOUT', 'Ejecutando handleCheckout', { paymentsCount: payments?.length, totalOverrides });
 
+        // El checkout interno del POS es la fuente más reciente de selección.
+        // Usar su cliente evita que un render padre atrasado deje el abono sin destino.
+        const effectiveCustomerId = changeBreakdown?.clienteId !== undefined
+            ? changeBreakdown.clienteId
+            : selectedCustomerId;
         const opts = {
             cart,
             cartTotalUsd: totalOverrides?.cartTotalUsd ?? cartTotalUsd,
@@ -27,7 +32,7 @@ export function useCheckoutFlow({
             cartSubtotalUsd: totalOverrides?.cartSubtotalUsd ?? cartSubtotalUsd,
             payments,
             changeBreakdown,
-            selectedCustomerId,
+            selectedCustomerId: effectiveCustomerId,
             customers,
             products,
             effectiveRate,

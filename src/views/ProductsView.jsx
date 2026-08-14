@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 // v1.2.0: useReveal hook para animaciones reveal-on-scroll (design system "Precios al Día")
 import { useReveal } from '../hooks/useReveal';
 import { storageService } from '../utils/storageService';
+import { withLock } from '../utils/withLock';
+import { applyInventoryOperationUnlocked } from '../services/inventoryOperationService';
 import { showToast } from '../components/Toast';
 import { Package, Plus, Trash2, X, Store, Tag, Pencil, Banknote, Search, ChevronLeft, ChevronRight, AlertTriangle, Box, LayoutGrid, List, Minus, ArrowUpDown, Clock, Percent, Printer, CheckSquare, Layers } from 'lucide-react';
 import { Modal } from '../components/Modal';
@@ -110,28 +112,12 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
         setEditingCombo(null);
     };
 
-    // Envolver adjustStock para incluir haptic y delegado de Kardex
-    const adjustStock = async (productId, delta) => {
-        const targetProduct = products.find(p => p.id === productId);
-        baseAdjustStock(productId, delta);
+    // El contexto es el único dueño de la mutación de stock/Kardex.
+    // Esta capa solo añade feedback de interfaz y conserva el motivo del ajuste.
+    const adjustStock = (productId, delta, options = {}) => {
+        baseAdjustStock(productId, delta, options);
         triggerHaptic && triggerHaptic();
-
-        // Registro silencioso del ajuste de inventario histórico
-        try {
-            const record = {
-                id: `adj_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-                timestamp: new Date().toISOString(),
-                tipo: delta > 0 ? 'AJUSTE_ENTRADA' : 'AJUSTE_SALIDA',
-                items: [{ id: productId, name: targetProduct?.name || 'Producto', qty: Math.abs(delta) }],
-                totalUsd: 0,
-                totalBs: 0,
-                status: 'COMPLETADA',
-            };
-            const sales = await storageService.getItem('bodega_sales_v1', []);
-            sales.push(record);
-            await storageService.setItem('bodega_sales_v1', sales);
-        } catch (e) { /* silencioso */ }
-    }
+    };
 
     // Modal UI States
     const [isCategoryManagerOpen, setIsCategoryManagerOpen] = useState(false);
@@ -489,7 +475,9 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
 
         const nowIso = new Date().toISOString();
         const activeUser = useAuthStore.getState().usuarioActivo;
+        const allowNegative = localStorage.getItem('allow_negative_stock') === 'true';
         let updatedProducts;
+        let pendingStockOperation = null;
         if (editingId) {
             const existing = products.find(p => p.id === editingId);
             const oldStock = Number(existing?.stock) || 0;
@@ -497,66 +485,103 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
             const diff = newStock - oldStock;
 
             updatedProducts = products.map(p =>
-                p.id === editingId ? { ...p, ...productData, image: finalImage !== undefined ? finalImage : p.image, updatedAt: nowIso } : p
+                p.id === editingId
+                    ? { ...p, ...productData, stock: oldStock, image: finalImage !== undefined ? finalImage : p.image, updatedAt: nowIso }
+                    : p
             );
-            auditLog('INVENTARIO', 'PRODUCTO_EDITADO', `Producto "${name}" editado`);
+            pendingStockOperation = { productId: editingId, delta: diff, oldStock, newStock };
 
-            if (diff !== 0) {
-                try {
-                    const { recordKardexMovement } = await import('../services/kardexService');
-                    await recordKardexMovement({
-                        productoId: editingId,
-                        productoNombre: productData.name || existing?.name || 'Producto',
-                        sku: productData.barcode || productData.sku || existing?.barcode || '',
-                        tipo: diff > 0 ? 'ENTRADA' : 'SALIDA',
-                        subtipo: 'EDICION_PRODUCTO',
-                        cantidad: diff,
-                        unidad: productData.unit || existing?.unit || 'unidad',
-                        stock_antes: oldStock,
-                        stock_despues: newStock,
-                        costoUnitario: Number(productData.costUsd || productData.cost || existing?.costUsd || 0),
-                        motivo: `Ajuste por edición directa de producto (${oldStock} → ${newStock})`,
-                        usuarioId: activeUser?.id || null,
-                        usuarioNombre: activeUser?.nombre || activeUser?.usuario || 'Administrador'
-                    });
-                } catch (e) { console.error('[ProductsView] Error registrando Kardex edicion:', e); }
-            }
+
         } else {
             const initialStock = Number(productData.stock) || 0;
             updatedProducts = [{
                 id: productId,
                 ...productData,
+                stock: 0,
                 image: finalImage,
                 createdAt: nowIso,
                 updatedAt: nowIso
             }, ...products];
-            auditLog('INVENTARIO', 'PRODUCTO_CREADO', `Producto "${name}" creado - $${priceUsd || '0'}`);
+            pendingStockOperation = initialStock > 0
+                ? { productId, delta: initialStock, oldStock: 0, newStock: initialStock, initial: true }
+                : null;
 
-            if (initialStock > 0) {
-                try {
-                    const { recordKardexMovement } = await import('../services/kardexService');
-                    await recordKardexMovement({
-                        productoId: productId,
-                        productoNombre: productData.name || 'Producto Nuevo',
-                        sku: productData.barcode || productData.sku || '',
-                        tipo: 'INICIAL',
-                        subtipo: 'CREACION_PRODUCTO',
-                        cantidad: initialStock,
-                        unidad: productData.unit || 'unidad',
-                        stock_antes: 0,
-                        stock_despues: initialStock,
-                        costoUnitario: Number(productData.costUsd || productData.cost || 0),
-                        motivo: 'Inventario inicial al crear nuevo producto',
-                        usuarioId: activeUser?.id || null,
-                        usuarioNombre: activeUser?.nombre || activeUser?.usuario || 'Administrador'
-                    });
-                } catch (e) { console.error('[ProductsView] Error registrando Kardex creacion:', e); }
-            }
+
         }
 
-        storageService.setItem('bodega_products_v1', updatedProducts);
+        updatedProducts = await withLock('pos_write_lock', async () => {
+            // Releer bajo el mismo lock antes de construir el catálogo para no
+            // pisar ventas/ajustes que llegaron mientras el formulario estaba abierto.
+            const liveProducts = await storageService.getItem('bodega_products_v1', products) || [];
+            if (editingId) {
+                const liveExisting = liveProducts.find(p => p.id === editingId);
+                if (!liveExisting) throw new Error('Producto no encontrado en el inventario actual');
+                const liveOldStock = Number(liveExisting.stock) || 0;
+                const liveRequestedStock = Number(productData.stock) || 0;
+                updatedProducts = liveProducts.map(p => p.id === editingId
+                    ? {
+                        ...p,
+                        ...productData,
+                        stock: liveOldStock,
+                        image: finalImage !== undefined ? finalImage : p.image,
+                        updatedAt: nowIso
+                    }
+                    : p);
+                pendingStockOperation = {
+                    productId: editingId,
+                    delta: liveRequestedStock - liveOldStock,
+                    oldStock: liveOldStock,
+                    newStock: liveRequestedStock,
+                    initial: false
+                };
+            } else {
+                updatedProducts = [
+                    { ...updatedProducts[0] },
+                    ...liveProducts.filter(p => p.id !== productId)
+                ];
+            }
+
+            await storageService.setItem('bodega_products_v1', updatedProducts);
+            if (!pendingStockOperation) return updatedProducts;
+
+            const inventoryResult = await applyInventoryOperationUnlocked({
+                operationId: pendingStockOperation.initial
+                    ? `product_initial_${pendingStockOperation.productId}`
+                    : `product_edit_stock_${pendingStockOperation.productId}_${crypto.randomUUID()}`,
+                referenceId: pendingStockOperation.productId,
+                referenceType: pendingStockOperation.initial ? 'ALTA_PRODUCTO' : 'EDICION_PRODUCTO',
+                source: pendingStockOperation.initial ? 'CREACION_PRODUCTO' : 'EDICION_PRODUCTO',
+                tipo: pendingStockOperation.delta > 0 ? 'ENTRADA' : 'SALIDA',
+                subtipo: pendingStockOperation.initial ? 'CREACION_PRODUCTO' : 'EDICION_PRODUCTO',
+                reason: pendingStockOperation.initial
+                    ? 'Inventario inicial'
+                    : `Edición de producto (${pendingStockOperation.oldStock}→${pendingStockOperation.newStock})`,
+                allowNegative: pendingStockOperation.initial ? false : allowNegative,
+                actor: {
+                    usuarioId: activeUser?.id || null,
+                    usuarioNombre: activeUser?.nombre || activeUser?.usuario || 'Administrador'
+                },
+                deductions: [{
+                    productoId: pendingStockOperation.productId,
+                    cantidad: pendingStockOperation.delta,
+                    origen: pendingStockOperation.initial ? 'INICIAL' : 'AJUSTE'
+                }],
+                metadata: pendingStockOperation.initial
+                    ? { initialStock: pendingStockOperation.delta }
+                    : { requestedStock: pendingStockOperation.newStock, oldStock: pendingStockOperation.oldStock }
+            });
+            if (!inventoryResult.success) {
+                throw new Error(inventoryResult.error || 'No se pudo aplicar el ajuste de stock');
+            }
+            return inventoryResult.updatedProducts || updatedProducts;
+        });
 
         setProducts(updatedProducts);
+        auditLog(
+            'INVENTARIO',
+            editingId ? 'PRODUCTO_EDITADO' : 'PRODUCTO_CREADO',
+            editingId ? `Producto "${name}" editado` : `Producto "${name}" creado - $${priceUsd || '0'}`
+        );
         handleClose();
     };
 

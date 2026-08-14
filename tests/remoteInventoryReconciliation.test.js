@@ -39,6 +39,20 @@ describe('reconcileRemoteInventory', () => {
         expect(result.totals.discrepancies).toBe(0);
     });
 
+    it('REMOTE-KDX-011: no exige Kardex para una Venta Libre legacy', () => {
+        const result = reconcileRemoteInventory({
+            sales: [{
+                id: 'sale-free',
+                tipo: 'VENTA',
+                status: 'COMPLETADA',
+                items: [{ id: 'legacy-amount', name: 'Venta Libre', qty: 1 }]
+            }]
+        });
+
+        expect(result).toMatchObject({ ok: true, status: 'OK' });
+        expect(result.totals.warnings).toBe(0);
+    });
+
     it('REMOTE-KDX-009: detecta stock actual distinto al último Kardex', () => {
         const result = reconcileRemoteInventory({
             products: [{ ...tercio, stock: 325 }],

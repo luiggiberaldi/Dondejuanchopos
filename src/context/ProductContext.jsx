@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import localforage from 'localforage';
 import { storageService } from '../utils/storageService';
+import { withLock } from '../utils/withLock';
 import { BODEGA_CATEGORIES } from '../config/categories';
 // HOOK-011: Tras la eliminación del monkeypatch global de localStorage por el Agente B
 // (SEC-009), los callers que escriben claves `LOCAL_KEYS` deben invocar `pushLocalSync`
@@ -9,6 +10,8 @@ import { pushLocalSync } from '../hooks/useCloudSync';
 import { calculateComboStock } from '../utils/productProcessor';
 import { showToast } from '../components/Toast';
 import { formatBs } from '../utils/calculatorUtils';
+import { sumR } from '../utils/dinero';
+import { buildStockTransition } from '../utils/inventoryMovementModel';
 import { getFrozenFormats } from '../utils/frozenPrices';
 import { migrateFormatPriceAliases } from '../utils/productPriceMigration';
 import { shouldApplySyncVersion } from '../utils/syncVersionGuard';
@@ -273,6 +276,14 @@ export function ProductProvider({ children, rates }) {
     useEffect(() => {
         let isMounted = true;
         const loadData = async () => {
+            // Recuperar primero operaciones Stock + Kardex que quedaron en
+            // PENDING/FAILED_RETRYABLE tras un corte entre escrituras.
+            try {
+                const { recoverPendingInventoryOperations } = await import('../services/inventoryOperationService');
+                await recoverPendingInventoryOperations();
+            } catch (error) {
+                console.error('[ProductContext] No se pudieron recuperar operaciones de inventario:', error);
+            }
             const savedProducts = await storageService.getItem('bodega_products_v1', []);
             const savedCategories = await storageService.getItem('my_categories_v1', BODEGA_CATEGORIES);
             if (isMounted) {
@@ -340,11 +351,38 @@ export function ProductProvider({ children, rates }) {
 
         const timer = setTimeout(() => {
             const savePromises = [];
-            if (products.length > 0) {
-                savePromises.push(storageService.setItem('bodega_products_v1', products));
-            } else {
-                savePromises.push(storageService.removeItem('bodega_products_v1'));
-            }
+            // El stock se persiste exclusivamente por inventoryOperationService.
+            // Releerlo bajo el mismo lock evita que un auto-save de atributos
+            // vuelva a guardar una proyección optimista y pise un Kardex en vuelo.
+            savePromises.push(withLock('pos_write_lock', async () => {
+                if (products.length > 0) {
+                    const durableProducts = await storageService.getItem('bodega_products_v1', []);
+                    const durableById = new Map((Array.isArray(durableProducts) ? durableProducts : [])
+                        .map(product => [product.id, product]));
+                    const stockTraceFields = [
+                        'stock',
+                        'lastStockOperationId',
+                        'stockOperationIds',
+                        'stockUpdatedAt',
+                        'stockUpdatedBy',
+                        'stockUpdatedByName',
+                        'stockUpdatedByRole',
+                    ];
+                    const productsForSave = products.map(product => {
+                        const durable = durableById.get(product.id);
+                        if (!durable) return product;
+                        const merged = { ...product };
+                        for (const field of stockTraceFields) {
+                            if (Object.prototype.hasOwnProperty.call(durable, field)) merged[field] = durable[field];
+                            else delete merged[field];
+                        }
+                        return merged;
+                    });
+                    await storageService.setItem('bodega_products_v1', productsForSave);
+                } else {
+                    await storageService.removeItem('bodega_products_v1');
+                }
+            }));
             savePromises.push(storageService.setItem('my_categories_v1', categories));
             Promise.all(savePromises).finally(() => {
                 // Reset guard after microtask queue flushes
@@ -382,6 +420,9 @@ export function ProductProvider({ children, rates }) {
         if (customRate) {
             localStorage.setItem('bodega_custom_rate', customRate.toString());
             pushLocalSync('bodega_custom_rate', parseFloat(customRate));
+        } else {
+            localStorage.removeItem('bodega_custom_rate');
+            pushLocalSync('bodega_custom_rate', null);
         }
     }, [rateMode, customRate]);
 
@@ -390,6 +431,7 @@ export function ProductProvider({ children, rates }) {
         const handleStorageChange = (e) => {
             if (e.key === 'bodega_custom_rate') {
                 if (e.newValue && parseFloat(e.newValue) > 0) setCustomRate(e.newValue);
+                else setCustomRate('');
             }
             if (e.key === 'bodega_rate_mode') {
                 if (e.newValue) setRateMode(sanitizeRateMode(e.newValue));
@@ -474,6 +516,7 @@ export function ProductProvider({ children, rates }) {
             if (key === 'bodega_custom_rate') {
                 const val = localStorage.getItem('bodega_custom_rate');
                 if (val && parseFloat(val) > 0) setCustomRate(val);
+                else setCustomRate('');
             }
             if (key === 'bodega_use_auto_rate') {
                 const val = localStorage.getItem('bodega_use_auto_rate');
@@ -532,30 +575,101 @@ export function ProductProvider({ children, rates }) {
 
         if (entry.accumulatedDelta === 0) return;
 
-        const finalStock = entry.initialStock + entry.accumulatedDelta;
-        import('../services/kardexService').then(({ recordKardexMovement }) => {
+        const restoreVisualFromDurableState = async () => {
+            try {
+                const fresh = await storageService.getItem('bodega_products_v1', []);
+                if (Array.isArray(fresh)) {
+                    setProducts(sanitizeProducts(fresh));
+                    return;
+                }
+            } catch (error) {
+                console.warn('[ProductContext] No se pudo leer stock para rollback:', error);
+            }
+
+            // Último recurso: restaurar solo si la fila todavía conserva la
+            // proyección que originó esta operación. No pisar una venta o un
+            // segundo ajuste que haya ocurrido después.
+            setProducts(previous => previous.map(product => {
+                if (product.id !== productId) return product;
+                const current = Number(product.stock) || 0;
+                const isSameProjection = Math.abs(current - entry.projectedStock) <= 0.000001;
+                return isSameProjection ? { ...product, stock: entry.initialStock } : product;
+            }));
+        };
+
+        const settle = async (result, user) => {
+            const nextEntryPending = pendingKardexBufferRef.current.has(productId);
+            if (result?.success) {
+                // Si no hay otro ajuste local esperando, reflejar el snapshot
+                // confirmado por el servicio. Si lo hay, el siguiente resultado
+                // contiene la secuencia completa y evita un parpadeo intermedio.
+                if (!nextEntryPending && Array.isArray(result.updatedProducts)) {
+                    setProducts(sanitizeProducts(result.updatedProducts));
+                }
+                return;
+            }
+
+            // Una operación recuperable se reintenta en el mismo proceso; no se
+            // obliga al cajero a recargar la PC para que ProductContext la vea.
+            if (result?.pending) {
+                try {
+                    const { recoverPendingInventoryOperations } = await import('../services/inventoryOperationService');
+                    const recovered = await recoverPendingInventoryOperations();
+                    const recoveredOperation = recovered.find(item => item.operationId === entry.operationId && item.success);
+                    if (recoveredOperation?.success) {
+                        if (!pendingKardexBufferRef.current.has(productId)
+                            && Array.isArray(recoveredOperation.updatedProducts)) {
+                            setProducts(sanitizeProducts(recoveredOperation.updatedProducts));
+                        }
+                        return;
+                    }
+                } catch (recoveryError) {
+                    console.warn('[ProductContext] Recuperación inmediata de stock falló:', recoveryError);
+                }
+            }
+
+            await restoreVisualFromDurableState();
+            showToast('No se pudo guardar el ajuste de stock. Se restauró el valor anterior.', 'error');
+            console.error('[ProductContext] Ajuste Kardex rechazado:', result?.error || 'error desconocido', {
+                operationId: entry.operationId,
+                actorId: user?.id || null,
+            });
+        };
+
+        import('../services/inventoryOperationService').then(({ applyInventoryOperation }) => {
             import('../hooks/store/useAuthStore').then(({ useAuthStore }) => {
                 const user = useAuthStore.getState().usuarioActivo;
                 const isPositive = entry.accumulatedDelta > 0;
-                const sign = isPositive ? '+' : '';
-                recordKardexMovement({
-                    productoId: entry.product.id,
-                    productoNombre: entry.product.name,
-                    sku: entry.product.barcode || entry.product.sku || '',
+                return applyInventoryOperation({
+                    operationId: entry.operationId,
+                    referenceId: entry.operationId,
+                    referenceType: 'AJUSTE_RAPIDO',
+                    source: 'AJUSTE_RAPIDO',
                     tipo: isPositive ? 'ENTRADA' : 'SALIDA',
                     subtipo: 'AJUSTE_RAPIDO',
-                    cantidad: entry.accumulatedDelta,
-                    unidad: entry.product.unit || 'unidad',
-                    stock_antes: entry.initialStock,
-                    stock_despues: finalStock,
-                    costoUnitario: Number(entry.product.costUsd || entry.product.cost || 0),
-                    motivo: isPositive
-                        ? `Aumento directo con botón (${sign}${entry.accumulatedDelta} u)`
-                        : `Disminución / Salida directa con botón (${entry.accumulatedDelta} u)`,
-                    usuarioId: user?.id || null,
-                    usuarioNombre: user?.nombre || 'Administrador'
-                }).catch(e => console.error('[ProductContext] Error registrando Kardex agendado:', e));
+                    reason: entry.motivo || (isPositive
+                        ? `Ajuste +${entry.accumulatedDelta} unds`
+                        : `Ajuste ${entry.accumulatedDelta} unds`),
+                    deductions: [{
+                        productoId: entry.product.id,
+                        cantidad: entry.accumulatedDelta,
+                        unidad: entry.product.unit || 'unidad',
+                        origen: 'AJUSTE'
+                    }],
+                    allowNegative: entry.allowNegative,
+                    actor: {
+                        usuarioId: user?.id || null,
+                        usuarioNombre: user?.nombre || 'Administrador',
+                        usuarioRol: user?.rol || 'SYSTEM',
+                    },
+                    metadata: {
+                        requestedQuantity: entry.requestedDelta,
+                        appliedQuantity: entry.accumulatedDelta
+                    }
+                }).then(result => settle(result, user));
             });
+        }).catch(error => {
+            settle({ success: false, error: error?.message || 'Error registrando ajuste' }, null);
         });
     }, []);
 
@@ -574,37 +688,44 @@ export function ProductProvider({ children, rates }) {
 
     // HOOK-005: Memoizar adjustStock para que el objeto `value` del Provider
     // sea estable entre renders cuando los productos no cambian.
-    const adjustStock = useCallback((productId, delta) => {
+    const adjustStock = useCallback((productId, delta, options = {}) => {
         const targetProduct = productsRef.current.find(p => p.id === productId || p._originalId === productId);
         if (!targetProduct) return;
 
         const actualId = targetProduct.id;
-
-        // 1. Actualizar el estado visual de los productos de forma inmediata (60 FPS)
-        setProducts(prevProducts => prevProducts.map(p => {
-            if (p.id === actualId || p._originalId === actualId) {
-                const allowNeg = localStorage.getItem('allow_negative_stock') === 'true';
-                const newStock = (p.stock ?? 0) + delta;
-                return { ...p, stock: allowNeg ? newStock : Math.max(0, newStock) };
-            }
-            return p;
-        }));
-
-        // 2. Acumular en el buffer debounced del Kardex
+        const allowNegative = localStorage.getItem('allow_negative_stock') === 'true';
         let entry = pendingKardexBufferRef.current.get(actualId);
+        const projectedStock = entry?.projectedStock ?? (Number(targetProduct.stock) || 0);
+        const transition = buildStockTransition(projectedStock, delta, { allowNegative });
 
-        if (entry) {
-            if (entry.timer) clearTimeout(entry.timer);
-            entry.accumulatedDelta += delta;
-        } else {
-            const initialStock = Number(targetProduct.stock) || 0;
+        // 1. Actualizar el estado visual al stock realmente aplicable.
+        setProducts(prevProducts => prevProducts.map(p => (
+            p.id === actualId || p._originalId === actualId
+                ? { ...p, stock: transition.stockDespues }
+                : p
+        )));
+
+        // 2. Acumular cantidades aplicadas, no deltas imposibles por clamp.
+        if (entry?.timer) clearTimeout(entry.timer);
+        if (!entry) {
             entry = {
                 product: targetProduct,
-                initialStock: initialStock,
-                accumulatedDelta: delta,
+                initialStock: projectedStock,
+                projectedStock: transition.stockDespues,
+                accumulatedDelta: transition.cantidadAplicada,
+                requestedDelta: transition.cantidadSolicitada,
+                allowNegative,
+                motivo: options.motivo || null,
+                operationId: `adjust_${actualId}_${crypto.randomUUID()}`,
                 timer: null
             };
             pendingKardexBufferRef.current.set(actualId, entry);
+        } else {
+            entry.projectedStock = transition.stockDespues;
+            entry.accumulatedDelta = sumR(entry.accumulatedDelta, transition.cantidadAplicada);
+            entry.requestedDelta = sumR(entry.requestedDelta, transition.cantidadSolicitada);
+            entry.allowNegative = allowNegative;
+            if (options.motivo) entry.motivo = options.motivo;
         }
 
         entry.timer = setTimeout(() => {

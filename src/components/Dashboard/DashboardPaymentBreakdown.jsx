@@ -173,16 +173,25 @@ export default function DashboardPaymentBreakdown({
             )}
 
             {/* Propina / Cambios Dejados en Caja */}
-            {paymentBreakdown['_propina_donada'] && ((paymentBreakdown['_propina_donada'].totalUsd || 0) > 0 || (paymentBreakdown['_propina_donada'].totalBs || 0) > 0) && (
+            {paymentBreakdown['_propina_donada'] && ((paymentBreakdown['_propina_donada'].displayUsd || paymentBreakdown['_propina_donada'].displayBs || paymentBreakdown['_propina_donada'].displayCop || paymentBreakdown['_propina_donada'].totalUsd || paymentBreakdown['_propina_donada'].totalBs) > 0) && (
                 <div className="mt-3 p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700/50 rounded-xl flex items-center justify-between shadow-sm">
                     <div className="flex items-center gap-2">
                         <HandCoins size={16} className="text-emerald-600 dark:text-emerald-400" />
                         <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300 uppercase tracking-wide">Cambios Dejados en Caja (Propinas)</span>
                     </div>
                     <div className="text-right font-outfit font-black text-xs text-emerald-700 dark:text-emerald-300">
-                        {(paymentBreakdown['_propina_donada'].totalUsd || 0) > 0 && <span>${paymentBreakdown['_propina_donada'].totalUsd.toFixed(2)} USD</span>}
-                        {(paymentBreakdown['_propina_donada'].totalUsd || 0) > 0 && (paymentBreakdown['_propina_donada'].totalBs || 0) > 0 && <span className="mx-1">/</span>}
-                        {(paymentBreakdown['_propina_donada'].totalBs || 0) > 0 && <span>{formatBs(paymentBreakdown['_propina_donada'].totalBs)} Bs</span>}
+                        {(() => {
+                            const tip = paymentBreakdown['_propina_donada'];
+                            const hasDisplayFields = tip.displayUsd !== undefined || tip.displayBs !== undefined || tip.displayCop !== undefined;
+                            const displayUsd = hasDisplayFields ? Number(tip.displayUsd || 0) : Number(tip.totalUsd || 0);
+                            const displayBs = hasDisplayFields ? Number(tip.displayBs || 0) : (displayUsd > 0 ? 0 : Number(tip.totalBs || 0));
+                            const displayCop = hasDisplayFields ? Number(tip.displayCop || 0) : 0;
+                            return [
+                                displayUsd > 0 ? <span key="usd">${displayUsd.toFixed(2)} USD</span> : null,
+                                displayBs > 0 ? <span key="bs">{formatBs(displayBs)} Bs</span> : null,
+                                displayCop > 0 ? <span key="cop">{formatCop(displayCop)} COP</span> : null,
+                            ].filter(Boolean).reduce((result, element, index) => index === 0 ? [element] : [...result, <span key={`sep-${index}`} className="mx-1">·</span>, element], []);
+                        })()}
                     </div>
                 </div>
             )}

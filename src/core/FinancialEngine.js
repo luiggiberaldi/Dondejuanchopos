@@ -18,6 +18,7 @@
 import { round2, mulR, divR, subR, sumR } from '../utils/dinero';
 import { FINANCIAL_EPSILON } from '../utils/securityConstants';
 import { calculatePricing } from '../utils/productProcessor';
+import { getChangeLedger, getChangeDisplayParts } from '../utils/changeLedger';
 
 // ── Labels de métodos de pago de fábrica (lookup puro, sin async) ──
 // Resuelve el nombre legible de un methodId sin necesitar el módulo async.
@@ -197,6 +198,16 @@ export class FinancialEngine {
         const breakdown = {};
         // FIN-005: Collect anomalies in a side array instead of mutating sale objects.
         const anomalies = [];
+        const addChangeDisplayAmounts = (bucket, part) => {
+            for (const displayPart of getChangeDisplayParts(part)) {
+                const key = displayPart.currency === 'USD'
+                    ? 'displayUsd'
+                    : displayPart.currency === 'BS'
+                        ? 'displayBs'
+                        : 'displayCop';
+                bucket[key] = round2((bucket[key] || 0) + displayPart.amount);
+            }
+        };
 
         salesArray.forEach(sale => {
             // ── APERTURA DE CAJA: store opening float in _apertura metadata bucket (not as revenue or payment method) ──
@@ -368,14 +379,21 @@ export class FinancialEngine {
                 });
             }
 
-            // Deduct outgoing change to find True Net Income
-            let safeChangeUsd = sale.changeGiven ? round2(sale.changeGiven.usd || 0) : round2(sale.changeUsd || 0);
-            let safeChangeBs  = sale.changeGiven ? round2(sale.changeGiven.bs  || 0) : round2(sale.changeBs  || 0);
+            // Deduct only the physical change from cash. The canonical ledger
+            // collapses legacy USD+Bs aliases that represent the same delivery;
+            // digital destinations are reported separately and never reduce the drawer.
+            const inferredRatePayment = sale.payments?.find(payment => Number(payment.amountUsd) > 0 && Number(payment.amountBs) > 0);
+            const saleChangeRate = sale.rate
+                || (inferredRatePayment ? divR(inferredRatePayment.amountBs, inferredRatePayment.amountUsd) : 0);
+            const saleChangeLedger = getChangeLedger(sale, saleChangeRate);
+            let safeChangeUsd = round2(saleChangeLedger.delivered.usd || 0);
+            let safeChangeBs  = round2(saleChangeLedger.delivered.bs || 0);
+            const safeChangeCop = round2(saleChangeLedger.delivered.cop || 0);
 
             // GR-7b: COP guardrail
             const copEnabledInSale = sale.copEnabled === true;
             const hasCopPayment = (sale.payments || []).some(p => p.currency === 'COP' || (p.methodId && p.methodId.includes('cop')));
-            const hasCopChange = (sale.changeGiven?.cop > 0) || (sale.changeCop > 0);
+            const hasCopChange = safeChangeCop > 0 || (sale.changeCop > 0);
             if (!copEnabledInSale && (hasCopPayment || hasCopChange)) {
                 anomalies.push({
                     saleId: sale.id,
@@ -427,24 +445,29 @@ export class FinancialEngine {
                 if (!breakdown['_vuelto_bs']) breakdown['_vuelto_bs'] = { total: 0, currency: 'BS', label: 'Vuelto En Bs Entregado', isChange: true };
                 breakdown['_vuelto_bs'].total = round2(breakdown['_vuelto_bs'].total + safeChangeBs);
             }
+            if (safeChangeCop > 0) {
+                if (!breakdown['_vuelto_cop']) breakdown['_vuelto_cop'] = { total: 0, currency: 'COP', label: 'Vuelto En COP Entregado', isChange: true };
+                breakdown['_vuelto_cop'].total = round2(breakdown['_vuelto_cop'].total + safeChangeCop);
+            }
 
             if (sale.tipDonated) {
                 if (!breakdown['_propina_donada']) {
-                    breakdown['_propina_donada'] = { totalUsd: 0, totalBs: 0, label: 'Cambio Dejado en Caja (Propina)', isTip: true };
+                    breakdown['_propina_donada'] = { totalUsd: 0, totalBs: 0, displayUsd: 0, displayBs: 0, displayCop: 0, label: 'Cambio Dejado en Caja (Propina)', isTip: true };
                 }
-                if (sale.tipDonated.amountUsd > 0) {
+                if (sale.tipDonated.amountUsd > 0 || sale.tipDonated.amountBs > 0) {
                     breakdown['_propina_donada'].totalUsd = round2((breakdown['_propina_donada'].totalUsd || 0) + round2(sale.tipDonated.amountUsd));
                 }
                 if (sale.tipDonated.amountBs > 0) {
                     breakdown['_propina_donada'].totalBs = round2((breakdown['_propina_donada'].totalBs || 0) + round2(sale.tipDonated.amountBs));
                 }
+                addChangeDisplayAmounts(breakdown['_propina_donada'], saleChangeLedger.donated);
             }
 
             // FX19-S2: Vuelto adeudado externo — NO se descuenta de la gaveta
-            if (sale.changeOwed && sale.changeOwed.amountUsd > 0) {
+            if (sale.changeOwed && (sale.changeOwed.amountUsd > 0 || sale.changeOwed.amountBs > 0)) {
                 if (!breakdown['_cambio_adeudado']) {
                     breakdown['_cambio_adeudado'] = {
-                        totalUsd: 0, totalBs: 0,
+                        totalUsd: 0, totalBs: 0, displayUsd: 0, displayBs: 0, displayCop: 0,
                         label: 'Vuelto Adeudado (Pago Externo)',
                         isChangeOwed: true,
                     };
@@ -455,20 +478,27 @@ export class FinancialEngine {
                 breakdown['_cambio_adeudado'].totalBs = round2(
                     (breakdown['_cambio_adeudado'].totalBs || 0) + round2(sale.changeOwed.amountBs || 0)
                 );
+                addChangeDisplayAmounts(breakdown['_cambio_adeudado'], saleChangeLedger.owed);
             }
 
             // FX19-S3: Voucher — solo auditoría, no afecta saldo físico
-            if (sale.changeVoucher && sale.changeVoucher.amountUsd > 0) {
+            if (sale.changeVoucher && (sale.changeVoucher.amountUsd > 0 || sale.changeVoucher.amountBs > 0)) {
                 if (!breakdown['_cambio_voucher']) {
                     breakdown['_cambio_voucher'] = {
                         totalUsd: 0,
+                        totalBs: 0,
+                        displayUsd: 0, displayBs: 0, displayCop: 0,
                         label: 'Vuelto con Voucher Emitido',
                         isChangeVoucher: true,
                     };
                 }
                 breakdown['_cambio_voucher'].totalUsd = round2(
-                    (breakdown['_cambio_voucher'].totalUsd || 0) + round2(sale.changeVoucher.amountUsd)
+                    (breakdown['_cambio_voucher'].totalUsd || 0) + round2(sale.changeVoucher.amountUsd || 0)
                 );
+                breakdown['_cambio_voucher'].totalBs = round2(
+                    (breakdown['_cambio_voucher'].totalBs || 0) + round2(sale.changeVoucher.amountBs || 0)
+                );
+                addChangeDisplayAmounts(breakdown['_cambio_voucher'], saleChangeLedger.voucher);
             }
         });
 

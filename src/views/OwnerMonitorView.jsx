@@ -8,6 +8,7 @@ import { calculateComboStock, getEffectiveCostUsd, calculatePricing } from '../u
 import SupervisorRateModal from '../components/SupervisorRateModal';
 import RemoteProductFormModal from '../components/Monitor/RemoteProductFormModal';
 import SupervisorPairingModal from '../components/Monitor/SupervisorPairingModal';
+import RemoteKardexPanel from '../components/Monitor/RemoteKardexPanel';
 import ComboFormModal from '../components/Products/ComboFormModal';
 import UsersManager from '../components/Settings/UsersManager';
 import ReportsArticleTab from '../components/Reports/ReportsArticleTab';
@@ -24,12 +25,22 @@ import {
 } from 'lucide-react';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
 import { mulR, round2 } from '../utils/dinero';
+import { getChangeLedger, getChangeDisplayParts } from '../utils/changeLedger';
 import { getLocalISODate, getDateRange } from '../utils/dateHelpers';
 import { getPaymentLabel, toTitleCase } from '../config/paymentMethods';
 import { findOpenApertura, getOpenShiftMovements } from '../utils/shiftScope';
 import { FinancialEngine } from '../core/FinancialEngine';
 import { calculateSupervisorChangeMetrics, calculateSupervisorOutflowMetrics } from '../utils/supervisorShiftMetrics';
 import { fetchRemoteFullBackup } from '../services/remoteAuditService';
+import { useAuthStore } from '../hooks/store/useAuthStore';
+import {
+    createSupervisorCommandId,
+    getSupervisorChangeKey,
+    getSupervisorChangeResolution,
+    normalizeSupervisorChanges,
+    restoreLocalRateState,
+    SUPERVISOR_RATE_PENDING_KEY,
+} from '../utils/supervisorCommandModel';
 
 // Helper: icon por método de pago
 const PAYMENT_METHOD_ICONS = {
@@ -128,55 +139,26 @@ function getFormattedSaleCode(sale) {
 }
 
 export function getSaleChangeDetails(sale, products = [], effectiveRate = 1, bcvRate = 1) {
-    if (!sale) return { changeUsd: 0, changeBs: 0, hasChange: false };
+    if (!sale) return { changeUsd: 0, changeBs: 0, hasChange: false, hasAnyChange: false };
 
-    // 1. Si los campos de vuelto vienen explícitos en el objeto de venta, usarlos directamente
-    const hasExplicitChangeUsd = sale.changeUsd !== undefined || sale.changeGiven?.usd !== undefined;
-    const hasExplicitChangeBs = sale.changeBs !== undefined || sale.changeGiven?.bs !== undefined;
+    // El monitor debe usar la misma autoridad que tickets, caja y reportes.
+    // En particular, nunca sumar `changeUsd` y `changeBs` cuando son dos
+    // representaciones legacy del mismo vuelto.
+    const rate = sale.rate || effectiveRate || bcvRate || 0;
+    const ledger = getChangeLedger(sale, rate);
+    const hasPhysicalChange = ledger.delivered.usd > 0.009
+        || ledger.delivered.bs > 0.009
+        || ledger.delivered.cop > 0.009;
 
-    let changeUsd = Number(sale.changeUsd) || Number(sale.changeGiven?.usd) || 0;
-    let changeBs = Number(sale.changeBs) || Number(sale.changeGiven?.bs) || 0;
-
-    // 2. Si no vienen explícitos y hay desglose de pagos, verificar si algún pago individual o suma supera el total real
-    if (!hasExplicitChangeUsd && !hasExplicitChangeBs && Array.isArray(sale.payments) && sale.payments.length > 0) {
-        let totalPaidUsd = 0;
-        let totalPaidBs = 0;
-
-        sale.payments.forEach(p => {
-            if (p.currency === 'USD' || (p.methodId && p.methodId.includes('usd'))) {
-                totalPaidUsd += Number(p.amountUsd || p.amountInput || 0);
-            } else if (p.currency === 'BS' || (p.methodId && (p.methodId.includes('bs') || p.methodId === 'efectivo'))) {
-                totalPaidBs += Number(p.amountBs || p.amountInput || 0);
-            }
-        });
-
-        const effectiveTotalBs = getEffectiveSaleTotalBs(sale, products, effectiveRate, bcvRate);
-        const totalUsd = Number(sale.totalUsd) || 0;
-
-        if (totalPaidUsd > totalUsd + 0.009) {
-            changeUsd = round2(totalPaidUsd - totalUsd);
-        }
-        if (effectiveTotalBs > 0 && totalPaidBs > effectiveTotalBs + 0.5) {
-            changeBs = round2(totalPaidBs - effectiveTotalBs);
-        }
-    }
-
-    // 3. Detectar si changeUsd y changeBs son equivalentes de la misma cifra (ej. 0.70 USD y 595 Bs a tasa 850)
-    const rate = sale.rate || effectiveRate || 1;
-    const convertedBsFromUsd = changeUsd * rate;
-    const isEquivalent = changeUsd > 0 && changeBs > 0 && Math.abs(convertedBsFromUsd - changeBs) < 1.5;
-
-    if (isEquivalent) {
-        // Si el vuelto fue entregado en Bs (o viene en changeBs), mostrar en Bs y ocultar el equivalente en USD
-        if (sale.changeGiven?.bs !== undefined || sale.changeBs !== undefined) {
-            changeUsd = 0; // Ocultar USD para mostrar 595,00 Bs
-        } else {
-            changeBs = 0; // Ocultar Bs
-        }
-    }
-
-    const hasChange = changeUsd > 0.009 || changeBs > 0.09;
-    return { changeUsd, changeBs, hasChange, isEquivalent };
+    return {
+        changeUsd: ledger.delivered.usd,
+        changeBs: ledger.delivered.bs,
+        changeCop: ledger.delivered.cop,
+        hasChange: hasPhysicalChange,
+        hasAnyChange: ledger.hasChange,
+        isEquivalent: ledger.legacyEquivalent,
+        ledger,
+    };
 }
 
 export function getEffectiveSaleTotalBs(sale, products = [], effectiveRate = 1, bcvRate = 1) {
@@ -211,7 +193,7 @@ export function getEffectiveSaleTotalBs(sale, products = [], effectiveRate = 1, 
     return hasMatch ? round2(sumBs) : (sale.totalBs || 0);
 }
 
-function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId, onVoidSaleSuccess, products = [], effectiveRate = 1 }) {
+function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId, onVoidSaleSuccess, products = [], effectiveRate = 1, actor = null, pendingVoid = false }) {
     if (!sale) return null;
 
     const [showConfirmVoid, setShowConfirmVoid] = useState(false);
@@ -225,33 +207,40 @@ function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId, onVoidSaleSuc
     }) : '';
 
     const handleVoidSale = async () => {
-        if (!sale || isVoided || voiding) return;
+        if (!sale || isVoided || pendingVoid || voiding) return;
         setVoiding(true);
+        const commandId = createSupervisorCommandId();
         try {
-            let monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
+            const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
             if (supabaseCloud && pairedDeviceId) {
                 const { error } = await supabaseCloud
                     .from('supervisor_commands')
                     .insert({
+                        id: commandId,
                         primary_device_id: pairedDeviceId,
                         monitor_device_id: monitorDeviceId,
                         command_type: 'void_sale',
-                        payload: { saleId: sale.id, reason: 'Anulada por Supervisor desde Monitor' },
+                        payload: {
+                            commandId,
+                            saleId: sale.id,
+                            reason: 'Anulada por Supervisor desde Monitor',
+                            supervisorId: actor?.id || null,
+                            supervisorName: actor?.nombre || actor?.usuario || 'Supervisor',
+                            supervisorRole: actor?.rol || 'SUPERVISOR',
+                        },
                         status: 'pending'
                     });
 
                 if (error) throw error;
-                showToast('Comando de anulación enviado a la caja', 'success');
-                if (onVoidSaleSuccess) {
-                    onVoidSaleSuccess(sale.id);
-                }
+                showToast('Anulación enviada; esperando confirmación de la caja.', 'success');
+                if (onVoidSaleSuccess) onVoidSaleSuccess(sale.id, commandId);
             } else {
                 showToast('Sin conexión con la caja principal', 'error');
             }
             setShowConfirmVoid(false);
         } catch (err) {
             console.error('[OwnerMonitor] Error al solicitar anulación:', err);
-            showToast('No se pudo enviar el comando de anulación', 'error');
+            showToast('No se pudo enviar la anulación. La venta queda sin cambios.', 'error');
         } finally {
             setVoiding(false);
         }
@@ -299,12 +288,12 @@ function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId, onVoidSaleSuc
                 {/* Modal Content */}
                 <div className="p-4 sm:p-6 overflow-y-auto space-y-5 flex-1">
                     {/* Banner de Estado Anulada */}
-                    {isVoided && (
+                    {(isVoided || pendingVoid) && (
                         <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200/80 dark:border-rose-900/50 rounded-2xl flex items-center gap-3 text-rose-800 dark:text-rose-300 text-xs font-semibold">
                             <AlertTriangle size={18} className="shrink-0 text-rose-600 dark:text-rose-400" />
                             <div>
-                                <p className="font-extrabold">Esta venta fue anulada</p>
-                                <p className="text-[10.5px] opacity-80 mt-0.5">El stock de artículos fue restaurado y los saldos revertidos en la caja.</p>
+                                <p className="font-extrabold">{pendingVoid && !isVoided ? 'Anulación pendiente de la caja' : 'Esta venta fue anulada'}</p>
+                                <p className="text-[10.5px] opacity-80 mt-0.5">{pendingVoid && !isVoided ? 'La vista se restaurará automáticamente si la caja rechaza la operación.' : 'El stock de artículos fue restaurado y los saldos revertidos en la caja.'}</p>
                             </div>
                         </div>
                     )}
@@ -412,62 +401,37 @@ function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId, onVoidSaleSuc
                             <span className={`font-outfit text-sm font-black ${isVoided ? 'line-through text-slate-400' : 'text-emerald-700 dark:text-emerald-400'}`}>{formatBs(getEffectiveSaleTotalBs(sale, products, effectiveRate, bcvRate))} Bs</span>
                         </div>
 
-                        {/* Vuelto Entregado / Adeudado / Voucher */}
+                        {/* Libro de vuelto: todas las salidas se muestran, incluso cuando
+                            una venta combina efectivo con un destino pendiente. */}
                         {(() => {
-                            const elements = [];
-                            if (sale.tipDonated) {
-                                elements.push(
-                                    <div key="tip" className="flex items-center justify-between text-xs pt-2 border-t border-emerald-200/50 dark:border-emerald-900/40 text-emerald-800 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/30 p-2 rounded-lg my-1">
-                                        <span className="flex items-center gap-1 font-black uppercase tracking-wider text-[10px]">
-                                            <RotateCcw size={12} className="text-emerald-600 dark:text-emerald-400" /> {sale.tipDonated.partial ? 'Cambio Parcial Dejado en Caja' : 'Cambio Dejado en Caja'}
-                                        </span>
-                                        <span className="font-outfit font-black text-sm text-emerald-700 dark:text-emerald-400">
-                                            {sale.tipDonated.currency === 'BS' ? `Bs ${formatBs(sale.tipDonated.amountBs)}` : `$${(sale.tipDonated.amountUsd || 0).toFixed(2)} USD`}
-                                        </span>
-                                    </div>
-                                );
-                            }
-
-                            if (sale.changeOwed) {
-                                elements.push(
-                                    <div key="owed" className="flex items-center justify-between text-xs pt-2 border-t border-amber-200/50 dark:border-amber-900/40 text-amber-800 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-950/30 p-2 rounded-lg my-1">
-                                        <span className="flex items-center gap-1 font-black uppercase tracking-wider text-[10px]">
-                                            <RotateCcw size={12} className="text-amber-600 dark:text-amber-400" /> Vuelto Adeudado ({sale.changeOwed.method})
-                                        </span>
-                                        <span className="font-outfit font-black text-sm text-amber-700 dark:text-amber-400">
-                                            ${(sale.changeOwed.amountUsd || 0).toFixed(2)} USD
-                                        </span>
-                                    </div>
-                                );
-                            }
-
-                            if (sale.changeVoucher) {
-                                elements.push(
-                                    <div key="voucher" className="flex items-center justify-between text-xs pt-2 border-t border-blue-200/50 dark:border-blue-900/40 text-blue-800 dark:text-blue-300 bg-blue-50/50 dark:bg-blue-950/30 p-2 rounded-lg my-1">
-                                        <span className="flex items-center gap-1 font-black uppercase tracking-wider text-[10px]">
-                                            <RotateCcw size={12} className="text-blue-600 dark:text-blue-400" /> Voucher ({sale.changeVoucher.voucherCode})
-                                        </span>
-                                        <span className="font-outfit font-black text-sm text-blue-700 dark:text-blue-400">
-                                            ${(sale.changeVoucher.amountUsd || 0).toFixed(2)} USD
-                                        </span>
-                                    </div>
-                                );
-                            }
-
-                            if (elements.length > 0) return elements;
-
-                            const { changeUsd, changeBs, hasChange } = getSaleChangeDetails(sale);
-                            if (!hasChange) return null;
+                            const ledger = getChangeLedger(sale, effectiveRate || bcvRate);
+                            if (!ledger.hasChange) return null;
+                            const formatPart = (part) => getChangeDisplayParts(
+                                part,
+                                { physical: part.kind === 'delivered' },
+                            ).map(({ currency, amount }) => currency === 'BS'
+                                ? `Bs ${formatBs(amount)}`
+                                : currency === 'COP'
+                                    ? `COP ${formatCop(amount)}`
+                                    : `$${amount.toFixed(2)} USD`
+                            ).join(' + ') || '—';
+                            const labelFor = (part) => part.kind === 'owed'
+                                ? `Vuelto por fuera (${part.method || 'otro'})`
+                                : part.kind === 'wallet'
+                                    ? 'Abono a cuenta'
+                                    : part.kind === 'voucher'
+                                        ? `Voucher (${part.code || 'sin código'})`
+                                        : part.kind === 'donated'
+                                            ? 'Vuelto cedido/donado'
+                                            : 'Vuelto entregado';
                             return (
-                                <div className="flex items-center justify-between text-xs pt-2 border-t border-emerald-200/50 dark:border-emerald-900/40 text-amber-800 dark:text-amber-300">
-                                    <span className="flex items-center gap-1 font-black uppercase tracking-wider text-[10px]">
-                                        <RotateCcw size={12} className="text-amber-600 dark:text-amber-400" /> Vuelto Entregado
-                                    </span>
-                                    <span className="font-outfit font-black text-sm text-amber-700 dark:text-amber-400">
-                                        {changeUsd > 0 ? `$${changeUsd.toFixed(2)} USD` : ''}
-                                        {changeUsd > 0 && changeBs > 0 ? ' + ' : ''}
-                                        {changeBs > 0 ? `${formatBs(changeBs)} Bs` : ''}
-                                    </span>
+                                <div className="space-y-1">
+                                    {ledger.parts.map((part) => (
+                                        <div key={part.kind} className="flex items-center justify-between text-xs pt-2 border-t border-emerald-200/50 dark:border-emerald-900/40 text-amber-800 dark:text-amber-300">
+                                            <span className="flex items-center gap-1 font-black uppercase tracking-wider text-[10px]"><RotateCcw size={12} /> {labelFor(part)}</span>
+                                            <span className="font-outfit font-black text-sm text-amber-700 dark:text-amber-400">{formatPart(part)}</span>
+                                        </div>
+                                    ))}
                                 </div>
                             );
                         })()}
@@ -493,7 +457,8 @@ function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId, onVoidSaleSuc
                         <div className="grid grid-cols-2 gap-3">
                             <button
                                 onClick={() => setShowConfirmVoid(true)}
-                                className="py-3 px-4 bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 rounded-2xl font-black text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                                disabled={pendingVoid}
+                                className="py-3 px-4 bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 rounded-2xl font-black text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 disabled:opacity-50"
                             >
                                 <Trash2 size={14} /> Anular Venta
                             </button>
@@ -559,6 +524,9 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
     const [showRateModal, setShowRateModal] = useState(false);
     const [selectedSaleDetail, setSelectedSaleDetail] = useState(null);
+    const [pendingVoidSaleIds, setPendingVoidSaleIds] = useState(() => new Set());
+    const [pendingVoidCommands, setPendingVoidCommands] = useState({});
+    const supervisorUser = useAuthStore(state => state.usuarioActivo);
     const [viewTab, setViewTab] = useState('activo'); // 'activo' o 'cierres'
     const [selectedCierreId, setSelectedCierreId] = useState(null);
     const [searchTermInventario, setSearchTermInventario] = useState('');
@@ -611,50 +579,78 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         try {
             const raw = localStorage.getItem(PENDING_KEY);
             const arr = raw ? JSON.parse(raw) : [];
-            return Array.isArray(arr) ? arr : [];
+            return normalizeSupervisorChanges(arr);
         } catch { return []; }
     });
     const [inFlightChanges, setInFlightChanges] = useState(() => {
         try {
             const raw = localStorage.getItem(INFLIGHT_KEY);
             const arr = raw ? JSON.parse(raw) : [];
-            return Array.isArray(arr) ? arr : [];
+            return normalizeSupervisorChanges(arr);
         } catch { return []; }
     });
     const [uploading, setUploading] = useState(false);
+    const uploadingRef = React.useRef(false);
     const [exportingCierreId, setExportingCierreId] = useState(null);
     const [stockAlertTab, setStockAlertTab] = useState('agotados'); // 'agotados' | 'critico'
 
+    // El polling de estado solo consulta IDs que el Supervisor ya conoce. Así
+    // recupera un UPDATE perdido sin volver a descargar los 150 comandos cada
+    // pocos segundos ni consumir egress cuando no hay nada pendiente.
+    const commandStateRefs = React.useRef({
+        allCloudCmds: [],
+        pendingChanges: [],
+        inFlightChanges: [],
+        pendingVoidCommands: {},
+    });
+
+    useEffect(() => {
+        commandStateRefs.current = {
+            allCloudCmds,
+            pendingChanges,
+            inFlightChanges,
+            pendingVoidCommands,
+        };
+    }, [allCloudCmds, pendingChanges, inFlightChanges, pendingVoidCommands]);
+
     const persistInFlight = useCallback((next) => {
-        setInFlightChanges(next);
+        const normalized = normalizeSupervisorChanges(next);
+        setInFlightChanges(normalized);
         try {
-            localStorage.setItem(INFLIGHT_KEY, JSON.stringify(next));
+            localStorage.setItem(INFLIGHT_KEY, JSON.stringify(normalized));
         } catch { /* storage lleno */ }
     }, []);
 
-    const getChangeKey = useCallback(
-        (change) => `${change?.action || ''}:${change?.productId || change?.data?.id || ''}:${change?.queuedAt || ''}`,
-        []
-    );
+    const getChangeKey = useCallback((change) => getSupervisorChangeKey(change), []);
 
     const isInventoryChangeConfirmed = useCallback((change, catalog) => {
         if (!change || !Array.isArray(catalog)) return false;
         const product = catalog.find(p => String(p.id) === String(change.productId));
 
-        if (change.action === 'add') return Boolean(product);
+        if (change.action === 'add') {
+            if (!product) return false;
+            const expectedStock = Number(change.data?.stock);
+            return Number.isFinite(expectedStock)
+                ? Number(product.stock) === Math.max(0, expectedStock)
+                    || product.stockOperationIds?.includes(change.commandId)
+                : true;
+        }
         if (change.action === 'delete') return !product;
         if (change.action === 'adjust_stock') {
+            if (product.stockOperationIds?.includes(change.commandId)) return true;
             const target = change.data?.targetStock;
-            return target !== undefined && target !== null && target !== ''
-                ? Boolean(product && Number(product.stock) === Number(target))
-                : Boolean(product && change.baseStock !== undefined
-                    && Number(product.stock) === Number(change.baseStock) + (Number(change.data?.delta) || 0));
+            const expectedStock = target !== undefined && target !== null && target !== ''
+                ? Math.max(0, Number(target))
+                : (change.baseStock !== undefined
+                    ? applyProjectedStock(Number(change.baseStock), [change])
+                    : null);
+            return Boolean(product && expectedStock !== null && Number(product.stock) === expectedStock);
         }
         if (change.action !== 'edit' || !product) return false;
 
         const data = change.data || {};
         return Object.entries(data)
-            .filter(([key]) => !['baseUpdatedAt', 'updatedAt', 'createdAt'].includes(key) && !key.startsWith('_'))
+            .filter(([key]) => !['baseUpdatedAt', 'updatedAt', 'createdAt', 'stock'].includes(key) && !key.startsWith('_'))
             .every(([key, expected]) => {
                 if (key === 'name') return String(product[key] || '').trim() === String(expected || '').trim();
                 if (expected === null || expected === undefined || expected === '') return true;
@@ -663,70 +659,89 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     }, []);
 
     useEffect(() => {
-        if (inFlightChanges.length === 0) return;
-        const confirmedKeys = new Set(
-            (Array.isArray(products) ? inFlightChanges : [])
-                .filter(change => change.action !== 'adjust_stock' && isInventoryChangeConfirmed(change, products))
-                .map(getChangeKey)
+        if (inFlightChanges.length === 0 || !Array.isArray(products)) return;
+
+        const ownMonitorId = localStorage.getItem('dj_device_id');
+        const inventoryCommands = new Map(
+            (Array.isArray(allCloudCmds) ? allCloudCmds : [])
+                .filter(command => command.monitor_device_id === ownMonitorId
+                    && command.command_type === 'inventory_update')
+                .map(command => [command.id, command])
         );
+        const commandList = [...inventoryCommands.values()];
+        const confirmedKeys = new Set();
+        const rejectedKeys = new Set();
 
-        // Limpiar cambios inFlight si la nube ya registró el estado final (aplicado/rechazado/anulado)
-        if (Array.isArray(allCloudCmds) && allCloudCmds.length > 0) {
-            const pendingCmdProductIds = new Set(
-                (Array.isArray(cloudPendingCmds) ? cloudPendingCmds : [])
-                    .filter(c => c.command_type === 'inventory_update')
-                    .map(c => String(c.payload?.productId || c.payload?.data?.id || ''))
-            );
+        // El estado de la orden es la única señal válida para resolverla. No se
+        // infiere "aplicado" porque la fila haya desaparecido de pendientes:
+        // el polling puede devolver una ventana incompleta y eso antes borraba
+        // la proyección local sin confirmación, causando el segundo clic.
+        for (const change of inFlightChanges) {
+            const resolution = getSupervisorChangeResolution(change, commandList);
+            const command = resolution.command;
+            if (resolution.status === 'pending' || !command) continue;
 
-            inFlightChanges.forEach(change => {
-                const pId = String(change.productId || change.data?.id || '');
-                if (pId && !pendingCmdProductIds.has(pId)) {
-                    confirmedKeys.add(getChangeKey(change));
-                }
-            });
-        }
-
-        // Varios ajustes pueden llegar a la caja antes de que el catálogo
-        // vuelva al monitor. No se debe comparar cada delta contra el mismo
-        // stock base: si entraron +3 y luego +2, el catálogo final será +5.
-        if (Array.isArray(products)) {
-            const stockGroups = new Map();
-            inFlightChanges
-                .filter(change => change.action === 'adjust_stock')
-                .forEach(change => {
-                    const key = String(change.productId);
-                    if (!stockGroups.has(key)) stockGroups.set(key, []);
-                    stockGroups.get(key).push(change);
-                });
-
-            for (const [productId, group] of stockGroups) {
-                const product = products.find(p => String(p.id) === productId);
-                if (!product || group.length === 0) continue;
-                const ordered = [...group].sort((a, b) =>
-                    String(a.sentAt || a.queuedAt || '').localeCompare(String(b.sentAt || b.queuedAt || ''))
+            if (resolution.status === 'rejected') {
+                rejectedKeys.add(getChangeKey(change));
+                showToast(
+                    `La caja rechazó ${change.action === 'adjust_stock' ? 'el ajuste de stock' : 'el cambio de inventario'}${command.error_reason ? `: ${command.error_reason}` : ''}. Se restauró la vista anterior.`,
+                    'error'
                 );
-                const firstBase = Number(ordered[0].baseStock);
-                if (!Number.isFinite(firstBase)) {
-                    ordered.filter(change => isInventoryChangeConfirmed(change, products))
-                        .forEach(change => confirmedKeys.add(getChangeKey(change)));
-                    continue;
-                }
-
-                let expected = Math.max(0, firstBase);
-                let matchedPrefix = -1;
-                for (let index = 0; index < ordered.length; index++) {
-                    expected = applyProjectedStock(expected, [ordered[index]]);
-                    if (Number(product.stock) === Number(expected)) matchedPrefix = index;
-                }
-                if (matchedPrefix >= 0) {
-                    ordered.slice(0, matchedPrefix + 1).forEach(change => confirmedKeys.add(getChangeKey(change)));
-                }
             }
         }
 
-        if (confirmedKeys.size === 0) return;
-        persistInFlight(inFlightChanges.filter(change => !confirmedKeys.has(getChangeKey(change))));
-    }, [products, inFlightChanges, allCloudCmds, cloudPendingCmds, getChangeKey, isInventoryChangeConfirmed, persistInFlight]);
+        // Las ediciones de atributos, altas y bajas se retiran solo cuando:
+        // (1) la caja marcó la orden como aplicada y (2) el catálogo recibido
+        // refleja el resultado. Mientras tanto, la proyección optimista permanece
+        // visible aunque llegue un pull viejo.
+        for (const change of inFlightChanges) {
+            if (rejectedKeys.has(getChangeKey(change))) continue;
+            const command = inventoryCommands.get(change.commandId);
+            if (!command || !['applied', 'applied_with_warnings'].includes(command.status)) continue;
+            if (change.action !== 'adjust_stock' && isInventoryChangeConfirmed(change, products)) {
+                confirmedKeys.add(getChangeKey(change));
+            }
+        }
+
+        // Varios ajustes pueden llegar a la caja antes de que el catálogo vuelva
+        // al monitor. Se compara el prefijo confirmado contra la base original;
+        // nunca se suma dos veces sobre el mismo stock remoto.
+        const stockGroups = new Map();
+        inFlightChanges
+            .filter(change => change.action === 'adjust_stock' && !rejectedKeys.has(getChangeKey(change)))
+            .forEach(change => {
+                const key = String(change.productId);
+                if (!stockGroups.has(key)) stockGroups.set(key, []);
+                stockGroups.get(key).push(change);
+            });
+
+        for (const [productId, group] of stockGroups) {
+            const product = products.find(p => String(p.id) === productId);
+            if (!product || group.length === 0) continue;
+            const ordered = [...group].sort((a, b) =>
+                String(a.sentAt || a.queuedAt || '').localeCompare(String(b.sentAt || b.queuedAt || ''))
+            );
+            const firstBase = Number(ordered[0].baseStock);
+            if (!Number.isFinite(firstBase)) continue;
+
+            let expected = Math.max(0, firstBase);
+            let matchedPrefix = -1;
+            for (let index = 0; index < ordered.length; index++) {
+                const command = inventoryCommands.get(ordered[index].commandId);
+                if (!command || !['applied', 'applied_with_warnings'].includes(command.status)) break;
+                expected = applyProjectedStock(expected, [ordered[index]]);
+                if (Number(product.stock) === Number(expected)) matchedPrefix = index;
+            }
+            if (matchedPrefix >= 0) {
+                ordered.slice(0, matchedPrefix + 1).forEach(change => confirmedKeys.add(getChangeKey(change)));
+            }
+        }
+
+        const resolvedKeys = new Set([...confirmedKeys, ...rejectedKeys]);
+        if (resolvedKeys.size > 0) {
+            persistInFlight(inFlightChanges.filter(change => !resolvedKeys.has(getChangeKey(change))));
+        }
+    }, [products, inFlightChanges, allCloudCmds, getChangeKey, isInventoryChangeConfirmed, persistInFlight]);
 
     // 📄 Generar y Descargar PDF del Cierre Seleccionado
     const handleDownloadCierrePDF = async (cierreObj, e) => {
@@ -895,6 +910,169 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         };
     }, [pairedDeviceId, fetchAllCloudCmds]);
 
+    const refreshPendingCloudCmds = useCallback(async () => {
+        if (!supabaseCloud || !pairedDeviceId) return;
+
+        const state = commandStateRefs.current;
+        const trackedIds = new Set([
+            ...(state.allCloudCmds || [])
+                .filter(command => command?.status === 'pending')
+                .map(command => command.id),
+            ...(state.pendingChanges || []).map(change => change.commandId),
+            ...(state.inFlightChanges || []).map(change => change.commandId),
+            ...Object.values(state.pendingVoidCommands || {}),
+        ].filter(Boolean));
+
+        try {
+            const pendingRate = localStorage.getItem(SUPERVISOR_RATE_PENDING_KEY);
+            if (pendingRate) {
+                const parsed = JSON.parse(pendingRate);
+                if (parsed?.commandId) trackedIds.add(parsed.commandId);
+            }
+        } catch { /* una cola de tasa corrupta no debe romper el polling */ }
+
+        if (trackedIds.size === 0) return;
+
+        try {
+            const { data, error } = await supabaseCloud
+                .from('supervisor_commands')
+                .select('id,status,error_reason,applied_at,payload,command_type,monitor_device_id,created_at,primary_device_id')
+                .eq('primary_device_id', pairedDeviceId)
+                .in('id', [...trackedIds]);
+
+            if (error) {
+                console.warn('[OwnerMonitor] No se pudieron actualizar estados de comandos:', error.message);
+                return;
+            }
+
+            const remoteRows = Array.isArray(data) ? data : [];
+            const mergeRows = current => {
+                const byId = new Map(remoteRows.map(row => [row.id, row]));
+                const merged = (current || []).map(command => (
+                    byId.has(command.id) ? { ...command, ...byId.get(command.id) } : command
+                ));
+                const known = new Set(merged.map(command => command.id));
+                remoteRows.forEach(row => {
+                    if (!known.has(row.id)) merged.push(row);
+                });
+                return merged.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+            };
+
+            setAllCloudCmds(previous => mergeRows(previous));
+            setCloudPendingCmds(previous => mergeRows(previous).filter(command => command.status === 'pending'));
+        } catch (error) {
+            console.warn('[OwnerMonitor] Excepción actualizando estados de comandos:', error);
+        }
+    }, [pairedDeviceId]);
+
+    // Realtime sigue siendo el camino rápido. Este respaldo barato consulta solo
+    // comandos conocidos cada 15 s y al volver a la pestaña/red, evitando que un
+    // UPDATE perdido obligue a pulsar «Subir» por segunda vez.
+    useEffect(() => {
+        if (!supabaseCloud || !pairedDeviceId) return;
+
+        refreshPendingCloudCmds();
+        const intervalId = setInterval(refreshPendingCloudCmds, 15000);
+        const handleOnline = () => refreshPendingCloudCmds();
+        const handleVisibility = () => {
+            if (document.visibilityState === 'visible') refreshPendingCloudCmds();
+        };
+        window.addEventListener('online', handleOnline);
+        document.addEventListener('visibilitychange', handleVisibility);
+
+        return () => {
+            clearInterval(intervalId);
+            window.removeEventListener('online', handleOnline);
+            document.removeEventListener('visibilitychange', handleVisibility);
+        };
+    }, [pairedDeviceId, refreshPendingCloudCmds]);
+
+    // Cerrar una orden remota es una transacción de UI: mientras está pendiente
+    // se pinta de forma optimista; si la caja la rechaza/cancela se quita la
+    // proyección y se vuelve al catálogo/venta sincronizada anterior.
+    useEffect(() => {
+        if (!Array.isArray(allCloudCmds) || allCloudCmds.length === 0) return;
+        const ownMonitorId = localStorage.getItem('dj_device_id');
+        const terminalStatuses = new Set(['applied', 'applied_with_warnings', 'failed', 'cancelled']);
+
+        const ratePendingRaw = localStorage.getItem(SUPERVISOR_RATE_PENDING_KEY);
+        if (ratePendingRaw) {
+            try {
+                const ratePending = JSON.parse(ratePendingRaw);
+                const rateCommand = allCloudCmds.find(command => command.id === ratePending.commandId);
+                if (rateCommand && terminalStatuses.has(rateCommand.status)) {
+                    if (rateCommand.status === 'failed' || rateCommand.status === 'cancelled') {
+                        restoreLocalRateState(ratePending.previous);
+                        showToast('La caja rechazó la tasa. Se restauró el valor anterior.', 'error');
+                    } else {
+                        // No borrar todavía el recibo: useMonitorSync lo conserva
+                        // como barrera hasta observar en la nube las tres claves
+                        // de la tasa. Si se elimina aquí, un pull viejo puede
+                        // devolver visualmente la tasa anterior y provocar el
+                        // segundo clic que este flujo debe evitar.
+                        showToast('La caja confirmó la nueva tasa. Esperando eco de configuración.', 'success');
+                    }
+                }
+            } catch {
+                localStorage.removeItem(SUPERVISOR_RATE_PENDING_KEY);
+            }
+        }
+
+        const failedChanges = new Set();
+        const terminalInventoryCommands = new Map(
+            allCloudCmds
+                .filter(command => command.monitor_device_id === ownMonitorId
+                    && command.command_type === 'inventory_update'
+                    && terminalStatuses.has(command.status))
+                .map(command => [command.id, command])
+        );
+        for (const change of inFlightChanges) {
+            const command = terminalInventoryCommands.get(change.commandId);
+            if (!command) continue;
+            // applied se limpia cuando el catálogo remoto confirma el valor; los
+            // estados de error se limpian ahora para hacer rollback visual.
+            if (command.status === 'failed' || command.status === 'cancelled') {
+                failedChanges.add(getChangeKey(change));
+                showToast(
+                    `La caja rechazó ${change.action === 'adjust_stock' ? 'el ajuste de stock' : 'el cambio de inventario'}${command.error_reason ? `: ${command.error_reason}` : ''}. Se restauró la vista anterior.`,
+                    'error'
+                );
+            }
+        }
+        if (failedChanges.size > 0) {
+            persistInFlight(inFlightChanges.filter(change => !failedChanges.has(getChangeKey(change))));
+        }
+
+        const terminalVoidCommands = allCloudCmds.filter(command =>
+            command.monitor_device_id === ownMonitorId
+            && command.command_type === 'void_sale'
+            && terminalStatuses.has(command.status)
+        );
+        for (const command of terminalVoidCommands) {
+            const saleId = command.payload?.saleId;
+            if (!saleId || !pendingVoidSaleIds.has(saleId)) continue;
+            setPendingVoidSaleIds(previous => {
+                const next = new Set(previous);
+                next.delete(saleId);
+                return next;
+            });
+            setPendingVoidCommands(previous => {
+                const next = { ...previous };
+                delete next[saleId];
+                return next;
+            });
+            if (command.status === 'failed' || command.status === 'cancelled') {
+                showToast(`La caja no anuló la venta: ${command.error_reason || 'operación rechazada'}.`, 'error');
+            } else {
+                setSales(previous => previous.map(sale => sale.id === saleId ? { ...sale, status: 'ANULADA' } : sale));
+                setSelectedSaleDetail(previous => previous?.id === saleId
+                    ? { ...previous, status: 'ANULADA' }
+                    : previous);
+                showToast('La caja confirmó la anulación de la venta.', 'success');
+            }
+        }
+    }, [allCloudCmds, inFlightChanges, pendingVoidSaleIds, pendingVoidCommands, persistInFlight, getChangeKey]);
+
     const wipeMonitorSession = async () => {
         localStorage.removeItem('dj_pairing_code');
         localStorage.removeItem('dj_pairing_mode');
@@ -928,39 +1106,48 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     }, []);
 
     const persistPending = useCallback((next) => {
-        setPendingChanges(next);
-        try { localStorage.setItem(PENDING_KEY, JSON.stringify(next)); } catch { /* storage lleno */ }
+        const normalized = normalizeSupervisorChanges(next);
+        setPendingChanges(normalized);
+        try { localStorage.setItem(PENDING_KEY, JSON.stringify(normalized)); } catch { /* storage lleno */ }
     }, []);
 
     // Fusión de cambios en cola con setPendingChanges(prev => ...) para evitar
     // closure stale cuando el usuario pulsa +/- rápidamente antes del re-render.
+    // Cada cambio conserva un UUID desde el primer intento; así un timeout del
+    // monitor no puede convertir el mismo clic en dos comandos distintos.
     const queueInventoryChange = useCallback((action, productId, data) => {
         setPendingChanges(prev => {
-            const next = [...prev];
+            const next = normalizeSupervisorChanges([...prev]);
+            const now = new Date().toISOString();
             const idxOf = (act) => next.findIndex(c => c.productId === productId && c.action === act);
+            const makeChange = (existing = null, nextData = data) => ({
+                ...(existing || {}),
+                action,
+                productId,
+                data: nextData,
+                commandId: existing?.commandId || createSupervisorCommandId(),
+                queuedAt: existing?.queuedAt || now,
+            });
 
             if (action === 'adjust_stock') {
                 const hasTarget = data?.targetStock !== undefined && data?.targetStock !== null && data?.targetStock !== '';
                 const adjustIndexes = next
                     .map((change, index) => ({ change, index }))
                     .filter(({ change }) => change.productId === productId && change.action === 'adjust_stock');
+                const lastAdjust = adjustIndexes[adjustIndexes.length - 1]?.change;
 
                 if (hasTarget) {
-                    // El ultimo "Fijar exacto" es una orden absoluta. Descarta
-                    // solo deltas aun no enviados; los que ya estan en vuelo
-                    // terminaran antes y la orden absoluta dejara el valor final.
-                    for (let i = adjustIndexes.length - 1; i >= 0; i--) {
-                        next.splice(adjustIndexes[i].index, 1);
-                    }
-                    next.push({ action, productId, data: { targetStock: Number(data.targetStock) }, queuedAt: new Date().toISOString() });
+                    // Un objetivo absoluto reemplaza únicamente lo que todavía
+                    // está en la cola local. Los comandos ya enviados tienen su
+                    // propio UUID y terminarán antes de este objetivo.
+                    for (let i = adjustIndexes.length - 1; i >= 0; i--) next.splice(adjustIndexes[i].index, 1);
+                    next.push(makeChange(lastAdjust, { targetStock: Number(data.targetStock) }));
                 } else {
                     const pendingTargetIndex = adjustIndexes.find(({ change }) =>
                         change.data?.targetStock !== undefined && change.data?.targetStock !== null && change.data?.targetStock !== ''
                     )?.index;
                     if (pendingTargetIndex !== undefined) {
-                        // Un delta posterior a un valor exacto debe conservar
-                        // el orden: primero fijar, luego sumar/restar.
-                        next.push({ action, productId, data: { delta: Number(data?.delta) || 0 }, queuedAt: new Date().toISOString() });
+                        next.push(makeChange(null, { delta: Number(data?.delta) || 0 }));
                     } else {
                         const pendingDeltaIndexes = adjustIndexes.filter(({ change }) =>
                             change.data?.targetStock === undefined || change.data?.targetStock === null || change.data?.targetStock === ''
@@ -972,42 +1159,45 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             else next[firstDelta.index] = {
                                 ...firstDelta.change,
                                 data: { delta: newDelta },
-                                queuedAt: new Date().toISOString()
+                                queuedAt: firstDelta.change.queuedAt || now,
                             };
                         } else {
-                            next.push({ action, productId, data: { delta: Number(data?.delta) || 0 }, queuedAt: new Date().toISOString() });
+                            next.push(makeChange(null, { delta: Number(data?.delta) || 0 }));
                         }
                     }
                 }
             } else if (action === 'edit') {
                 // F5: enviar la versión base (baseUpdatedAt) únicamente en edits para versionado optimista.
-                // Se lee de `products` (lo sincronizado desde la caja), no de la proyección
-                // local: la versión base es la que la caja tiene, no la que el monitor pinta.
                 const targetProd = (products || []).find(p => p.id === productId);
                 const editData = (targetProd?.updatedAt && !data?.baseUpdatedAt)
                     ? { ...data, baseUpdatedAt: targetProd.updatedAt }
                     : data;
-
                 const addIdx = idxOf('add');
                 if (addIdx >= 0) {
-                    next[addIdx] = { ...next[addIdx], data: { ...editData, id: productId }, queuedAt: new Date().toISOString() };
+                    next[addIdx] = {
+                        ...next[addIdx],
+                        data: { ...editData, id: productId },
+                        commandId: next[addIdx].commandId || createSupervisorCommandId(),
+                        queuedAt: next[addIdx].queuedAt || now,
+                    };
                 } else {
                     const i = idxOf('edit');
-                    if (i >= 0) next[i] = { ...next[i], data: editData, queuedAt: new Date().toISOString() };
-                    else next.push({ action, productId, data: editData, queuedAt: new Date().toISOString() });
+                    next[i >= 0 ? i : next.length] = makeChange(i >= 0 ? next[i] : null, editData);
                 }
             } else if (action === 'delete') {
+                const existing = next.find(c => c.productId === productId);
                 const hadAdd = idxOf('add') >= 0;
                 for (let i = next.length - 1; i >= 0; i--) {
                     if (next[i].productId === productId) next.splice(i, 1);
                 }
-                if (!hadAdd) next.push({ action, productId, data: null, queuedAt: new Date().toISOString() });
+                if (!hadAdd) next.push(makeChange(existing, null));
             } else {
-                next.push({ action, productId, data, queuedAt: new Date().toISOString() });
+                next.push(makeChange());
             }
 
-            try { localStorage.setItem(PENDING_KEY, JSON.stringify(next)); } catch { /* storage lleno */ }
-            return next;
+            const normalized = normalizeSupervisorChanges(next);
+            try { localStorage.setItem(PENDING_KEY, JSON.stringify(normalized)); } catch { /* storage lleno */ }
+            return normalized;
         });
         // No mostramos toast flotante ruidoso en cada clic individual;
         // la UI responde instantáneamente y la barra flotante inferior muestra los cambios pendientes.
@@ -1137,37 +1327,47 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             showToast('Sin conexión con la caja', 'error');
             return;
         }
-        const listToProcess = overrideList || pendingChanges;
-        if (!listToProcess || listToProcess.length === 0 || (!overrideList && uploading)) return;
+        if (uploadingRef.current) return;
+        const listToProcess = normalizeSupervisorChanges(overrideList || pendingChanges);
+        if (!listToProcess || listToProcess.length === 0) return;
+
+        uploadingRef.current = true;
         setUploading(true);
         const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
+        const actor = {
+            supervisorId: supervisorUser?.id || null,
+            supervisorNombre: supervisorUser?.nombre || supervisorUser?.usuario || 'Supervisor',
+            supervisorRol: supervisorUser?.rol || 'SUPERVISOR',
+        };
 
         try {
             const rowsToInsert = listToProcess.map(change => {
+                const commandId = change.commandId || createSupervisorCommandId();
                 const commandType = change.action === 'user_update' ? 'user_update' : 'inventory_update';
                 const payload = change.action === 'user_update'
-                    ? (change.data || {})
+                    ? { ...(change.data || {}), commandId, ...actor }
                     : {
                         action: change.action,
                         productId: change.productId,
                         data: change.data,
+                        commandId,
                         issuedAt: change.queuedAt || new Date().toISOString(),
+                        ...actor,
                     };
 
                 return {
+                    id: commandId,
                     primary_device_id: pairedDeviceId,
                     monitor_device_id: monitorDeviceId,
                     command_type: commandType,
-                    payload: payload,
+                    payload,
                     status: 'pending'
                 };
             });
 
-            // R2: inserción fila a fila. Antes iba en un único .insert(), y como
-            // Postgres es todo-o-nada, una sola fila inválida (CHECK de
-            // command_type, o RLS) rechazaba el lote entero. El supervisor veía un
-            // error genérico sin saber cuál de sus cambios lo causó, y la cola
-            // quedaba en un estado ambiguo.
+            // Inserción fila a fila: un cambio inválido no bloquea los demás.
+            // Si la respuesta se perdió después de que Postgres insertó la fila,
+            // el UUID estable se resuelve como "ya aceptado" en vez de crear otro.
             const okRows = [];
             const failedRows = [];
             const okChanges = [];
@@ -1175,9 +1375,24 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             for (let i = 0; i < rowsToInsert.length; i++) {
                 const row = rowsToInsert[i];
                 const change = listToProcess[i];
-                const { error: rowError } = await supabaseCloud
+                let { error: rowError } = await supabaseCloud
                     .from('supervisor_commands')
                     .insert(row);
+
+                if (rowError?.code === '23505') {
+                    const { data: existingCommand, error: lookupError } = await supabaseCloud
+                        .from('supervisor_commands')
+                        .select('id,status,primary_device_id,monitor_device_id')
+                        .eq('id', row.id)
+                        .maybeSingle();
+                    const isSamePair = existingCommand
+                        && existingCommand.primary_device_id === pairedDeviceId
+                        && existingCommand.monitor_device_id === monitorDeviceId;
+                    if (!lookupError && isSamePair
+                        && ['pending', 'applied', 'applied_with_warnings'].includes(existingCommand.status)) {
+                        rowError = null;
+                    }
+                }
 
                 if (rowError) {
                     failedRows.push({ row, change, message: rowError.message, code: rowError.code });
@@ -1187,7 +1402,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                     );
                 } else {
                     okRows.push(row);
-                    okChanges.push(change);
+                    okChanges.push({ ...change, commandId: row.id });
                 }
             }
 
@@ -1195,8 +1410,6 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 const detalle = failedRows
                     .map(f => `${f.row.command_type}${f.code ? ` (${f.code})` : ''}`)
                     .join(', ');
-                // Éxito parcial: los que pasaron ya están en la nube y NO deben
-                // reintentarse; solo los fallidos se quedan en la cola.
                 showToast(
                     `${okRows.length} de ${rowsToInsert.length} cambios enviados. Fallaron: ${detalle}`,
                     okRows.length > 0 ? 'warning' : 'error'
@@ -1204,12 +1417,13 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             }
 
             if (!overrideList) {
-                const remainingPending = pendingChanges.filter(c => !okChanges.includes(c));
+                const sentKeys = new Set(okChanges.map(getChangeKey));
+                const remainingPending = pendingChanges.filter(c => !sentKeys.has(getChangeKey(c)));
                 persistPending(remainingPending);
                 if (okChanges.length > 0) {
                     const sentAt = new Date().toISOString();
                     const nextInFlight = [
-                        ...inFlightChanges.filter(existing => !okChanges.some(sent => getChangeKey(sent) === getChangeKey(existing))),
+                        ...inFlightChanges.filter(existing => !sentKeys.has(getChangeKey(existing))),
                         ...okChanges.map(change => ({
                             ...change,
                             ...(change.action === 'adjust_stock'
@@ -1229,8 +1443,9 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             }
         } catch (err) {
             console.error('[OwnerMonitor] Excepción al subir lote:', err);
-            showToast('Error de conexión al enviar cambios', 'error');
+            showToast('Error de conexión al enviar cambios. La cola local se conserva.', 'error');
         } finally {
+            uploadingRef.current = false;
             setUploading(false);
         }
     };
@@ -1284,6 +1499,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         triggerHaptic?.();
         try {
             const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
+            const commandId = createSupervisorCommandId();
             const currentCierreId = Date.now();
 
             // El monitor NO calcula el cierre: su copia de bodega_sales_v1 puede estar
@@ -1292,10 +1508,12 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             const { error } = await supabaseCloud
                 .from('supervisor_commands')
                 .insert({
+                    id: commandId,
                     primary_device_id: pairedDeviceId,
                     monitor_device_id: monitorDeviceId,
                     command_type: 'force_daily_close',
                     payload: {
+                        commandId,
                         cierreId: currentCierreId,
                         referencia: {
                             totalUsd: activeShiftMetrics.totalUsd,
@@ -1304,6 +1522,9 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                         },
                         cashier: { nombre: 'Supervisión Remota', rol: 'SUPERVISOR_REMOTO' },
                         observedCashier: activeCashier?.nombre || null,
+                        supervisorId: supervisorUser?.id || null,
+                        supervisorName: supervisorUser?.nombre || supervisorUser?.usuario || 'Supervisor',
+                        supervisorRole: supervisorUser?.rol || 'SUPERVISOR',
                         copEnabled,
                         tasaCop,
                     },
@@ -1327,16 +1548,22 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         triggerHaptic?.();
         try {
             const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
+            const commandId = createSupervisorCommandId();
             const { error } = await supabaseCloud
                 .from('supervisor_commands')
                 .insert({
+                    id: commandId,
                     primary_device_id: pairedDeviceId,
                     monitor_device_id: monitorDeviceId,
                     command_type: 'reopen_shift',
                     payload: {
+                        commandId,
                         cierreId: targetCierreId || null,
                         cashier: { nombre: 'Supervisión Remota', rol: 'SUPERVISOR_REMOTO' },
                         observedCashier: activeCashier?.nombre || null,
+                        supervisorId: supervisorUser?.id || null,
+                        supervisorName: supervisorUser?.nombre || supervisorUser?.usuario || 'Supervisor',
+                        supervisorRole: supervisorUser?.rol || 'SUPERVISOR',
                     },
                     status: 'pending'
                 });
@@ -1518,7 +1745,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 try {
                     const raw = localStorage.getItem(PENDING_KEY);
                     const arr = raw ? JSON.parse(raw) : [];
-                    if (Array.isArray(arr)) setPendingChanges(arr);
+                    if (Array.isArray(arr)) setPendingChanges(normalizeSupervisorChanges(arr));
                 } catch { /* cola corrupta: se ignora */ }
             }
         };
@@ -1685,15 +1912,47 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         const breakdown = {};
         let totalVueltoBs = 0;
         let totalVueltoUsd = 0;
+        let totalVueltoCop = 0;
 
         // Movimientos del turno activo según shiftScope (incluye GASTO_INTERNO con afectaCaja)
         const activeFlow = getOpenShiftMovements(sales).movements.filter(s => s.tipo !== 'APERTURA_CAJA');
 
-        activeFlow.forEach(sale => {
+        const addResolutionRow = (id, label, part) => {
+            if (!part || (part.usd <= 0.009 && part.bs <= 0.009)) return;
+            if (!breakdown[id]) {
+                breakdown[id] = {
+                    totalUsd: 0,
+                    totalBs: 0,
+                    count: 0,
+                    label,
+                    currency: part.bs > 0.009 && part.usd <= 0.009 ? 'BS' : 'USD',
+                    isChange: true,
+                };
+            }
+            breakdown[id].totalUsd = round2(breakdown[id].totalUsd + part.usd);
+            breakdown[id].totalBs = round2(breakdown[id].totalBs + part.bs);
+        };
 
-            const { changeUsd, changeBs } = getSaleChangeDetails(sale, products, effectiveRate, bcvRate);
-            if (changeBs > 0) totalVueltoBs += changeBs;
-            if (changeUsd > 0) totalVueltoUsd += changeUsd;
+        activeFlow.forEach(sale => {
+            const saleChange = getSaleChangeDetails(sale, products, effectiveRate, bcvRate);
+            const { changeUsd, changeBs, changeCop } = saleChange;
+            if (changeBs > 0) totalVueltoBs = round2(totalVueltoBs + changeBs);
+            if (changeUsd > 0) totalVueltoUsd = round2(totalVueltoUsd + changeUsd);
+            if (changeCop > 0) totalVueltoCop = round2(totalVueltoCop + changeCop);
+
+            const ledger = saleChange.ledger;
+            addResolutionRow('vuelto_wallet', 'Abono a cuenta', ledger?.wallet);
+            addResolutionRow(
+                'vuelto_owed',
+                `Vuelto por fuera${ledger?.owed?.method ? ` (${ledger.owed.method})` : ''}`,
+                ledger?.owed,
+            );
+            addResolutionRow(
+                'vuelto_voucher',
+                `Voucher emitido${ledger?.voucher?.code ? ` (${ledger.voucher.code})` : ''}`,
+                ledger?.voucher,
+            );
+            addResolutionRow('vuelto_donado', 'Vuelto cedido/donado', ledger?.donated);
 
             if (sale.tipo === 'VENTA_FIADA') {
                 if (!breakdown['fiado']) {
@@ -1757,15 +2016,15 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
         const rate = effectiveRate || bcvRate || 1;
 
-        if (totalVueltoBs > 0) {
-            breakdown['vuelto_bs'] = {
-                totalUsd: totalVueltoBs / rate,
+        if (totalVueltoBs > 0) {                breakdown['vuelto_bs'] = {
+                totalUsd: 0,
                 totalBs: totalVueltoBs,
                 count: 0,
                 label: 'Vuelto Entregado (en Bs)',
                 currency: 'BS',
                 isChange: true
             };
+
         }
         if (totalVueltoUsd > 0) {
             breakdown['vuelto_usd'] = {
@@ -1774,6 +2033,17 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 count: 0,
                 label: 'Vuelto Entregado (en $)',
                 currency: 'USD',
+                isChange: true
+            };
+        }
+        if (totalVueltoCop > 0) {
+            breakdown['vuelto_cop'] = {
+                totalUsd: 0,
+                totalBs: 0,
+                totalCop: totalVueltoCop,
+                count: 0,
+                label: 'Vuelto Entregado (en COP)',
+                currency: 'COP',
                 isChange: true
             };
         }
@@ -2260,7 +2530,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             <main className="max-w-7xl mx-auto px-4 mt-6 space-y-6">
                 {/* Selector de Pestañas (100% Responsivo - Sin Recortes) */}
                 <div className="bg-slate-200/60 dark:bg-slate-900/60 p-1 rounded-2xl w-full shadow-sm">
-                    <div className="grid grid-cols-6 sm:flex sm:items-center gap-1 w-full">
+                    <div className="grid grid-cols-7 sm:flex sm:items-center gap-1 w-full">
                         <button
                             onClick={() => { triggerHaptic?.(); setViewTab('activo'); }}
                             className={`py-2 px-1 sm:px-3.5 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs truncate ${
@@ -2312,6 +2582,16 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                         >
                             <span className="sm:hidden">Inven.</span>
                             <span className="hidden sm:inline">Inventario</span>
+                        </button>
+                        <button
+                            onClick={() => { triggerHaptic?.(); setViewTab('kardex'); }}
+                            className={`py-2 px-1 sm:px-3.5 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs truncate ${
+                                viewTab === 'kardex'
+                                    ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm'
+                                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                            }`}
+                        >
+                            <span>Kardex</span>
                         </button>
                         <button
                             onClick={() => { triggerHaptic?.(); setViewTab('cambios'); }}
@@ -2710,7 +2990,16 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                                         {data.label}
                                                                     </span>
                                                                     <span className={`font-outfit text-xs font-black tabular-nums shrink-0 ${isChangeRow ? 'text-amber-600 dark:text-amber-400' : 'text-slate-800 dark:text-white'}`}>
-                                                                        {isChangeRow ? '− ' : ''}${data.totalUsd.toFixed(2)}
+                                                                        {isChangeRow
+                                                                            ? (() => {
+                                                                                const amount = [
+                                                                                    data.totalUsd > 0.009 ? `$${data.totalUsd.toFixed(2)}` : '',
+                                                                                    data.totalBs > 0.009 ? `Bs ${formatBs(data.totalBs)}` : '',
+                                                                                    data.totalCop > 0.009 ? `COP ${formatCop(data.totalCop)}` : '',
+                                                                                ].filter(Boolean).join(' · ');
+                                                                                return amount ? `− ${amount}` : '—';
+                                                                            })()
+                                                                            : `$${data.totalUsd.toFixed(2)}`}
                                                                     </span>
                                                                 </div>
                                                                 <div className="flex items-center justify-between gap-2 mt-1">
@@ -2723,7 +3012,15 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                                         {!isOutOfPct && <span className="text-[9px] font-black text-violet-500 bg-violet-50 dark:bg-violet-950/20 dark:text-violet-400 px-1.5 py-0.5 rounded-md">{pct}%</span>}
                                                                     </div>
                                                                     <span className={`font-outfit text-[10px] font-bold tabular-nums ${isChangeRow ? 'text-amber-600/80 dark:text-amber-400/80' : 'text-slate-400'}`}>
-                                                                        {isChangeRow ? '− ' : ''}{formatBs(data.totalBs)} Bs
+                                                                        {isChangeRow
+                                                                            ? data.totalBs > 0.009
+                                                                                ? `− ${formatBs(data.totalBs)} Bs`
+                                                                            : data.totalUsd > 0.009
+                                                                                ? `− $${data.totalUsd.toFixed(2)}`
+                                                                                : data.totalCop > 0.009
+                                                                                    ? `− COP ${formatCop(data.totalCop)}`
+                                                                                    : '—'
+                                                                            : `${formatBs(data.totalBs)} Bs`}
                                                                     </span>
                                                                 </div>
                                                                 {!isOutOfPct && (
@@ -3685,6 +3982,14 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                     </div>
                 )}
 
+                {/* ── SECCIÓN 4: KARDEX REMOTO BAJO DEMANDA ── */}
+                {viewTab === 'kardex' && (
+                    <RemoteKardexPanel
+                        deviceId={pairedDeviceId}
+                        triggerHaptic={triggerHaptic}
+                    />
+                )}
+
                 {/* ── SECCIÓN 5: HISTORIAL Y GESTIÓN DEDICADA DE CAMBIOS ── */}
                 {viewTab === 'cambios' && (
                     <div className="space-y-6 animate-fade-in">
@@ -4548,13 +4853,13 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                     effectiveRate={effectiveRate}
                     products={products}
                     pairedDeviceId={pairedDeviceId}
-                    onVoidSaleSuccess={(saleId) => {
-                        setSelectedSaleDetail(prev => prev ? { ...prev, status: 'ANULADA' } : null);
-                        setSales(prevSales => {
-                            const updated = prevSales.map(s => s.id === saleId ? { ...s, status: 'ANULADA' } : s);
-                            storageService.setItem('bodega_sales_v1', updated).catch(() => {});
-                            return updated;
-                        });
+                    actor={supervisorUser}
+                    pendingVoid={selectedSaleDetail?.id ? pendingVoidSaleIds.has(selectedSaleDetail.id) : false}
+                    onVoidSaleSuccess={(saleId, commandId) => {
+                        setPendingVoidSaleIds(previous => new Set(previous).add(saleId));
+                        if (commandId) {
+                            setPendingVoidCommands(previous => ({ ...previous, [saleId]: commandId }));
+                        }
                     }}
                 />
             )}
