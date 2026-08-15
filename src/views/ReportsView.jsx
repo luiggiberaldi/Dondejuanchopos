@@ -21,6 +21,8 @@ import InventoryAuditPanel from '../components/Reports/InventoryAuditPanel';
 const SALES_KEY = 'bodega_sales_v1';
 
 const RANGE_OPTIONS = [
+    { id: 'currentShift', label: 'Turno Actual' },
+    { id: 'lastShift', label: 'Último Turno' },
     { id: 'today', label: 'Hoy' },
     { id: 'yesterday', label: 'Ayer' },
     { id: 'week', label: 'Esta Semana' },
@@ -115,6 +117,12 @@ export default function ReportsView({ rates, triggerHaptic, onNavigate, isActive
                 to: customTo || getLocalISODate(new Date()),
             };
         }
+        if (selectedRange === 'currentShift' || selectedRange === 'lastShift') {
+            return {
+                from: getLocalISODate(new Date()),
+                to: getLocalISODate(new Date()),
+            };
+        }
         return getDateRange(selectedRange);
     }, [selectedRange, customFrom, customTo]);
 
@@ -130,7 +138,10 @@ export default function ReportsView({ rates, triggerHaptic, onNavigate, isActive
         paymentBreakdown,
         topProducts,
         salesByDay
-    } = useMemo(() => calculateReportsData(allSales, from, to, bcvRate, products), [allSales, from, to, bcvRate, products]);
+    } = useMemo(() => {
+        const shiftMode = (selectedRange === 'currentShift' || selectedRange === 'lastShift') ? selectedRange : null;
+        return calculateReportsData(allSales, from, to, bcvRate, products, shiftMode);
+    }, [allSales, from, to, bcvRate, products, selectedRange]);
 
     const groupedClosings = useMemo(() => {
         if (activeTab === 'history') {

@@ -1,27 +1,46 @@
 import { FinancialEngine } from '../core/FinancialEngine';
 import { getLocalISODate } from './dateHelpers';
 import { mulR, sumR, round2 } from './dinero';
-import { isCashFlowMovement } from './shiftScope';
+import { isCashFlowMovement, getOpenShiftMovements } from './shiftScope';
 
-export function calculateReportsData(allSales, from, to, bcvRate, products) {
-    // Ventas de Mercancía (para Totales, Profit, Top Productos)
-    const salesForStats = allSales.filter(s => {
-        if (s.status === 'ANULADA' || (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'VENTA_CASHEA')) return false;
-        const dateStr = getLocalISODate(new Date(s.timestamp));
-        return dateStr >= from && dateStr <= to;
-    });
+export function calculateReportsData(allSales, from, to, bcvRate, products, shiftMode = null) {
+    let salesForStats = [];
+    let salesForCashFlow = [];
+    let historySales = [];
 
-    // Flujo de Dinero (para Desglose de Pagos, usa el predicado unificado isCashFlowMovement)
-    const salesForCashFlow = allSales.filter(s => {
-        const dateStr = getLocalISODate(new Date(s.timestamp));
-        return dateStr >= from && dateStr <= to && isCashFlowMovement(s);
-    });
+    if (shiftMode === 'currentShift') {
+        const { movements } = getOpenShiftMovements(allSales);
+        salesForStats = movements.filter(s => s.status !== 'ANULADA' && (s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA'));
+        salesForCashFlow = movements.filter(s => isCashFlowMovement(s));
+        historySales = salesForStats;
+    } else if (shiftMode === 'lastShift') {
+        const closings = groupSalesByCierreId(allSales);
+        const lastCierre = closings[0];
+        if (lastCierre) {
+            salesForStats = lastCierre.salesForStats || [];
+            salesForCashFlow = lastCierre.salesForCashFlow || [];
+            historySales = salesForStats;
+        }
+    } else {
+        // Ventas de Mercancía (para Totales, Profit, Top Productos)
+        salesForStats = allSales.filter(s => {
+            if (s.status === 'ANULADA' || (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'VENTA_CASHEA')) return false;
+            const dateStr = getLocalISODate(new Date(s.timestamp));
+            return dateStr >= from && dateStr <= to;
+        });
 
-    const historySales = allSales.filter(s => {
-        if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'VENTA_CASHEA') return false;
-        const dateStr = getLocalISODate(new Date(s.timestamp));
-        return dateStr >= from && dateStr <= to;
-    });
+        // Flujo de Dinero (para Desglose de Pagos, usa el predicado unificado isCashFlowMovement)
+        salesForCashFlow = allSales.filter(s => {
+            const dateStr = getLocalISODate(new Date(s.timestamp));
+            return dateStr >= from && dateStr <= to && isCashFlowMovement(s);
+        });
+
+        historySales = allSales.filter(s => {
+            if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'VENTA_CASHEA') return false;
+            const dateStr = getLocalISODate(new Date(s.timestamp));
+            return dateStr >= from && dateStr <= to;
+        });
+    }
 
     const totalUsd = sumR(salesForStats.map(sale => sale.totalUsd || 0));
     const totalBs = sumR(salesForStats.map(sale => sale.totalBs || 0));
@@ -68,11 +87,15 @@ export function calculateReportsData(allSales, from, to, bcvRate, products) {
     };
 }
 
-export function groupSalesByCierreId(allSales, from, to) {
-    // 1. Encontrar ventas/aperturas que caen en el rango y tienen cierreId
-    const entitiesInDateRange = allSales.filter(s => {
-        const dateStr = getLocalISODate(new Date(s.timestamp));
-        return dateStr >= from && dateStr <= to && s.cierreId;
+export function groupSalesByCierreId(allSales, from = null, to = null) {
+    // 1. Encontrar ventas/aperturas que tienen cierreId (y opcionalmente caen en el rango de fechas)
+    const entitiesInDateRange = (allSales || []).filter(s => {
+        if (!s.cierreId) return false;
+        if (from && to) {
+            const dateStr = getLocalISODate(new Date(s.timestamp));
+            return dateStr >= from && dateStr <= to;
+        }
+        return true;
     });
 
     // 2. Agrupar por cierreId

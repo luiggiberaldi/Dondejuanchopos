@@ -537,24 +537,6 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const [artFrom, setArtFrom] = useState(() => getDateRange('week').from);
     const [artTo, setArtTo] = useState(() => getDateRange('week').to);
 
-    const artSalesForStats = useMemo(() => {
-        if (viewTab !== 'articulos') return [];
-        return (sales || []).filter(s => {
-            if (s.status === 'ANULADA') return false;
-            if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'VENTA_CASHEA') return false;
-            const ts = s.timestamp || s.created_at || s.date;
-            if (!ts) return false;
-            let dateStr = '';
-            if (typeof ts === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(ts.trim())) {
-                dateStr = ts.trim();
-            } else {
-                const parsed = new Date(ts);
-                dateStr = isNaN(parsed.getTime()) ? '' : getLocalISODate(parsed);
-            }
-            return dateStr >= artFrom && dateStr <= artTo;
-        });
-    }, [sales, artFrom, artTo, viewTab]);
-
     // ── Edición remota de inventario (comandos supervisor → caja) ──
     const [showRemoteForm, setShowRemoteForm] = useState(false);
     const [remoteEditingProduct, setRemoteEditingProduct] = useState(null);
@@ -2250,6 +2232,42 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             setSelectedCierreId(registerCloses[0].cierreId);
         }
     }, [registerCloses, selectedCierreId]);
+
+    // ── Ventas para Reporte de Artículos según Rango Seleccionado ──
+    const artSalesForStats = useMemo(() => {
+        if (viewTab !== 'articulos') return [];
+
+        if (artRange === 'currentShift') {
+            if (activeShiftSales && activeShiftSales.length > 0) {
+                return activeShiftSales.filter(s => s.status !== 'ANULADA');
+            }
+            const openMovements = getOpenShiftMovements(sales).movements;
+            return openMovements.filter(s => s.status !== 'ANULADA' && (s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA'));
+        }
+
+        if (artRange === 'lastShift') {
+            if (registerCloses && registerCloses.length > 0) {
+                const latestCierre = registerCloses[0];
+                return (latestCierre.sales || []).filter(s => s.status !== 'ANULADA' && (s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA'));
+            }
+            return [];
+        }
+
+        return (sales || []).filter(s => {
+            if (s.status === 'ANULADA') return false;
+            if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'VENTA_CASHEA') return false;
+            const ts = s.timestamp || s.created_at || s.date;
+            if (!ts) return false;
+            let dateStr = '';
+            if (typeof ts === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(ts.trim())) {
+                dateStr = ts.trim();
+            } else {
+                const parsed = new Date(ts);
+                dateStr = isNaN(parsed.getTime()) ? '' : getLocalISODate(parsed);
+            }
+            return dateStr >= artFrom && dateStr <= artTo;
+        });
+    }, [sales, artFrom, artTo, artRange, viewTab, activeShiftSales, registerCloses]);
 
 
     // ── COMPONENTES GENERALES ──

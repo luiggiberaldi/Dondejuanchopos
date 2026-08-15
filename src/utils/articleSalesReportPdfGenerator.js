@@ -16,6 +16,7 @@ export async function generateArticleSalesReportPDF({
     reportData,
     from,
     to,
+    rangeTitle = '',
     filters = {},
     bcvRate = 0,
 }) {
@@ -138,7 +139,9 @@ export async function generateArticleSalesReportPDF({
         doc.setFontSize(8);
         doc.setTextColor(COLOR_MUTED[0], COLOR_MUTED[1], COLOR_MUTED[2]);
 
-        const rangeStr = from === to ? `Fecha: ${from}` : `Período: ${from} al ${to}`;
+        const rangeStr = rangeTitle
+            ? `Período: ${rangeTitle}`
+            : (from === to ? `Fecha: ${from}` : `Período: ${from} al ${to}`);
         const catStr = filters.selectedCategories?.length > 0
             ? `Categorías: ${filters.selectedCategories.join(', ')}`
             : 'Categorías: Todas';

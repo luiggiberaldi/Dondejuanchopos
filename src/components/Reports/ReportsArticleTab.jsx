@@ -7,6 +7,8 @@ import { getDateRange, getLocalISODate } from '../../utils/dateHelpers';
 import EmptyState from '../EmptyState';
 
 const RANGE_OPTIONS = [
+    { id: 'currentShift', label: 'Turno Actual' },
+    { id: 'lastShift', label: 'Último Turno' },
     { id: 'today', label: 'Hoy' },
     { id: 'yesterday', label: 'Ayer' },
     { id: 'week', label: 'Esta Semana' },
@@ -84,9 +86,9 @@ export default function ReportsArticleTab({
     // Manejador de cambio de rango cuando se usa en Supervisor Mode
     const handleRangeChange = (rangeId) => {
         triggerHaptic && triggerHaptic();
-        if (setArtRange && setArtFrom && setArtTo) {
+        if (setArtRange) {
             setArtRange(rangeId);
-            if (rangeId !== 'custom') {
+            if (rangeId !== 'custom' && rangeId !== 'currentShift' && rangeId !== 'lastShift' && setArtFrom && setArtTo) {
                 const { from: newFrom, to: newTo } = getDateRange(rangeId);
                 setArtFrom(newFrom);
                 setArtTo(newTo);
@@ -187,10 +189,15 @@ export default function ReportsArticleTab({
         triggerHaptic && triggerHaptic();
         setIsGeneratingPdf(true);
         try {
+            let rangeTitle = '';
+            if (artRange === 'currentShift') rangeTitle = 'Turno Actual (Sesión Activa)';
+            else if (artRange === 'lastShift') rangeTitle = 'Último Turno Cerrado';
+
             await generateArticleSalesReportPDF({
                 reportData,
                 from,
                 to,
+                rangeTitle,
                 filters: { selectedCategories, search, selectedArticleIds },
                 bcvRate,
             });
@@ -252,6 +259,17 @@ export default function ReportsArticleTab({
                             <Calendar size={15} className="text-brand dark:text-brand" />
                             <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Período de Consulta:</span>
                         </div>
+                        {artRange === 'currentShift' && (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 px-2.5 py-0.5 rounded-lg">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                ⚡ Turno Actual (Sesión activa)
+                            </span>
+                        )}
+                        {artRange === 'lastShift' && (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/50 px-2.5 py-0.5 rounded-lg">
+                                🔒 Último Turno Cerrado
+                            </span>
+                        )}
                         {artRange === 'custom' && from && to && (
                             <span className="hidden sm:inline-block text-[11px] font-bold text-brand dark:text-brand bg-brand/10 px-2.5 py-0.5 rounded-lg">
                                 📅 {formatRangeSummary(from, to)}
