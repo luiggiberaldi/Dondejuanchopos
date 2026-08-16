@@ -28,6 +28,7 @@ const MODES = [
         activeCls: 'border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500/40',
         iconCls: 'text-emerald-500',
         desc: () => 'Ej: $1 si paga en divisa, $2 (en Bs) si paga en bolívares — se ajusta solo con la tasa',
+        hidden: true, // Oculto de la interfaz a petición del usuario (sin eliminar)
     },
     {
         id: 'bs_fijo',
@@ -39,10 +40,13 @@ const MODES = [
     },
 ];
 
-export default function PricingModeSelector({ value, onChange, effectiveRate, bcvRate, compact = false }) {
+export default function PricingModeSelector({ value, onChange, effectiveRate, bcvRate, compact = false, showHidden = false }) {
+    const visibleModes = MODES.filter(m => !m.hidden || showHidden || value === m.id);
+    const gridCols = visibleModes.length === 3 ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2';
+
     return (
-        <div className={`grid grid-cols-1 sm:grid-cols-2 ${compact ? 'gap-2' : 'gap-2.5'}`}>
-            {MODES.map(m => {
+        <div className={`grid ${gridCols} ${compact ? 'gap-2' : 'gap-2.5'}`}>
+            {visibleModes.map(m => {
                 const Icon = m.icon;
                 const active = value === m.id;
                 return (
