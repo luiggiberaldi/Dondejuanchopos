@@ -148,16 +148,26 @@ export class FinancialEngine {
         let brutoBs = 0;
         let brutoCop = 0;
 
-        const isDigitalOrCredit = (key, label) => {
+        const isDigitalOrCredit = (key, label, isCash) => {
+            if (isCash === false) return true;
+            if (isCash === true) return false;
+
             const l = (key + ' ' + (label || '')).toLowerCase();
-            return l.includes('zelle') || l.includes('binance') || l.includes('punto') || l.includes('transfer') || l.includes('tarjeta') || l.includes('pago_movil') || l.includes('pagomovil') || l.includes('fiado') || l.includes('cashea') || l.includes('saldo_favor');
+            return l.includes('zelle') || l.includes('binance') || l.includes('punto') || 
+                   l.includes('transfer') || l.includes('trasfer') || l.includes('transf') || 
+                   l.includes('banco') || l.includes('banesco') || l.includes('mercantil') || 
+                   l.includes('bdv') || l.includes('provincial') || l.includes('venezuela') || 
+                   l.includes('tarjeta') || l.includes('debito') || l.includes('credito') ||
+                   l.includes('pago_movil') || l.includes('pagomovil') || l.includes('movil') || 
+                   l.includes('biopago') || l.includes('fiado') || l.includes('cashea') || 
+                   l.includes('saldo_favor') || l.includes('digital') || l.includes('pos');
         };
 
         Object.keys(breakdown).forEach(k => {
             if (k.startsWith('_')) return;
             const item = breakdown[k];
             if (!item || typeof item.total !== 'number') return;
-            if (isDigitalOrCredit(k, item.label)) return;
+            if (isDigitalOrCredit(k, item.label, item.isCash)) return;
 
             const curr = (item.currency || '').toUpperCase();
             const keyLower = k.toLowerCase();
@@ -238,7 +248,10 @@ export class FinancialEngine {
                             breakdown[p.methodId] = {
                                 total: 0,
                                 currency: p.currency || 'BS',
-                                label: resolvedLabel
+                                label: resolvedLabel,
+                                isCash: typeof p.isCash === 'boolean'
+                                    ? p.isCash
+                                    : (p.methodId?.startsWith('efectivo_') || p.methodId === 'efectivo' || p.methodId === 'dolares')
                             };
                         }
                         let val = 0;
@@ -263,7 +276,8 @@ export class FinancialEngine {
                     }
 
                     if (!breakdown[method]) {
-                        breakdown[method] = { total: 0, currency: currency, label: _resolveMethodLabel(method) };
+                        const isCashVal = method.startsWith('efectivo_') || method === 'efectivo' || method === 'dolares';
+                        breakdown[method] = { total: 0, currency: currency, label: _resolveMethodLabel(method), isCash: isCashVal };
                     }
                     breakdown[method].total = round2(breakdown[method].total + round2(valToDeduct));
                 }
@@ -326,7 +340,8 @@ export class FinancialEngine {
                 }
 
                 if (!breakdown[method]) {
-                    breakdown[method] = { total: 0, currency: currency, label: _resolveMethodLabel(method) };
+                    const isCashVal = method.startsWith('efectivo_') || method === 'efectivo' || method === 'dolares';
+                    breakdown[method] = { total: 0, currency: currency, label: _resolveMethodLabel(method), isCash: isCashVal };
                 }
                 breakdown[method].total = round2(breakdown[method].total + valueToSum);
             } else {
@@ -342,7 +357,10 @@ export class FinancialEngine {
                         breakdown[p.methodId] = {
                             total: 0,
                             currency: p.currency || 'BS',
-                            label: resolvedLabel
+                            label: resolvedLabel,
+                            isCash: typeof p.isCash === 'boolean'
+                                ? p.isCash
+                                : (p.methodId?.startsWith('efectivo_') || p.methodId === 'efectivo' || p.methodId === 'dolares')
                         };
                     }
 
