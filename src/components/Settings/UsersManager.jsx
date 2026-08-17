@@ -72,10 +72,11 @@ function PinInput({ value, onChange, label, length = 6, showDigits = false }) {
 
 // ─── User Row ──────────────────────────────────────
 function UserRow({ user, currentUserId, onChangePin, onDelete, onEditName, onToggleBypassPin, triggerHaptic }) {
-    const roleConf = ROLE_CONFIG[user.rol] || ROLE_CONFIG.CAJERO;
+    const effectiveRole = user.rol || (user.id === 1 ? 'ADMIN' : 'CAJERO');
+    const roleConf = ROLE_CONFIG[effectiveRole] || ROLE_CONFIG.CAJERO;
     const RoleIcon = roleConf.icon;
     const isCurrentUser = user.id === currentUserId;
-    const isAdmin = user.rol === 'ADMIN';
+    const isAdmin = effectiveRole === 'ADMIN';
     const [showUserPin, setShowUserPin] = useState(false);
 
     return (
@@ -128,7 +129,7 @@ function UserRow({ user, currentUserId, onChangePin, onDelete, onEditName, onTog
                     >
                         <Edit2 size={16} />
                     </button>
-                    {!isCurrentUser && (
+                    {!isCurrentUser && !isAdmin && (
                         <button
                             onClick={() => { triggerHaptic?.(); onDelete(user); }}
                             className="p-2 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-all active:scale-90 cursor-pointer"
@@ -165,7 +166,7 @@ function UserRow({ user, currentUserId, onChangePin, onDelete, onEditName, onTog
                         </button>
                     )}
 
-                    {!isCurrentUser && user.rol !== 'ADMIN' && (
+                    {!isCurrentUser && !isAdmin && (
                         <label className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 cursor-pointer select-none">
                             <input
                                 type="checkbox"
@@ -212,7 +213,13 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
         };
     }, []);
 
-    const displayUsers = syncedUsers && syncedUsers.length > 0 ? syncedUsers : usuarios;
+    const displayUsers = useMemo(() => {
+        const list = syncedUsers && syncedUsers.length > 0 ? syncedUsers : usuarios;
+        return (list || []).map(u => ({
+            ...u,
+            rol: u.rol || (u.id === 1 ? 'ADMIN' : 'CAJERO'),
+        }));
+    }, [syncedUsers, usuarios]);
 
     // Helper para encolar cambios de usuario en la cola de 'Subir al Sistema' (solo en modo Monitor via onQueueChange prop)
     const pushRemoteUserCmd = (userAction, payload) => {

@@ -67,7 +67,7 @@ function isDuplicateProductIdFailure(command) {
     return /DUPLICATE_PRODUCT_ID_CONFLICT|Ya existe un producto con ese ID/i.test(reason);
 }
 
-function applyProjectedStock(baseStock, changes = []) {
+export function applyProjectedStock(baseStock, changes = []) {
     let stock = Math.max(0, Number(baseStock) || 0);
     for (const change of changes) {
         if (change?.action !== 'adjust_stock') continue;
@@ -618,7 +618,7 @@ const INFLIGHT_KEY = 'dj_inflight_inventory_changes_v1';
 
 export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) {
     const pairedDeviceId = localStorage.getItem('dj_paired_device_id');
-    const { products, effectiveRate, copEnabled, tasaCop, rates, categories, isBsWizardOpen, openBsCongeladoWizard, closeBsCongeladoWizard, bsCongeladoAlert, previousRate, bsRoundingStep, rateMode } = useProductContext();
+    const { products, setProducts, effectiveRate, copEnabled, tasaCop, rates, categories, isBsWizardOpen, openBsCongeladoWizard, closeBsCongeladoWizard, bsCongeladoAlert, previousRate, bsRoundingStep, rateMode } = useProductContext();
     const bcvRate = rates?.bcv?.price || effectiveRate;
     const { isConnected, lastSync, loading: syncLoading, triggerRefresh, posLastSeen, isPosOnline, presenceError } = useMonitorSync(pairedDeviceId);
 
@@ -665,14 +665,26 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         try {
             const raw = localStorage.getItem(PENDING_KEY);
             const arr = raw ? JSON.parse(raw) : [];
-            return normalizeSupervisorChanges(arr);
+            const now = Date.now();
+            const MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h para pendientes locales
+            const valid = (Array.isArray(arr) ? arr : []).filter(c => {
+                const time = new Date(c.queuedAt || c.sentAt || 0).getTime();
+                return !Number.isFinite(time) || (now - time) < MAX_AGE_MS;
+            });
+            return normalizeSupervisorChanges(valid);
         } catch { return []; }
     });
     const [inFlightChanges, setInFlightChanges] = useState(() => {
         try {
             const raw = localStorage.getItem(INFLIGHT_KEY);
             const arr = raw ? JSON.parse(raw) : [];
-            return normalizeSupervisorChanges(arr);
+            const now = Date.now();
+            const MAX_INFLIGHT_AGE_MS = 20 * 60 * 1000; // 20 minutos máximo para cambios en confirmación huérfanos
+            const valid = (Array.isArray(arr) ? arr : []).filter(c => {
+                const time = new Date(c.sentAt || c.queuedAt || 0).getTime();
+                return Number.isFinite(time) && (now - time) < MAX_INFLIGHT_AGE_MS;
+            });
+            return normalizeSupervisorChanges(valid);
         } catch { return []; }
     });
     const [uploading, setUploading] = useState(false);
@@ -680,6 +692,9 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const [exportingCierreId, setExportingCierreId] = useState(null);
     const [stockAlertTab, setStockAlertTab] = useState('agotados'); // 'agotados' | 'critico'
     const notifiedCommandIdsRef = React.useRef(new Set());
+    const [recentlyConfirmedIds, setRecentlyConfirmedIds] = useState(() => new Set());
+    const autoUploadTimerRef = React.useRef(null);
+    const uploadPendingChangesRef = React.useRef(null);
 
     // El polling de estado solo consulta IDs que el Supervisor ya conoce. Así
     // recupera un UPDATE perdido sin volver a descargar los 150 comandos cada
@@ -825,9 +840,56 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
         const resolvedKeys = new Set([...confirmedKeys, ...rejectedKeys]);
         if (resolvedKeys.size > 0) {
+            const confirmedChanges = inFlightChanges.filter(change => confirmedKeys.has(getChangeKey(change)));
+            const confirmedProdIds = confirmedChanges.map(c => String(c.productId || c.data?.id)).filter(Boolean);
+
+            if (confirmedChanges.length > 0 && typeof setProducts === 'function') {
+                setProducts(prevProducts => {
+                    let updated = Array.isArray(prevProducts) ? [...prevProducts] : [];
+                    for (const change of confirmedChanges) {
+                        const pId = String(change.productId || change.data?.id);
+                        const existingIdx = updated.findIndex(p => String(p.id) === pId);
+
+                        if (change.action === 'adjust_stock' && existingIdx >= 0) {
+                            const newStock = applyProjectedStock(updated[existingIdx].stock, [change]);
+                            updated[existingIdx] = { ...updated[existingIdx], stock: newStock };
+                        } else if (change.action === 'edit' && existingIdx >= 0) {
+                            updated[existingIdx] = { ...updated[existingIdx], ...(change.data || {}) };
+                        } else if (change.action === 'add') {
+                            if (existingIdx < 0 && change.data) {
+                                updated.unshift({ ...change.data, id: change.productId || change.data.id });
+                            }
+                        } else if (change.action === 'delete' && existingIdx >= 0) {
+                            updated.splice(existingIdx, 1);
+                        }
+                    }
+                    try {
+                        import('../utils/storageService').then(({ storageService }) => {
+                            storageService.setItem('bodega_products_v1', updated).catch(() => {});
+                        });
+                    } catch {}
+                    return updated;
+                });
+            }
+
+            if (confirmedProdIds.length > 0) {
+                setRecentlyConfirmedIds(prev => {
+                    const next = new Set(prev);
+                    confirmedProdIds.forEach(id => next.add(id));
+                    return next;
+                });
+                setTimeout(() => {
+                    setRecentlyConfirmedIds(prev => {
+                        const next = new Set(prev);
+                        confirmedProdIds.forEach(id => next.delete(id));
+                        return next;
+                    });
+                }, 3000);
+            }
+
             persistInFlight(inFlightChanges.filter(change => !resolvedKeys.has(getChangeKey(change))));
         }
-    }, [products, inFlightChanges, allCloudCmds, getChangeKey, isInventoryChangeConfirmed, persistInFlight]);
+    }, [products, setProducts, inFlightChanges, allCloudCmds, getChangeKey, isInventoryChangeConfirmed, persistInFlight]);
 
     // 📄 Generar y Descargar PDF del Cierre Seleccionado
     const handleDownloadCierrePDF = async (cierreObj, e) => {
@@ -1262,8 +1324,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             try { localStorage.setItem(PENDING_KEY, JSON.stringify(normalized)); } catch { /* storage lleno */ }
             return normalized;
         });
-        // No mostramos toast flotante ruidoso en cada clic individual;
-        // la UI responde instantáneamente y la barra flotante inferior muestra los cambios pendientes.
+
         return true;
     }, [products]);
 
@@ -1512,10 +1573,12 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             setUploading(false);
         }
     };
+    uploadPendingChangesRef.current = uploadPendingChanges;
 
     const discardPendingChanges = () => {
         persistPending([]);
-        showToast('Cambios pendientes descartados', 'info');
+        persistInFlight([]);
+        showToast('Cola de cambios limpiada', 'info');
     };
 
     const cancelSingleCloudCmd = async (cmdId) => {
@@ -1663,6 +1726,10 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 merged = { ...merged, ...editChange.data };
             }
 
+            const isLocalPending = pendingChanges.some(c => String(c.productId) === String(p.id));
+            const isInFlight = inFlightChanges.some(c => String(c.productId) === String(p.id));
+            const isRecentlyConfirmed = recentlyConfirmedIds.has(String(p.id));
+
             const baseStock = Number(merged.stock) || 0;
             return {
                 ...merged,
@@ -1670,7 +1737,11 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 _rawStock: baseStock,
                 _stockDelta: stockDelta,
                 _isQueuedDelete: isDeleted,
-                _isQueuedEdit: !!editChange
+                _isQueuedEdit: !!editChange,
+                _isLocalPending: isLocalPending,
+                _isInFlight: isInFlight,
+                _isPendingSync: isLocalPending || isInFlight,
+                _isRecentlyConfirmed: isRecentlyConfirmed,
             };
         });
 
@@ -1679,16 +1750,24 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
         // Agregar a la vista los creados en cola (nuevos)
         const addChanges = allProjectedChanges.filter(c => c.action === 'add');
-        const newItems = addChanges.filter(c => c.data).map(addChange => ({
-            ...addChange.data,
-            id: addChange.productId || addChange.data.id || `temp_${Date.now()}`,
-            name: addChange.data.name || 'Nuevo Producto',
-            category: addChange.data.category || 'Varios',
-            stock: Number(addChange.data.stock || 0),
-            priceUsd: Number(addChange.data.priceUsd || addChange.data.price || 0),
-            costUsd: Number(addChange.data.costUsd || addChange.data.costPrice || 0),
-            _isQueuedNew: true
-        }));
+        const newItems = addChanges.filter(c => c.data).map(addChange => {
+            const tempId = addChange.productId || addChange.data.id || `temp_${Date.now()}`;
+            const isAddInFlight = inFlightChanges.some(c => c.action === 'add' && String(c.productId || c.data?.id) === String(tempId));
+            return {
+                ...addChange.data,
+                id: tempId,
+                name: addChange.data.name || 'Nuevo Producto',
+                category: addChange.data.category || 'Varios',
+                stock: Number(addChange.data.stock || 0),
+                priceUsd: Number(addChange.data.priceUsd || addChange.data.price || 0),
+                costUsd: Number(addChange.data.costUsd || addChange.data.costPrice || 0),
+                _isQueuedNew: true,
+                _isLocalPending: !isAddInFlight,
+                _isInFlight: isAddInFlight,
+                _isPendingSync: true,
+                _isRecentlyConfirmed: recentlyConfirmedIds.has(String(tempId)),
+            };
+        });
 
         const combinedList = [...newItems, ...activeList];
 
@@ -1701,7 +1780,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             }
             return { ...p, _effectiveCost: effCost, costUsd: p.costUsd || effCost };
         });
-    }, [products, pendingChanges, inFlightChanges]);
+    }, [products, pendingChanges, inFlightChanges, recentlyConfirmedIds]);
 
     const filteredProducts = useMemo(() => {
         return projectedProducts.filter(p => {
@@ -3884,19 +3963,23 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                                 ½ Caja{p.halfBoxUnits ? ` ×${p.halfBoxUnits}` : ''}
                                                             </span>
                                                         )}
-                                                        {p._isQueuedNew && (
-                                                            <span className="text-[9.5px] font-black uppercase px-2 py-0.5 rounded-lg bg-purple-100 text-purple-800 dark:bg-purple-950/80 dark:text-purple-200 border border-purple-300">
-                                                                Nuevo en cola
+                                                        {p._isRecentlyConfirmed && (
+                                                            <span className="inline-flex items-center gap-1 text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 animate-in fade-in zoom-in-95 duration-200 shadow-2xs">
+                                                                <span>✓ Confirmado</span>
                                                             </span>
                                                         )}
-                                                        {p._isQueuedEdit && !p._isQueuedNew && (
-                                                            <span className="text-[9.5px] font-black uppercase px-2 py-0.5 rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-200 border border-amber-300">
-                                                                Editado en cola
+                                                        {p._isInFlight && !p._isRecentlyConfirmed && (
+                                                            <span className="inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-200 border border-blue-300 dark:border-blue-700 animate-pulse transition-all shadow-2xs">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0 animate-ping" />
+                                                                <span className="hidden sm:inline">⏳ Sincronizando con caja...</span>
+                                                                <span className="sm:hidden">⏳ Sincronizando</span>
                                                             </span>
                                                         )}
-                                                        {hasPendingFor(p.id) && pendingStockDelta(p.id) === 0 && !p._isQueuedEdit && !p._isQueuedNew && (
-                                                            <span className="text-[9.5px] font-black uppercase px-2 py-0.5 rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-200 border border-amber-300 animate-pulse">
-                                                                Cambio pendiente
+                                                        {(p._isLocalPending || p._isQueuedNew || p._isQueuedEdit || hasPendingFor(p.id)) && !p._isInFlight && !p._isRecentlyConfirmed && (
+                                                            <span className="inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-amber-100/90 text-amber-800 dark:bg-amber-950/80 dark:text-amber-200 border border-amber-300/80 dark:border-amber-700 transition-all shadow-2xs">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                                                                <span className="hidden sm:inline">⏳ En cola local (Sin subir)</span>
+                                                                <span className="sm:hidden">⏳ En cola local</span>
                                                             </span>
                                                         )}
                                                     </div>
@@ -4903,31 +4986,31 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                         : `${inFlightChanges.length} cambio${inFlightChanges.length !== 1 ? 's' : ''} en confirmación`}
                                 </p>
                                 <p className="text-[9.5px] text-slate-300 font-medium leading-none mt-0.5 hidden sm:block truncate">
-                                    Aún no se han enviado a la caja
+                                    {pendingChanges.length > 0 ? 'Aún no se han enviado a la caja' : 'Esperando confirmación de la caja'}
                                 </p>
                             </div>
                         </div>
 
                         {/* Botones de Acción */}
                         <div className="flex items-center gap-1.5 shrink-0">
-                            {pendingChanges.length > 0 && <>
                             <button
                                 onClick={() => { triggerHaptic?.(); discardPendingChanges(); }}
                                 disabled={uploading}
                                 title="Descartar cambios"
-                                className="px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase text-slate-300 hover:text-white bg-white/10 hover:bg-white/20 transition-colors disabled:opacity-40"
+                                className="px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase text-slate-300 hover:text-white bg-white/10 hover:bg-white/20 transition-colors disabled:opacity-40 cursor-pointer"
                             >
                                 Descartar
                             </button>
-                            <button
-                                onClick={() => { triggerHaptic?.(); uploadPendingChanges(); }}
-                                disabled={uploading || !isConnected}
-                                className="flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-[11px] font-black uppercase tracking-wider shadow-md shadow-emerald-500/30 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
-                            >
-                                {uploading ? <RefreshCw size={13} className="animate-spin" /> : <UploadCloud size={13} />}
-                                <span>{uploading ? 'Subiendo...' : 'Subir al sistema'}</span>
-                            </button>
-                            </>}
+                            {pendingChanges.length > 0 && (
+                                <button
+                                    onClick={() => { triggerHaptic?.(); uploadPendingChanges(); }}
+                                    disabled={uploading || !isConnected}
+                                    className="flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-[11px] font-black uppercase tracking-wider shadow-md shadow-emerald-500/30 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                                >
+                                    {uploading ? <RefreshCw size={13} className="animate-spin" /> : <UploadCloud size={13} />}
+                                    <span>{uploading ? 'Subiendo...' : 'Subir al sistema'}</span>
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>

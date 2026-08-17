@@ -5,5 +5,8 @@
  * legible por el rol anon. El monitor sólo necesita id, nombre, rol y bypassPin.
  */
 export function sanitizeUserCatalog(users) {
-    return (users || []).map(({ pin, plainPin, ...rest }) => rest);
+    return (users || []).map(({ pin, plainPin, ...rest }) => ({
+        ...rest,
+        rol: rest.rol || (rest.id === 1 ? 'ADMIN' : 'CAJERO'),
+    }));
 }

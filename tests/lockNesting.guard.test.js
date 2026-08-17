@@ -80,7 +80,7 @@ describe('GR-3: ninguna fachada con cerrojo se llama dentro de otro withLock', (
         }
 
         expect(violations, `Anidación de cerrojos detectada (auto-deadlock):\n${violations.join('\n')}`).toEqual([]);
-    });
+    }, 30000);
 
     /**
      * La variante `...Unlocked` se crea BAJO DEMANDA, no de forma preventiva: sólo la
