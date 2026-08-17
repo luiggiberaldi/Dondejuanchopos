@@ -514,7 +514,11 @@ export async function applyInventoryCommand(payload) {
             if (data?.baseUpdatedAt && existing.updatedAt) {
                 const baseTime = new Date(data.baseUpdatedAt).getTime();
                 const existingTime = new Date(existing.updatedAt).getTime();
-                if (!isNaN(baseTime) && !isNaN(existingTime) && baseTime < existingTime) {
+                const incomingActor = commandActor(resolvedPayload);
+                const isSameActor = existing.updatedBy != null && incomingActor?.id != null && String(existing.updatedBy) === String(incomingActor.id);
+                const isSameMonitor = resolvedPayload.monitor_device_id && existing.updatedByDeviceId && String(existing.updatedByDeviceId) === String(resolvedPayload.monitor_device_id);
+
+                if (!isNaN(baseTime) && !isNaN(existingTime) && baseTime < existingTime && !isSameActor && !isSameMonitor) {
                     return {
                         success: false,
                         conflictRejection: true,
@@ -537,6 +541,7 @@ export async function applyInventoryCommand(payload) {
             normalized.updatedBy = commandActor(resolvedPayload).id;
             normalized.updatedByName = commandActor(resolvedPayload).nombre;
             normalized.updatedByRole = commandActor(resolvedPayload).rol;
+            normalized.updatedByDeviceId = resolvedPayload.monitor_device_id || null;
             normalized.lastOperationId = resolvedPayload.operationId || null;
             const conflict = findBarcodeConflict(normalized, products, productId);
             if (conflict) return { success: false, error: conflict };

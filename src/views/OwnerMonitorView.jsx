@@ -509,6 +509,110 @@ function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId, onVoidSaleSuc
     );
 }
 
+function getSupervisorCommandDetails(item, products = []) {
+    if (!item) return { title: 'Modificación', actionLabel: 'Inventario', actionColor: 'bg-slate-100 text-slate-700', details: [], author: 'Supervisor' };
+
+    if (item.isLocal) {
+        const change = item.data || {};
+        const data = change.data || {};
+        const targetProd = Array.isArray(products) ? products.find(p => p.id === change.productId) : null;
+        const title = data.name || targetProd?.name || 'Artículo / Configuración';
+        const action = change.action;
+        const details = [];
+
+        let actionLabel = 'Modificación de Inventario';
+        let actionColor = 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300';
+
+        if (action === 'adjust_stock') {
+            const delta = data.delta || 0;
+            actionLabel = `Ajuste de Stock (${delta > 0 ? '+' : ''}${delta})`;
+            actionColor = delta > 0 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300';
+            details.push(`📦 Stock: ${delta > 0 ? '+' : ''}${delta} u`);
+        } else if (action === 'edit' || action === 'add') {
+            actionLabel = action === 'add' ? 'Nuevo Producto / Combo' : 'Edición de Producto / Combo';
+            actionColor = action === 'add' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300';
+
+            if (data.priceUsd !== undefined && data.priceUsd !== null && data.priceUsd !== '') details.push(`💵 $${Number(data.priceUsd).toFixed(2)}`);
+            if (data.pricingMode === 'bcv' || data.forceBcv) details.push('🏛️ Siempre BCV');
+            else if (data.pricingMode === 'bs_fijo') details.push(`🔒 Bs Fijo (${data.priceBsManual || data.priceBs || '0'} Bs)`);
+            else if (data.pricingMode === 'tasa_dia') details.push('⚡ Tasa del Día');
+            if (data.stock !== undefined && data.stock !== null && data.stock !== '') details.push(`📦 Stock: ${data.stock} u`);
+            if (data.category && data.category !== 'varios') details.push(`🏷️ ${data.category}`);
+            if (data.barcode) details.push(`📊 Cód: ${data.barcode}`);
+            if (data.sellByBox && data.boxUnits) details.push(`📦 Caja: ${data.boxUnits}u ($${data.boxPriceUsd || 0})`);
+            if (data.sellByHalfBox && data.halfBoxUnits) details.push(`📦 ½ Caja: ${data.halfBoxUnits}u ($${data.halfBoxPriceUsd || 0})`);
+        } else if (action === 'delete') {
+            actionLabel = 'Eliminación de Producto';
+            actionColor = 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300';
+            details.push('🗑️ Eliminado del catálogo');
+        }
+
+        return { title, actionLabel, actionColor, details, author: 'Tú (Monitor)' };
+    }
+
+    const cmd = item.data || item;
+    const payload = cmd.payload || {};
+    const action = payload.action || cmd.command_type;
+    const data = payload.data || {};
+    const prodId = payload.productId || data.id;
+    const targetProd = Array.isArray(products) ? products.find(p => p.id === prodId) : null;
+    const details = [];
+
+    let title = data.name || payload.name || payload.productName || targetProd?.name || 'Artículo / Configuración';
+    let actionLabel = 'Modificación de Inventario';
+    let actionColor = 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300';
+
+    if (cmd.command_type === 'user_update') {
+        title = payload.nombre ? `Cajero: "${payload.nombre}"` : `Usuario #${payload.userId || ''}`;
+        actionLabel = payload.action === 'change_pin' ? 'Cambio de PIN' : 'Datos de Usuario';
+        actionColor = 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300';
+        if (payload.nombre) details.push(`👤 Nombre: ${payload.nombre}`);
+        if (payload.userId) details.push(`ID: #${payload.userId}`);
+        if (payload.bypassPin !== undefined) details.push(payload.bypassPin ? '🔓 Acceso Libre (Sin PIN)' : '🔒 Requiere PIN');
+        if (payload.action === 'change_pin') details.push('🔑 Clave/PIN Actualizado');
+    } else if (cmd.command_type === 'rate_change') {
+        title = 'Tasa de Cambio';
+        actionLabel = 'Ajuste de Tasa';
+        actionColor = 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300';
+        if (payload.rate || payload.tasa) details.push(`💵 Tasa: ${payload.rate || payload.tasa} Bs`);
+        if (payload.bcvRate) details.push(`🏛️ BCV: ${payload.bcvRate} Bs`);
+    } else if (cmd.command_type === 'void_sale') {
+        title = `Anulación de Venta #${payload.saleNumber || String(payload.saleId || '').slice(-6)}`;
+        actionLabel = 'Anulación de Venta';
+        actionColor = 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300';
+        if (payload.totalUsd || payload.totalBs) details.push(`💵 $${payload.totalUsd || 0} / ${payload.totalBs || 0} Bs`);
+        if (payload.reason) details.push(`Motivo: ${payload.reason}`);
+    } else {
+        // inventory_update
+        if (action === 'adjust_stock') {
+            const delta = data.delta || 0;
+            actionLabel = `Ajuste de Stock (${delta > 0 ? '+' : ''}${delta})`;
+            actionColor = delta > 0 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300';
+            details.push(`📦 Stock: ${delta > 0 ? '+' : ''}${delta} unidades`);
+        } else if (action === 'edit' || action === 'add') {
+            actionLabel = action === 'add' ? 'Nuevo Producto / Combo' : 'Edición de Producto / Combo';
+            actionColor = action === 'add' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300';
+
+            if (data.priceUsd !== undefined && data.priceUsd !== null && data.priceUsd !== '') details.push(`💵 $${Number(data.priceUsd).toFixed(2)}`);
+            if (data.pricingMode === 'bcv' || data.forceBcv) details.push('🏛️ Siempre BCV');
+            else if (data.pricingMode === 'bs_fijo') details.push(`🔒 Bs Fijo (${data.priceBsManual || data.priceBs || '0'} Bs)`);
+            else if (data.pricingMode === 'tasa_dia') details.push('⚡ Tasa del Día');
+            if (data.stock !== undefined && data.stock !== null && data.stock !== '') details.push(`📦 Stock: ${data.stock} u`);
+            if (data.category && data.category !== 'varios') details.push(`🏷️ ${data.category}`);
+            if (data.barcode) details.push(`📊 Cód: ${data.barcode}`);
+            if (data.sellByBox && data.boxUnits) details.push(`📦 Caja: ${data.boxUnits}u ($${data.boxPriceUsd || 0})`);
+            if (data.sellByHalfBox && data.halfBoxUnits) details.push(`📦 ½ Caja: ${data.halfBoxUnits}u ($${data.halfBoxPriceUsd || 0})`);
+        } else if (action === 'delete') {
+            actionLabel = 'Eliminación de Producto';
+            actionColor = 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300';
+            details.push('🗑️ Eliminado del catálogo');
+        }
+    }
+
+    const author = payload.supervisorNombre || payload.actor?.nombre || cmd.monitor_device_id || 'Supervisor';
+    return { title, actionLabel, actionColor, details, author };
+}
+
 const PENDING_KEY = 'dj_pending_inventory_changes_v1';
 const INFLIGHT_KEY = 'dj_inflight_inventory_changes_v1';
 
@@ -575,6 +679,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const uploadingRef = React.useRef(false);
     const [exportingCierreId, setExportingCierreId] = useState(null);
     const [stockAlertTab, setStockAlertTab] = useState('agotados'); // 'agotados' | 'critico'
+    const notifiedCommandIdsRef = React.useRef(new Set());
 
     // El polling de estado solo consulta IDs que el Supervisor ya conoce. Así
     // recupera un UPDATE perdido sin volver a descargar los 150 comandos cada
@@ -654,10 +759,6 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         const confirmedKeys = new Set();
         const rejectedKeys = new Set();
 
-        // El estado de la orden es la única señal válida para resolverla. No se
-        // infiere "aplicado" porque la fila haya desaparecido de pendientes:
-        // el polling puede devolver una ventana incompleta y eso antes borraba
-        // la proyección local sin confirmación, causando el segundo clic.
         for (const change of inFlightChanges) {
             const resolution = getSupervisorChangeResolution(change, commandList);
             const command = resolution.command;
@@ -665,32 +766,32 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
             if (resolution.status === 'rejected') {
                 rejectedKeys.add(getChangeKey(change));
-                showToast(
-                    `La caja rechazó ${change.action === 'adjust_stock' ? 'el ajuste de stock' : 'el cambio de inventario'}${command.error_reason ? `: ${command.error_reason}` : ''}. Se restauró la vista anterior.`,
-                    'error'
-                );
-            }
-        }
-
-        // Las ediciones de atributos, altas y bajas se retiran solo cuando:
-        // (1) la caja marcó la orden como aplicada y (2) el catálogo recibido
-        // refleja el resultado. Mientras tanto, la proyección optimista permanece
-        // visible aunque llegue un pull viejo.
-        for (const change of inFlightChanges) {
-            if (rejectedKeys.has(getChangeKey(change))) continue;
-            const command = inventoryCommands.get(change.commandId);
-            if (!command || !['applied', 'applied_with_warnings'].includes(command.status)) continue;
-            if (change.action !== 'adjust_stock' && isInventoryChangeConfirmed(change, products)) {
+                if (command.id && !notifiedCommandIdsRef.current.has(command.id)) {
+                    notifiedCommandIdsRef.current.add(command.id);
+                    showToast(
+                        `La caja rechazó ${change.action === 'adjust_stock' ? 'el ajuste de stock' : 'el cambio de inventario'}${command.error_reason ? `: ${command.error_reason}` : ''}. Se restauró la vista anterior.`,
+                        'error'
+                    );
+                }
+            } else if (resolution.status === 'applied' || ['applied', 'applied_with_warnings'].includes(command.status)) {
                 confirmedKeys.add(getChangeKey(change));
             }
         }
 
-        // Varios ajustes pueden llegar a la caja antes de que el catálogo vuelva
-        // al monitor. Se compara el prefijo confirmado contra la base original;
-        // nunca se suma dos veces sobre el mismo stock remoto.
+        // Las órdenes confirmadas por la caja (o reflejadas en catálogo) se retiran de inmediato de la cola
+        for (const change of inFlightChanges) {
+            if (rejectedKeys.has(getChangeKey(change)) || confirmedKeys.has(getChangeKey(change))) continue;
+            const command = inventoryCommands.get(change.commandId);
+            if (command && ['applied', 'applied_with_warnings'].includes(command.status)) {
+                confirmedKeys.add(getChangeKey(change));
+            } else if (change.action !== 'adjust_stock' && isInventoryChangeConfirmed(change, products)) {
+                confirmedKeys.add(getChangeKey(change));
+            }
+        }
+
         const stockGroups = new Map();
         inFlightChanges
-            .filter(change => change.action === 'adjust_stock' && !rejectedKeys.has(getChangeKey(change)))
+            .filter(change => change.action === 'adjust_stock' && !rejectedKeys.has(getChangeKey(change)) && !confirmedKeys.has(getChangeKey(change)))
             .forEach(change => {
                 const key = String(change.productId);
                 if (!stockGroups.has(key)) stockGroups.set(key, []);
@@ -710,7 +811,10 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             let matchedPrefix = -1;
             for (let index = 0; index < ordered.length; index++) {
                 const command = inventoryCommands.get(ordered[index].commandId);
-                if (!command || !['applied', 'applied_with_warnings'].includes(command.status)) break;
+                if (command && ['applied', 'applied_with_warnings'].includes(command.status)) {
+                    matchedPrefix = index;
+                    break;
+                }
                 expected = applyProjectedStock(expected, [ordered[index]]);
                 if (Number(product.stock) === Number(expected)) matchedPrefix = index;
             }
@@ -1000,30 +1104,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             }
         }
 
-        const failedChanges = new Set();
-        const terminalInventoryCommands = new Map(
-            allCloudCmds
-                .filter(command => command.monitor_device_id === ownMonitorId
-                    && command.command_type === 'inventory_update'
-                    && terminalStatuses.has(command.status))
-                .map(command => [command.id, command])
-        );
-        for (const change of inFlightChanges) {
-            const command = terminalInventoryCommands.get(change.commandId);
-            if (!command) continue;
-            // applied se limpia cuando el catálogo remoto confirma el valor; los
-            // estados de error se limpian ahora para hacer rollback visual.
-            if (command.status === 'failed' || command.status === 'cancelled') {
-                failedChanges.add(getChangeKey(change));
-                showToast(
-                    `La caja rechazó ${change.action === 'adjust_stock' ? 'el ajuste de stock' : 'el cambio de inventario'}${command.error_reason ? `: ${command.error_reason}` : ''}. Se restauró la vista anterior.`,
-                    'error'
-                );
-            }
-        }
-        if (failedChanges.size > 0) {
-            persistInFlight(inFlightChanges.filter(change => !failedChanges.has(getChangeKey(change))));
-        }
+
 
         const terminalVoidCommands = allCloudCmds.filter(command =>
             command.monitor_device_id === ownMonitorId
@@ -4153,19 +4234,13 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                 <div className="space-y-4">
                                     <div className="space-y-3">
                                         {paginatedItems.map(item => {
+                                            const info = getSupervisorCommandDetails(item, products);
+
                                             if (item.isLocal) {
                                                 const change = item.data;
-                                                const targetProd = (products || []).find(p => p.id === change.productId);
-                                                const prodName = targetProd ? targetProd.name : (change.data?.name || 'Artículo / Configuración');
-                                                let actionLabel = 'Modificación de Inventario';
-                                                if (change.action === 'adjust_stock') actionLabel = `Ajuste de Stock (${change.data?.delta > 0 ? '+' : ''}${change.data?.delta})`;
-                                                else if (change.action === 'edit') actionLabel = 'Edición de Producto / Combo';
-                                                else if (change.action === 'add') actionLabel = 'Nuevo Producto / Combo';
-                                                else if (change.action === 'delete') actionLabel = 'Eliminación de Producto';
-
                                                 return (
                                                     <div key={item.key} className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-blue-200 dark:border-blue-900/60 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                                                        <div className="min-w-0 space-y-1">
+                                                        <div className="min-w-0 space-y-1.5 flex-1">
                                                             <div className="flex items-center gap-2 flex-wrap">
                                                                 <span className="text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                                                                     EN COLA LOCAL (Sin Subir)
@@ -4174,8 +4249,21 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                                     Encolado a las {new Date(change.queuedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                                 </span>
                                                             </div>
-                                                            <h4 className="text-sm sm:text-base font-black text-slate-800 dark:text-white truncate">{prodName}</h4>
-                                                            <p className="text-xs font-bold text-slate-500 dark:text-slate-400">{actionLabel}</p>
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <h4 className="text-sm sm:text-base font-black text-slate-800 dark:text-white truncate">{info.title}</h4>
+                                                                <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${info.actionColor}`}>
+                                                                    {info.actionLabel}
+                                                                </span>
+                                                            </div>
+                                                            {info.details.length > 0 && (
+                                                                <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                                                                    {info.details.map((det, dIdx) => (
+                                                                        <span key={dIdx} className="text-[10.5px] font-bold px-2 py-0.5 rounded-lg bg-slate-100/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/50 dark:border-slate-700/50">
+                                                                            {det}
+                                                                        </span>
+                                                                    ))}
+                                                                </div>
+                                                            )}
                                                         </div>
                                                         <div className="flex items-center gap-2 shrink-0">
                                                             <button
@@ -4192,21 +4280,8 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
                                             const cmd = item.data;
                                             const payload = cmd.payload || {};
-                                            const action = payload.action || cmd.command_type;
-                                            const prodId = payload.productId;
-                                            const targetProd = (products || []).find(p => p.id === prodId);
-                                            const prodName = targetProd ? targetProd.name : (payload.data?.name || 'Artículo / Configuración');
                                             const createdTime = new Date(cmd.created_at || payload.issuedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                                             const appliedTime = cmd.applied_at ? new Date(cmd.applied_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
-
-                                            let actionLabel = 'Modificación de Inventario';
-                                            if (action === 'adjust_stock') {
-                                                const delta = payload.data?.delta || 0;
-                                                actionLabel = `Ajuste de Stock (${delta > 0 ? '+' : ''}${delta})`;
-                                            } else if (action === 'edit') actionLabel = 'Edición de Producto / Combo';
-                                            else if (action === 'add') actionLabel = 'Nuevo Producto / Combo';
-                                            else if (action === 'delete') actionLabel = 'Eliminación de Producto';
-                                            else if (cmd.command_type === 'rate_change') actionLabel = 'Cambio de Tasa de Cambio';
 
                                             let statusBadge = null;
                                             if (cmd.status === 'pending') {
@@ -4237,18 +4312,34 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
                                             return (
                                                 <div key={item.key} className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                                                    <div className="min-w-0 space-y-1">
+                                                    <div className="min-w-0 space-y-1.5 flex-1">
                                                         <div className="flex items-center gap-2 flex-wrap">
                                                             {statusBadge}
                                                             <span className="text-[10px] text-slate-400 font-bold">Enviado: {createdTime}</span>
                                                             {appliedTime && (
                                                                 <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">· Aplicado a las {appliedTime}</span>
                                                             )}
+                                                            {info.author && (
+                                                                <span className="text-[10px] text-slate-400 font-medium ml-auto">Por: {info.author}</span>
+                                                            )}
                                                         </div>
-                                                        <h4 className="text-sm sm:text-base font-black text-slate-800 dark:text-white truncate">{prodName}</h4>
-                                                        <p className="text-xs font-bold text-slate-500 dark:text-slate-400">{actionLabel}</p>
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                            <h4 className="text-sm sm:text-base font-black text-slate-800 dark:text-white truncate">{info.title}</h4>
+                                                            <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${info.actionColor}`}>
+                                                                {info.actionLabel}
+                                                            </span>
+                                                        </div>
+                                                        {info.details.length > 0 && (
+                                                            <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                                                                {info.details.map((det, dIdx) => (
+                                                                    <span key={dIdx} className="text-[10.5px] font-bold px-2 py-0.5 rounded-lg bg-slate-100/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/50 dark:border-slate-700/50">
+                                                                        {det}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        )}
                                                         {cmd.status === 'failed' && cmd.error_reason && (
-                                                            <p className="text-[11px] font-bold text-orange-600 dark:text-orange-400">{cmd.error_reason}</p>
+                                                            <p className="text-[11px] font-bold text-orange-600 dark:text-orange-400 pt-1">⚠️ {cmd.error_reason}</p>
                                                         )}
                                                     </div>
                                                     <div className="flex items-center gap-2 shrink-0">
@@ -4741,45 +4832,34 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                 </div>
                             ) : (
                                 cloudPendingCmds.map(cmd => {
+                                    const info = getSupervisorCommandDetails(cmd, products);
                                     const payload = cmd.payload || {};
-                                    const action = payload.action || cmd.command_type;
-                                    const prodId = payload.productId;
-                                    const targetProd = (products || []).find(p => p.id === prodId);
-                                    const prodName = targetProd ? targetProd.name : (payload.data?.name || 'Artículo / Configuración');
                                     const formattedTime = new Date(cmd.created_at || payload.issuedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-                                    let actionLabel = 'Modificación de Inventario';
-                                    let actionColor = 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300';
-                                    if (action === 'adjust_stock') {
-                                        const delta = payload.data?.delta || 0;
-                                        actionLabel = `Ajuste de Stock (${delta > 0 ? '+' : ''}${delta})`;
-                                        actionColor = delta > 0 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300';
-                                    } else if (action === 'edit') {
-                                        actionLabel = 'Edición de Producto / Combo';
-                                        actionColor = 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300';
-                                    } else if (action === 'add') {
-                                        actionLabel = 'Nuevo Producto / Combo';
-                                        actionColor = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300';
-                                    } else if (action === 'delete') {
-                                        actionLabel = 'Eliminación de Producto';
-                                        actionColor = 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300';
-                                    } else if (cmd.command_type === 'rate_change') {
-                                        actionLabel = 'Cambio de Tasa de Cambio';
-                                        actionColor = 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300';
-                                    }
 
                                     return (
                                         <div key={cmd.id} className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-3">
-                                            <div className="min-w-0">
+                                            <div className="min-w-0 space-y-1 flex-1">
                                                 <div className="flex items-center gap-2 flex-wrap">
-                                                    <span className={`text-[9.5px] font-black uppercase px-2 py-0.5 rounded-md ${actionColor}`}>
-                                                        {actionLabel}
+                                                    <span className={`text-[9.5px] font-black uppercase px-2 py-0.5 rounded-md ${info.actionColor}`}>
+                                                        {info.actionLabel}
                                                     </span>
                                                     <span className="text-[10px] text-slate-400 font-bold">{formattedTime}</span>
+                                                    {info.author && (
+                                                        <span className="text-[10px] text-slate-400 font-medium ml-auto">Por: {info.author}</span>
+                                                    )}
                                                 </div>
-                                                <p className="text-xs font-black text-slate-800 dark:text-white truncate mt-1">
-                                                    {prodName}
+                                                <p className="text-xs font-black text-slate-800 dark:text-white truncate">
+                                                    {info.title}
                                                 </p>
+                                                {info.details.length > 0 && (
+                                                    <div className="flex items-center gap-1 flex-wrap pt-0.5">
+                                                        {info.details.map((det, dIdx) => (
+                                                            <span key={dIdx} className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                                                {det}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
 
                                             <button
