@@ -197,7 +197,7 @@ export function useMonitorSync(pairedDeviceId) {
 
         // Usamos runWithoutEco para estar seguros de que no se gatille ningún eco de sincronización
         await runWithoutEco(async () => {
-            if (collection === 'local') {
+            if (collection === 'local' || docId === 'bodega_users_catalog_v1') {
                 let stringPayload = typeof payload === 'string' ? payload : JSON.stringify(payload);
                 if (payload == null) {
                     localStorage.removeItem(docId);

@@ -198,16 +198,32 @@ export default function UsersManager({ triggerHaptic, onQueueChange }) {
     });
 
     useEffect(() => {
-        const handleSync = () => {
+        let isMounted = true;
+        const loadUsers = async () => {
             try {
                 const raw = localStorage.getItem('bodega_users_catalog_v1');
-                const arr = raw ? JSON.parse(raw) : null;
-                if (Array.isArray(arr) && arr.length > 0) setSyncedUsers(arr);
-            } catch {}
+                let arr = raw ? JSON.parse(raw) : null;
+                if (!arr || !Array.isArray(arr) || arr.length === 0) {
+                    const { storageService } = await import('../../utils/storageService');
+                    arr = await storageService.getItem('bodega_users_catalog_v1', null);
+                }
+                if (isMounted && Array.isArray(arr) && arr.length > 0) {
+                    setSyncedUsers(arr);
+                }
+            } catch (e) {
+                console.warn('[UsersManager] Error cargando usuarios sincronizados:', e);
+            }
+        };
+
+        loadUsers();
+
+        const handleSync = () => {
+            loadUsers();
         };
         window.addEventListener('app_storage_update', handleSync);
         window.addEventListener('storage', handleSync);
         return () => {
+            isMounted = false;
             window.removeEventListener('app_storage_update', handleSync);
             window.removeEventListener('storage', handleSync);
         };
