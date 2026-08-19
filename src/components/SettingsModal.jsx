@@ -111,32 +111,37 @@ export default function SettingsModal({ isOpen, onClose, products, onImport, tri
                 setStatusMessage('Restaurando datos...');
                 const json = JSON.parse(e.target.result);
 
-                if (!json.data || (!json.data.bodega_products_v1 && !json.data.bodega_accounts_v2)) {
+                if (!json || (!json.data && !json.bodega_products_v1)) {
                     throw new Error('Formato de archivo inválido.');
                 }
 
+                let idbEntries = {};
+                let lsEntries = {};
+
+                if (json.data?.idb || json.data?.ls) {
+                    idbEntries = json.data.idb || {};
+                    lsEntries = json.data.ls || {};
+                } else if (json.data) {
+                    idbEntries = json.data;
+                } else {
+                    idbEntries = json;
+                }
+
                 // Bypass storageService completely to prevent app_storage_update events from firing.
-                // If events fire, ProductContext updates state and triggers its auto-save, which might overwrite our imported data before reload finishes.
                 const lf = localforage.createInstance({ name: 'BodegaApp', storeName: 'bodega_app_data' });
 
-                if (json.data.bodega_products_v1) {
-                    await lf.setItem('bodega_products_v1', typeof json.data.bodega_products_v1 === 'string' ? JSON.parse(json.data.bodega_products_v1) : json.data.bodega_products_v1);
-                }
-                if (json.data.bodega_accounts_v2) {
-                    await lf.setItem('bodega_accounts_v2', typeof json.data.bodega_accounts_v2 === 'string' ? JSON.parse(json.data.bodega_accounts_v2) : json.data.bodega_accounts_v2);
+                for (const [key, value] of Object.entries(idbEntries)) {
+                    if (value == null || key === 'idb' || key === 'ls') continue;
+                    const parsed = typeof value === 'string' && (value.startsWith('[') || value.startsWith('{'))
+                        ? JSON.parse(value)
+                        : value;
+                    await lf.setItem(key, parsed);
                 }
 
-                if (json.data.street_rate_bs) localStorage.setItem('street_rate_bs', json.data.street_rate_bs);
-                if (json.data.catalog_use_auto_usdt) localStorage.setItem('catalog_use_auto_usdt', json.data.catalog_use_auto_usdt);
-                if (json.data.catalog_custom_usdt_price) localStorage.setItem('catalog_custom_usdt_price', json.data.catalog_custom_usdt_price);
-                if (json.data.catalog_show_cash_price) localStorage.setItem('catalog_show_cash_price', json.data.catalog_show_cash_price);
-                if (json.data.monitor_rates_v12) localStorage.setItem('monitor_rates_v12', json.data.monitor_rates_v12);
-                if (json.data.business_name) localStorage.setItem('business_name', json.data.business_name);
-                if (json.data.business_rif) localStorage.setItem('business_rif', json.data.business_rif);
-
-                if (json.data.my_categories_v1) {
-                    const cats = typeof json.data.my_categories_v1 === 'string' ? JSON.parse(json.data.my_categories_v1) : json.data.my_categories_v1;
-                    await lf.setItem('my_categories_v1', cats);
+                for (const [key, value] of Object.entries(lsEntries)) {
+                    if (value == null) continue;
+                    const stringVal = typeof value === 'object' ? JSON.stringify(value) : String(value);
+                    localStorage.setItem(key, stringVal);
                 }
 
                 setImportStatus('success');

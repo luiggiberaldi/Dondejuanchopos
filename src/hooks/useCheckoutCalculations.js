@@ -141,6 +141,26 @@ export function useCheckoutCalculations({
         }
     }, [remainingUsd, remainingBs, triggerHaptic, safeTasaCop]);
 
+    // ── Tip Donated / Cliente deja el cambio + FX19 ───────────────────────────
+    const [isTipDonated, setIsTipDonated] = useState(false);
+    const [isChangeOwed, setIsChangeOwed] = useState(false);
+    const [changeOwedMethod, setChangeOwedMethod] = useState('pago_movil');
+    const [changeOwedNote, setChangeOwedNote] = useState('');
+    const [isChangeVoucher, setIsChangeVoucher] = useState(false);
+
+    const activeInputMethodsForTip = paymentMethods.filter(m => CurrencyService.safeParse(barValues[m.id]) > 0);
+    const tipCurrency = activeInputMethodsForTip.find(m => m.currency === 'USD')?.currency
+        || activeInputMethodsForTip.find(m => m.currency === 'BS')?.currency
+        || activeInputMethodsForTip.find(m => m.currency === 'COP')?.currency
+        || 'USD';
+
+    const toggleTipDonated = useCallback(() => {
+        triggerHaptic && triggerHaptic();
+        setIsTipDonated(prev => !prev);
+        setIsChangeOwed(false);
+        setIsChangeVoucher(false);
+    }, [triggerHaptic]);
+
     // ── Procesamiento final de la venta (sin validaciones) ────────────────────
     const _processPayments = useCallback(() => {
         const payments = paymentMethods
@@ -327,26 +347,6 @@ export function useCheckoutCalculations({
         setPaymentWarning(null);
         pendingConfirmRef.current = null;
     }, []);
-
-    // ── Tip Donated / Cliente deja el cambio + FX19 ───────────────────────────
-    const [isTipDonated, setIsTipDonated] = useState(false);
-    const [isChangeOwed, setIsChangeOwed] = useState(false);
-    const [changeOwedMethod, setChangeOwedMethod] = useState('pago_movil');
-    const [changeOwedNote, setChangeOwedNote] = useState('');
-    const [isChangeVoucher, setIsChangeVoucher] = useState(false);
-
-    const activeInputMethodsForTip = paymentMethods.filter(m => CurrencyService.safeParse(barValues[m.id]) > 0);
-    const tipCurrency = activeInputMethodsForTip.find(m => m.currency === 'USD')?.currency
-        || activeInputMethodsForTip.find(m => m.currency === 'BS')?.currency
-        || activeInputMethodsForTip.find(m => m.currency === 'COP')?.currency
-        || 'USD';
-
-    const toggleTipDonated = useCallback(() => {
-        triggerHaptic && triggerHaptic();
-        setIsTipDonated(prev => !prev);
-        setIsChangeOwed(false);
-        setIsChangeVoucher(false);
-    }, [triggerHaptic, setIsTipDonated, setIsChangeOwed, setIsChangeVoucher]);
 
     return {
         barValues,

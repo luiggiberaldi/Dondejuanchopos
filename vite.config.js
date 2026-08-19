@@ -617,6 +617,115 @@ export default defineConfig(({ mode }) => {
             return;
           }
 
+          // ── /api/share (Relay de datos vía Upstash Redis) ──
+          if (req.url.startsWith('/api/share')) {
+            const UPSTASH_URL = env.UPSTASH_REDIS_REST_URL;
+            const UPSTASH_TOKEN = env.UPSTASH_REDIS_REST_TOKEN;
+
+            res.setHeader('Content-Type', 'application/json');
+            res.setHeader('Access-Control-Allow-Origin', corsOrigin);
+            res.setHeader('Vary', 'Origin');
+
+            if (!UPSTASH_URL || !UPSTASH_TOKEN) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ error: 'Upstash Redis no configurado en .env.' }));
+              return;
+            }
+
+            const redis = async (cmd, ...args) => {
+              const r = await fetch(UPSTASH_URL, {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${UPSTASH_TOKEN}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify([cmd, ...args]),
+              });
+              const d = await r.json();
+              if (d.error) throw new Error(d.error);
+              return d.result;
+            };
+
+            if (req.method === 'POST') {
+              let body = '';
+              req.on('data', chunk => { body += chunk; });
+              req.on('end', async () => {
+                try {
+                  const data = JSON.parse(body);
+                  const payloadStr = JSON.stringify(data);
+                  if (payloadStr.length > 5 * 1024 * 1024) {
+                    res.statusCode = 413;
+                    res.end(JSON.stringify({ error: 'Payload demasiado grande (máx 5MB)' }));
+                    return;
+                  }
+
+                  let productCount = 0;
+                  if (data?.idb?.bodega_products_v1) {
+                    productCount = Array.isArray(data.idb.bodega_products_v1) ? data.idb.bodega_products_v1.length : 0;
+                  } else if (Array.isArray(data?.products)) {
+                    productCount = data.products.length;
+                  }
+
+                  let code;
+                  for (let i = 0; i < 5; i++) {
+                    const candidate = Math.floor(100000 + Math.random() * 900000).toString();
+                    const exists = await redis('EXISTS', `inv:${candidate}`);
+                    if (!exists) { code = candidate; break; }
+                  }
+                  if (!code) throw new Error('No se pudo generar un código único');
+
+                  const payload = JSON.stringify({
+                    ...data,
+                    isComplete: !!(data.idb),
+                    groups: Array.isArray(data.groups) ? data.groups : [],
+                    createdAt: new Date().toISOString(),
+                  });
+
+                  await redis('SET', `inv:${code}`, payload, 'EX', 86400);
+
+                  res.end(JSON.stringify({
+                    code: `${code.slice(0, 3)}-${code.slice(3)}`,
+                    expiresIn: '24 horas',
+                    productCount,
+                  }));
+                } catch (err) {
+                  res.statusCode = 500;
+                  res.end(JSON.stringify({ error: err.message }));
+                }
+              });
+              return;
+            }
+
+            if (req.method === 'GET') {
+              (async () => {
+                try {
+                  const urlObj = new URL(req.url, `http://${req.headers.host}`);
+                  const rawCode = urlObj.searchParams.get('code') || '';
+                  const clean = rawCode.replace(/[-\s]/g, '');
+
+                  if (clean.length !== 6 || !/^\d+$/.test(clean)) {
+                    res.statusCode = 400;
+                    res.end(JSON.stringify({ error: 'Código inválido. Usa el formato XXX-XXX.' }));
+                    return;
+                  }
+
+                  const data = await redis('GET', `inv:${clean}`);
+                  if (!data) {
+                    res.statusCode = 404;
+                    res.end(JSON.stringify({ error: 'Código no encontrado o expirado.' }));
+                    return;
+                  }
+
+                  res.end(data);
+                } catch (err) {
+                  res.statusCode = 500;
+                  res.end(JSON.stringify({ error: err.message }));
+                }
+              })();
+              return;
+            }
+          }
+
           // ── /api/analyze (SEC-011: CORS restringido + token efímero) ──
           if (req.url.startsWith('/api/analyze')) {
             if (req.method === 'POST') {

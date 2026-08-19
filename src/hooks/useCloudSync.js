@@ -461,70 +461,8 @@ export function useCloudSync(deviceId) {
                     localStorage.setItem('dj_cloud_sync_ts', new Date().toISOString());
                     console.log('[CloudSync] Sincronización de importación completada e incondicional de todas las llaves.');
                 } else {
-                    const lastSyncIso = localStorage.getItem('dj_cloud_sync_ts');
-                    const lastFullPullTs = parseInt(localStorage.getItem('dj_last_full_pull_ts') || '0', 10);
-                    const nowTs = Date.now();
-                    const FULL_PULL_MIN_INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
-
-                    let query = supabaseCloud
-                        .from('sync_documents')
-                        .select('collection, doc_id, data, updated_at')
-                        .eq('device_id', deviceId)
-                        .in('collection', ['store', 'local']);
-
-                    if (lastSyncIso) {
-                        query = query.gt('updated_at', lastSyncIso);
-                    } else if (nowTs - lastFullPullTs < FULL_PULL_MIN_INTERVAL_MS) {
-                        // Rate limiter: evitar re-descargar los 1.1 MB completos si el cold start ocurrió hace menos de 5 min
-                        console.log('[CloudSync] Full-Pull masivo omitido por Rate Limiter (< 5 min). Usando datos locales.');
-                        localStorage.setItem('dj_cloud_sync_ts', new Date(lastFullPullTs).toISOString());
-                        query = query.gt('updated_at', new Date(lastFullPullTs).toISOString());
-                    } else {
-                        // D3: `dj_last_full_pull_ts` ya no se marca aquí. Se escribe
-                        // después del pull exitoso (ver más abajo), para que un fallo
-                        // no bloquee el reintento durante 5 minutos.
-                    }
-
-                    // D4: antes se descartaba `error` y el cursor avanzaba igual,
-                    // de modo que un pull fallido hacía perder esa ventana de
-                    // cambios para siempre.
-                    const { data: docs, error: pullError } = await query;
-
-                    if (pullError) {
-                        console.warn('[CloudSync] Pull incremental falló; el cursor NO avanza:', pullError.message);
-                        throw pullError;
-                    }
-
-                    if (docs?.length > 0) {
-                        for (const doc of docs) {
-                            // SEC-002: nunca aplicar `abasto-auth-storage` desde la nube.
-                            if (doc.doc_id === 'abasto-auth-storage') continue;
-                            try {
-                                await _applyFromCloud(doc.doc_id, doc.collection, doc.data.payload);
-                            } catch (e) {
-                                // HOOK-023: try/catch por documento para no abortar el pull completo.
-                                console.warn(`[CloudSync] Error aplicando doc ${doc.doc_id}:`, e);
-                            }
-                        }
-                        console.log(`[CloudSync] Pull incremental (${lastSyncIso ? 'cambios' : 'inicial'}): ${docs.length} documentos aplicados.`);
-                    }
-                    // D4/D5: el cursor sale del `updated_at` máximo REALMENTE recibido.
-                    // Usar el reloj local hacía que cualquier desfase con el servidor
-                    // saltase una ventana de escrituras de forma silenciosa.
-                    const maxUpdatedAt = (docs || []).reduce((acc, d) => {
-                        const t = d?.updated_at ? new Date(d.updated_at).getTime() : 0;
-                        return t > acc ? t : acc;
-                    }, 0);
-                    if (maxUpdatedAt > 0) {
-                        localStorage.setItem('dj_cloud_sync_ts', new Date(maxUpdatedAt).toISOString());
-                    } else if (!lastSyncIso) {
-                        // Primer pull sin resultados: sellar para no repetir el full pull.
-                        localStorage.setItem('dj_cloud_sync_ts', new Date().toISOString());
-                    }
-                    // D3: el rate limiter del full pull también se marca aquí, ya con éxito.
-                    if (!lastSyncIso && nowTs - lastFullPullTs >= FULL_PULL_MIN_INTERVAL_MS) {
-                        localStorage.setItem('dj_last_full_pull_ts', String(nowTs));
-                    }
+                    // Modo POS primario: los datos residen localmente y se empujan mediante RPC seguro.
+                    localStorage.setItem('dj_cloud_sync_ts', new Date().toISOString());
                 }
 
                 // ── Auto-recuperación: Purgar/subir datos locales que no llegaron a enviarse debido al bug anterior ──

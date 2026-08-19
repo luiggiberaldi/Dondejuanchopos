@@ -103,42 +103,42 @@ export function useDataImportExport({
                 // ── FASE 2: RESTAURACIÓN (directo a localforage, sin eventos) ───────
                 setStatusMessage('Restaurando backup...');
 
-                if (json.version === '2.0' && json.data.idb) {
-                    for (const [key, value] of Object.entries(json.data.idb)) {
-                        await localforage.setItem(key, value);
-                        try { await pushCloudSync(key, value, true); } catch (_) {}
-                    }
-                    if (json.data.ls) {
-                        for (const [key, value] of Object.entries(json.data.ls)) {
-                            localStorage.setItem(key, value);
-                            let parsed = value;
-                            try { parsed = JSON.parse(value); } catch {}
-                            try { await pushCloudSync(key, parsed, true); } catch (_) {}
+                let idbEntries = {};
+                let lsEntries = {};
+
+                if (json.data && (json.data.idb || json.data.ls)) {
+                    idbEntries = json.data.idb || {};
+                    lsEntries = json.data.ls || {};
+                } else if (json.data) {
+                    for (const [key, value] of Object.entries(json.data)) {
+                        if (IDB_KEYS.includes(key)) {
+                            idbEntries[key] = value;
+                        } else if (LS_KEYS.includes(key)) {
+                            lsEntries[key] = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value);
+                        } else if (Array.isArray(value) || (typeof value === 'object' && value !== null)) {
+                            idbEntries[key] = value;
+                        } else {
+                            lsEntries[key] = String(value);
                         }
                     }
-                } else {
-                    // Compatibilidad legado (backups anteriores a v2.0)
-                    const legacyIdbMap = {
-                        bodega_products_v1: json.data.bodega_products_v1,
-                        bodega_accounts_v2: json.data.bodega_accounts_v2,
-                        my_categories_v1:   json.data.my_categories_v1,
-                    };
-                    for (const [key, value] of Object.entries(legacyIdbMap)) {
-                        if (!value) continue;
-                        const parsed = typeof value === 'string' ? JSON.parse(value) : value;
-                        await localforage.setItem(key, parsed);
-                        try { await pushCloudSync(key, parsed, true); } catch (_) {}
-                    }
-                    const legacyLsKeys = [
-                        'street_rate_bs', 'catalog_use_auto_usdt', 'catalog_custom_usdt_price',
-                        'catalog_show_cash_price', 'monitor_rates_v12', 'business_name', 'business_rif'
-                    ];
-                    for (const key of legacyLsKeys) {
-                        if (json.data[key]) {
-                            localStorage.setItem(key, json.data[key]);
-                            try { await pushCloudSync(key, json.data[key], true); } catch (_) {}
-                        }
-                    }
+                }
+
+                for (const [key, value] of Object.entries(idbEntries)) {
+                    if (value == null) continue;
+                    const parsed = typeof value === 'string' && (value.startsWith('[') || value.startsWith('{'))
+                        ? JSON.parse(value)
+                        : value;
+                    await localforage.setItem(key, parsed);
+                    try { await pushCloudSync(key, parsed, true); } catch (_) {}
+                }
+
+                for (const [key, value] of Object.entries(lsEntries)) {
+                    if (value == null) continue;
+                    const stringVal = typeof value === 'object' ? JSON.stringify(value) : String(value);
+                    localStorage.setItem(key, stringVal);
+                    let parsed = value;
+                    try { parsed = JSON.parse(stringVal); } catch {}
+                    try { await pushCloudSync(key, parsed, true); } catch (_) {}
                 }
 
                 setImportStatus('success');

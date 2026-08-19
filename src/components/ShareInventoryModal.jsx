@@ -156,17 +156,33 @@ export default function ShareInventoryModal({ isOpen, onClose }) {
         if (!importResult) return;
         setLoading(true);
         try {
+            const { pushCloudSync } = await import('../hooks/useCloudSync');
+
             if (importResult.idb) {
                 for (const [key, value] of Object.entries(importResult.idb)) {
                     await storageService.setItem(key, value);
+                    try { await pushCloudSync(key, value, true); } catch (_) {}
+                }
+            } else if (importResult.products) {
+                await storageService.setItem('bodega_products_v1', importResult.products);
+                try { await pushCloudSync('bodega_products_v1', importResult.products, true); } catch (_) {}
+                if (importResult.categories) {
+                    await storageService.setItem('my_categories_v1', importResult.categories);
+                    try { await pushCloudSync('my_categories_v1', importResult.categories, true); } catch (_) {}
                 }
             }
+
             if (importResult.ls) {
                 for (const [key, value] of Object.entries(importResult.ls)) {
-                    localStorage.setItem(key, value);
+                    const stringVal = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value);
+                    localStorage.setItem(key, stringVal);
+                    let parsed = value;
+                    try { parsed = JSON.parse(stringVal); } catch {}
+                    try { await pushCloudSync(key, parsed, true); } catch (_) {}
                 }
             }
-            setTimeout(() => window.location.reload(), 300);
+
+            setTimeout(() => window.location.reload(), 500);
         } catch (err) {
             setError('Error al restaurar: ' + err.message);
             setLoading(false);
