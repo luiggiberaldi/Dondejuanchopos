@@ -286,7 +286,13 @@ export default function MonitorHeader({
 
                     {/* Nivel 2: Sub-pestañas del grupo activo (Perfectamente distribuidas en móvil y PC) */}
                     {currentMainTab.subTabs.length > 1 && (
-                        <div className={`grid ${currentMainTab.subTabs.length === 2 ? 'grid-cols-2' : currentMainTab.subTabs.length === 3 ? 'grid-cols-3' : 'grid-cols-1 sm:flex'} gap-1.5 w-full py-0.5 px-0.5 animate-fade-in`}>
+                        <div className={`grid ${
+                            currentMainTab.subTabs.length === 2
+                                ? 'grid-cols-2'
+                                : currentMainTab.subTabs.length === 3
+                                ? 'grid-cols-3'
+                                : 'grid-cols-4'
+                        } gap-1.5 w-full py-0.5 px-0.5 animate-fade-in`}>
                             {currentMainTab.subTabs.map(sub => {
                                 const SubIcon = sub.icon;
                                 const isSubActive = viewTab === sub.id;
@@ -298,14 +304,14 @@ export default function MonitorHeader({
                                             triggerHaptic?.();
                                             setViewTab(sub.id);
                                         }}
-                                        className={`min-h-[38px] px-2 sm:px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer w-full text-center ${
+                                        className={`min-h-[38px] px-1 sm:px-4 py-2 rounded-xl text-[10.5px] sm:text-xs font-black transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer w-full text-center ${
                                             isSubActive
                                                 ? 'bg-brand text-white shadow-sm shadow-brand/25 ring-1 ring-brand'
                                                 : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200/70 dark:border-slate-800'
                                         }`}
                                     >
-                                        <SubIcon size={14} className={`shrink-0 ${isSubActive ? 'text-white' : 'text-slate-400'}`} />
-                                        <span className="sm:hidden text-[11px] font-black truncate">{sub.shortLabel || sub.label}</span>
+                                        <SubIcon size={13} className={`shrink-0 ${isSubActive ? 'text-white' : 'text-slate-400'}`} />
+                                        <span className="sm:hidden font-black truncate">{sub.shortLabel || sub.label}</span>
                                         <span className="hidden sm:inline truncate">{sub.label}</span>
                                     </button>
                                 );

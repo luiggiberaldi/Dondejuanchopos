@@ -1,6 +1,7 @@
 import React from 'react';
+import { BookOpen } from 'lucide-react';
 
-export default function MonitorActivoTab({ AlertTriangle, ArrowDownRight, ChevronRight, Clock, Coins, DollarSign, FileText, HandCoins, Hash, Lock, Package, RefreshCw, RotateCcw, ShoppingBag, TrendingUp, Users, Wallet, activeCashier, activeShiftApertura, activeShiftAutoconsumoMetrics, activeShiftAvgTicket, activeShiftChangeMetrics, activeShiftExpectedCash, activeShiftExpensesMetrics, activeShiftGrossUsd, activeShiftMetrics, activeShiftPaymentBreakdown, activeShiftSales, activeShiftTipTotals, activeStockAlertTab, bcvRate, effectiveRate, formatBs, formatCop, formatTime, getEffectiveSaleTotalBs, getFormattedPaymentMethod, getFormattedSaleCode, getMethodIcon, getPaymentBadgeStyle, getSaleChangeDetails, isShiftActive, loadingData, lowStockProducts, outOfStockProducts, payrollEmployees, payrollTotals, products, setSelectedSaleDetail, setShowRemoteCloseModal, setStockAlertTab, setViewTab, shiftStatusInfo, syncLoading, triggerHaptic }) {
+export default function MonitorActivoTab({ AlertTriangle, ArrowDownRight, ChevronRight, Clock, Coins, DollarSign, FileText, HandCoins, Hash, Lock, Package, RefreshCw, RotateCcw, ShoppingBag, TrendingUp, Users, Wallet, activeCashier, activeShiftApertura, activeShiftAutoconsumoMetrics, activeShiftAvgTicket, activeShiftChangeMetrics, activeShiftExpectedCash, activeShiftExpensesMetrics, activeShiftGrossUsd, activeShiftMetrics, activeShiftPaymentBreakdown, activeShiftSales, activeShiftTipTotals, activeStockAlertTab, bcvRate, customers, effectiveRate, formatBs, formatCop, formatTime, getEffectiveSaleTotalBs, getFormattedPaymentMethod, getFormattedSaleCode, getMethodIcon, getPaymentBadgeStyle, getSaleChangeDetails, isShiftActive, loadingData, lowStockProducts, outOfStockProducts, payrollEmployees, payrollTotals, products, setSelectedSaleDetail, setShowRemoteCloseModal, setStockAlertTab, setViewTab, shiftStatusInfo, syncLoading, triggerHaptic }) {
     return (
                     <div className="space-y-6">
                         {/* Banner de Estado de Apertura del Turno (Estructura Ultra-Óptima 2 Filas) */}
@@ -196,20 +197,49 @@ export default function MonitorActivoTab({ AlertTriangle, ArrowDownRight, Chevro
                             </div>
                         </div>
 
-                        {/* Fila 2: Egresos, Consumo Interno, Nómina y Vueltos (Solo fichas con registros) */}
+                        {/* Fila 2: Egresos, Consumo Interno, Nómina, Deudas y Vueltos (Solo fichas con registros) */}
                         {(() => {
+                            const totalFiadoCustomers = (customers || []).reduce((acc, c) => acc + (Number(c.deuda) || 0), 0);
+                            const debtorsCount = (customers || []).filter(c => (Number(c.deuda) || 0) > 0.01).length;
+                            const showDeudas = totalFiadoCustomers > 0.01;
+
                             const showGastos = (activeShiftExpensesMetrics.count > 0 || Math.abs(activeShiftExpensesMetrics.totalUsd || 0) > 0.001 || Math.abs(activeShiftExpensesMetrics.totalBs || 0) > 0.001);
                             const showConsumoInterno = (activeShiftAutoconsumoMetrics.count > 0 || (activeShiftAutoconsumoMetrics.totalUnits || 0) > 0);
                             const showConsumoEmpleados = (Number(payrollTotals.consumosTotalUsd || 0) > 0.001);
                             const showVueltosEntregados = (activeShiftChangeMetrics.count > 0 || Math.abs(activeShiftChangeMetrics.totalUsd || 0) > 0.001 || Math.abs(activeShiftChangeMetrics.totalBs || 0) > 0.001);
                             const showVueltosCaja = (activeShiftTipTotals.tipCount > 0 || (activeShiftTipTotals.tipUsd || 0) > 0.001 || (activeShiftTipTotals.tipBs || 0) > 0.001);
 
-                            const totalVisible = [showGastos, showConsumoInterno, showConsumoEmpleados, showVueltosEntregados, showVueltosCaja].filter(Boolean).length;
+                            const totalVisible = [showDeudas, showGastos, showConsumoInterno, showConsumoEmpleados, showVueltosEntregados, showVueltosCaja].filter(Boolean).length;
 
                             if (totalVisible === 0) return null;
 
                             return (
-                                <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 mt-3 sm:mt-4 animate-in fade-in duration-200">
+                                <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 sm:gap-4 mt-3 sm:mt-4 animate-in fade-in duration-200">
+                                    {/* Cuentas por Cobrar / Fiados Activos */}
+                                    {showDeudas && (
+                                        <div 
+                                            onClick={() => { triggerHaptic?.(); setViewTab('deudas'); }}
+                                            className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-red-200/70 dark:border-red-900/40 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px] cursor-pointer hover:border-red-400 transition-all group"
+                                        >
+                                            <div className="flex items-center justify-between w-full">
+                                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-red-500 dark:text-red-400 flex items-center gap-1">
+                                                    Fiados por cobrar <span className="text-[8px] opacity-75 group-hover:translate-x-0.5 transition-transform">➔</span>
+                                                </span>
+                                                <div className="w-7 h-7 sm:w-9 sm:h-9 bg-red-50 dark:bg-red-950/20 rounded-xl flex items-center justify-center text-red-500 shrink-0">
+                                                    <BookOpen size={16} />
+                                                </div>
+                                            </div>
+                                            <div className="mt-2.5 min-w-0">
+                                                <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-red-600 dark:text-red-400 tabular-nums block break-words leading-none">
+                                                    ${totalFiadoCustomers.toFixed(2)}
+                                                </span>
+                                                <span className="text-[9px] text-slate-400 block font-medium mt-1">
+                                                    {debtorsCount} {debtorsCount === 1 ? 'cliente' : 'clientes'} con deuda
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {/* Gastos de Caja (Dinero) */}
                                     {showGastos && (
                                         <div 

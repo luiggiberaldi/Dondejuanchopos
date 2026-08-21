@@ -36,7 +36,7 @@ import {
     Wallet, ArrowDownRight,
     ShieldCheck, Hash, AlertTriangle, Search, X, ChevronLeft, ChevronRight,
     MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud, Sparkles, Gift, RotateCcw, Lock, Unlock, HandCoins,
-    Wrench, Truck, User, Lightbulb, Box, Home, Receipt, BarChart3, ShoppingBag, SlidersHorizontal
+    Wrench, Truck, User, Lightbulb, Box, Home, Receipt, BarChart3, ShoppingBag, SlidersHorizontal, BookOpen
 } from 'lucide-react';
 import {
     getEffectiveSaleTotalBs,
@@ -88,6 +88,7 @@ const MAIN_SUPERVISOR_TABS = [
         defaultSubTab: 'articulos',
         subTabs: [
             { id: 'articulos', label: 'Reportes por Artículo', shortLabel: 'Reportes', icon: BarChart3 },
+            { id: 'deudas', label: 'Cuentas por Cobrar (Deudas)', shortLabel: 'Deudas', icon: BookOpen },
             { id: 'gastos', label: 'Gastos Internos', shortLabel: 'Gastos', icon: Receipt },
             { id: 'nomina', label: 'Nómina de Personal', shortLabel: 'Nómina', icon: Users },
         ]
@@ -116,11 +117,14 @@ const MAIN_SUPERVISOR_TABS = [
 
 export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) {
     const pairedDeviceId = localStorage.getItem('dj_paired_device_id');
-    const { products, setProducts, effectiveRate, copEnabled, tasaCop, rates, categories, isBsWizardOpen, openBsCongeladoWizard, closeBsCongeladoWizard, bsCongeladoAlert, previousRate, bsRoundingStep, rateMode } = useProductContext();
+    const { products, setProducts, effectiveRate, copEnabled, copPrimary, tasaCop, rates, categories, isBsWizardOpen, openBsCongeladoWizard, closeBsCongeladoWizard, bsCongeladoAlert, previousRate, bsRoundingStep, rateMode } = useProductContext();
     const bcvRate = rates?.bcv?.price || effectiveRate;
     const { isConnected, lastSync, loading: syncLoading, triggerRefresh, posLastSeen, isPosOnline, presenceError } = useMonitorSync(pairedDeviceId);
 
     const [sales, setSales] = useState([]);
+    const [customers, setCustomers] = useState([]);
+    const [suppliers, setSuppliers] = useState([]);
+    const [supplierInvoices, setSupplierInvoices] = useState([]);
     const [activeCashier, setActiveCashier] = useState({ nombre: 'Ninguno', rol: '' });
     const [loadingData, setLoadingData] = useState(true);
     const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
@@ -397,14 +401,20 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             // caja, así que leerlas mostraba datos de operador vacíos o ajenos.
             // La fuente correcta es `bodega_users_catalog_v1`, que sí se sincroniza y
             // va saneada (sin `pin` ni `plainPin`) desde FX05.
-            const [savedSales, savedPayrollProjection] = await Promise.all([
+            const [savedSales, savedPayrollProjection, savedCustomers, savedSuppliers, savedInvoices] = await Promise.all([
                 storageService.getItem('bodega_sales_v1', []),
                 storageService.getItem('bodega_employee_payroll_projection_v1', null),
+                storageService.getItem('bodega_customers_v1', []),
+                storageService.getItem('bodega_suppliers_v1', []),
+                storageService.getItem('bodega_supplier_invoices_v1', []),
             ]);
 
             setSales(savedSales);
             setPayrollProjection(savedPayrollProjection?.employees ? savedPayrollProjection : null);
-            setActiveCashier({ nombre: 'Ninguno', rol: '' }    );
+            setCustomers(Array.isArray(savedCustomers) ? savedCustomers : []);
+            setSuppliers(Array.isArray(savedSuppliers) ? savedSuppliers : []);
+            setSupplierInvoices(Array.isArray(savedInvoices) ? savedInvoices : []);
+            setActiveCashier({ nombre: 'Ninguno', rol: '' });
 }
  catch (e) {
             console.error('[OwnerMonitorView] Error cargando datos locales:', e    );
@@ -584,6 +594,9 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         cancellingCmdId,
         categories,
         cloudPendingCmds,
+        copEnabled,
+        copPrimary,
+        customers,
         currentPageCambios,
         currentPageInventario,
         discardSinglePendingChange,
@@ -631,6 +644,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         queueInventoryChange,
         registerCloses,
         requestDeleteRemoteEmployee,
+        sales,
         salesForStats: artSalesForStats,
         searchTermInventario,
         selectedCierreId,
@@ -660,6 +674,9 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         setViewTab,
         shiftStatusInfo,
         showToast,
+        suppliers,
+        supplierInvoices,
+        tasaCop,
         to: artTo,
         toTitleCase,
         TrendingUp,
