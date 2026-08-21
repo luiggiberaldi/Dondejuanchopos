@@ -8,12 +8,16 @@ import { formatUsd, formatBs, formatCop } from '../../utils/calculatorUtils';
 export default function MonitorDeudasTab({
     customers = [],
     sales = [],
+    effectiveRate = 0,
     bcvRate = 0,
     tasaCop = 0,
     copEnabled = false,
     copPrimary = false,
     triggerHaptic = () => {}
 }) {
+    // Tasa de cambio activa seleccionada en el sistema
+    const activeRate = Number(effectiveRate) > 0 ? Number(effectiveRate) : (Number(bcvRate) || 0);
+
     const [searchTerm, setSearchTerm] = useState('');
     const [filterType, setFilterType] = useState('deuda'); // 'all' | 'deuda' | 'favor'
     const [expandedCustomerId, setExpandedCustomerId] = useState(null);
@@ -88,7 +92,8 @@ export default function MonitorDeudasTab({
         let clean = phone.replace(/[^\d]/g, '');
         if (clean.startsWith('0')) clean = '58' + clean.slice(1);
         if (!clean.startsWith('58')) clean = '58' + clean;
-        const msg = encodeURIComponent(`Hola ${customerName}, te saludamos de Comercializadora Donde Juancho. Te recordamos tu saldo pendiente por pagar de $${formatUsd(deudaUsd)} USD (${formatBs(deudaUsd * bcvRate)} Bs). ¡Gracias por tu preferencia!`);
+        const bsText = activeRate > 0 ? ` (${formatBs(deudaUsd * activeRate)} Bs)` : '';
+        const msg = encodeURIComponent(`Hola ${customerName}, te saludamos de Comercializadora Donde Juancho. Te recordamos tu saldo pendiente por pagar de $${formatUsd(deudaUsd)} USD${bsText}. ¡Gracias por tu preferencia!`);
         return `https://wa.me/${clean}?text=${msg}`;
     };
 
@@ -134,7 +139,7 @@ export default function MonitorDeudasTab({
                         ${formatUsd(metrics.totalFiadoUsd)}
                     </div>
                     <div className="text-[11px] font-bold text-slate-400 mt-1 flex items-center justify-between">
-                        <span>{bcvRate > 0 ? `~${formatBs(metrics.totalFiadoUsd * bcvRate)} Bs` : 'Sin tasa'}</span>
+                        <span>{activeRate > 0 ? `~${formatBs(metrics.totalFiadoUsd * activeRate)} Bs` : 'Sin tasa'}</span>
                         <span className="text-red-500/80">{metrics.debtorsCount} {metrics.debtorsCount === 1 ? 'deudor' : 'deudores'}</span>
                     </div>
                 </div>
@@ -153,7 +158,7 @@ export default function MonitorDeudasTab({
                         +${formatUsd(metrics.totalFavorUsd)}
                     </div>
                     <div className="text-[11px] font-bold text-slate-400 mt-1 flex items-center justify-between">
-                        <span>{bcvRate > 0 ? `~${formatBs(metrics.totalFavorUsd * bcvRate)} Bs` : 'Sin tasa'}</span>
+                        <span>{activeRate > 0 ? `~${formatBs(metrics.totalFavorUsd * activeRate)} Bs` : 'Sin tasa'}</span>
                         <span className="text-emerald-600/80">{metrics.favorCount} {metrics.favorCount === 1 ? 'cliente' : 'clientes'}</span>
                     </div>
                 </div>
@@ -171,8 +176,9 @@ export default function MonitorDeudasTab({
                     <div className="font-outfit text-xl sm:text-2xl lg:text-3xl font-black text-slate-800 dark:text-white tabular-nums">
                         ${formatUsd(metrics.netBalanceUsd)}
                     </div>
-                    <div className="text-[11px] font-bold text-slate-400 mt-1">
-                        Por recuperar neto en calle
+                    <div className="text-[11px] font-bold text-slate-400 mt-1 flex items-center justify-between">
+                        <span>{activeRate > 0 ? `~${formatBs(metrics.netBalanceUsd * activeRate)} Bs` : 'Por recuperar neto'}</span>
+                        <span className="text-slate-400">Neto en calle</span>
                     </div>
                 </div>
             </div>
@@ -311,9 +317,9 @@ export default function MonitorDeudasTab({
                                                         <span className="font-outfit text-sm sm:text-base font-black text-red-600 dark:text-red-400 block leading-tight tabular-nums">
                                                             -${formatUsd(deuda)}
                                                         </span>
-                                                        {bcvRate > 0 && (
+                                                        {activeRate > 0 && (
                                                             <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block mt-0.5">
-                                                                -{formatBs(deuda * bcvRate)} Bs
+                                                                -{formatBs(deuda * activeRate)} Bs
                                                             </span>
                                                         )}
                                                         {copEnabled && tasaCop > 0 && (
@@ -483,7 +489,7 @@ export default function MonitorDeudasTab({
                                                 </td>
 
                                                 <td className="py-3 px-3 text-right font-bold text-slate-600 dark:text-slate-300 tabular-nums whitespace-nowrap">
-                                                    {isDeudor && bcvRate > 0 ? `-${formatBs(deuda * bcvRate)} Bs` : '—'}
+                                                    {isDeudor && activeRate > 0 ? `-${formatBs(deuda * activeRate)} Bs` : '—'}
                                                 </td>
 
                                                 <td className="py-3 px-3 text-right font-black font-outfit text-sm text-emerald-600 dark:text-emerald-400 tabular-nums whitespace-nowrap">
@@ -584,9 +590,9 @@ export default function MonitorDeudasTab({
                                                 }`}>
                                                     {isFiada ? `-$${formatUsd(s.totalUsd)}` : `+$${formatUsd(s.totalUsd)}`}
                                                 </span>
-                                                {bcvRate > 0 && (
+                                                {activeRate > 0 && (
                                                     <span className="text-[10px] font-bold text-slate-400 block">
-                                                        {formatBs(s.totalBs || (s.totalUsd * bcvRate))} Bs
+                                                        {formatBs(s.totalBs || (s.totalUsd * activeRate))} Bs
                                                     </span>
                                                 )}
                                             </div>
