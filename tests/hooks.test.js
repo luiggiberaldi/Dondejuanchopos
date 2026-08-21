@@ -390,6 +390,13 @@ describe('HOOK-041: backupKeys.js — listas canónicas', () => {
     expect(IDB_KEYS).toContain('abasto_audit_log_v1');
     expect(IDB_KEYS).toContain('bodega_accounts_v2');
     expect(IDB_KEYS).toContain('my_categories_v1');
+    expect(IDB_KEYS).toEqual(expect.arrayContaining([
+      'bodega_employees_v1',
+      'bodega_employee_consumptions_v1',
+      'bodega_payroll_periods_v1',
+      'bodega_payroll_settlements_v1',
+      'bodega_employee_payroll_projection_v1',
+    ]));
   });
 
   it('LS_KEYS incluye claves de configuración y auth', () => {

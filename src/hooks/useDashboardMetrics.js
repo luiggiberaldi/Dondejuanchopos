@@ -17,6 +17,7 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
     const shiftScope = useMemo(() => getOpenShiftMovements(sales), [sales]);
     const shiftCashFlow = shiftScope.movements;
     const shiftOrphans = shiftScope.orphans;
+    const shiftVoided = shiftScope.voided;
     const shiftApertura = shiftScope.apertura;
 
     const shiftSales = useMemo(() =>
@@ -118,6 +119,10 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
     const allShiftSales = useMemo(() => {
         const list = sales || [];
         const apertura = shiftApertura;
+        // Si no hay apertura activa (caja cerrada), el turno actual no tiene ventas
+        if (!apertura) {
+            return [];
+        }
         const from = apertura?.timestamp ? new Date(apertura.timestamp).getTime() : null;
         return list.filter(s => {
             if (s.cajaCerrada === true) return false;
@@ -256,6 +261,7 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
         shiftPaymentBreakdown,
         shiftTopProducts,
         shiftOrphans,
+        shiftVoided,
         shiftApertura,
     };
 }

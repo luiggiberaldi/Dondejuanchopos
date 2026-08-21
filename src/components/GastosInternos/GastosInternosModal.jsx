@@ -114,9 +114,10 @@ export default function GastosInternosModal({
     const [isAutoconsumo, setIsAutoconsumo]   = useState(false);
     const [productSearch, setProductSearch]   = useState('');
     const [selectedItems, setSelectedItems]   = useState([]); // [{ id, name, stock, costUsd, priceUsd, qty, valoracion }]
-    const [valoracion, setValoracion]         = useState('costo'); // 'costo' | 'venta'
+    const [valoracion, setValoracion]         = useState('venta'); 
     const [showResults, setShowResults]       = useState(false);
     const [lastSeenCount, setLastSeenCount]   = useState(0);
+    const [isSubmitting, setIsSubmitting]     = useState(false);
 
     // Fetch active payment methods
     useEffect(() => {
@@ -138,86 +139,78 @@ export default function GastosInternosModal({
         return filteredMethods.map(m => {
             const IconComponent = getPaymentIcon(m.id);
             let iconColor = "text-slate-500 dark:text-slate-400";
-            if (m.id.includes('bs')) iconColor = "text-emerald-600 dark:text-emerald-400";
-            else if (m.id.includes('usd') || m.id.includes('zelle')) iconColor = "text-emerald-500 dark:text-emerald-400";
-            else if (m.id.includes('cop')) iconColor = "text-amber-500 dark:text-amber-400";
-            else if (m.id.includes('punto')) iconColor = "text-blue-500 dark:text-blue-400";
-            else if (m.id.includes('movil')) iconColor = "text-purple-500 dark:text-purple-400";
+            if (m.id.includes('efectivo')) iconColor = "text-emerald-500";
+            if (m.id.includes('pago_movil') || m.id.includes('transferencia')) iconColor = "text-blue-500";
+            if (m.id.includes('punto')) iconColor = "text-indigo-500";
+            if (m.id.includes('zelle')) iconColor = "text-purple-500";
+            if (m.id.includes('binance')) iconColor = "text-amber-500";
+
             return {
                 value: m.id,
-                label: m.label,
-                icon: IconComponent ? <IconComponent size={15} className={iconColor} /> : null
+                label: m.label || m.name || m.nombre || getPaymentLabel(m.id) || m.id,
+                icon: IconComponent,
+                iconColor: iconColor
             };
         });
     }, [filteredMethods]);
 
-    // Auto-select first payment method of selected currency
+    // Set default payment method when filtered options change
     useEffect(() => {
-        if (filteredMethods.length > 0) {
-            setSelectedMethodId(filteredMethods[0].id);
+        if (methodOptions.length > 0) {
+            const defaultMethod = methodOptions.find(m => m.value.includes('efectivo')) || methodOptions[0];
+            setSelectedMethodId(defaultMethod.value);
         } else {
             setSelectedMethodId('');
         }
-    }, [filteredMethods]);
+    }, [methodOptions]);
 
     // Reset form when modal opens/closes
     useEffect(() => {
-        if (isOpen) {
+        if (!isOpen) {
             setDescription('');
-            setCategory('otros');
-            setCurrency('USD');
             setAmount('');
+            setCategory('insumos');
             setNote('');
-            setActiveTab('registrar');
             setIsAutoconsumo(false);
             setSelectedItems([]);
             setProductSearch('');
-            setValoracion('costo');
-            setLastSeenCount(0);
+            setShowResults(false);
+            setIsSubmitting(false);
         }
     }, [isOpen]);
 
-    // When category switches to autoconsumo, activate the toggle automatically
-    useEffect(() => {
-        if (category === 'autoconsumo') setIsAutoconsumo(true);
-        else if (isAutoconsumo) setIsAutoconsumo(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [category]);
-
-    // When toggle activates, auto-switch category to autoconsumo
+    // Auto-switch category when toggling autoconsumo
     useEffect(() => {
         if (isAutoconsumo) setCategory('autoconsumo');
-        else if (category === 'autoconsumo') setCategory('otros');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        else if (category === 'autoconsumo') setCategory('insumos');
     }, [isAutoconsumo]);
 
-    // ── Product search results ──
+    // ── Search products for autoconsumo ──
     const searchResults = useMemo(() => {
-        if (!productSearch.trim() || productSearch.length < 2) return [];
-        const q = productSearch.toLowerCase();
-        return products
-            .filter(p => p.name?.toLowerCase().includes(q) || p.barcode?.includes(q))
-            .slice(0, 8);
-    }, [products, productSearch]);
+        if (!productSearch || productSearch.trim().length < 2) return [];
+        const q = productSearch.toLowerCase().trim();
+        return products.filter(p => {
+            if (p.isCombo) return false;
+            const matchName = (p.name || '').toLowerCase().includes(q);
+            const matchBarcode = (p.barcode || '').toLowerCase().includes(q);
+            return matchName || matchBarcode;
+        }).slice(0, 8);
+    }, [productSearch, products]);
 
-    // ── Auto-generate description from selected items ──
+    // ── Pre-fill description based on selected items in autoconsumo ──
     useEffect(() => {
-        if (!isAutoconsumo) return;
-        if (selectedItems.length === 0) {
-            setDescription('');
-            return;
-        }
+        if (!isAutoconsumo || selectedItems.length === 0) return;
         const parts = selectedItems.map(i => `${i.qty}u ${i.name}`);
         setDescription(`Retiro: ${parts.join(', ')}`);
     }, [selectedItems, isAutoconsumo]);
 
-    // ── Totals for autoconsumo ──
+    // ── Totals for autoconsumo (Siempre a Precio de Venta) ──
     const autoconsumoTotalUsd = useMemo(() => {
         return selectedItems.reduce((sum, i) => {
-            const price = valoracion === 'costo' ? (i.costUsd || 0) : (i.priceUsd || 0);
+            const price = (i.priceUsd || 0);
             return sum + price * i.qty;
         }, 0);
-    }, [selectedItems, valoracion]);
+    }, [selectedItems]);
 
     const autoconsumoTotalBs = useMemo(() => {
         return autoconsumoTotalUsd * bcvRate;
@@ -234,24 +227,30 @@ export default function GastosInternosModal({
                 id:       product.id,
                 name:     product.name,
                 stock:    product.stock ?? 0,
-                costUsd:  product.costUsd  || 0,
+                costUsd:  product.costUsd || 0,
                 priceUsd: product.priceUsd || 0,
                 qty:      1,
+                valoracion: 'venta',
             }];
         });
         setProductSearch('');
         setShowResults(false);
     }, [triggerHaptic]);
 
-    const updateItemQty = useCallback((id, delta) => {
-        setSelectedItems(prev =>
-            prev.map(i => i.id === id ? { ...i, qty: Math.max(1, i.qty + delta) } : i)
-        );
-    }, []);
-
-    const removeItem = useCallback((id) => {
+    const updateItemQty = useCallback((productId, delta) => {
         triggerHaptic && triggerHaptic();
-        setSelectedItems(prev => prev.filter(i => i.id !== id));
+        setSelectedItems(prev => {
+            return prev.map(i => {
+                if (i.id !== productId) return i;
+                const newQty = i.qty + delta;
+                return newQty > 0 ? { ...i, qty: newQty } : null;
+            }).filter(Boolean);
+        });
+    }, [triggerHaptic]);
+
+    const removeItem = useCallback((productId) => {
+        triggerHaptic && triggerHaptic();
+        setSelectedItems(prev => prev.filter(i => i.id !== productId));
     }, [triggerHaptic]);
 
     // ── Get today's expenses ──
@@ -299,46 +298,56 @@ export default function GastosInternosModal({
         setAmount(v);
     };
 
-    // ── Submit ──
+    // ── Submit con protección anti-doble clic ──
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (isSubmitting) return;
 
-        if (isAutoconsumo) {
-            if (selectedItems.length === 0) return;
-            await registrarAutoconsumo({
+        setIsSubmitting(true);
+        try {
+            if (isAutoconsumo) {
+                if (selectedItems.length === 0) return;
+                const success = await registrarAutoconsumo({
+                    description,
+                    items:      selectedItems,
+                    valoracion,
+                    note,
+                    totalUsd:   autoconsumoTotalUsd,
+                    totalBs:    autoconsumoTotalBs,
+                });
+                if (success) {
+                    setSelectedItems([]);
+                    setDescription('');
+                    setNote('');
+                    onClose?.();
+                }
+                return;
+            }
+
+            if (!description.trim() || parsedAmount <= 0 || !selectedMethodId) return;
+            const success = await registrarGasto({
                 description,
-                items:      selectedItems,
-                valoracion,
-                note,
-                totalUsd:   autoconsumoTotalUsd,
-                totalBs:    autoconsumoTotalBs,
+                category,
+                amountUsd: currency === 'USD' ? parsedAmount : parseFloat(equivalentUsd.toFixed(4)),
+                amountBs:  currency === 'BS'  ? parsedAmount : parseFloat(equivalentBs.toFixed(2)),
+                methodId: selectedMethodId,
+                currency,
+                note
             });
-            setSelectedItems([]);
-            setDescription('');
-            setNote('');
-            return;
-        }
-
-        if (!description.trim() || parsedAmount <= 0 || !selectedMethodId) return;
-        const success = await registrarGasto({
-            description,
-            category,
-            amountUsd: currency === 'USD' ? parsedAmount : parseFloat(equivalentUsd.toFixed(4)),
-            amountBs:  currency === 'BS'  ? parsedAmount : parseFloat(equivalentBs.toFixed(2)),
-            methodId: selectedMethodId,
-            currency,
-            note
-        });
-        if (success) {
-            setDescription('');
-            setAmount('');
-            setNote('');
+            if (success) {
+                setDescription('');
+                setAmount('');
+                setNote('');
+                onClose?.();
+            }
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
-    const isSubmitDisabled = isAutoconsumo
+    const isSubmitDisabled = isSubmitting || (isAutoconsumo
         ? selectedItems.length === 0
-        : (!description.trim() || parsedAmount <= 0 || !selectedMethodId);
+        : (!description.trim() || parsedAmount <= 0 || !selectedMethodId));
 
     return (
         <Modal
@@ -412,38 +421,6 @@ export default function GastosInternosModal({
                     {isAutoconsumo ? (
                         <div className="space-y-4">
 
-                            {/* Valoración */}
-                            <div>
-                                <label className="block text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                                    Valorar por
-                                </label>
-                                <div className="flex bg-slate-50 dark:bg-slate-800/40 p-1 rounded-2xl border border-slate-200/20 dark:border-slate-700/20">
-                                    {[
-                                        { key: 'costo', label: 'Precio de Costo', Icon: DollarSign },
-                                        { key: 'venta', label: 'Precio de Venta', Icon: Tag }
-                                    ].map(opt => (
-                                        <button
-                                            key={opt.key}
-                                            type="button"
-                                            onClick={() => { triggerHaptic && triggerHaptic(); setValoracion(opt.key); }}
-                                            className={`flex-1 py-2.5 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${
-                                                valoracion === opt.key
-                                                    ? 'bg-white dark:bg-slate-700 text-violet-600 dark:text-violet-400 shadow-sm font-black'
-                                                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-200'
-                                            }`}
-                                        >
-                                            <opt.Icon size={13} />
-                                            {opt.label}
-                                        </button>
-                                    ))}
-                                </div>
-                                {valoracion === 'costo' && (
-                                    <p className="text-[9px] text-slate-400 font-medium mt-1 ml-1">
-                                        Recomendado · Refleja el costo real del inventario retirado
-                                    </p>
-                                )}
-                            </div>
-
                             {/* Buscador + Lista */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
 
@@ -478,8 +455,7 @@ export default function GastosInternosModal({
                                                         <p className="text-xs font-black text-slate-800 dark:text-white leading-tight">{p.name}</p>
                                                         <p className="text-[9px] font-bold text-slate-400 mt-0.5">
                                                             Stock: {p.stock ?? 0} ·{' '}
-                                                            Costo ${(p.costUsd || 0).toFixed(2)} ·{' '}
-                                                            Precio ${(p.priceUsd || 0).toFixed(2)}
+                                                            Precio: ${(p.priceUsd || 0).toFixed(2)}
                                                         </p>
                                                     </div>
                                                     <Plus size={15} className="text-violet-500 shrink-0 ml-2" />
@@ -513,62 +489,46 @@ export default function GastosInternosModal({
                                             <p className="text-[10px] font-bold">Sin productos aún</p>
                                         </div>
                                     ) : (
-                                        <>
-                                            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                                                {selectedItems.map(item => {
-                                                    const unitPrice = valoracion === 'costo' ? (item.costUsd || 0) : (item.priceUsd || 0);
-                                                    const subtotal = unitPrice * item.qty;
-                                                    return (
-                                                        <div key={item.id} className="flex items-center gap-2 p-2.5 rounded-2xl bg-violet-50/60 dark:bg-violet-950/20 border border-violet-100 dark:border-violet-900/30">
-                                                            <div className="flex-1 min-w-0">
-                                                                <p className="text-xs font-black text-slate-800 dark:text-white truncate">{item.name}</p>
-                                                                <p className="text-[9px] font-bold text-violet-500 mt-0.5">
-                                                                    ${unitPrice.toFixed(2)} c/u = ${subtotal.toFixed(2)}
-                                                                </p>
-                                                            </div>
-                                                            <div className="flex items-center gap-1 shrink-0">
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => updateItemQty(item.id, -1)}
-                                                                    className="w-6 h-6 rounded-full bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 flex items-center justify-center hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-colors"
-                                                                >
-                                                                    <Minus size={10} />
-                                                                </button>
-                                                                <span className="w-5 text-center text-xs font-black text-slate-700 dark:text-white">{item.qty}</span>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => updateItemQty(item.id, 1)}
-                                                                    className="w-6 h-6 rounded-full bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 flex items-center justify-center hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-colors"
-                                                                >
-                                                                    <Plus size={10} />
-                                                                </button>
-                                                            </div>
+                                        <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                            {selectedItems.map(item => {
+                                                const unitPrice = (item.priceUsd || 0);
+                                                const subtotal = unitPrice * item.qty;
+                                                return (
+                                                    <div key={item.id} className="flex items-center gap-2 p-2.5 rounded-2xl bg-violet-50/60 dark:bg-violet-950/20 border border-violet-100 dark:border-violet-900/30">
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="text-xs font-black text-slate-800 dark:text-white truncate">{item.name}</p>
+                                                            <p className="text-[9px] font-bold text-violet-500 mt-0.5">
+                                                                ${unitPrice.toFixed(2)} c/u = ${subtotal.toFixed(2)}
+                                                            </p>
+                                                        </div>
+                                                        <div className="flex items-center gap-1 shrink-0">
                                                             <button
                                                                 type="button"
-                                                                onClick={() => removeItem(item.id)}
-                                                                className="w-6 h-6 rounded-full flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors shrink-0"
+                                                                onClick={() => updateItemQty(item.id, -1)}
+                                                                className="w-6 h-6 rounded-full bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 flex items-center justify-center hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-colors"
                                                             >
-                                                                <X size={12} />
+                                                                <Minus size={10} />
+                                                            </button>
+                                                            <span className="w-5 text-center text-xs font-black text-slate-700 dark:text-white">{item.qty}</span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => updateItemQty(item.id, 1)}
+                                                                className="w-6 h-6 rounded-full bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 flex items-center justify-center hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-colors"
+                                                            >
+                                                                <Plus size={10} />
                                                             </button>
                                                         </div>
-                                                    );
-                                                })}
-                                            </div>
-
-                                            <div className="flex items-center justify-between p-3 rounded-2xl bg-violet-500/10 border border-violet-200/50 dark:border-violet-800/30">
-                                                <span className="text-xs font-black text-violet-700 dark:text-violet-300">Total a descontar</span>
-                                                <div className="text-right">
-                                                    <span className="text-sm font-black text-violet-600 dark:text-violet-400">
-                                                        ${autoconsumoTotalUsd.toFixed(2)} USD
-                                                    </span>
-                                                    {bcvRate > 0 && (
-                                                        <p className="text-[9px] font-bold text-violet-400 mt-0.5">
-                                                            Bs {autoconsumoTotalBs.toFixed(2)}
-                                                        </p>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => removeItem(item.id)}
+                                                            className="w-6 h-6 rounded-full flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors shrink-0"
+                                                        >
+                                                            <X size={12} />
+                                                        </button>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
                                     )}
                                 </div>
 
@@ -761,17 +721,26 @@ export default function GastosInternosModal({
                                     : 'bg-gradient-to-r from-red-500 to-rose-600 text-white shadow-red-500/10 hover:shadow-lg hover:shadow-red-500/20 hover:brightness-105 active:scale-95'
                         }`}
                     >
-                        {isAutoconsumo ? <ShoppingBag size={16} strokeWidth={3} /> : <TrendingDown size={16} strokeWidth={3} />}
-                        {isAutoconsumo ? 'Registrar Retiro de Inventario' : 'Registrar Gasto de Caja Chica'}
+                        {isSubmitting ? (
+                            <>
+                                <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                <span>Procesando...</span>
+                            </>
+                        ) : (
+                            <>
+                                {isAutoconsumo ? <ShoppingBag size={16} strokeWidth={3} /> : <TrendingDown size={16} strokeWidth={3} />}
+                                {isAutoconsumo ? 'Registrar Retiro de Inventario' : 'Registrar Gasto de Caja Chica'}
+                            </>
+                        )}
                     </button>
                 </form>
             ) : (
                 /* TAB HISTORIAL */
                 <div className="space-y-4">
                     <div className="flex justify-between items-center bg-slate-50/80 dark:bg-slate-800/40 px-4 py-3.5 rounded-2xl border border-slate-200/20 dark:border-slate-750 font-display">
-                        <span className="text-xs font-bold text-slate-500">Total Gastado Hoy</span>
+                        <span className="text-xs font-bold text-slate-500">Total Gastado Hoy (Caja)</span>
                         <span className="text-base font-black text-red-500">
-                            $ {todayExpenses.filter(g => g.status !== 'ANULADA').reduce((sum, g) => sum + Math.abs(g.totalUsd || 0), 0).toFixed(2)} USD
+                            $ {todayExpenses.filter(g => g.status !== 'ANULADA' && !g.isAutoconsumo && g.category !== 'autoconsumo').reduce((sum, g) => sum + Math.abs(g.totalUsd || 0), 0).toFixed(2)} USD
                         </span>
                     </div>
 
@@ -783,17 +752,20 @@ export default function GastosInternosModal({
                     ) : (
                         <div className="space-y-2.5 max-h-[45vh] overflow-y-auto pr-1 custom-scrollbar">
                             {todayExpenses.map(g => {
-                                const isAutoconsumoRecord = g.isAutoconsumo === true;
+                                const isAutoconsumoRecord = g.isAutoconsumo === true || g.category === 'autoconsumo';
                                 const meta = isAutoconsumoRecord ? CATEGORY_META.autoconsumo : (CATEGORY_META[g.category] || CATEGORY_META.otros);
                                 const IconComponent = meta.icon;
                                 const isVoided = g.status === 'ANULADA';
+                                const totalUnits = Array.isArray(g.items) && g.items.length > 0
+                                    ? g.items.reduce((sum, it) => sum + (it.qty || 0), 0)
+                                    : 1;
+
                                 const formattedAmount = () => {
                                     if (g.payments && g.payments.length > 0) {
                                         const p = g.payments[0];
-                                        if (p.methodId === 'autoconsumo') return `$ ${Math.abs(g.totalUsd || 0).toFixed(2)}`;
-                                        if (p.currency === 'USD') return `$ ${Math.abs(p.amountUsd).toFixed(2)}`;
-                                        if (p.currency === 'BS')  return `Bs ${Math.abs(p.amountBs).toFixed(2)}`;
-                                        if (p.currency === 'COP') return `$ ${Math.abs(p.amountCop).toLocaleString('es-CO')} COP`;
+                                        if (p.currency === 'USD') return `$ ${Math.abs(p.amountUsd || 0).toFixed(2)}`;
+                                        if (p.currency === 'BS')  return `Bs ${Math.abs(p.amountBs || 0).toFixed(2)}`;
+                                        if (p.currency === 'COP') return `$ ${Math.abs(p.amountCop || 0).toLocaleString('es-CO')} COP`;
                                     }
                                     return `$ ${Math.abs(g.totalUsd || 0).toFixed(2)}`;
                                 };
@@ -811,22 +783,24 @@ export default function GastosInternosModal({
                                                         : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800/80 shadow-sm hover:border-slate-200 dark:hover:border-slate-700'
                                         }`}
                                     >
-                                        <div className="flex items-center gap-3">
+                                        <div className="flex items-center gap-3 min-w-0 flex-1 pr-2">
                                             <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
                                                 isVoided ? 'bg-slate-100 dark:bg-slate-800 text-slate-400' : meta.bgIcon
                                             }`}>
                                                 <IconComponent size={18} className={isVoided ? 'text-slate-400' : meta.iconColor} />
                                             </div>
-                                            <div className="text-left">
-                                                <div className="text-xs font-black text-slate-850 dark:text-white leading-tight">
-                                                    {g.description}
+                                            <div className="text-left min-w-0 flex-1">
+                                                <div className="text-xs font-black text-slate-850 dark:text-white leading-tight truncate">
+                                                    {isAutoconsumoRecord && Array.isArray(g.items) && g.items.length > 0
+                                                        ? g.items.map(it => `${it.qty}u ${it.name}`).join(', ')
+                                                        : g.description}
                                                 </div>
-                                                <div className="text-[9px] font-bold text-slate-400 mt-1 flex items-center gap-1.5">
+                                                <div className="text-[9px] font-bold text-slate-400 mt-1 flex items-center gap-1.5 flex-wrap">
                                                     <span>{meta.label}</span>
                                                     {isAutoconsumoRecord && (
                                                         <>
                                                             <span>·</span>
-                                                            <span className="text-violet-400">Sin impacto en caja</span>
+                                                            <span className="text-violet-400 font-semibold">Salida de Inventario</span>
                                                         </>
                                                     )}
                                                     {!isAutoconsumoRecord && (() => {
@@ -851,10 +825,20 @@ export default function GastosInternosModal({
                                             </div>
                                         </div>
 
-                                        <div className="flex items-center gap-2">
-                                            <span className={`text-xs font-black font-display shrink-0 ${isVoided ? 'text-slate-400' : isAutoconsumoRecord ? 'text-violet-500' : 'text-red-500'}`}>
-                                                -{formattedAmount()}
-                                            </span>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            {isAutoconsumoRecord ? (
+                                                <span className={`text-xs font-black px-2.5 py-1 rounded-xl shrink-0 ${
+                                                    isVoided
+                                                        ? 'bg-slate-100 dark:bg-slate-800 text-slate-400'
+                                                        : 'bg-violet-100 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 border border-violet-200/50 dark:border-violet-900/50'
+                                                }`}>
+                                                    📦 {totalUnits} {totalUnits === 1 ? 'artículo' : 'artículos'}
+                                                </span>
+                                            ) : (
+                                                <span className={`text-xs font-black font-display shrink-0 ${isVoided ? 'text-slate-400' : 'text-red-500'}`}>
+                                                    -{formattedAmount()}
+                                                </span>
+                                            )}
 
                                             {!isVoided && !g.cajaCerrada && (
                                                 <button

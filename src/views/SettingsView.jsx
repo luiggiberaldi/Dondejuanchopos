@@ -4,7 +4,7 @@ import { useReveal } from '../hooks/useReveal';
 import {
     ArrowLeft, Store, Printer, Coins, Package, CreditCard, Database,
     Palette, Fingerprint, Upload, Download, Share2, Check, X,
-    AlertTriangle, Copy, Sun, Moon, ChevronRight, Trash2, Users, FileText, Lock, Key
+    AlertTriangle, Copy, Sun, Moon, ChevronRight, Trash2, Users, FileText, Lock, Key, BriefcaseBusiness
 } from 'lucide-react';
 import { showToast } from '../components/Toast';
 import PaymentMethodsManager from '../components/Settings/PaymentMethodsManager';
@@ -21,8 +21,6 @@ import { useCloudBackup } from '../hooks/useCloudBackup';
 import { useDataImportExport } from '../hooks/useDataImportExport';
 import { useAuthStore } from '../hooks/store/useAuthStore';
 import WalletView from './WalletView';
-
-
 // ───────────────────────────────────────────────────── Tab Config
 const TABS = [
     { id: 'negocio', label: 'Negocio', icon: Store },
@@ -175,7 +173,7 @@ export default function SettingsView({ onClose, theme, toggleTheme, triggerHapti
         }
     }, []);
 
-    const visibleTabs = TABS;
+    const visibleTabs = isAdmin ? TABS : TABS.filter(tab => tab.id !== 'empleados');
 
     // ─── Cloud backup hook ────────────────────────────────
     const {

@@ -7,6 +7,7 @@ import { showToast } from '../components/Toast';
 import { calculateComboStock, getEffectiveCostUsd, calculatePricing } from '../utils/productProcessor';
 import SupervisorRateModal from '../components/SupervisorRateModal';
 import RemoteProductFormModal from '../components/Monitor/RemoteProductFormModal';
+import RemoteEmployeeModal from '../components/Monitor/RemoteEmployeeModal';
 import SupervisorPairingModal from '../components/Monitor/SupervisorPairingModal';
 import RemoteKardexPanel from '../components/Monitor/RemoteKardexPanel';
 import ComboFormModal from '../components/Products/ComboFormModal';
@@ -21,7 +22,7 @@ import {
     Wallet, CreditCard, Smartphone, Banknote, ArrowDownRight,
     ShieldCheck, Hash, AlertTriangle, Search, X, ChevronLeft, ChevronRight,
     MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud, Sparkles, Gift, RotateCcw, Target, Lock, Unlock, HandCoins,
-    Wrench, Truck, User, Lightbulb, Box, Home, Receipt
+    Wrench, Truck, User, Lightbulb, Box, Home, Receipt, SlidersHorizontal, BarChart3, ShoppingBag
 } from 'lucide-react';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
 import { mulR, round2 } from '../utils/dinero';
@@ -31,7 +32,8 @@ import { getPaymentLabel, toTitleCase } from '../config/paymentMethods';
 import { findOpenApertura, getOpenShiftMovements } from '../utils/shiftScope';
 import { FinancialEngine } from '../core/FinancialEngine';
 import { calculateSupervisorChangeMetrics, calculateSupervisorOutflowMetrics } from '../utils/supervisorShiftMetrics';
-import { fetchRemoteFullBackup } from '../services/remoteAuditService';
+import { fetchRemoteEmployeePayrollDetail, fetchRemoteFullBackup } from '../services/remoteAuditService';
+import { generateEmployeePayrollPDF } from '../utils/employeePayrollPdfGenerator';
 import { useAuthStore } from '../hooks/store/useAuthStore';
 import {
     createSupervisorCommandId,
@@ -61,6 +63,12 @@ const PAYMENT_METHOD_ICONS = {
 function getMethodIcon(methodId) {
     return PAYMENT_METHOD_ICONS[methodId] || Wallet;
 }
+
+const formatPayrollUsd = value => new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+}).format(Number(value) || 0);
 
 function isDuplicateProductIdFailure(command) {
     const reason = String(command?.error_reason || '');
@@ -516,10 +524,19 @@ function getSupervisorCommandDetails(item, products = []) {
         const change = item.data || {};
         const data = change.data || {};
         const targetProd = Array.isArray(products) ? products.find(p => p.id === change.productId) : null;
-        const title = data.name || targetProd?.name || 'Artículo / Configuración';
-        const action = change.action;
+        const action = change.action || change.command_type;
         const details = [];
 
+        if (action === 'void_employee_consumption') {
+            const title = `Consumo: ${data.employeeNombre || change.employeeNombre || 'Personal'}`;
+            const actionLabel = 'Anulación de Consumo';
+            const actionColor = 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300';
+            if (data.totalUsd || change.totalUsd) details.push(`💵 $${Number(data.totalUsd || change.totalUsd || 0).toFixed(2)} USD`);
+            details.push('↺ Devolución a Stock');
+            return { title, actionLabel, actionColor, details, author: 'Tú (Monitor)' };
+        }
+
+        const title = data.name || targetProd?.name || 'Artículo / Configuración';
         let actionLabel = 'Modificación de Inventario';
         let actionColor = 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300';
 
@@ -562,7 +579,14 @@ function getSupervisorCommandDetails(item, products = []) {
     let actionLabel = 'Modificación de Inventario';
     let actionColor = 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300';
 
-    if (cmd.command_type === 'user_update') {
+    if (action === 'void_employee_consumption' || cmd.command_type === 'void_employee_consumption') {
+        title = `Consumo: ${payload.employeeNombre || 'Personal'}`;
+        actionLabel = 'Anulación de Consumo';
+        actionColor = 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300';
+        if (payload.totalUsd) details.push(`💵 $${Number(payload.totalUsd).toFixed(2)} USD`);
+        if (payload.employeeNombre) details.push(`👤 ${payload.employeeNombre}`);
+        details.push('↺ Devolución a Stock');
+    } else if (cmd.command_type === 'user_update') {
         title = payload.nombre ? `Cajero: "${payload.nombre}"` : `Usuario #${payload.userId || ''}`;
         actionLabel = payload.action === 'change_pin' ? 'Cambio de PIN' : 'Datos de Usuario';
         actionColor = 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300';
@@ -609,12 +633,56 @@ function getSupervisorCommandDetails(item, products = []) {
         }
     }
 
-    const author = payload.supervisorNombre || payload.actor?.nombre || cmd.monitor_device_id || 'Supervisor';
+    const author = payload.supervisorNombre || payload.supervisorName || payload.actor?.nombre || cmd.monitor_device_id || 'Supervisor';
     return { title, actionLabel, actionColor, details, author };
 }
 
 const PENDING_KEY = 'dj_pending_inventory_changes_v1';
 const INFLIGHT_KEY = 'dj_inflight_inventory_changes_v1';
+
+const MAIN_SUPERVISOR_TABS = [
+    {
+        id: 'caja',
+        label: 'Caja',
+        icon: Wallet,
+        defaultSubTab: 'activo',
+        subTabs: [
+            { id: 'activo', label: 'Turno Activo', shortLabel: 'Turno', icon: Clock },
+            { id: 'cierres', label: 'Historial de Cierres', shortLabel: 'Cierres', icon: Lock },
+        ]
+    },
+    {
+        id: 'finanzas',
+        label: 'Finanzas',
+        icon: TrendingUp,
+        defaultSubTab: 'articulos',
+        subTabs: [
+            { id: 'articulos', label: 'Reportes por Artículo', shortLabel: 'Reportes', icon: BarChart3 },
+            { id: 'gastos', label: 'Gastos Internos', shortLabel: 'Gastos', icon: Receipt },
+            { id: 'nomina', label: 'Nómina de Personal', shortLabel: 'Nómina', icon: Users },
+        ]
+    },
+    {
+        id: 'inventario_group',
+        label: 'Inventario',
+        icon: Package,
+        defaultSubTab: 'inventario',
+        subTabs: [
+            { id: 'inventario', label: 'Catálogo de Stock', shortLabel: 'Stock', icon: Package },
+            { id: 'kardex', label: 'Kardex Remoto', shortLabel: 'Kardex', icon: RotateCcw },
+        ]
+    },
+    {
+        id: 'control',
+        label: 'Control',
+        icon: ShieldCheck,
+        defaultSubTab: 'cambios',
+        hasBadge: true,
+        subTabs: [
+            { id: 'cambios', label: 'Historial de Cambios', shortLabel: 'Cambios', icon: SlidersHorizontal },
+        ]
+    },
+];
 
 export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) {
     const pairedDeviceId = localStorage.getItem('dj_paired_device_id');
@@ -623,6 +691,12 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const { isConnected, lastSync, loading: syncLoading, triggerRefresh, posLastSeen, isPosOnline, presenceError } = useMonitorSync(pairedDeviceId);
 
     const [sales, setSales] = useState([]);
+    const [payrollProjection, setPayrollProjection] = useState(null);
+    const [payrollDetail, setPayrollDetail] = useState(null);
+    const [payrollDetailLoading, setPayrollDetailLoading] = useState(false);
+    const [payrollDetailError, setPayrollDetailError] = useState(null);
+    const [confirmVoidConsumptionTarget, setConfirmVoidConsumptionTarget] = useState(null);
+    const [voidingConsumption, setVoidingConsumption] = useState(false);
     const [activeCashier, setActiveCashier] = useState({ nombre: 'Ninguno', rol: '' });
     const [loadingData, setLoadingData] = useState(true);
     const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
@@ -654,10 +728,14 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const [currentPageCambios, setCurrentPageCambios] = useState(1);
     const ITEMS_PER_PAGE_CAMBIOS = 10;
     const [showCloudPendingModal, setShowCloudPendingModal] = useState(false);
+    const [showDiscardQueueModal, setShowDiscardQueueModal] = useState(false);
     const [showUsersModal, setShowUsersModal] = useState(false);
     const [showRemoteCloseModal, setShowRemoteCloseModal] = useState(false);
     const [closingRemote, setClosingRemote] = useState(false);
     const [showPairingModal, setShowPairingModal] = useState(false);
+    const [showCreateEmployeeModal, setShowCreateEmployeeModal] = useState(false);
+    const [editingEmployee, setEditingEmployee] = useState(null);
+    const usuarios = useAuthStore(state => state.usuarios) || [];
     const [showMobileMenu, setShowMobileMenu] = useState(false);
     const [cancellingCmdId, setCancellingCmdId] = useState(null);
     const [downloadingBackup, setDownloadingBackup] = useState(false);
@@ -695,6 +773,17 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const [recentlyConfirmedIds, setRecentlyConfirmedIds] = useState(() => new Set());
     const autoUploadTimerRef = React.useRef(null);
     const uploadPendingChangesRef = React.useRef(null);
+
+    const activeMainTabId = useMemo(() => {
+        const found = MAIN_SUPERVISOR_TABS.find(main => main.subTabs.some(sub => sub.id === viewTab));
+        return found ? found.id : 'caja';
+    }, [viewTab]);
+
+    const currentMainTab = useMemo(() => {
+        return MAIN_SUPERVISOR_TABS.find(main => main.id === activeMainTabId) || MAIN_SUPERVISOR_TABS[0];
+    }, [activeMainTabId]);
+
+    const totalControlChanges = pendingChanges.length + cloudPendingCmds.length;
 
     // El polling de estado solo consulta IDs que el Supervisor ya conoce. Así
     // recupera un UPDATE perdido sin volver a descargar los 150 comandos cada
@@ -1578,7 +1667,13 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const discardPendingChanges = () => {
         persistPending([]);
         persistInFlight([]);
-        showToast('Cola de cambios limpiada', 'info');
+        showToast('Cola de cambios descartada', 'info');
+    };
+
+    const discardSinglePendingChange = (targetIndex) => {
+        const next = pendingChanges.filter((_, idx) => idx !== targetIndex);
+        persistPending(next);
+        showToast('Cambio descartado de la cola', 'info');
     };
 
     const cancelSingleCloudCmd = async (cmdId) => {
@@ -1670,6 +1765,10 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     };
 
     const handleReopenRemoteShift = async (targetCierreId = null) => {
+        if (shiftStatusInfo.isOpen) {
+            showToast('Ya hay un turno abierto actualmente en la caja', 'warning');
+            return;
+        }
         if (!pairedDeviceId || !supabaseCloud) return;
         triggerHaptic?.();
         try {
@@ -1864,16 +1963,254 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
             // caja, así que leerlas mostraba datos de operador vacíos o ajenos.
             // La fuente correcta es `bodega_users_catalog_v1`, que sí se sincroniza y
             // va saneada (sin `pin` ni `plainPin`) desde FX05.
-            const [savedSales] = await Promise.all([
-                storageService.getItem('bodega_sales_v1', [])
+            const [savedSales, savedPayrollProjection] = await Promise.all([
+                storageService.getItem('bodega_sales_v1', []),
+                storageService.getItem('bodega_employee_payroll_projection_v1', null),
             ]);
 
             setSales(savedSales);
+            setPayrollProjection(savedPayrollProjection?.employees ? savedPayrollProjection : null);
             setActiveCashier({ nombre: 'Ninguno', rol: '' });
         } catch (e) {
             console.error('[OwnerMonitorView] Error cargando datos locales:', e);
         } finally {
             setLoadingData(false);
+        }
+    };
+
+    const handlePayrollDetail = useCallback(async (employee) => {
+        const periodId = payrollProjection?.periodo?.id || payrollProjection?.periodo?.periodoId || 'actual';
+        if (!employee) return;
+        setPayrollDetailLoading(true);
+        setPayrollDetailError(null);
+        setPayrollDetail(null);
+        const detailData = {
+            employeeId: employee.employeeId,
+            employee,
+            periodoId: periodId,
+            consumptions: [],
+            settlements: []
+        };
+        try {
+            if (pairedDeviceId && periodId && periodId !== 'actual') {
+                const result = await fetchRemoteEmployeePayrollDetail(
+                    pairedDeviceId,
+                    employee.employeeId,
+                    periodId,
+                    supabaseCloud,
+                );
+                if (result.success) {
+                    detailData.consumptions = Array.isArray(result.consumptions) ? result.consumptions : [];
+                    detailData.settlements = Array.isArray(result.settlements) ? result.settlements : [];
+                }
+            }
+            setPayrollDetail(detailData);
+        } catch (err) {
+            console.warn('[OwnerMonitorView] Detalle remoto no disponible, usando proyección local:', err);
+            setPayrollDetail(detailData);
+        } finally {
+            setPayrollDetailLoading(false);
+        }
+    }, [pairedDeviceId, payrollProjection]);
+
+    const handleVoidConsumptionSupervisor = (consumption) => {
+        if (!consumption?.id || consumption.settlementId || consumption.status === 'VOIDED') return;
+        setConfirmVoidConsumptionTarget(consumption);
+    };
+
+    const executeVoidConsumptionSupervisor = async (consumption) => {
+        if (!consumption?.id || consumption.settlementId || consumption.status === 'VOIDED' || voidingConsumption) return;
+        setVoidingConsumption(true);
+        const commandId = createSupervisorCommandId();
+        try {
+            const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
+            if (supabaseCloud && pairedDeviceId) {
+                const { error } = await supabaseCloud
+                    .from('supervisor_commands')
+                    .insert({
+                        id: commandId,
+                        primary_device_id: pairedDeviceId,
+                        monitor_device_id: monitorDeviceId,
+                        command_type: 'inventory_update',
+                        payload: {
+                            action: 'void_employee_consumption',
+                            commandId,
+                            consumptionId: consumption.id,
+                            employeeId: consumption.employeeId,
+                            employeeNombre: payrollDetail?.employee?.employeeNombre || consumption.employeeNombre || 'Empleado',
+                            totalUsd: consumption.totalUsd || 0,
+                            totalBs: consumption.totalBs || 0,
+                            reason: 'Anulado por Supervisor desde Monitor',
+                            supervisorId: supervisorUser?.id || null,
+                            supervisorName: supervisorUser?.nombre || supervisorUser?.usuario || 'Supervisor',
+                            supervisorRole: supervisorUser?.rol || 'SUPERVISOR',
+                        },
+                        status: 'pending'
+                    });
+
+                if (error) throw error;
+                showToast('Comando de anulación enviado a la caja principal', 'success');
+                setPayrollDetail(prev => {
+                    if (!prev) return prev;
+                    const nextConsumptions = (prev.consumptions || []).map(c => c.id === consumption.id ? { ...c, status: 'VOIDED' } : c);
+                    const activeCons = nextConsumptions.filter(c => c.status !== 'VOIDED');
+                    const newTotalConsumos = activeCons.reduce((sum, c) => sum + Number(c.totalUsd || 0), 0);
+                    const baseSalary = Number(prev.employee?.salarioSemanalUsd || 0);
+                    const newNeto = Math.max(0, baseSalary - newTotalConsumos);
+
+                    return {
+                        ...prev,
+                        consumptions: nextConsumptions,
+                        employee: {
+                            ...prev.employee,
+                            totalConsumosUsd: newTotalConsumos,
+                            netoAPagarUsd: newNeto,
+                        }
+                    };
+                });
+                setConfirmVoidConsumptionTarget(null);
+            } else {
+                showToast('Sin conexión con la caja principal', 'error');
+            }
+        } catch (err) {
+            console.error('[OwnerMonitor] Error al solicitar anulación de consumo:', err);
+            showToast('No se pudo enviar la anulación de consumo', 'error');
+        } finally {
+            setVoidingConsumption(false);
+        }
+    };
+
+    const handleSaveRemoteEmployee = async (employeeData) => {
+        const commandId = createSupervisorCommandId();
+        const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
+        if (supabaseCloud && pairedDeviceId) {
+            const { error } = await supabaseCloud
+                .from('supervisor_commands')
+                .insert({
+                    id: commandId,
+                    primary_device_id: pairedDeviceId,
+                    monitor_device_id: monitorDeviceId,
+                    command_type: 'inventory_update',
+                    payload: {
+                        action: 'save_employee',
+                        commandId,
+                        employee: employeeData,
+                        supervisorId: supervisorUser?.id || null,
+                        supervisorName: supervisorUser?.nombre || supervisorUser?.usuario || 'Supervisor',
+                        supervisorRole: supervisorUser?.rol || 'SUPERVISOR',
+                    },
+                    status: 'pending'
+                });
+
+            if (error) throw error;
+            showToast(editingEmployee ? 'Empleado actualizado y comando enviado a la caja' : 'Empleado creado y comando enviado a la caja', 'success');
+
+            // Actualización optimista de la lista y proyección de nómina
+            setPayrollProjection(prev => {
+                const currentEmps = Array.isArray(prev?.employees) ? [...prev.employees] : [];
+                const idx = currentEmps.findIndex(e => e.employeeId === employeeData.id || e.id === employeeData.id);
+                const summaryEntry = {
+                    employeeId: employeeData.id,
+                    employeeNombre: employeeData.nombre,
+                    cargo: employeeData.cargo,
+                    salarioSemanalUsd: employeeData.salarioSemanalUsd,
+                    limiteConsumoPorc: employeeData.limiteConsumoPorc,
+                    totalConsumosUsd: idx >= 0 ? (currentEmps[idx].totalConsumosUsd || 0) : 0,
+                    netoAPagarUsd: idx >= 0 ? Math.max(0, employeeData.salarioSemanalUsd - (currentEmps[idx].totalConsumosUsd || 0)) : employeeData.salarioSemanalUsd,
+                    porcentajeConsumido: idx >= 0 ? (currentEmps[idx].porcentajeConsumido || 0) : 0,
+                    settled: idx >= 0 ? currentEmps[idx].settled : false,
+                    settlementId: idx >= 0 ? currentEmps[idx].settlementId : null,
+                };
+                if (idx >= 0) {
+                    currentEmps[idx] = { ...currentEmps[idx], ...summaryEntry };
+                } else {
+                    currentEmps.push(summaryEntry);
+                }
+                const totalNomina = currentEmps.reduce((acc, e) => acc + Number(e.salarioSemanalUsd || 0), 0);
+                const totalCons = currentEmps.reduce((acc, e) => acc + Number(e.totalConsumosUsd || 0), 0);
+                const totalNeto = currentEmps.reduce((acc, e) => acc + Number(e.netoAPagarUsd || 0), 0);
+                return {
+                    ...(prev || {}),
+                    periodo: prev?.periodo || { id: 'actual', status: 'OPEN' },
+                    employees: currentEmps,
+                    totals: {
+                        nominaTotalUsd: totalNomina,
+                        consumosTotalUsd: totalCons,
+                        netoTotalUsd: totalNeto,
+                        employeesCount: currentEmps.length,
+                    }
+                };
+            });
+            setShowCreateEmployeeModal(false);
+            setEditingEmployee(null);
+        } else {
+            showToast('Sin conexión con la caja principal', 'error');
+        }
+    };
+
+    const handleDeleteRemoteEmployee = async (employee) => {
+        if (!employee) return;
+        const employeeName = employee.employeeNombre || employee.nombre || 'este empleado';
+        const empId = employee.employeeId || employee.id;
+
+        // Paso 1 de 2: Primera confirmación
+        const step1 = window.confirm(`¿Eliminar al empleado "${employeeName}"? (Paso 1 de 2)\n\nEsta acción eliminará al empleado del sistema.`);
+        if (!step1) return;
+
+        // Paso 2 de 2: Segunda confirmación obligatoria
+        const step2 = window.confirm(`⚠️ ¡CONFIRMACIÓN FINAL! (Paso 2 de 2)\n\n¿Estás 100% seguro de eliminar definitivamente a "${employeeName}"?\n\nEsta acción es TOTALMENTE IRREVERSIBLE.`);
+        if (!step2) return;
+
+        const commandId = createSupervisorCommandId();
+        const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
+        if (supabaseCloud && pairedDeviceId) {
+            try {
+                const { error } = await supabaseCloud
+                    .from('supervisor_commands')
+                    .insert({
+                        id: commandId,
+                        primary_device_id: pairedDeviceId,
+                        monitor_device_id: monitorDeviceId,
+                        command_type: 'inventory_update',
+                        payload: {
+                            action: 'delete_employee',
+                            commandId,
+                            employeeId: empId,
+                            supervisorId: supervisorUser?.id || null,
+                            supervisorName: supervisorUser?.nombre || supervisorUser?.usuario || 'Supervisor',
+                            supervisorRole: supervisorUser?.rol || 'SUPERVISOR',
+                        },
+                        status: 'pending'
+                    });
+
+                if (error) throw error;
+                showToast(`Empleado "${employeeName}" eliminado y comando enviado a la caja`, 'success');
+                triggerHaptic?.();
+
+                // Actualización optimista de la proyección
+                setPayrollProjection(prev => {
+                    const currentEmps = Array.isArray(prev?.employees) 
+                        ? prev.employees.filter(e => String(e.employeeId || e.id) !== String(empId))
+                        : [];
+                    const totalNomina = currentEmps.reduce((acc, e) => acc + Number(e.salarioSemanalUsd || 0), 0);
+                    const totalCons = currentEmps.reduce((acc, e) => acc + Number(e.totalConsumosUsd || 0), 0);
+                    const totalNeto = currentEmps.reduce((acc, e) => acc + Number(e.netoAPagarUsd || 0), 0);
+                    return {
+                        ...(prev || {}),
+                        employees: currentEmps,
+                        totals: {
+                            nominaTotalUsd: totalNomina,
+                            consumosTotalUsd: totalCons,
+                            netoTotalUsd: totalNeto,
+                            employeesCount: currentEmps.length,
+                        }
+                    };
+                });
+            } catch (err) {
+                showToast(err?.message || 'No se pudo eliminar el empleado', 'error');
+            }
+        } else {
+            showToast('Sin conexión con la caja principal', 'error');
         }
     };
 
@@ -2007,30 +2344,52 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         };
     }, [activeShiftSales, products, effectiveRate, bcvRate]);
 
-    // Métricas de gastos del turno activo
+    // Métricas de gastos de caja (Egresos de dinero físico) del turno activo
     const activeShiftExpensesMetrics = useMemo(() => {
         const flow = getOpenShiftMovements(sales).movements;
-        const gastos = flow.filter(s => s.tipo === 'GASTO_INTERNO' && s.status !== 'ANULADA');
+        const gastos = flow.filter(s => 
+            s.tipo === 'GASTO_INTERNO' && 
+            s.status !== 'ANULADA' && 
+            !s.isAutoconsumo && 
+            s.category !== 'autoconsumo' && 
+            s.afectaCaja !== false
+        );
         let totalUsd = 0;
         let totalBs = 0;
         let totalCop = 0;
         const categoryMap = {};
 
         gastos.forEach(g => {
-            const usd = Math.abs(g.totalUsd || 0);
-            const bs = Math.abs(g.totalBs || 0);
-            const cop = Math.abs(g.totalCop || 0);
+            const payment = Array.isArray(g.payments) && g.payments[0] ? g.payments[0] : null;
+            const curr = g.currency || payment?.currency || (
+                (g.paymentMethod && (g.paymentMethod.includes('usd') || g.paymentMethod.includes('zelle') || g.paymentMethod.includes('binance') || g.paymentMethod === 'dolares')) ? 'USD' :
+                (g.paymentMethod && g.paymentMethod.includes('cop')) ? 'COP' : 'BS'
+            );
+
+            let usd = 0;
+            let bs = 0;
+            let cop = 0;
+
+            if (curr === 'USD') {
+                usd = Math.abs(payment?.amountUsd ? payment.amountUsd : (g.totalUsd || 0));
+            } else if (curr === 'COP') {
+                cop = Math.abs(payment?.amountCop ? payment.amountCop : (g.totalCop || g.totalBs || 0));
+            } else {
+                bs = Math.abs(payment?.amountBs ? payment.amountBs : (g.totalBs || 0));
+            }
+
             totalUsd += usd;
             totalBs += bs;
             totalCop += cop;
 
             const cat = g.category || 'otros';
             if (!categoryMap[cat]) {
-                categoryMap[cat] = { count: 0, totalUsd: 0, totalBs: 0 };
+                categoryMap[cat] = { count: 0, totalUsd: 0, totalBs: 0, totalCop: 0 };
             }
             categoryMap[cat].count += 1;
             categoryMap[cat].totalUsd += usd;
             categoryMap[cat].totalBs += bs;
+            categoryMap[cat].totalCop += cop;
         });
 
         return {
@@ -2043,21 +2402,51 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         };
     }, [sales]);
 
+    // Métricas de Consumo Interno / Autoconsumo (Retiro físico de mercancía / Artículos)
+    const activeShiftAutoconsumoMetrics = useMemo(() => {
+        const flow = getOpenShiftMovements(sales).movements;
+        const autoconsumos = flow.filter(s => 
+            (s.isAutoconsumo === true || s.category === 'autoconsumo' || s.paymentMethod === 'autoconsumo') && 
+            s.status !== 'ANULADA'
+        );
+        let totalUnits = 0;
+        autoconsumos.forEach(g => {
+            if (Array.isArray(g.items) && g.items.length > 0) {
+                totalUnits += g.items.reduce((sum, it) => sum + (Number(it.qty) || 0), 0);
+            } else {
+                totalUnits += 1;
+            }
+        });
+
+        return {
+            count: autoconsumos.length,
+            totalUnits,
+            list: autoconsumos.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+        };
+    }, [sales]);
+
     const activeShiftOutflowMetrics = useMemo(() => (
         calculateSupervisorOutflowMetrics(getOpenShiftMovements(sales).movements)
     ), [sales]);
 
     const activeShiftSupplierMetrics = activeShiftOutflowMetrics.supplierPayments;
 
-    // Desglose por método de pago del turno activo (incluye vueltos desglosados en Bs y $)
+    // Desglose por método de pago del turno activo (Cobros de clientes + vueltos)
     const activeShiftPaymentBreakdown = useMemo(() => {
         const breakdown = {};
         let totalVueltoBs = 0;
         let totalVueltoUsd = 0;
         let totalVueltoCop = 0;
 
-        // Movimientos del turno activo según shiftScope (incluye GASTO_INTERNO con afectaCaja)
-        const activeFlow = getOpenShiftMovements(sales).movements.filter(s => s.tipo !== 'APERTURA_CAJA');
+        // Movimientos de ventas del turno activo (excluyendo egresos de caja y autoconsumo)
+        const activeFlow = getOpenShiftMovements(sales).movements.filter(s => 
+            s.tipo !== 'APERTURA_CAJA' && 
+            s.tipo !== 'GASTO_INTERNO' && 
+            !s.isAutoconsumo && 
+            s.category !== 'autoconsumo' && 
+            s.tipo !== 'REGISTRO_CIERRE' &&
+            s.status !== 'ANULADA'
+        );
 
         const addResolutionRow = (id, label, part) => {
             if (!part || (part.usd <= 0.009 && part.bs <= 0.009)) return;
@@ -2130,7 +2519,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
             if (sale.payments && sale.payments.length > 0) {
                 sale.payments.forEach(p => {
-                    if (p.methodId === 'fiado' || p.methodId === 'cashea') return;
+                    if (p.methodId === 'fiado' || p.methodId === 'cashea' || p.methodId === 'autoconsumo') return;
                     const methodId = p.methodId || 'efectivo_bs';
                     if (!breakdown[methodId]) {
                         const label = p.methodLabel || getPaymentLabel(methodId) || toTitleCase(methodId.replace(/_/g, ' '));
@@ -2141,8 +2530,9 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                     breakdown[methodId].count += 1;
                 });
             } else {
-                if (sale.tipo === 'VENTA_FIADA' || sale.tipo === 'VENTA_CASHEA') return;
+                if (sale.tipo === 'VENTA_FIADA' || sale.tipo === 'VENTA_CASHEA' || sale.paymentMethod === 'autoconsumo' || sale.metodoPago === 'autoconsumo') return;
                 const methodId = sale.paymentMethod || sale.metodoPago || 'efectivo_bs';
+                if (methodId === 'autoconsumo') return;
                 if (!breakdown[methodId]) {
                     const label = getPaymentLabel(methodId) || toTitleCase(methodId.replace(/_/g, ' '));
                     let currency = 'BS';
@@ -2191,7 +2581,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         }
 
         return Object.entries(breakdown)
-            .filter(([, data]) => data.totalUsd > 0 || data.totalBs > 0 || data.count > 0)
+            .filter(([mId, data]) => mId !== 'autoconsumo' && (data.totalUsd > 0 || data.totalBs > 0 || data.count > 0))
             .sort(([, a], [, b]) => {
                 if (a.isChange && !b.isChange) return 1;
                 if (!a.isChange && b.isChange) return -1;
@@ -2495,6 +2885,13 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
     // Determinar si la caja está actualmente inactiva (sin turno abierto)
     const isShiftActive = activeShiftApertura !== null || activeShiftSales.length > 0;
+    const payrollEmployees = Array.isArray(payrollProjection?.employees) ? payrollProjection.employees : [];
+    const payrollTotals = payrollProjection?.totals || {
+        nominaTotalUsd: 0,
+        consumosTotalUsd: 0,
+        netoTotalUsd: 0,
+        employeesCount: 0,
+    };
 
     return (
         <div className={`min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-sans transition-colors duration-300 overflow-x-hidden ${hasInventoryChanges && viewTab === 'inventario' ? 'pb-48 sm:pb-36' : 'pb-16'}`}>
@@ -2706,87 +3103,72 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
             {/* Contenido Principal */}
             <main className="max-w-7xl mx-auto px-4 mt-6 space-y-6">
-                {/* Selector de Pestañas (100% Responsivo - Sin Recortes) */}
-                <div className="bg-slate-200/60 dark:bg-slate-900/60 p-1 rounded-2xl w-full shadow-sm">
-                    <div className="grid grid-cols-7 sm:flex sm:items-center gap-1 w-full">
-                        <button
-                            onClick={() => { triggerHaptic?.(); setViewTab('activo'); }}
-                            className={`py-2 px-1 sm:px-3.5 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs truncate ${
-                                viewTab === 'activo' 
-                                    ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
-                                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-                            }`}
-                        >
-                            <span className="sm:hidden">Turno</span>
-                            <span className="hidden sm:inline">Turno Activo</span>
-                        </button>
-                        <button
-                            onClick={() => { triggerHaptic?.(); setViewTab('cierres'); }}
-                            className={`py-2 px-1 sm:px-3.5 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs truncate ${
-                                viewTab === 'cierres' 
-                                    ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
-                                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-                            }`}
-                        >
-                            <span>Cierres</span>
-                        </button>
-                        <button
-                            onClick={() => { triggerHaptic?.(); setViewTab('articulos'); }}
-                            className={`py-2 px-1 sm:px-3.5 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs truncate ${
-                                viewTab === 'articulos' 
-                                    ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
-                                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-                            }`}
-                        >
-                            <span>Reportes</span>
-                        </button>
-                        <button
-                            onClick={() => { triggerHaptic?.(); setViewTab('gastos'); }}
-                            className={`py-2 px-1 sm:px-3.5 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs truncate ${
-                                viewTab === 'gastos' 
-                                    ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
-                                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-                            }`}
-                        >
-                            <span>Gastos</span>
-                        </button>
-                        <button
-                            onClick={() => { triggerHaptic?.(); setViewTab('inventario'); }}
-                            className={`py-2 px-1 sm:px-3.5 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs truncate ${
-                                viewTab === 'inventario' 
-                                    ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
-                                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-                            }`}
-                        >
-                            <span className="sm:hidden">Inven.</span>
-                            <span className="hidden sm:inline">Inventario</span>
-                        </button>
-                        <button
-                            onClick={() => { triggerHaptic?.(); setViewTab('kardex'); }}
-                            className={`py-2 px-1 sm:px-3.5 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs truncate ${
-                                viewTab === 'kardex'
-                                    ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm'
-                                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-                            }`}
-                        >
-                            <span>Kardex</span>
-                        </button>
-                        <button
-                            onClick={() => { triggerHaptic?.(); setViewTab('cambios'); }}
-                            className={`relative py-2 px-1 sm:px-3.5 text-center font-black rounded-xl transition-all text-[10px] sm:text-xs truncate flex items-center justify-center gap-0.5 ${
-                                viewTab === 'cambios' 
-                                    ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-sm' 
-                                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-                            }`}
-                        >
-                            <span>Cambios</span>
-                            {(pendingChanges.length > 0 || cloudPendingCmds.length > 0) && (
-                                <span className="px-1 py-0.2 rounded-full bg-amber-500 text-white text-[8px] sm:text-[9px] font-black tabular-nums animate-pulse">
-                                    {pendingChanges.length + cloudPendingCmds.length}
-                                </span>
-                            )}
-                        </button>
+                {/* ── SELECTOR DE NAVEGACIÓN AGRUPADA (NIVEL 1: 4 GRUPOS PRINCIPALES + NIVEL 2: SUB-PESTAÑAS) ── */}
+                <div className="space-y-2.5">
+                    {/* Nivel 1: 4 Grupos Principales (100% Responsivo en Móvil y Desktop) */}
+                    <div className="bg-slate-200/70 dark:bg-slate-900/80 p-1.5 rounded-2xl sm:rounded-3xl w-full shadow-xs border border-slate-300/40 dark:border-slate-800">
+                        <div className="grid grid-cols-4 gap-1 sm:gap-2 w-full">
+                            {MAIN_SUPERVISOR_TABS.map(main => {
+                                const Icon = main.icon;
+                                const isActive = activeMainTabId === main.id;
+                                const showBadge = main.hasBadge && totalControlChanges > 0;
+
+                                return (
+                                    <button
+                                        key={main.id}
+                                        onClick={() => {
+                                            triggerHaptic?.();
+                                            if (!isActive) {
+                                                setViewTab(main.defaultSubTab);
+                                            }
+                                        }}
+                                        className={`relative py-2 sm:py-2.5 px-1 sm:px-3 text-center font-black rounded-xl sm:rounded-2xl transition-all flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 cursor-pointer ${
+                                            isActive
+                                                ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm ring-1 ring-black/5 dark:ring-white/10'
+                                                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-white/40 dark:hover:bg-slate-850'
+                                        }`}
+                                    >
+                                        <Icon size={16} className={`shrink-0 ${isActive ? 'text-brand' : 'text-slate-400 dark:text-slate-500'}`} />
+                                        <span className="text-[11px] sm:text-xs tracking-tight font-black">{main.label}</span>
+                                        {showBadge && (
+                                            <span className="absolute -top-1 -right-1 sm:static px-1.5 py-0.2 rounded-full bg-amber-500 text-white text-[8px] sm:text-[9px] font-black tabular-nums animate-pulse shadow-xs">
+                                                {totalControlChanges}
+                                            </span>
+                                        )}
+                                    </button>
+                                );
+                            })}
+                        </div>
                     </div>
+
+                    {/* Nivel 2: Sub-pestañas del grupo activo (Perfectamente distribuidas en móvil y PC) */}
+                    {currentMainTab.subTabs.length > 1 && (
+                        <div className={`grid ${currentMainTab.subTabs.length === 2 ? 'grid-cols-2' : currentMainTab.subTabs.length === 3 ? 'grid-cols-3' : 'grid-cols-1 sm:flex'} gap-1.5 w-full py-0.5 px-0.5 animate-fade-in`}>
+                            {currentMainTab.subTabs.map(sub => {
+                                const SubIcon = sub.icon;
+                                const isSubActive = viewTab === sub.id;
+
+                                return (
+                                    <button
+                                        key={sub.id}
+                                        onClick={() => {
+                                            triggerHaptic?.();
+                                            setViewTab(sub.id);
+                                        }}
+                                        className={`min-h-[38px] px-2 sm:px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer w-full text-center ${
+                                            isSubActive
+                                                ? 'bg-brand text-white shadow-sm shadow-brand/25 ring-1 ring-brand'
+                                                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200/70 dark:border-slate-800'
+                                        }`}
+                                    >
+                                        <SubIcon size={14} className={`shrink-0 ${isSubActive ? 'text-white' : 'text-slate-400'}`} />
+                                        <span className="sm:hidden text-[11px] font-black truncate">{sub.shortLabel || sub.label}</span>
+                                        <span className="hidden sm:inline truncate">{sub.label}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
                 </div>
 
                 {/* ── SECCIÓN 1: TURNO ACTIVO ── */}
@@ -2983,84 +3365,140 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                     </span>
                                 </div>
                             </div>
-
-                            {/* Gastos del Turno */}
-                            <div 
-                                onClick={() => { triggerHaptic?.(); setViewTab('gastos'); }}
-                                className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-rose-200/60 dark:border-rose-900/40 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px] cursor-pointer hover:border-rose-400 transition-all group"
-                            >
-                                <div className="flex items-center justify-between w-full">
-                                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-rose-500 dark:text-rose-400 flex items-center gap-1">
-                                        Gastos internos <span className="text-[8px] opacity-75 group-hover:translate-x-0.5 transition-transform">➔</span>
-                                    </span>
-                                    <div className="w-7 h-7 sm:w-9 sm:h-9 bg-rose-50 dark:bg-rose-950/20 rounded-xl flex items-center justify-center text-rose-500 shrink-0">
-                                        <TrendingUp size={16} className="rotate-180" />
-                                    </div>
-                                </div>
-                                <div className="mt-2.5 min-w-0">
-                                    <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-rose-600 dark:text-rose-400 tabular-nums block break-words leading-none">
-                                        -${activeShiftExpensesMetrics.totalUsd.toFixed(2)}
-                                    </span>
-                                    <span className="text-[9px] text-slate-400 block font-medium mt-1">
-                                        {activeShiftExpensesMetrics.count} {activeShiftExpensesMetrics.count === 1 ? 'gasto' : 'gastos'} (-{formatBs(activeShiftExpensesMetrics.totalBs)} Bs)
-                                    </span>
-                                </div>
-                            </div>
-
-                            {/* Pagos a proveedores */}
-                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-orange-200/70 dark:border-orange-900/40 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px]">
-                                <div className="flex items-center justify-between w-full">
-                                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-orange-500 dark:text-orange-400">Pagos a proveedores</span>
-                                    <div className="w-7 h-7 sm:w-9 sm:h-9 bg-orange-50 dark:bg-orange-950/20 rounded-xl flex items-center justify-center text-orange-500 shrink-0">
-                                        <Truck size={16} />
-                                    </div>
-                                </div>
-                                <div className="mt-2.5 min-w-0">
-                                    <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-orange-600 dark:text-orange-400 tabular-nums block break-words leading-none">
-                                        -${activeShiftSupplierMetrics.totalUsd.toFixed(2)}
-                                    </span>
-                                    <span className="text-[9px] text-slate-400 block font-medium mt-1">
-                                        {activeShiftSupplierMetrics.count} {activeShiftSupplierMetrics.count === 1 ? 'pago' : 'pagos'} (-{formatBs(activeShiftSupplierMetrics.totalBs)} Bs)
-                                    </span>
-                                </div>
-                            </div>
-
-                            {/* Vueltos entregados */}
-                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-amber-200/70 dark:border-amber-900/40 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px]">
-                                <div className="flex items-center justify-between w-full">
-                                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">Vueltos entregados</span>
-                                    <div className="w-7 h-7 sm:w-9 sm:h-9 bg-amber-50 dark:bg-amber-950/20 rounded-xl flex items-center justify-center text-amber-500 shrink-0">
-                                        <RotateCcw size={16} />
-                                    </div>
-                                </div>
-                                <div className="mt-2.5 min-w-0">
-                                    <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-amber-600 dark:text-amber-400 tabular-nums block break-words leading-none">
-                                        -${activeShiftChangeMetrics.totalUsd.toFixed(2)}
-                                    </span>
-                                    <span className="text-[9px] text-slate-400 block font-medium mt-1">
-                                        {activeShiftChangeMetrics.count} {activeShiftChangeMetrics.count === 1 ? 'venta' : 'ventas'} (-{formatBs(activeShiftChangeMetrics.totalBs)} Bs)
-                                    </span>
-                                </div>
-                            </div>
-
-                            {/* Vueltos dejados en caja */}
-                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-emerald-200/70 dark:border-emerald-900/40 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px]">
-                                <div className="flex items-center justify-between w-full">
-                                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Vueltos dejados en caja</span>
-                                    <div className="w-7 h-7 sm:w-9 sm:h-9 bg-emerald-50 dark:bg-emerald-950/20 rounded-xl flex items-center justify-center text-emerald-500 shrink-0">
-                                        <HandCoins size={16} />
-                                    </div>
-                                </div>
-                                <div className="mt-2.5 min-w-0">
-                                    <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums block break-words leading-none">
-                                        ${activeShiftTipTotals.tipUsd.toFixed(2)}
-                                    </span>
-                                    <span className="text-[9px] text-slate-400 block font-medium mt-1">
-                                        {formatBs(activeShiftTipTotals.tipBs)} Bs · {activeShiftTipTotals.tipCount} {activeShiftTipTotals.tipCount === 1 ? 'venta' : 'ventas'}
-                                    </span>
-                                </div>
-                            </div>
                         </div>
+
+                        {/* Fila 2: Egresos, Consumo Interno, Nómina y Vueltos (Solo fichas con registros) */}
+                        {(() => {
+                            const showGastos = (activeShiftExpensesMetrics.count > 0 || Math.abs(activeShiftExpensesMetrics.totalUsd || 0) > 0.001 || Math.abs(activeShiftExpensesMetrics.totalBs || 0) > 0.001);
+                            const showConsumoInterno = (activeShiftAutoconsumoMetrics.count > 0 || (activeShiftAutoconsumoMetrics.totalUnits || 0) > 0);
+                            const showConsumoEmpleados = (Number(payrollTotals.consumosTotalUsd || 0) > 0.001);
+                            const showVueltosEntregados = (activeShiftChangeMetrics.count > 0 || Math.abs(activeShiftChangeMetrics.totalUsd || 0) > 0.001 || Math.abs(activeShiftChangeMetrics.totalBs || 0) > 0.001);
+                            const showVueltosCaja = (activeShiftTipTotals.tipCount > 0 || (activeShiftTipTotals.tipUsd || 0) > 0.001 || (activeShiftTipTotals.tipBs || 0) > 0.001);
+
+                            const totalVisible = [showGastos, showConsumoInterno, showConsumoEmpleados, showVueltosEntregados, showVueltosCaja].filter(Boolean).length;
+
+                            if (totalVisible === 0) return null;
+
+                            return (
+                                <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 mt-3 sm:mt-4 animate-in fade-in duration-200">
+                                    {/* Gastos de Caja (Dinero) */}
+                                    {showGastos && (
+                                        <div 
+                                            onClick={() => { triggerHaptic?.(); setViewTab('gastos'); }}
+                                            className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-rose-200/60 dark:border-rose-900/40 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px] cursor-pointer hover:border-rose-400 transition-all group"
+                                        >
+                                            <div className="flex items-center justify-between w-full">
+                                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-rose-500 dark:text-rose-400 flex items-center gap-1">
+                                                    Gastos de caja <span className="text-[8px] opacity-75 group-hover:translate-x-0.5 transition-transform">➔</span>
+                                                </span>
+                                                <div className="w-7 h-7 sm:w-9 sm:h-9 bg-rose-50 dark:bg-rose-950/20 rounded-xl flex items-center justify-center text-rose-500 shrink-0">
+                                                    <TrendingUp size={16} className="rotate-180" />
+                                                </div>
+                                            </div>
+                                            <div className="mt-2.5 min-w-0">
+                                                <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-rose-600 dark:text-rose-400 tabular-nums block break-words leading-none">
+                                                    {activeShiftExpensesMetrics.totalUsd > 0 ? `-$${activeShiftExpensesMetrics.totalUsd.toFixed(2)}` : `-${formatBs(activeShiftExpensesMetrics.totalBs)} Bs`}
+                                                </span>
+                                                <span className="text-[9px] text-slate-400 block font-medium mt-1">
+                                                    {activeShiftExpensesMetrics.count} {activeShiftExpensesMetrics.count === 1 ? 'egreso' : 'egresos'}
+                                                    {activeShiftExpensesMetrics.totalUsd > 0 && activeShiftExpensesMetrics.totalBs > 0 ? ` (-${formatBs(activeShiftExpensesMetrics.totalBs)} Bs)` : ''}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Consumo Interno (Autoconsumo / Mercancía) */}
+                                    {showConsumoInterno && (
+                                        <div 
+                                            onClick={() => { triggerHaptic?.(); setViewTab('gastos'); }}
+                                            className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-purple-200/70 dark:border-purple-900/40 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px] cursor-pointer hover:border-purple-400 transition-all group"
+                                        >
+                                            <div className="flex items-center justify-between w-full">
+                                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-purple-500 dark:text-purple-400 flex items-center gap-1">
+                                                    Consumo interno <span className="text-[8px] opacity-75 group-hover:translate-x-0.5 transition-transform">➔</span>
+                                                </span>
+                                                <div className="w-7 h-7 sm:w-9 sm:h-9 bg-purple-50 dark:bg-purple-950/20 rounded-xl flex items-center justify-center text-purple-500 shrink-0">
+                                                    <ShoppingBag size={16} />
+                                                </div>
+                                            </div>
+                                            <div className="mt-2.5 min-w-0">
+                                                <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-purple-600 dark:text-purple-400 tabular-nums block break-words leading-none">
+                                                    {activeShiftAutoconsumoMetrics.totalUnits} {activeShiftAutoconsumoMetrics.totalUnits === 1 ? 'artículo' : 'artículos'}
+                                                </span>
+                                                <span className="text-[9px] text-slate-400 block font-medium mt-1">
+                                                    {activeShiftAutoconsumoMetrics.count} {activeShiftAutoconsumoMetrics.count === 1 ? 'retiro' : 'retiros'} de mercancía
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Consumo de Empleados */}
+                                    {showConsumoEmpleados && (
+                                        <div 
+                                            onClick={() => { triggerHaptic?.(); setViewTab('nomina'); }}
+                                            className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-indigo-200/70 dark:border-indigo-900/40 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px] cursor-pointer hover:border-indigo-400 transition-all group"
+                                        >
+                                            <div className="flex items-center justify-between w-full">
+                                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-indigo-500 dark:text-indigo-400 flex items-center gap-1">
+                                                    Consumo empleados <span className="text-[8px] opacity-75 group-hover:translate-x-0.5 transition-transform">➔</span>
+                                                </span>
+                                                <div className="w-7 h-7 sm:w-9 sm:h-9 bg-indigo-50 dark:bg-indigo-950/20 rounded-xl flex items-center justify-center text-indigo-500 shrink-0">
+                                                    <Users size={16} />
+                                                </div>
+                                            </div>
+                                            <div className="mt-2.5 min-w-0">
+                                                <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-indigo-600 dark:text-indigo-400 tabular-nums block break-words leading-none">
+                                                    -${Number(payrollTotals.consumosTotalUsd || 0).toFixed(2)}
+                                                </span>
+                                                <span className="text-[9px] text-slate-400 block font-medium mt-1">
+                                                    {payrollEmployees.length} {payrollEmployees.length === 1 ? 'empleado' : 'empleados'} (Ver nómina)
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Vueltos entregados */}
+                                    {showVueltosEntregados && (
+                                        <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-amber-200/70 dark:border-amber-900/40 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px]">
+                                            <div className="flex items-center justify-between w-full">
+                                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">Vueltos entregados</span>
+                                                <div className="w-7 h-7 sm:w-9 sm:h-9 bg-amber-50 dark:bg-amber-950/20 rounded-xl flex items-center justify-center text-amber-500 shrink-0">
+                                                    <RotateCcw size={16} />
+                                                </div>
+                                            </div>
+                                            <div className="mt-2.5 min-w-0">
+                                                <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-amber-600 dark:text-amber-400 tabular-nums block break-words leading-none">
+                                                    -${activeShiftChangeMetrics.totalUsd.toFixed(2)}
+                                                </span>
+                                                <span className="text-[9px] text-slate-400 block font-medium mt-1">
+                                                    {activeShiftChangeMetrics.count} {activeShiftChangeMetrics.count === 1 ? 'venta' : 'ventas'} (-{formatBs(activeShiftChangeMetrics.totalBs)} Bs)
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Vueltos dejados en caja */}
+                                    {showVueltosCaja && (
+                                        <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-emerald-200/70 dark:border-emerald-900/40 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px]">
+                                            <div className="flex items-center justify-between w-full">
+                                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Vueltos dejados en caja</span>
+                                                <div className="w-7 h-7 sm:w-9 sm:h-9 bg-emerald-50 dark:bg-emerald-950/20 rounded-xl flex items-center justify-center text-emerald-500 shrink-0">
+                                                    <HandCoins size={16} />
+                                                </div>
+                                            </div>
+                                            <div className="mt-2.5 min-w-0">
+                                                <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums block break-words leading-none">
+                                                    ${activeShiftTipTotals.tipUsd.toFixed(2)}
+                                                </span>
+                                                <span className="text-[9px] text-slate-400 block font-medium mt-1">
+                                                    {formatBs(activeShiftTipTotals.tipBs)} Bs · {activeShiftTipTotals.tipCount} {activeShiftTipTotals.tipCount === 1 ? 'venta' : 'ventas'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })()}
 
                         {/* Si la caja no está activa */}
                         {!isShiftActive ? (
@@ -3543,20 +3981,22 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                     </div>
                                                 </div>
 
-                                                {/* Botón de Acción Remota: Reabrir / Restaurar Turno */}
-                                                <div className="flex items-center justify-between bg-amber-50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 p-4 rounded-2xl">
-                                                    <div>
-                                                        <h4 className="text-xs font-black text-amber-900 dark:text-amber-400">¿Cierre accidental o error de turno?</h4>
-                                                        <p className="text-[10px] text-amber-700 dark:text-amber-500 font-medium">Reabre este turno en la caja para continuar registrando ventas en él.</p>
+                                                {/* Botón de Acción Remota: Reabrir / Restaurar Turno (Solo visible si la caja está cerrada) */}
+                                                {!shiftStatusInfo.isOpen && (
+                                                    <div className="flex items-center justify-between bg-amber-50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 p-4 rounded-2xl">
+                                                        <div>
+                                                            <h4 className="text-xs font-black text-amber-900 dark:text-amber-400">¿Cierre accidental o error de turno?</h4>
+                                                            <p className="text-[10px] text-amber-700 dark:text-amber-500 font-medium">Reabre este turno en la caja para continuar registrando ventas en él.</p>
+                                                        </div>
+                                                        <button
+                                                            onClick={() => handleReopenRemoteShift(activeC.cierreId)}
+                                                            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
+                                                        >
+                                                            <Unlock size={14} />
+                                                            Reabrir Turno
+                                                        </button>
                                                     </div>
-                                                    <button
-                                                        onClick={() => handleReopenRemoteShift(activeC.cierreId)}
-                                                        className="px-4 py-2 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 shrink-0"
-                                                    >
-                                                        <Unlock size={14} />
-                                                        Reabrir Turno
-                                                    </button>
-                                                </div>
+                                                )}
 
                                                 {/* Arqueo Detallado de Efectivo */}
                                                 <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/60 dark:border-slate-800 p-5 shadow-sm">
@@ -4270,13 +4710,22 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             {/* Acciones globales */}
                             <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                                 {pendingChanges.length > 0 && (
-                                    <button
-                                        onClick={uploadPendingChanges}
-                                        disabled={uploading || !isConnected}
-                                        className="flex-1 sm:flex-none px-4 py-2 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-black uppercase tracking-wider shadow-md shadow-emerald-500/25 transition-all cursor-pointer disabled:opacity-40"
-                                    >
-                                        Subir Cola Local ({pendingChanges.length})
-                                    </button>
+                                    <>
+                                        <button
+                                            onClick={() => { triggerHaptic?.(); setShowDiscardQueueModal(true); }}
+                                            className="flex-1 sm:flex-none px-3.5 py-2 rounded-2xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 text-xs font-black uppercase tracking-wider shadow-xs transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                                        >
+                                            <Trash2 size={13} />
+                                            <span>Cancelar Cola ({pendingChanges.length})</span>
+                                        </button>
+                                        <button
+                                            onClick={uploadPendingChanges}
+                                            disabled={uploading || !isConnected}
+                                            className="flex-1 sm:flex-none px-4 py-2 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-black uppercase tracking-wider shadow-md shadow-emerald-500/25 transition-all cursor-pointer disabled:opacity-40"
+                                        >
+                                            Subir Cola Local ({pendingChanges.length})
+                                        </button>
+                                    </>
                                 )}
                                 {cloudPendingCmds.length > 0 && (
                                     <button
@@ -4293,7 +4742,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                         {(() => {
                             const rawCmdList = [
                                 ...(cmdTabFilter === 'todos' || cmdTabFilter === 'pending' 
-                                    ? pendingChanges.map((c, i) => ({ isLocal: true, data: c, key: `local-${i}` })) 
+                                    ? pendingChanges.map((c, i) => ({ isLocal: true, data: c, localIndex: i, key: `local-${i}` })) 
                                     : []),
                                 ...allCloudCmds
                                     .filter(cmd => {
@@ -4349,6 +4798,14 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                             )}
                                                         </div>
                                                         <div className="flex items-center gap-2 shrink-0">
+                                                            <button
+                                                                onClick={() => { triggerHaptic?.(); discardSinglePendingChange(item.localIndex); }}
+                                                                className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-rose-50 dark:bg-slate-800 dark:hover:bg-rose-950/40 text-slate-600 hover:text-rose-600 dark:text-slate-300 dark:hover:text-rose-400 border border-slate-200/80 dark:border-slate-700 hover:border-rose-200 dark:hover:border-rose-800 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                                                                title="Descartar este cambio de la cola local"
+                                                            >
+                                                                <Trash2 size={13} />
+                                                                <span>Descartar</span>
+                                                            </button>
                                                             <button
                                                                 onClick={uploadPendingChanges}
                                                                 disabled={uploading || !isConnected}
@@ -4533,24 +4990,313 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                     />
                 )}
 
-                {/* ── SECCIÓN 6: DESGLOSE DE GASTOS DEL DÍA / TURNO ── */}
+                {/* ── SECCIÓN: NÓMINA Y CONSUMOS ── */}
+                {viewTab === 'nomina' && (
+                    <div className="space-y-5 animate-in fade-in">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 rounded-3xl shadow-sm">
+                            <div>
+                                <h3 className="text-base sm:text-lg font-black text-slate-800 dark:text-white">Nómina &amp; Consumos</h3>
+                                <p className="text-xs text-slate-400 mt-1">Proyección resumida sincronizada desde la caja principal. El historial se consulta bajo demanda.</p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setEditingEmployee(null);
+                                        setShowCreateEmployeeModal(true);
+                                    }}
+                                    className="px-4 py-2.5 rounded-2xl bg-brand text-white text-xs font-black flex items-center gap-2 hover:bg-brand-dark transition-all active:scale-95 shadow-md shadow-brand/20 cursor-pointer shrink-0"
+                                >
+                                    <Plus size={16} />
+                                    <span>Crear Empleado</span>
+                                </button>
+                                <div className="text-right shrink-0 border-l border-slate-100 dark:border-slate-800 pl-3">
+                                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Período</span>
+                                    <span className="text-sm font-black text-slate-700 dark:text-slate-200">{payrollProjection?.periodo?.id || 'Sin datos'}</span>
+                                    <span className="text-[10px] font-bold text-slate-400 block">{payrollProjection?.periodo?.status || '—'}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Nómina bruta</p>
+                                <p className="text-xl font-black text-slate-800 dark:text-white mt-1">{formatPayrollUsd(payrollTotals.nominaTotalUsd)}</p>
+                            </div>
+                            <div className="rounded-2xl border border-amber-200/80 dark:border-amber-900/50 bg-amber-50/60 dark:bg-amber-950/20 p-4">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">Consumos</p>
+                                <p className="text-xl font-black text-amber-700 dark:text-amber-300 mt-1">{formatPayrollUsd(payrollTotals.consumosTotalUsd)}</p>
+                            </div>
+                            <div className="rounded-2xl border border-emerald-200/80 dark:border-emerald-900/50 bg-emerald-50/60 dark:bg-emerald-950/20 p-4">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Neto proyectado</p>
+                                <p className="text-xl font-black text-emerald-700 dark:text-emerald-300 mt-1">{formatPayrollUsd(payrollTotals.netoTotalUsd)}</p>
+                            </div>
+                        </div>
+
+                        <div className="rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
+                            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                                <h4 className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-200">Resumen por empleado</h4>
+                                <span className="text-[10px] font-bold text-slate-400">{payrollEmployees.length} registro(s)</span>
+                            </div>
+                            {payrollEmployees.length === 0 ? (
+                                <div className="py-12 text-center text-xs font-bold text-slate-400">No hay proyección de nómina sincronizada.</div>
+                            ) : (
+                                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                                    {payrollEmployees.map(employee => (
+                                        <div key={employee.employeeId} className="p-3.5 sm:p-4 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors space-y-2.5 lg:space-y-0 lg:flex lg:items-center lg:gap-4">
+                                            {/* Cabecera / Info del Empleado */}
+                                            <div className="flex items-center justify-between gap-2.5 flex-1 min-w-0">
+                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                    <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-brand/10 dark:bg-brand/20 text-brand flex items-center justify-center font-black text-xs shrink-0">
+                                                        {String(employee.employeeNombre || '?').slice(0, 1).toUpperCase()}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                                            <p className="text-xs sm:text-sm font-black text-slate-800 dark:text-white truncate">
+                                                                {employee.employeeNombre || 'Empleado'}
+                                                            </p>
+                                                            <span className={`text-[8.5px] font-black uppercase px-2 py-0.5 rounded-full shrink-0 ${employee.settled ? 'bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300' : 'bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300'}`}>
+                                                                {employee.settled ? 'Liquidado' : 'Pendiente'}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-[10.5px] text-slate-400 truncate mt-0.5">
+                                                            {employee.cargo || 'Sin cargo'} · <span className="font-semibold text-slate-500 dark:text-slate-300">{employee.porcentajeConsumido || 0}% consumido</span>
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                {/* Acciones compactas en móvil */}
+                                                <div className="flex lg:hidden items-center gap-1 shrink-0">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setEditingEmployee({
+                                                                id: employee.employeeId,
+                                                                nombre: employee.employeeNombre,
+                                                                cargo: employee.cargo,
+                                                                salarioSemanalUsd: employee.salarioSemanalUsd,
+                                                                limiteConsumoPorc: employee.limiteConsumoPorc,
+                                                            });
+                                                            setShowCreateEmployeeModal(true);
+                                                        }}
+                                                        className="w-8 h-8 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-brand hover:border-brand/40 flex items-center justify-center transition-colors cursor-pointer"
+                                                        title="Editar empleado"
+                                                    >
+                                                        <Pencil size={13} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleDeleteRemoteEmployee(employee)}
+                                                        className="w-8 h-8 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-rose-600 hover:border-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center justify-center transition-colors cursor-pointer"
+                                                        title="Eliminar empleado"
+                                                    >
+                                                        <Trash2 size={13} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handlePayrollDetail(employee)}
+                                                        className="h-8 px-2.5 rounded-lg bg-brand/10 hover:bg-brand text-brand hover:text-white text-[10px] font-black transition-all flex items-center gap-1 cursor-pointer"
+                                                    >
+                                                        <span>Detalle</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {/* Métricas Financieras (Pill compacto 3 columnas) */}
+                                            <div className="grid grid-cols-3 gap-2 bg-slate-50/80 dark:bg-slate-800/40 px-3 py-2 rounded-xl border border-slate-100 dark:border-slate-800/80 text-center lg:text-right lg:min-w-[260px] shrink-0">
+                                                <div>
+                                                    <span className="text-[9px] font-bold uppercase text-slate-400 block">Salario</span>
+                                                    <strong className="text-xs font-black text-slate-700 dark:text-slate-200 font-outfit tabular-nums">{formatPayrollUsd(employee.salarioSemanalUsd)}</strong>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] font-bold uppercase text-amber-500 block">Consumos</span>
+                                                    <strong className="text-xs font-black text-amber-600 dark:text-amber-400 font-outfit tabular-nums">{formatPayrollUsd(employee.totalConsumosUsd)}</strong>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] font-black uppercase text-emerald-600 dark:text-emerald-400 block">Neto</span>
+                                                    <strong className="text-xs font-black text-emerald-600 dark:text-emerald-400 font-outfit tabular-nums">{formatPayrollUsd(employee.netoAPagarUsd)}</strong>
+                                                </div>
+                                            </div>
+
+                                            {/* Acciones en Desktop */}
+                                            <div className="hidden lg:flex items-center gap-1.5 shrink-0">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setEditingEmployee({
+                                                            id: employee.employeeId,
+                                                            nombre: employee.employeeNombre,
+                                                            cargo: employee.cargo,
+                                                            salarioSemanalUsd: employee.salarioSemanalUsd,
+                                                            limiteConsumoPorc: employee.limiteConsumoPorc,
+                                                        });
+                                                        setShowCreateEmployeeModal(true);
+                                                    }}
+                                                    className="h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-700 text-[10.5px] font-black text-slate-600 dark:text-slate-300 hover:border-brand/50 hover:text-brand transition-colors flex items-center gap-1.5 cursor-pointer"
+                                                    title="Editar empleado"
+                                                >
+                                                    <Pencil size={13} />
+                                                    <span>Editar</span>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handlePayrollDetail(employee)}
+                                                    className="h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-700 text-[10.5px] font-black text-slate-600 dark:text-slate-300 hover:border-brand/50 hover:text-brand transition-colors cursor-pointer"
+                                                >
+                                                    Ver detalle
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleDeleteRemoteEmployee(employee)}
+                                                    className="h-9 w-9 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-rose-600 hover:border-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center justify-center transition-colors cursor-pointer"
+                                                    title="Eliminar empleado definitivamente"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {payrollDetailLoading && <p className="text-center text-xs font-bold text-slate-400">Cargando detalle seguro...</p>}
+                        {payrollDetailError && <p className="rounded-2xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 p-3 text-xs font-bold text-amber-700 dark:text-amber-300">{payrollDetailError}</p>}
+                        {payrollDetail && (() => {
+                            const activeConsumptionsList = (payrollDetail.consumptions || []).filter(c => c.status !== 'VOIDED');
+                            const dynamicTotalConsumosUsd = activeConsumptionsList.reduce((sum, c) => sum + Number(c.totalUsd || 0), 0);
+                            const dynamicSalarioBaseUsd = Number(payrollDetail.employee?.salarioSemanalUsd || 0);
+                            const dynamicNetoAPagarUsd = Math.max(0, dynamicSalarioBaseUsd - dynamicTotalConsumosUsd);
+
+                            return (
+                            <div className="rounded-3xl border border-brand/20 bg-brand-light/30 dark:bg-brand/5 p-4 sm:p-5 space-y-4">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div>
+                                        <h4 className="text-sm font-black text-slate-800 dark:text-white">
+                                            Detalle de {payrollDetail.employee?.employeeNombre || 'Empleado'} · Período {payrollDetail.periodoId}
+                                        </h4>
+                                        <p className="text-[11px] text-slate-400">
+                                            {payrollDetail.employee?.cargo || 'Personal'} · {activeConsumptionsList.length} consumo(s) activo(s) · {payrollDetail.settlements?.length || 0} liquidación(es)
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                try {
+                                                    await generateEmployeePayrollPDF({
+                                                        employee: {
+                                                            nombre: payrollDetail.employee?.employeeNombre || 'Empleado',
+                                                            cargo: payrollDetail.employee?.cargo || 'Personal',
+                                                            salarioSemanalUsd: dynamicSalarioBaseUsd,
+                                                            limiteConsumoPorc: payrollDetail.employee?.limiteConsumoPorc || 100
+                                                        },
+                                                        summary: {
+                                                            periodoId: payrollDetail.periodoId,
+                                                            salarioSemanalUsd: dynamicSalarioBaseUsd,
+                                                            totalConsumosUsd: dynamicTotalConsumosUsd,
+                                                            netoAPagarUsd: dynamicNetoAPagarUsd,
+                                                            netoAPagarBs: (effectiveRate || 0) * dynamicNetoAPagarUsd
+                                                        },
+                                                        consumptions: payrollDetail.consumptions,
+                                                        settlements: payrollDetail.settlements,
+                                                        bcvRate: effectiveRate
+                                                    });
+                                                    showToast('Reporte PDF descargado con éxito', 'success');
+                                                } catch (err) {
+                                                    console.error('Error generando PDF:', err);
+                                                    showToast('No se pudo generar el PDF', 'error');
+                                                }
+                                            }}
+                                            className="min-h-10 px-3.5 rounded-xl bg-brand text-white text-xs font-black flex items-center gap-1.5 active:scale-95 shadow-sm hover:bg-brand/90 transition-all"
+                                        >
+                                            <FileText size={15} />
+                                            <span>Descargar PDF</span>
+                                        </button>
+                                        <button type="button" onClick={() => setPayrollDetail(null)} className="p-2 rounded-xl text-slate-400 hover:bg-white/70 dark:hover:bg-slate-800" aria-label="Cerrar detalle"><X size={16} /></button>
+                                    </div>
+                                </div>
+
+                                {/* Resumen Financiero del Empleado */}
+                                <div className="grid grid-cols-3 gap-2 text-center rounded-2xl bg-white dark:bg-slate-900 p-3 border border-slate-100 dark:border-slate-800">
+                                    <div>
+                                        <p className="text-[10px] uppercase font-bold text-slate-400">Salario Base</p>
+                                        <strong className="text-xs sm:text-sm font-black text-slate-800 dark:text-white">{formatPayrollUsd(dynamicSalarioBaseUsd)}</strong>
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] uppercase font-bold text-amber-500">Consumido</p>
+                                        <strong className="text-xs sm:text-sm font-black text-amber-600">-{formatPayrollUsd(dynamicTotalConsumosUsd)}</strong>
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] uppercase font-bold text-emerald-500">Saldo Restante</p>
+                                        <strong className="text-xs sm:text-sm font-black text-emerald-600">{formatPayrollUsd(dynamicNetoAPagarUsd)}</strong>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-2">
+                                    {payrollDetail.consumptions.map(item => (
+                                        <div key={item.id} className="rounded-2xl bg-white/80 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-800 p-3">
+                                            <div className="flex items-center justify-between gap-2 text-xs">
+                                                <strong>{new Date(item.timestamp || item.createdAt).toLocaleString('es-VE')}</strong>
+                                                <strong className="text-slate-800 dark:text-white">{formatPayrollUsd(item.totalUsd)}</strong>
+                                            </div>
+                                            <p className="text-[11px] text-slate-500 mt-1">{(item.items || []).map(line => `${line.qty} × ${line.name}`).join(', ') || 'Sin líneas'}</p>
+                                            <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                                                <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${item.status === 'VOIDED' ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400' : (item.settlementId ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400' : 'bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400')}`}>
+                                                    {item.status === 'VOIDED' ? 'ANULADO' : (item.settlementId ? 'LIQUIDADO' : 'CONSUMIDO')}
+                                                </span>
+                                                {item.status !== 'VOIDED' && !item.settlementId && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleVoidConsumptionSupervisor(item)}
+                                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 transition-colors"
+                                                        title="Anular consumo y devolver stock en la caja"
+                                                    >
+                                                        <RotateCcw size={12} /> Anular
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {payrollDetail.settlements.map(item => (
+                                        <div key={item.id} className="rounded-2xl bg-emerald-50/80 dark:bg-emerald-950/20 border border-emerald-200/70 dark:border-emerald-900/50 p-3 text-xs">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <strong className="text-emerald-800 dark:text-emerald-300">Liquidación {item.status === 'PAID' ? 'PAGADA' : (item.status === 'VOIDED' ? 'ANULADA' : item.status)}</strong>
+                                                <strong className="text-emerald-700 dark:text-emerald-300">{formatPayrollUsd(item.netoAPagarUsd)}</strong>
+                                            </div>
+                                            <p className="text-[11px] text-slate-500 mt-1">{item.paidAt ? new Date(item.paidAt).toLocaleString('es-VE') : 'Pendiente de pago'}</p>
+                                        </div>
+                                    ))}
+                                    {payrollDetail.consumptions.length === 0 && payrollDetail.settlements.length === 0 && (
+                                        <p className="py-4 text-center text-xs font-medium text-slate-400">
+                                            Proyección calculada. Los tickets detallados se archivan al sincronizar caja.
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                            );
+                        })()}
+                    </div>
+                )}
+
+                {/* ── SECCIÓN 6: DESGLOSE DE GASTOS Y CONSUMO INTERNO DEL DÍA / TURNO ── */}
                 {viewTab === 'gastos' && (
                     <div className="space-y-6 animate-in fade-in">
-                        {/* Header con resumen principal */}
+                        {/* ── SUBSECCIÓN 1: EGRESOS DE CAJA CHICA (DINERO) ── */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 rounded-3xl shadow-sm">
                             <div>
                                 <h3 className="text-base sm:text-lg font-black text-slate-800 dark:text-white flex items-center gap-2 flex-wrap">
-                                    <span>Desglose de Gastos del Turno</span>
+                                    <span>Gastos de Caja Chica (Dinero)</span>
                                     <span className="text-xs px-2.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 font-bold border border-rose-200 dark:border-rose-900/50">
-                                        {activeShiftExpensesMetrics.count} {activeShiftExpensesMetrics.count === 1 ? 'registro' : 'registros'}
+                                        {activeShiftExpensesMetrics.count} {activeShiftExpensesMetrics.count === 1 ? 'egreso' : 'egresos'}
                                     </span>
                                 </h3>
                                 <p className="text-xs text-slate-400 font-medium mt-0.5">
-                                    Visualización en tiempo real de egresos y gastos de caja registrados durante el turno activo.
+                                    Dinero en efectivo o transferencia retirado de caja física durante el turno activo.
                                 </p>
                             </div>
 
-                            {/* Tarjetas Totales */}
+                            {/* Tarjetas Totales Dinero */}
                             <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
                                 <div className="flex-1 sm:flex-initial bg-rose-50 dark:bg-rose-950/30 border border-rose-200/80 dark:border-rose-900/40 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-2xl text-right">
                                     <span className="text-[9px] font-black uppercase text-rose-500 tracking-wider block">Total USD</span>
@@ -4567,63 +5313,11 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             </div>
                         </div>
 
-                        {/* Desglose por Categorías (Bento Cards - Responsivo) */}
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2.5 sm:gap-3">
-                            {[
-                                { id: 'insumos', label: 'Insumos', icon: Box, color: 'text-amber-500 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/50' },
-                                { id: 'servicios', label: 'Servicios', icon: Lightbulb, color: 'text-yellow-500 bg-yellow-50 dark:bg-yellow-950/40 border-yellow-200 dark:border-yellow-900/50' },
-                                { id: 'transporte', label: 'Transporte', icon: Truck, color: 'text-blue-500 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-900/50' },
-                                { id: 'personal', label: 'Personal', icon: User, color: 'text-purple-500 bg-purple-50 dark:bg-purple-950/40 border-purple-200 dark:border-purple-900/50' },
-                                { id: 'mantenimiento', label: 'Mantenimiento', icon: Wrench, color: 'text-slate-600 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700' },
-                                { id: 'autoconsumo', label: 'Autoconsumo', icon: Home, color: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900/50' },
-                                { id: 'otros', label: 'Otros', icon: Receipt, color: 'text-rose-500 bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/50' },
-                            ].map(cat => {
-                                const data = activeShiftExpensesMetrics.categoryMap[cat.id] || { count: 0, totalUsd: 0, totalBs: 0 };
-                                const percent = activeShiftExpensesMetrics.totalUsd > 0
-                                    ? ((data.totalUsd / activeShiftExpensesMetrics.totalUsd) * 100).toFixed(0)
-                                    : 0;
-                                const IconComponent = cat.icon;
-
-                                return (
-                                    <div 
-                                        key={cat.id} 
-                                        className={`p-3.5 rounded-2xl border transition-all flex flex-col justify-between ${
-                                            data.count > 0 
-                                                ? 'bg-white dark:bg-slate-900 border-rose-200/80 dark:border-rose-900/40 shadow-sm' 
-                                                : 'bg-slate-50/50 dark:bg-slate-900/30 border-slate-200/50 dark:border-slate-800/40 opacity-60'
-                                        }`}
-                                    >
-                                        <div className="flex items-center justify-between">
-                                            <div className={`w-8 h-8 rounded-xl border flex items-center justify-center shrink-0 ${cat.color}`}>
-                                                <IconComponent size={16} />
-                                            </div>
-                                            {data.count > 0 && (
-                                                <span className="text-[9px] font-black px-1.5 py-0.5 rounded-md bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-400">
-                                                    {percent}%
-                                                </span>
-                                            )}
-                                        </div>
-                                        <div className="mt-3">
-                                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block leading-tight">
-                                                {cat.label}
-                                            </span>
-                                            <span className="text-xs sm:text-sm font-black text-slate-800 dark:text-white font-outfit tabular-nums block mt-0.5">
-                                                ${data.totalUsd.toFixed(2)}
-                                            </span>
-                                            <span className="text-[9px] font-medium text-slate-400 block mt-0.5 truncate">
-                                                {data.count} {data.count === 1 ? 'gasto' : 'gastos'}
-                                            </span>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-
-                        {/* Lista de Transacciones de Gastos (Mobile Cards + Desktop Table) */}
+                        {/* Lista de Transacciones de Gastos de Caja */}
                         <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 sm:p-6 shadow-sm">
                             <div className="flex items-center justify-between mb-4">
                                 <h4 className="text-xs sm:text-sm font-black text-slate-800 dark:text-white uppercase tracking-wider">
-                                    Detalle de Transacciones de Gasto
+                                    Detalle de Egresos de Caja
                                 </h4>
                                 <span className="text-[11px] sm:text-xs text-slate-400 font-medium">
                                     {activeShiftExpensesMetrics.gastosList.length} {activeShiftExpensesMetrics.gastosList.length === 1 ? 'egreso' : 'egresos'}
@@ -4631,18 +5325,15 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                             </div>
 
                             {activeShiftExpensesMetrics.gastosList.length === 0 ? (
-                                <div className="py-12 text-center text-slate-400 space-y-2">
+                                <div className="py-8 text-center text-slate-400 space-y-2">
                                     <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto text-xl">
                                         <Receipt size={22} className="text-slate-400" />
                                     </div>
-                                    <p className="text-xs font-bold">No hay gastos registrados en el turno activo</p>
-                                    <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
-                                        Los egresos de caja registrados por los cajeros aparecerán aquí automáticamente en tiempo real.
-                                    </p>
+                                    <p className="text-xs font-bold">No hay egresos de caja registrados en el turno activo</p>
                                 </div>
                             ) : (
                                 <>
-                                    {/* Vista Móvil: Tarjetas Nativas Sin Scroll Horizontal */}
+                                    {/* Vista Móvil */}
                                     <div className="space-y-3 md:hidden">
                                         {activeShiftExpensesMetrics.gastosList.map((gasto) => {
                                             const catObj = [
@@ -4651,13 +5342,23 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                 { id: 'transporte', label: 'Transporte', icon: Truck, color: 'text-blue-600 bg-blue-50 dark:bg-blue-950/40' },
                                                 { id: 'personal', label: 'Personal', icon: User, color: 'text-purple-600 bg-purple-50 dark:bg-purple-950/40' },
                                                 { id: 'mantenimiento', label: 'Mantenimiento', icon: Wrench, color: 'text-slate-700 bg-slate-100 dark:bg-slate-800' },
-                                                { id: 'autoconsumo', label: 'Autoconsumo', icon: Home, color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40' },
                                                 { id: 'otros', label: 'Otros', icon: Receipt, color: 'text-rose-600 bg-rose-50 dark:bg-rose-950/40' },
                                             ].find(c => c.id === gasto.category) || { label: gasto.category || 'Otros', icon: Receipt, color: 'text-rose-600 bg-rose-50 dark:bg-rose-950/40' };
 
                                             const IconCat = catObj.icon;
                                             const date = gasto.timestamp ? new Date(gasto.timestamp) : new Date();
                                             const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                                            const payment = Array.isArray(gasto.payments) && gasto.payments[0] ? gasto.payments[0] : null;
+                                            const curr = gasto.currency || payment?.currency || (
+                                                (gasto.paymentMethod && (gasto.paymentMethod.includes('usd') || gasto.paymentMethod.includes('zelle') || gasto.paymentMethod.includes('binance') || gasto.paymentMethod === 'dolares')) ? 'USD' :
+                                                (gasto.paymentMethod && gasto.paymentMethod.includes('cop')) ? 'COP' : 'BS'
+                                            );
+                                            const isUsd = curr === 'USD';
+                                            const isCop = curr === 'COP';
+                                            const amountUsd = Math.abs(payment?.amountUsd ? payment.amountUsd : (gasto.totalUsd || 0));
+                                            const amountBs = Math.abs(payment?.amountBs ? payment.amountBs : (gasto.totalBs || 0));
+                                            const amountCop = Math.abs(payment?.amountCop ? payment.amountCop : (gasto.totalCop || 0));
 
                                             return (
                                                 <div 
@@ -4687,19 +5388,28 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                         </div>
 
                                                         <div className="text-right shrink-0">
-                                                            <span className="text-xs font-black font-outfit text-rose-600 dark:text-rose-400 block leading-tight">
-                                                                -${Math.abs(gasto.totalUsd || 0).toFixed(2)}
-                                                            </span>
-                                                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block mt-0.5">
-                                                                -{formatBs(Math.abs(gasto.totalBs || 0))} Bs
-                                                            </span>
+                                                            {isUsd && (
+                                                                <span className="text-xs sm:text-sm font-black font-outfit text-rose-600 dark:text-rose-400 block leading-tight">
+                                                                    -${amountUsd.toFixed(2)}
+                                                                </span>
+                                                            )}
+                                                            {isCop && (
+                                                                <span className="text-xs sm:text-sm font-black font-outfit text-amber-600 dark:text-amber-400 block leading-tight">
+                                                                    -{formatCop(amountCop)} COP
+                                                                </span>
+                                                            )}
+                                                            {!isUsd && !isCop && (
+                                                                <span className="text-xs sm:text-sm font-black font-outfit text-slate-700 dark:text-slate-200 block leading-tight">
+                                                                    -{formatBs(amountBs)} Bs
+                                                                </span>
+                                                            )}
                                                         </div>
                                                     </div>
 
                                                     <div className="pt-2 border-t border-slate-200/40 dark:border-slate-800/60 flex items-center justify-between text-[9.5px]">
                                                         <span className="font-bold text-slate-400 uppercase">Método:</span>
                                                         <span className="font-bold uppercase text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 px-2 py-0.5 rounded-md border border-slate-200/50 dark:border-slate-700/50">
-                                                            {(gasto.paymentMethod || 'Efectivo').replace(/_/g, ' ')}
+                                                            {getPaymentLabel(gasto.paymentMethod) || (gasto.paymentMethod || 'Efectivo').replace(/_/g, ' ')}
                                                         </span>
                                                     </div>
                                                 </div>
@@ -4707,7 +5417,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                         })}
                                     </div>
 
-                                    {/* Vista Escritorio: Tabla Completa */}
+                                    {/* Vista Escritorio */}
                                     <div className="hidden md:block overflow-x-auto">
                                         <table className="w-full text-left text-xs">
                                             <thead>
@@ -4728,13 +5438,23 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                         { id: 'transporte', label: 'Transporte', icon: Truck, color: 'text-blue-600 bg-blue-50 dark:bg-blue-950/40' },
                                                         { id: 'personal', label: 'Personal', icon: User, color: 'text-purple-600 bg-purple-50 dark:bg-purple-950/40' },
                                                         { id: 'mantenimiento', label: 'Mantenimiento', icon: Wrench, color: 'text-slate-700 bg-slate-100 dark:bg-slate-800' },
-                                                        { id: 'autoconsumo', label: 'Autoconsumo', icon: Home, color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40' },
                                                         { id: 'otros', label: 'Otros', icon: Receipt, color: 'text-rose-600 bg-rose-50 dark:bg-rose-950/40' },
                                                     ].find(c => c.id === gasto.category) || { label: gasto.category || 'Otros', icon: Receipt, color: 'text-rose-600 bg-rose-50 dark:bg-rose-950/40' };
 
                                                     const IconCat = catObj.icon;
                                                     const date = gasto.timestamp ? new Date(gasto.timestamp) : new Date();
                                                     const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                                                    const payment = Array.isArray(gasto.payments) && gasto.payments[0] ? gasto.payments[0] : null;
+                                                    const curr = gasto.currency || payment?.currency || (
+                                                        (gasto.paymentMethod && (gasto.paymentMethod.includes('usd') || gasto.paymentMethod.includes('zelle') || gasto.paymentMethod.includes('binance') || gasto.paymentMethod === 'dolares')) ? 'USD' :
+                                                        (gasto.paymentMethod && gasto.paymentMethod.includes('cop')) ? 'COP' : 'BS'
+                                                    );
+                                                    const isUsd = curr === 'USD';
+                                                    const isCop = curr === 'COP';
+                                                    const amountUsd = Math.abs(payment?.amountUsd ? payment.amountUsd : (gasto.totalUsd || 0));
+                                                    const amountBs = Math.abs(payment?.amountBs ? payment.amountBs : (gasto.totalBs || 0));
+                                                    const amountCop = Math.abs(payment?.amountCop ? payment.amountCop : (gasto.totalCop || 0));
 
                                                     return (
                                                         <tr key={gasto.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
@@ -4759,14 +5479,14 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                                             </td>
                                                             <td className="py-3 px-2 whitespace-nowrap">
                                                                 <span className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/80 px-2 py-0.5 rounded-md">
-                                                                    {(gasto.paymentMethod || 'Efectivo').replace(/_/g, ' ')}
+                                                                    {getPaymentLabel(gasto.paymentMethod) || (gasto.paymentMethod || 'Efectivo').replace(/_/g, ' ')}
                                                                 </span>
                                                             </td>
                                                             <td className="py-3 px-2 text-right font-black font-outfit text-rose-600 dark:text-rose-400 tabular-nums">
-                                                                -${Math.abs(gasto.totalUsd || 0).toFixed(2)}
+                                                                {isUsd ? `-$${amountUsd.toFixed(2)}` : '—'}
                                                             </td>
                                                             <td className="py-3 px-2 text-right font-bold text-slate-600 dark:text-slate-300 tabular-nums">
-                                                                -{formatBs(Math.abs(gasto.totalBs || 0))} Bs
+                                                                {!isUsd && !isCop ? `-${formatBs(amountBs)} Bs` : (isCop ? `-${formatCop(amountCop)} COP` : '—')}
                                                             </td>
                                                         </tr>
                                                     );
@@ -4775,6 +5495,94 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                                         </table>
                                     </div>
                                 </>
+                            )}
+                        </div>
+
+                        {/* ── SUBSECCIÓN 2: CONSUMO INTERNO / AUTOCONSUMO (MERCANCÍA / ARTÍCULOS) ── */}
+                        <div className="bg-white dark:bg-slate-900 border border-purple-200/80 dark:border-purple-900/40 rounded-3xl p-4 sm:p-6 shadow-sm space-y-4">
+                            {/* Cabecera Responsiva */}
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-purple-100 dark:border-purple-950/60">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-2xl bg-purple-100 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
+                                        <ShoppingBag size={20} />
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <h4 className="text-sm sm:text-base font-black text-slate-800 dark:text-white">
+                                                Consumo Interno (Retiro de Mercancía)
+                                            </h4>
+                                            <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                                {activeShiftAutoconsumoMetrics.totalUnits} {activeShiftAutoconsumoMetrics.totalUnits === 1 ? 'artículo' : 'artículos'}
+                                            </span>
+                                        </div>
+                                        <p className="text-[11px] text-slate-400 font-medium mt-0.5">
+                                            Salidas físicas de inventario para uso de la tienda o dueño · No afecta caja
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center justify-between sm:justify-end gap-2 bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200/70 dark:border-purple-900/40 px-3.5 py-2 rounded-2xl shrink-0">
+                                    <span className="text-[10px] font-black uppercase text-purple-600 dark:text-purple-400 tracking-wider">Total Retirado:</span>
+                                    <span className="text-sm sm:text-base font-black text-purple-700 dark:text-purple-300 font-outfit tabular-nums">
+                                        {activeShiftAutoconsumoMetrics.totalUnits} art.
+                                    </span>
+                                </div>
+                            </div>
+
+                            {activeShiftAutoconsumoMetrics.list.length === 0 ? (
+                                <div className="py-8 text-center text-slate-400 space-y-2">
+                                    <div className="w-12 h-12 rounded-full bg-purple-50 dark:bg-purple-950/30 flex items-center justify-center mx-auto text-xl">
+                                        <ShoppingBag size={22} className="text-purple-400" />
+                                    </div>
+                                    <p className="text-xs font-bold">No hay retiros de mercancía en el turno activo</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-2.5">
+                                    {activeShiftAutoconsumoMetrics.list.map((auto) => {
+                                        const date = auto.timestamp ? new Date(auto.timestamp) : new Date();
+                                        const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                        const items = Array.isArray(auto.items) ? auto.items : [];
+                                        const totalUnits = items.reduce((s, it) => s + (Number(it.qty) || 0), 0) || 1;
+
+                                        return (
+                                            <div 
+                                                key={auto.id}
+                                                className="p-3 sm:p-4 bg-purple-50/20 dark:bg-purple-950/10 hover:bg-purple-50/40 dark:hover:bg-purple-950/20 border border-purple-100/80 dark:border-purple-900/30 rounded-2xl transition-all space-y-2"
+                                            >
+                                                {/* Fila 1: Descripción + Hora */}
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                                                        <span className="w-7 h-7 rounded-lg bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-300 flex items-center justify-center shrink-0">
+                                                            <Package size={14} />
+                                                        </span>
+                                                        <span className="text-xs sm:text-sm font-black text-slate-800 dark:text-white truncate">
+                                                            {auto.description || (items.length > 0 ? items.map(i => `${i.qty}u ${i.name}`).join(', ') : 'Retiro de inventario')}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1 text-[10px] font-mono font-bold text-slate-400 bg-white dark:bg-slate-800 px-2 py-0.5 rounded-lg border border-slate-200/60 dark:border-slate-700/60 shrink-0">
+                                                        <Clock size={11} className="text-slate-400" />
+                                                        <span>{timeStr}</span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Fila 2: Usuario + Badge de artículos + Etiqueta de Stock */}
+                                                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-purple-100/50 dark:border-purple-950/40 text-[10.5px]">
+                                                    <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-semibold truncate">
+                                                        <User size={12} className="text-slate-400 shrink-0" />
+                                                        <span>{auto.usuarioNombre || auto.actor?.nombre || 'Administrador'}</span>
+                                                        <span className="text-slate-300 dark:text-slate-600">•</span>
+                                                        <span className="text-purple-600 dark:text-purple-400 font-bold">Salida de Stock (Sin impacto en caja)</span>
+                                                    </div>
+
+                                                    <span className="inline-flex items-center gap-1 text-[11px] font-black px-2.5 py-1 rounded-xl bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shrink-0">
+                                                        <Package size={13} className="text-purple-600 dark:text-purple-400" />
+                                                        <span>{totalUnits} {totalUnits === 1 ? 'artículo' : 'artículos'}</span>
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
                             )}
                         </div>
                     </div>
@@ -4814,6 +5622,41 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                     </div>
                 </div>
             )}
+
+            {/* Modal de Confirmación para Cancelar Cola Local */}
+            {showDiscardQueueModal && (
+                <div className="fixed inset-0 z-[999] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 max-w-sm w-full shadow-2xl space-y-5 animate-scale-in">
+                        <div className="w-12 h-12 bg-rose-50 dark:bg-rose-950/20 rounded-2xl flex items-center justify-center text-rose-500 mx-auto">
+                            <Trash2 size={22} />
+                        </div>
+                        <div className="space-y-1.5 text-center">
+                            <h4 className="text-base font-black text-slate-800 dark:text-white">¿Cancelar Cola de Cambios?</h4>
+                            <p className="text-xs font-semibold text-slate-500 leading-relaxed">
+                                Se descartarán los <strong>{pendingChanges.length} cambio(s)</strong> pendientes en este navegador sin ser enviados a la caja principal.
+                            </p>
+                        </div>
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => { triggerHaptic?.(); setShowDiscardQueueModal(false); }}
+                                className="flex-1 py-3 px-4 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-350 font-black text-xs rounded-2xl border border-slate-200 dark:border-slate-700 transition-colors"
+                            >
+                                Volver
+                            </button>
+                            <button
+                                onClick={() => { 
+                                    triggerHaptic?.();
+                                    discardPendingChanges();
+                                    setShowDiscardQueueModal(false);
+                                }}
+                                className="flex-1 py-3 px-4 bg-rose-500 hover:bg-rose-600 text-white font-black text-xs rounded-2xl shadow-lg shadow-rose-500/20 transition-colors"
+                            >
+                                Sí, Cancelar Todo
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             {/* Modal de Cambio de Tasa */}
             <SupervisorRateModal
                 isOpen={showRateModal}
@@ -4832,6 +5675,18 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 onSubmit={(action, productId, data) => queueInventoryChange(action, productId, data)}
                 effectiveRate={effectiveRate}
                 bcvRate={bcvRate}
+            />
+
+            {/* Modal de Crear / Editar Empleado Remoto (Supervisor) */}
+            <RemoteEmployeeModal
+                isOpen={showCreateEmployeeModal}
+                onClose={() => {
+                    setShowCreateEmployeeModal(false);
+                    setEditingEmployee(null);
+                }}
+                onSubmit={handleSaveRemoteEmployee}
+                usuarios={usuarios}
+                editingEmployee={editingEmployee}
             />
 
             {/* Formulario/Wizard remoto de combos */}
@@ -5215,6 +6070,52 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 triggerHaptic={triggerHaptic}
                 bsRoundingStep={bsRoundingStep}
             />
+
+            {/* Modal Profesional de Confirmación para Anular Consumo de Empleado */}
+            {confirmVoidConsumptionTarget && (
+                <div
+                    className="fixed inset-0 z-[120] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+                    onClick={() => !voidingConsumption && setConfirmVoidConsumptionTarget(null)}
+                >
+                    <div
+                        className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6 max-w-sm w-full space-y-4 animate-zoom-in"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="w-14 h-14 rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-500 flex items-center justify-center mx-auto">
+                            <Trash2 size={26} />
+                        </div>
+                        <div className="text-center">
+                            <h4 className="text-base font-black text-slate-800 dark:text-white">
+                                ¿Anular consumo de empleado?
+                            </h4>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
+                                Se anulará el consumo de <strong className="text-slate-700 dark:text-slate-200">${Number(confirmVoidConsumptionTarget.totalUsd || 0).toFixed(2)}</strong> de <strong className="text-slate-700 dark:text-slate-200">{payrollDetail?.employee?.employeeNombre || 'este empleado'}</strong>.
+                            </p>
+                            <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold mt-2 bg-emerald-50 dark:bg-emerald-950/30 py-1.5 px-3 rounded-xl">
+                                ↺ Las unidades serán devueltas al inventario de la caja principal
+                            </p>
+                        </div>
+                        <div className="flex gap-2 pt-2">
+                            <button
+                                type="button"
+                                disabled={voidingConsumption}
+                                onClick={() => setConfirmVoidConsumptionTarget(null)}
+                                className="flex-1 py-3 px-4 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 transition-colors disabled:opacity-50"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                disabled={voidingConsumption}
+                                onClick={() => executeVoidConsumptionSupervisor(confirmVoidConsumptionTarget)}
+                                className="flex-1 py-3 px-4 rounded-xl bg-rose-500 hover:bg-rose-600 active:scale-95 text-white text-xs font-black transition-all shadow-md shadow-rose-500/20 disabled:opacity-50"
+                            >
+                                {voidingConsumption ? 'Enviando...' : 'Sí, Anular'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

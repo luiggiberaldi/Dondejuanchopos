@@ -4,7 +4,7 @@ import { processVoidSale } from '../utils/voidSaleProcessor';
 import { storageService } from '../utils/storageService';
 import { withLock } from '../utils/withLock';
 import { showToast } from '../components/Toast';
-import { BarChart3, TrendingUp, Package, AlertTriangle, ShoppingCart, Store, Users, Settings, LogOut, Bell, BellOff, Lock, Coins, Wallet } from 'lucide-react';
+import { BarChart3, TrendingUp, Package, AlertTriangle, ShoppingCart, Store, Users, Settings, LogOut, Bell, BellOff, Lock, Coins, Wallet, CheckCircle2 } from 'lucide-react';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
 import DashboardStats from '../components/Dashboard/DashboardStats';
 import DashboardPaymentBreakdown from '../components/Dashboard/DashboardPaymentBreakdown';
@@ -24,6 +24,7 @@ import { useSecurity } from '../hooks/useSecurity';
 import { useAudit } from '../hooks/useAudit';
 import { useAuthStore } from '../hooks/store/useAuthStore';
 import { getLocalISODate } from '../utils/dateHelpers';
+import { getOpenShiftMovements } from '../utils/shiftScope';
 import Skeleton from '../components/Skeleton';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { useDashboardMetrics } from '../hooks/useDashboardMetrics';
@@ -234,6 +235,18 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
 
     const recentSales = useMemo(() => getRecentSales(selectedChartDate), [getRecentSales, selectedChartDate]);
 
+    // Estado del turno: si no hay apertura activa ni movimientos pendientes, la caja está cerrada
+    const hasOpenShift = useMemo(() => {
+        return Boolean(
+            shiftApertura || 
+            todayApertura || 
+            (shiftCashFlow && shiftCashFlow.length > 0) || 
+            (todayCashFlow && todayCashFlow.length > 0) || 
+            (shiftSales && shiftSales.length > 0) || 
+            (todaySales && todaySales.length > 0)
+        );
+    }, [shiftApertura, todayApertura, shiftCashFlow, todayCashFlow, shiftSales, todaySales]);
+
     // Limpiar filtro de fecha al salir de la pestaña de Inicio
     useEffect(() => {
         if (!isActive) {
@@ -414,7 +427,12 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                     };
                 }
 
-                const closingIds = new Set((shiftCashFlow || []).map(s => s.id));
+                const freshShiftScope = getOpenShiftMovements(freshSales);
+                const closingIds = new Set([
+                    ...(freshShiftScope.movements || []).map(s => s.id),
+                    ...(freshShiftScope.voided || []).map(s => s.id),
+                    ...(freshShiftScope.apertura ? [freshShiftScope.apertura.id] : [])
+                ]);
                 const freshUpdated = freshSales.map(s => {
                     if (closingIds.has(s.id)) {
                         return { ...s, cajaCerrada: true, cierreId: currentCierreId };
@@ -575,13 +593,15 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                         <Receipt size={18} />
                         <span>Gastos</span>
                     </button>
-                    <button 
-                        onClick={handleDailyClose} 
-                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 font-bold text-sm transition-all hover:scale-[1.02] active:scale-95 cursor-pointer border border-amber-200/60 dark:border-amber-800/60"
-                    >
-                        <Lock size={18} />
-                        <span>Cerrar Caja</span>
-                    </button>
+                    {hasOpenShift && (
+                        <button 
+                            onClick={handleDailyClose} 
+                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 font-bold text-sm transition-all hover:scale-[1.02] active:scale-95 cursor-pointer border border-amber-200/60 dark:border-amber-800/60"
+                        >
+                            <Lock size={18} />
+                            <span>Cerrar Caja</span>
+                        </button>
+                    )}
                 </div>
 
                 {/* Lado Derecho en PC: Reloj, fecha y Sincronización */}
@@ -660,13 +680,15 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                     <Receipt size={16} />
                     <span className="text-[9px] font-bold">Gastos</span>
                 </button>
-                <button 
-                    onClick={handleDailyClose} 
-                    className="bg-amber-500 hover:bg-amber-600 text-white rounded-xl p-2 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
-                >
-                    <Lock size={16} />
-                    <span className="text-[9px] font-bold">Cierre</span>
-                </button>
+                {hasOpenShift && (
+                    <button 
+                        onClick={handleDailyClose} 
+                        className="bg-amber-500 hover:bg-amber-600 text-white rounded-xl p-2 flex flex-col items-center justify-center gap-1 shadow-tone-sm transition-all cursor-pointer"
+                    >
+                        <Lock size={16} />
+                        <span className="text-[9px] font-bold">Cierre</span>
+                    </button>
+                )}
             </div>
 
             {/* ── CAJERO: vista simplificada + Botón Prominente de Cierre de Caja ── */}
@@ -748,13 +770,20 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                     </div>
 
                     {/* Botón de Cierre de Caja para Cajero */}
-                    <button
-                        onClick={handleDailyClose}
-                        className="w-full py-4 px-6 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-black text-sm uppercase tracking-wider shadow-lg shadow-amber-500/25 flex items-center justify-center gap-3 transition-all active:scale-[0.98] cursor-pointer"
-                    >
-                        <Lock size={20} />
-                        <span>Cerrar Caja (Turno Actual)</span>
-                    </button>
+                    {hasOpenShift ? (
+                        <button
+                            onClick={handleDailyClose}
+                            className="w-full py-4 px-6 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-black text-sm uppercase tracking-wider shadow-lg shadow-amber-500/25 flex items-center justify-center gap-3 transition-all active:scale-[0.98] cursor-pointer"
+                        >
+                            <Lock size={20} />
+                            <span>Cerrar Caja (Turno Actual)</span>
+                        </button>
+                    ) : (
+                        <div className="w-full bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 rounded-2xl p-4 flex items-center justify-center gap-3 text-emerald-700 dark:text-emerald-300 shadow-sm">
+                            <CheckCircle2 size={20} className="text-emerald-500" />
+                            <span className="text-xs sm:text-sm font-black">Caja Cerrada · No hay turno activo pendiente de cierre</span>
+                        </div>
+                    )}
                 </div>
             ) : (
             /* ── ADMIN: layout completo ── */

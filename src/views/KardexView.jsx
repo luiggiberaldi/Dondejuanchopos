@@ -125,11 +125,12 @@ export default function KardexView() {
         document.body.removeChild(link);
     };
 
-    const getBadgeStyle = (tipo, cantidad) => {
+    const getBadgeStyle = (tipo, cantidad, subtipo) => {
         if (tipo === 'VENTA') return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
         if (tipo === 'COMPRA' || tipo === 'INICIAL') return 'bg-cyan-500/10 text-cyan-500 border-cyan-500/20';
         if (tipo === 'DEVOLUCION') return 'bg-blue-500/10 text-blue-500 border-blue-500/20';
-        if (tipo === 'MERMA' || tipo === 'AUTOCONSUMO') return 'bg-rose-500/10 text-rose-500 border-rose-500/20';
+        if (tipo === 'MERMA') return 'bg-rose-500/10 text-rose-500 border-rose-500/20';
+        if (tipo === 'AUTOCONSUMO' || subtipo === 'AUTOCONSUMO' || subtipo === 'CONSUMO_EMPLEADO') return 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20';
         return cantidad > 0 ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-amber-500/10 text-amber-500 border-amber-500/20';
     };
 
@@ -266,7 +267,8 @@ export default function KardexView() {
                             <option value="AJUSTE">Ajustes</option>
                             <option value="DEVOLUCION">Devoluciones</option>
                             <option value="MERMA">Mermas / Daños</option>
-                            <option value="AUTOCONSUMO">Autoconsumo</option>
+                            <option value="AUTOCONSUMO">Autoconsumo y Consumos</option>
+                            <option value="CONSUMO_EMPLEADO">Consumo de Empleados</option>
                             <option value="INICIAL">Iniciales</option>
                         </select>
                     </div>
@@ -367,8 +369,8 @@ export default function KardexView() {
                                                 {m.sku && <div className="text-[10px] text-slate-400 font-mono">{m.sku}</div>}
                                             </td>
                                             <td className="p-3 whitespace-nowrap">
-                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border uppercase tracking-wider ${getBadgeStyle(m.tipo, m.cantidad)}`}>
-                                                    {m.tipo}
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border uppercase tracking-wider ${getBadgeStyle(m.tipo, m.cantidad, m.subtipo)}`}>
+                                                    {m.subtipo === 'CONSUMO_EMPLEADO' ? 'Consumo Empleado' : m.tipo}
                                                 </span>
                                             </td>
                                             <td className={`p-3 text-right font-black text-sm whitespace-nowrap ${isPositive ? 'text-emerald-500' : 'text-rose-500'}`}>

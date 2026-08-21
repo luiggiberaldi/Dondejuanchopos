@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, ShoppingCart, Keyboard, Beer, Lock } from 'lucide-react';
+import { RefreshCw, ShoppingCart, Keyboard, Beer, Lock, UserRound } from 'lucide-react';
 import Tooltip from '../Tooltip';
 import { pushLocalSync } from '../../hooks/useCloudSync';
 import { useAuthStore } from '../../hooks/store/useAuthStore';
@@ -29,6 +29,7 @@ export default function SalesHeader({
     tasaCopManual,
     setTasaCopManual,
     onOpenDeferredModal,
+    onOpenEmployeeConsumption,
     activeSessionsCount = 0
 }) {
     const { openBsCongeladoWizard } = useProductContext();
@@ -116,6 +117,17 @@ export default function SalesHeader({
                                         {activeSessionsCount}
                                     </span>
                                 )}
+                            </button>
+                        )}
+                        {onOpenEmployeeConsumption && (
+                            <button
+                                type="button"
+                                onClick={() => { triggerHaptic?.(); onOpenEmployeeConsumption(); }}
+                                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-brand/10 hover:bg-brand/20 text-brand-dark dark:text-brand border border-brand/30 active:scale-95 transition-all cursor-pointer font-black text-xs"
+                                title="Registrar consumo de empleado"
+                            >
+                                <UserRound size={14} />
+                                <span>Personal</span>
                             </button>
                         )}
                         <button

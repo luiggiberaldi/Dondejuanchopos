@@ -72,6 +72,11 @@ BEGIN
           'bodega_kardex_snapshots_v1',
           'bodega_kardex_v1',
           'bodega_inventory_operations_v1',
+          'bodega_employee_consumptions_v1',
+          'bodega_employee_payroll_projection_v1',
+          'bodega_employees_v1',
+          'bodega_payroll_periods_v1',
+          'bodega_payroll_settlements_v1',
           'bodega_payment_methods_v1',
           'bodega_pending_cart_v1',
           'bodega_products_v1',
@@ -107,6 +112,122 @@ $$;
 
 REVOKE ALL ON FUNCTION public.read_paired_audit_documents(TEXT, TEXT, TEXT[], TIMESTAMPTZ) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.read_paired_audit_documents(TEXT, TEXT, TEXT[], TIMESTAMPTZ) TO anon, authenticated;
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- DETALLE DE NÓMINA — solo bajo demanda y acotado por empleado/período.
+-- El Monitor recibe únicamente la proyección resumida por realtime.
+-- ═════════════════════════════════════════════════════════════════════════════
+CREATE OR REPLACE FUNCTION public.read_paired_employee_payroll_detail(
+    p_primary_device_id TEXT,
+    p_monitor_device_id TEXT,
+    p_employee_id TEXT,
+    p_period_id TEXT
+)
+RETURNS TABLE (
+    employee_id TEXT,
+    periodo_id TEXT,
+    consumptions JSONB,
+    settlements JSONB
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+BEGIN
+    IF COALESCE(btrim(p_primary_device_id), '') = ''
+        OR COALESCE(btrim(p_monitor_device_id), '') = ''
+        OR COALESCE(btrim(p_employee_id), '') = ''
+        OR COALESCE(p_period_id, '') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN
+        RAISE EXCEPTION 'REMOTE_PAYROLL_SCOPE_REQUIRED';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.device_pairings pairing
+        WHERE pairing.primary_device_id = p_primary_device_id
+          AND pairing.monitor_device_id = p_monitor_device_id
+          AND pairing.paired_at IS NOT NULL
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM public.device_monitors monitor
+        WHERE monitor.primary_device_id = p_primary_device_id
+          AND monitor.monitor_device_id = p_monitor_device_id
+          AND monitor.revoked_at IS NULL
+    ) THEN
+        RAISE EXCEPTION 'REMOTE_PAYROLL_PAIRING_REQUIRED';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.sync_documents document
+        CROSS JOIN LATERAL jsonb_array_elements(
+            CASE
+                WHEN jsonb_typeof(document.data->'payload') = 'array' THEN document.data->'payload'
+                ELSE '[]'::jsonb
+            END
+        ) item
+        WHERE document.device_id = p_primary_device_id
+          AND document.doc_id = 'bodega_employees_v1'
+          AND item->>'id' = p_employee_id
+    ) THEN
+        RAISE EXCEPTION 'REMOTE_PAYROLL_EMPLOYEE_NOT_FOUND';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.sync_documents document
+        CROSS JOIN LATERAL jsonb_array_elements(
+            CASE
+                WHEN jsonb_typeof(document.data->'payload') = 'array' THEN document.data->'payload'
+                ELSE '[]'::jsonb
+            END
+        ) item
+        WHERE document.device_id = p_primary_device_id
+          AND document.doc_id = 'bodega_payroll_periods_v1'
+          AND COALESCE(item->>'id', item->>'periodoId') = p_period_id
+    ) THEN
+        RAISE EXCEPTION 'REMOTE_PAYROLL_PERIOD_NOT_FOUND';
+    END IF;
+
+    RETURN QUERY
+    SELECT
+        p_employee_id,
+        p_period_id,
+        COALESCE((
+            SELECT jsonb_agg(item)
+            FROM public.sync_documents document
+            CROSS JOIN LATERAL jsonb_array_elements(
+                CASE
+                    WHEN jsonb_typeof(document.data->'payload') = 'array' THEN document.data->'payload'
+                    ELSE '[]'::jsonb
+                END
+            ) item
+            WHERE document.device_id = p_primary_device_id
+              AND document.doc_id = 'bodega_employee_consumptions_v1'
+              AND item->>'employeeId' = p_employee_id
+              AND item->>'periodoId' = p_period_id
+        ), '[]'::jsonb),
+        COALESCE((
+            SELECT jsonb_agg(item)
+            FROM public.sync_documents document
+            CROSS JOIN LATERAL jsonb_array_elements(
+                CASE
+                    WHEN jsonb_typeof(document.data->'payload') = 'array' THEN document.data->'payload'
+                    ELSE '[]'::jsonb
+                END
+            ) item
+            WHERE document.device_id = p_primary_device_id
+              AND document.doc_id = 'bodega_payroll_settlements_v1'
+              AND item->>'employeeId' = p_employee_id
+              AND item->>'periodoId' = p_period_id
+        ), '[]'::jsonb);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.read_paired_employee_payroll_detail(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.read_paired_employee_payroll_detail(TEXT, TEXT, TEXT, TEXT) TO anon, authenticated;
 
 -- ═════════════════════════════════════════════════════════════════════════════
 -- POS WRITE — La caja opera como `anon`, pero no recibe CRUD directo sobre la
@@ -162,6 +283,11 @@ BEGIN
             'bodega_kardex_snapshots_v1',
             'bodega_kardex_v1',
             'bodega_inventory_operations_v1',
+            'bodega_employee_consumptions_v1',
+            'bodega_employee_payroll_projection_v1',
+            'bodega_employees_v1',
+            'bodega_payroll_periods_v1',
+            'bodega_payroll_settlements_v1',
             'bodega_payment_methods_v1',
             'bodega_pending_cart_v1',
             'bodega_products_v1',

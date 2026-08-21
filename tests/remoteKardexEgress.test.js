@@ -66,7 +66,7 @@ describe('Supervisor remote Kardex — egress y seguridad', () => {
     it('UI-REMOTE-006: el Kardex remoto está disponible en el Supervisor bajo demanda', () => {
         expect(ownerSource).toContain("setViewTab('kardex')");
         expect(ownerSource).toMatch(/<RemoteKardexPanel\b/);
-        expect(ownerSource).toContain('grid grid-cols-7 sm:flex');
+        expect(ownerSource).toContain('grid grid-cols-8 sm:flex');
     });
 
     it('PRESENCE-REMOTE-001: el heartbeat de la caja no queda bloqueado por CloudSync/Auth', () => {

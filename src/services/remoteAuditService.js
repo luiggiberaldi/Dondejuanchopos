@@ -41,6 +41,7 @@ export const REMOTE_MONITOR_DOC_IDS = Object.freeze([
     'my_categories_v1',
     'bodega_rate_mode',
     'bodega_users_catalog_v1',
+    'bodega_employee_payroll_projection_v1',
     'business_name',
     'business_rif',
     'bodega_custom_rate',
@@ -206,6 +207,63 @@ export async function fetchRemoteDocuments(
 
 export async function fetchRemoteKardex(deviceId, client = supabaseCloud) {
     return fetchRemoteDocuments(deviceId, REMOTE_KARDEX_DOC_IDS, client);
+}
+
+/**
+ * Obtiene detalle de nómina solo bajo demanda. El RPC vuelve a validar el
+ * pairing, empleado y período; el Monitor no sincroniza los historiales completos.
+ */
+export async function fetchRemoteEmployeePayrollDetail(
+    deviceId,
+    employeeId,
+    periodId,
+    client = supabaseCloud,
+) {
+    const scope = validateDeviceScope(deviceId);
+    if (!scope.success) return scope;
+    if (typeof employeeId !== 'string' && typeof employeeId !== 'number') {
+        return errorResult('REMOTE_EMPLOYEE_ID_REQUIRED', 'El empleado solicitado es requerido.');
+    }
+    if (typeof periodId !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(periodId)) {
+        return errorResult('REMOTE_PAYROLL_PERIOD_INVALID', 'El período de nómina solicitado no es válido.');
+    }
+    if (!client) {
+        return errorResult('REMOTE_CLOUD_UNAVAILABLE', 'La conexión Cloud no está configurada.');
+    }
+
+    const monitorDeviceId = getMonitorDeviceId();
+    if (!monitorDeviceId) {
+        return errorResult('REMOTE_MONITOR_ID_REQUIRED', 'El dispositivo Supervisor no está identificado.');
+    }
+
+    try {
+        const { data, error } = await client.rpc('read_paired_employee_payroll_detail', {
+            p_primary_device_id: deviceId,
+            p_monitor_device_id: monitorDeviceId,
+            p_employee_id: String(employeeId),
+            p_period_id: periodId,
+        });
+        if (error) {
+            return errorResult(
+                error.code || 'REMOTE_PAYROLL_DETAIL_FAILED',
+                error.message || 'No se pudo leer el detalle de nómina.',
+            );
+        }
+        const row = Array.isArray(data) ? data[0] : data;
+        return {
+            success: true,
+            deviceId,
+            employeeId: String(employeeId),
+            periodoId: periodId,
+            consumptions: Array.isArray(row?.consumptions) ? row.consumptions : [],
+            settlements: Array.isArray(row?.settlements) ? row.settlements : [],
+        };
+    } catch (error) {
+        return errorResult(
+            'REMOTE_PAYROLL_DETAIL_EXCEPTION',
+            error?.message || 'Error inesperado leyendo el detalle de nómina.',
+        );
+    }
 }
 
 export async function fetchRemoteInventoryAudit(deviceId, client = supabaseCloud) {

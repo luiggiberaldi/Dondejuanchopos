@@ -113,7 +113,7 @@ export function filterKardex(kardex, filters = {}) {
     return kardex.filter(m => {
         if (!m) return false;
         if (productoId && m.producto_id !== productoId) return false;
-        if (tipo && tipo !== 'TODOS' && m.tipo !== tipo) return false;
+        if (tipo && tipo !== 'TODOS' && m.tipo !== tipo && m.subtipo !== tipo) return false;
         if (usuarioId && m.usuario_id !== usuarioId) return false;
 
         if (desdeIso) {

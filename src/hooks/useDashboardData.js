@@ -14,7 +14,34 @@ export function useDashboardData(isActive, requestPermission) {
             storageService.getItem(SALES_KEY, []),
             storageService.getItem('bodega_customers_v1', []),
         ]);
-        setSales(savedSales);
+
+        let salesList = Array.isArray(savedSales) ? savedSales : [];
+        const activeApertura = salesList.find(s => s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada);
+        const activeFrom = activeApertura?.timestamp ? new Date(activeApertura.timestamp).getTime() : null;
+
+        let healed = false;
+        salesList = salesList.map(sale => {
+            if (sale.status === 'ANULADA' && sale.cajaCerrada !== true) {
+                const saleTs = sale.timestamp ? new Date(sale.timestamp).getTime() : 0;
+                if (activeFrom === null || saleTs < activeFrom) {
+                    healed = true;
+                    return {
+                        ...sale,
+                        cajaCerrada: true
+                    };
+                }
+            }
+            return sale;
+        });
+
+        if (healed) {
+            await storageService.setItem(SALES_KEY, salesList);
+            try {
+                await storageService.setItem('bodega_sales_mirror_v1', salesList);
+            } catch (e) {}
+        }
+
+        setSales(salesList);
         setCustomers(savedCustomers);
         setIsLoadingLocal(false);
     }, []);

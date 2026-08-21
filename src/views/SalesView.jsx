@@ -11,7 +11,7 @@ import { useVoiceSearch } from '../hooks/useVoiceSearch';
 import { useNotifications } from '../hooks/useNotifications';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { showToast } from '../components/Toast';
-import { ShoppingCart, X, DollarSign, CheckCircle2, Beer } from 'lucide-react';
+import { ShoppingCart, X, DollarSign, CheckCircle2, Beer, UserRound } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useProductContext } from '../context/ProductContext';
 
@@ -31,6 +31,7 @@ import DiscountModal from '../components/Sales/DiscountModal';
 import CajaCerradaOverlay from '../components/Sales/CajaCerradaOverlay';
 import ModularComboPickerModal from '../components/Sales/ModularComboPickerModal';
 import DeferredConsumptionModal from '../components/Sales/DeferredConsumptionModal';
+import EmployeeConsumptionModal from '../components/Employees/EmployeeConsumptionModal';
 import { getActiveSessions } from '../services/consumptionSessionService';
 import { getLocalISODate } from '../utils/dateHelpers';
 import { getOpenShiftMovements } from '../utils/shiftScope';
@@ -85,6 +86,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
 
     // Consumo Diferido en Sitio (Fichas Activas)
     const [showDeferredModal, setShowDeferredModal] = useState(false);
+    const [showEmployeeConsumptionModal, setShowEmployeeConsumptionModal] = useState(false);
     const [activeSessionsCount, setActiveSessionsCount] = useState(0);
 
     const updateSessionsCount = useCallback(async () => {
@@ -812,6 +814,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 autoCopEnabled={autoCopEnabled} setAutoCopEnabled={setAutoCopEnabled}
                 tasaCopManual={tasaCopManual} setTasaCopManual={setTasaCopManual}
                 onOpenDeferredModal={() => setShowDeferredModal(true)}
+                onOpenEmployeeConsumption={() => setShowEmployeeConsumptionModal(true)}
                 activeSessionsCount={activeSessionsCount}
             />
 
@@ -878,6 +881,23 @@ export default function SalesView({ triggerHaptic, isActive }) {
                                     </span>
                                 </button>
 
+                                {/* Consumo de Personal — acceso rápido para la caja */}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        triggerHaptic?.();
+                                        setShowEmployeeConsumptionModal(true);
+                                    }}
+                                    className="hidden lg:flex shrink-0 flex-col items-center justify-center rounded-2xl sm:rounded-3xl px-3.5 border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs transition-all min-w-[112px] gap-0.5 cursor-pointer hover:border-brand/50 active:scale-95"
+                                    title="Registrar consumo de empleado"
+                                >
+                                    <div className="flex items-center gap-1.5 font-black text-xs text-brand">
+                                        <UserRound size={15} />
+                                        <span>PERSONAL</span>
+                                    </div>
+                                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 leading-none">Consumo empleado</span>
+                                </button>
+
                                 {/* Tasa de Referencia Flotante (estilo Listo POS 2026) — solo visible en desktop (lg:flex) */}
                                 <button
                                     onClick={() => {
@@ -933,6 +953,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
                                     pendingCarts={pendingCarts}
                                     onOpenHelp={() => setShowKeyboardHelp(true)}
                                     onOpenDeferredModal={() => setShowDeferredModal(true)}
+                                    onOpenEmployeeConsumption={() => setShowEmployeeConsumptionModal(true)}
                                     activeSessionsCount={activeSessionsCount}
                                 />
                     )}
@@ -1133,6 +1154,15 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 isOpen={showDeferredModal}
                 onClose={() => setShowDeferredModal(false)}
                 products={products}
+                triggerHaptic={triggerHaptic}
+            />
+
+            <EmployeeConsumptionModal
+                isOpen={showEmployeeConsumptionModal}
+                onClose={() => setShowEmployeeConsumptionModal(false)}
+                products={products}
+                effectiveRate={effectiveRate}
+                tasaFuente={rates?.bcv?.source || 'BCV'}
                 triggerHaptic={triggerHaptic}
             />
         </div>

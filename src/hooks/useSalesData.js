@@ -46,6 +46,25 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
         };
 
         salesList = salesList.map(normalizeSale224);
+
+        // Sanear ventas anuladas históricas que quedaron sin cajaCerrada: true
+        const activeApertura = salesList.find(s => s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada);
+        const activeFrom = activeApertura?.timestamp ? new Date(activeApertura.timestamp).getTime() : null;
+
+        salesList = salesList.map(sale => {
+            if (sale.status === 'ANULADA' && sale.cajaCerrada !== true) {
+                const saleTs = sale.timestamp ? new Date(sale.timestamp).getTime() : 0;
+                if (activeFrom === null || saleTs < activeFrom) {
+                    healed = true;
+                    return {
+                        ...sale,
+                        cajaCerrada: true
+                    };
+                }
+            }
+            return sale;
+        });
+
         const knownIds = new Set(salesList.map(s => s.id).filter(Boolean));
 
         try {

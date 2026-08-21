@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 // v1.2.0: useReveal hook para animaciones reveal-on-scroll (design system "Precios al Día")
 import { useReveal } from '../hooks/useReveal';
-import { Users, Plus, Search, User, X, Trash2, Pencil, Phone, RefreshCw, Save, ArrowDownRight, ArrowUpRight, Clock, CheckCircle2, CreditCard, ShoppingBag, Truck, Smartphone, Calendar } from 'lucide-react';
+import { Users, Plus, Search, User, X, Trash2, Pencil, Phone, RefreshCw, Save, ArrowDownRight, ArrowUpRight, Clock, CheckCircle2, CreditCard, ShoppingBag, Truck, Smartphone, Calendar, BriefcaseBusiness } from 'lucide-react';
 import { storageService } from '../utils/storageService';
 import { showToast } from '../components/Toast';
 import { formatBs, formatUsd, formatCop } from '../utils/calculatorUtils';
@@ -21,7 +21,8 @@ import { usePagination } from '../hooks/usePagination';
 import PaginationBar from '../components/PaginationBar';
 import CasheaIcon from '../components/CasheaIcon';
 
-// Importaciones de Proveedores
+// Importaciones de Proveedores y Empleados
+import EmployeesManager from '../components/Settings/EmployeesManager';
 import SuppliersList from '../components/Suppliers/SuppliersList';
 import { AddSupplierModal, AddInvoiceModal, PayInvoiceModal, SupplierDetailsSheet } from '../components/Suppliers/SupplierModals';
 import { getActivePaymentMethods } from '../config/paymentMethods';
@@ -72,12 +73,12 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
         setDeleteCustomerTarget(customer);
     };
 
-    // ── ESTADOS DE PROVEEDORES ──
-    const [activeTab, setActiveTab] = useState('clientes'); // 'clientes' | 'proveedores'
+    // ── ESTADOS DE CLIENTES Y EMPLEADOS ──
+    const [activeTab, setActiveTab] = useState('clientes'); // 'clientes' | 'empleados'
 
-    // Cajero no puede ver proveedores — forzar a clientes si accedió antes
+    // Cajero no puede ver empleados — forzar a clientes si accedió antes
     useEffect(() => {
-        if (isCajero && activeTab === 'proveedores') setActiveTab('clientes');
+        if (isCajero && activeTab === 'empleados') setActiveTab('clientes');
     }, [isCajero, activeTab]);
 
     const {
@@ -255,7 +256,7 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
         setPaymentMethod('efectivo_usd');
     };
 
-    if (activeTab === 'proveedores') {
+    if (activeTab === 'empleados') {
         return (
             // v1.2.0: revealRef reutilizado + surface tokens (warm cream).
             <div ref={revealRef} className="flex flex-col h-full bg-surface-50 dark:bg-surface-950 overflow-hidden relative">
@@ -264,87 +265,28 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
                     <div className="flex bg-surface-200/50 dark:bg-surface-800/80 p-1.5 rounded-2xl shadow-inner">
                         <button
                             onClick={() => { setActiveTab('clientes'); triggerHaptic && triggerHaptic(); }}
-                            className={`flex flex-1 items-center justify-center gap-2 py-2.5 min-h-[40px] text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'clientes' ? 'bg-surface dark:bg-surface-900 shadow-tone-sm text-brand-dark dark:text-brand scale-100' : 'text-surface-500 hover:text-surface-700 dark:hover:text-surface-300 scale-95 hover:scale-100'}`}
+                            className={`flex flex-1 items-center justify-center gap-2 py-2.5 min-h-[40px] text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'clientes' ? 'bg-surface dark:bg-surface-900 shadow-tone-sm text-brand-dark dark:text-brand scale-100 ring-1 ring-surface-900/5 dark:ring-white/10' : 'text-surface-500 hover:text-surface-700 dark:hover:text-surface-300 scale-95 hover:scale-100'}`}
                         >
                             <Users size={18} aria-hidden="true" /> Clientes
                         </button>
                         {!isCajero && (
                             <button
-                                onClick={() => { setActiveTab('proveedores'); triggerHaptic && triggerHaptic(); }}
-                                className={`flex flex-1 items-center justify-center gap-2 py-2.5 min-h-[40px] text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'proveedores' ? 'bg-surface dark:bg-surface-900 shadow-tone-sm text-brand dark:text-brand scale-100 ring-1 ring-surface-900/5 dark:ring-white/10' : 'text-surface-500 hover:text-surface-700 dark:hover:text-surface-300 scale-95 hover:scale-100'}`}
+                                onClick={() => { setActiveTab('empleados'); triggerHaptic && triggerHaptic(); }}
+                                className={`flex flex-1 items-center justify-center gap-2 py-2.5 min-h-[40px] text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'empleados' ? 'bg-surface dark:bg-surface-900 shadow-tone-sm text-brand dark:text-brand scale-100 ring-1 ring-surface-900/5 dark:ring-white/10' : 'text-surface-500 hover:text-surface-700 dark:hover:text-surface-300 scale-95 hover:scale-100'}`}
                             >
-                                <Truck size={18} aria-hidden="true" /> Proveedores
+                                <BriefcaseBusiness size={18} aria-hidden="true" /> Empleados
                             </button>
                         )}
                     </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto scrollbar-hide">
-                    <SuppliersList
-                        suppliers={suppliers}
-                        bcvRate={bcvRate}
-                        tasaCop={tasaCop}
-                        copEnabled={copEnabled}
-                        copPrimary={copPrimary}
+                <div className="flex-1 overflow-y-auto scrollbar-hide p-3 sm:p-6 pb-20">
+                    <EmployeesManager
                         triggerHaptic={triggerHaptic}
-                        isAdmin={isAdmin}
-                        onAddSupplier={() => setIsAddSupplierModalOpen(true)}
-                        onSelectSupplier={handleSelectSupplier}
-                        onDeleteSupplier={(s) => setDeleteSupplierTarget(s)}
+                        effectiveRate={bcvRate}
+                        bcvRate={bcvRate}
                     />
                 </div>
-
-                {isAddSupplierModalOpen && (
-                    <AddSupplierModal 
-                        editingSupplier={editingSupplier}
-                        onClose={() => { setIsAddSupplierModalOpen(false); setEditingSupplier(null); }} 
-                        onSave={handleSaveSupplier} 
-                    />
-                )}
-                {isAddInvoiceModalOpen && selectedSupplier && (
-                    <AddInvoiceModal 
-                        supplier={selectedSupplier}
-                        bcvRate={bcvRate}
-                        onClose={() => setIsAddInvoiceModalOpen(false)}
-                        onSave={handleAddInvoice}
-                    />
-                )}
-                {isPayInvoiceModalOpen && selectedSupplier && (
-                    <PayInvoiceModal
-                        supplier={selectedSupplier}
-                        bcvRate={bcvRate}
-                        tasaCop={tasaCop}
-                        copEnabled={copEnabled}
-                        copPrimary={copPrimary}
-                        activePaymentMethods={activePaymentMethods}
-                        onClose={() => setIsPayInvoiceModalOpen(false)}
-                        onSave={handlePayInvoice}
-                    />
-                )}
-                <SupplierDetailsSheet
-                    supplier={selectedSupplier}
-                    isOpen={!!selectedSupplier}
-                    isAdmin={isAdmin}
-                    bcvRate={bcvRate}
-                    tasaCop={tasaCop}
-                    copEnabled={copEnabled}
-                    copPrimary={copPrimary}
-                    historyData={supplierHistoryData}
-                    onClose={() => setSelectedSupplier(null)}
-                    onAddInvoice={() => setIsAddInvoiceModalOpen(true)}
-                    onPayInvoice={() => setIsPayInvoiceModalOpen(true)}
-                    onEdit={() => { setEditingSupplier(selectedSupplier); setIsAddSupplierModalOpen(true); }}
-                    onDelete={() => setDeleteSupplierTarget(selectedSupplier)}
-                />
-                <ConfirmModal
-                    isOpen={!!deleteSupplierTarget}
-                    onClose={() => setDeleteSupplierTarget(null)}
-                    onConfirm={handleDeleteSupplier}
-                    title="Eliminar Proveedor"
-                    message={deleteSupplierTarget ? `¿Eliminar a ${deleteSupplierTarget.name}? Esta acción no se puede deshacer.` : ''}
-                    confirmText="Sí, eliminar"
-                    variant="danger"
-                />
             </div>
         );
     }
@@ -363,10 +305,10 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
                     </button>
                     {!isCajero && (
                         <button
-                            onClick={() => { setActiveTab('proveedores'); triggerHaptic && triggerHaptic(); }}
-                            className={`flex flex-1 items-center justify-center gap-2 py-2.5 min-h-[40px] text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'proveedores' ? 'bg-surface dark:bg-surface-900 shadow-tone-sm text-brand dark:text-brand scale-100' : 'text-surface-500 hover:text-surface-700 dark:hover:text-surface-300 scale-95 hover:scale-100'}`}
+                            onClick={() => { setActiveTab('empleados'); triggerHaptic && triggerHaptic(); }}
+                            className={`flex flex-1 items-center justify-center gap-2 py-2.5 min-h-[40px] text-sm font-bold rounded-xl transition-all duration-300 ${activeTab === 'empleados' ? 'bg-surface dark:bg-surface-900 shadow-tone-sm text-brand dark:text-brand scale-100 ring-1 ring-surface-900/5 dark:ring-white/10' : 'text-surface-500 hover:text-surface-700 dark:hover:text-surface-300 scale-95 hover:scale-100'}`}
                         >
-                            <Truck size={18} aria-hidden="true" /> Proveedores
+                            <BriefcaseBusiness size={18} aria-hidden="true" /> Empleados
                         </button>
                     )}
                 </div>

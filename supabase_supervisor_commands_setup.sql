@@ -31,7 +31,7 @@ ALTER TABLE public.supervisor_commands ADD COLUMN IF NOT EXISTS error_reason TEX
 -- 3. CHECK constraints (idempotentes)
 ALTER TABLE public.supervisor_commands DROP CONSTRAINT IF EXISTS supervisor_commands_command_type_check;
 ALTER TABLE public.supervisor_commands ADD CONSTRAINT supervisor_commands_command_type_check
-    CHECK (command_type IN ('rate_change', 'inventory_update', 'void_sale', 'user_update', 'force_daily_close', 'reopen_shift', 'request_full_backup'));
+    CHECK (command_type IN ('rate_change', 'inventory_update', 'void_sale', 'user_update', 'force_daily_close', 'reopen_shift', 'request_full_backup', 'void_employee_consumption'));
 
 ALTER TABLE public.supervisor_commands DROP CONSTRAINT IF EXISTS supervisor_commands_status_check;
 ALTER TABLE public.supervisor_commands ADD CONSTRAINT supervisor_commands_status_check

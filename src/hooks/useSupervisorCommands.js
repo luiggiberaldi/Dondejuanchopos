@@ -273,6 +273,69 @@ export function useSupervisorCommands(deviceId) {
                     await updateCommandStatus(command.id, 'failed', err?.message);
                 }
             } else if (command.command_type === 'inventory_update') {
+                if (command.payload?.action === 'void_employee_consumption') {
+                    try {
+                        const { consumptionId, reason } = command.payload || {};
+                        const { voidEmployeeConsumption } = await import('../services/employeeService');
+                        const { pushCloudSync } = await import('./useCloudSync');
+                        const { storageService } = await import('../utils/storageService');
+
+                        await voidEmployeeConsumption(consumptionId, reason || 'Anulado por Supervisor');
+                        appliedIds.add(command.id);
+                        markApplied(command.id);
+                        await updateCommandStatus(command.id, 'applied');
+
+                        window.dispatchEvent(new CustomEvent('employee-data-updated'));
+                        window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_employee_consumptions_v1' } }));
+                        window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_products_v1' } }));
+
+                        try {
+                            const freshConsumptions = await storageService.getItem('bodega_employee_consumptions_v1', []);
+                            const freshProducts = await storageService.getItem('bodega_products_v1', []);
+                            const freshProjection = await storageService.getItem('bodega_employee_payroll_projection_v1', null);
+                            if (freshConsumptions) await pushCloudSync('bodega_employee_consumptions_v1', freshConsumptions, true);
+                            if (freshProducts) await pushCloudSync('bodega_products_v1', freshProducts, true);
+                            if (freshProjection) await pushCloudSync('bodega_employee_payroll_projection_v1', freshProjection, true);
+                        } catch (_) {}
+                    } catch (err) {
+                        appliedIds.delete(command.id);
+                        unmarkApplied(command.id);
+                        console.error('[SupervisorCommands] Error al anular consumo de empleado:', err);
+                        await updateCommandStatus(command.id, 'failed', err?.message);
+                    }
+                    return;
+                }
+                if (command.payload?.action === 'save_employee') {
+                    try {
+                        const { employee } = command.payload || {};
+                        const { saveEmployee } = await import('../services/employeeService');
+                        const { pushCloudSync } = await import('./useCloudSync');
+                        const { storageService } = await import('../utils/storageService');
+
+                        if (employee) {
+                            await saveEmployee(employee);
+                            appliedIds.add(command.id);
+                            markApplied(command.id);
+                            await updateCommandStatus(command.id, 'applied');
+
+                            window.dispatchEvent(new CustomEvent('employee-data-updated'));
+                            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_employees_v1' } }));
+
+                            try {
+                                const freshEmployees = await storageService.getItem('bodega_employees_v1', []);
+                                const freshProjection = await storageService.getItem('bodega_employee_payroll_projection_v1', null);
+                                if (freshEmployees) await pushCloudSync('bodega_employees_v1', freshEmployees, true);
+                                if (freshProjection) await pushCloudSync('bodega_employee_payroll_projection_v1', freshProjection, true);
+                            } catch (_) {}
+                        }
+                    } catch (err) {
+                        appliedIds.delete(command.id);
+                        unmarkApplied(command.id);
+                        console.error('[SupervisorCommands] Error al guardar empleado:', err);
+                        await updateCommandStatus(command.id, 'failed', err?.message);
+                    }
+                    return;
+                }
                 try {
                     const result = await applyInventoryCommand({
                         ...(command.payload || {}),
@@ -459,6 +522,64 @@ export function useSupervisorCommands(deviceId) {
                     console.error('[SupervisorCommands] Error al anular venta remota:', err);
                     await updateCommandStatus(command.id, 'failed', err?.message);
                 }
+            } else if (command.command_type === 'save_employee' || (command.command_type === 'inventory_update' && command.payload?.action === 'save_employee')) {
+                try {
+                    const { employee } = command.payload || {};
+                    const { saveEmployee } = await import('../services/employeeService');
+                    const { pushCloudSync } = await import('./useCloudSync');
+                    const { storageService } = await import('../utils/storageService');
+
+                    if (employee) {
+                        await saveEmployee(employee);
+                        appliedIds.add(command.id);
+                        markApplied(command.id);
+                        await updateCommandStatus(command.id, 'applied');
+
+                        window.dispatchEvent(new CustomEvent('employee-data-updated'));
+                        window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_employees_v1' } }));
+
+                        try {
+                            const freshEmployees = await storageService.getItem('bodega_employees_v1', []);
+                            const freshProjection = await storageService.getItem('bodega_employee_payroll_projection_v1', null);
+                            if (freshEmployees) await pushCloudSync('bodega_employees_v1', freshEmployees, true);
+                            if (freshProjection) await pushCloudSync('bodega_employee_payroll_projection_v1', freshProjection, true);
+                        } catch (_) {}
+                    }
+                } catch (err) {
+                    appliedIds.delete(command.id);
+                    unmarkApplied(command.id);
+                    console.error('[SupervisorCommands] Error al guardar empleado remoto:', err);
+                    await updateCommandStatus(command.id, 'failed', err?.message);
+                }
+            } else if (command.command_type === 'delete_employee' || (command.command_type === 'inventory_update' && command.payload?.action === 'delete_employee')) {
+                try {
+                    const { employeeId } = command.payload || {};
+                    const { deleteEmployee } = await import('../services/employeeService');
+                    const { pushCloudSync } = await import('./useCloudSync');
+                    const { storageService } = await import('../utils/storageService');
+
+                    if (employeeId) {
+                        await deleteEmployee(employeeId);
+                        appliedIds.add(command.id);
+                        markApplied(command.id);
+                        await updateCommandStatus(command.id, 'applied');
+
+                        window.dispatchEvent(new CustomEvent('employee-data-updated'));
+                        window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_employees_v1' } }));
+
+                        try {
+                            const freshEmployees = await storageService.getItem('bodega_employees_v1', []);
+                            const freshProjection = await storageService.getItem('bodega_employee_payroll_projection_v1', null);
+                            if (freshEmployees) await pushCloudSync('bodega_employees_v1', freshEmployees, true);
+                            if (freshProjection) await pushCloudSync('bodega_employee_payroll_projection_v1', freshProjection, true);
+                        } catch (_) {}
+                    }
+                } catch (err) {
+                    appliedIds.delete(command.id);
+                    unmarkApplied(command.id);
+                    console.error('[SupervisorCommands] Error al eliminar empleado remoto:', err);
+                    await updateCommandStatus(command.id, 'failed', err?.message);
+                }
             } else if (command.command_type === 'force_daily_close') {
                 try {
                     appliedIds.add(command.id);
@@ -476,12 +597,16 @@ export function useSupervisorCommands(deviceId) {
                             return { alreadyApplied: true, sales };
                         }
 
-                        const { movements, orphans } = getOpenShiftMovements(sales);
-                        if (movements.length === 0) {
+                        const { movements, orphans, voided, apertura } = getOpenShiftMovements(sales);
+                        if (movements.length === 0 && (!voided || voided.length === 0) && !apertura) {
                             return { empty: true };
                         }
 
-                        const closingIds = new Set(movements.map(s => s.id));
+                        const closingIds = new Set([
+                            ...movements.map(s => s.id),
+                            ...(voided || []).map(s => s.id),
+                            ...(apertura ? [apertura.id] : [])
+                        ]);
                         const updatedSales = sales.map(s =>
                             closingIds.has(s.id) ? { ...s, cajaCerrada: true, cierreId: targetCierreId } : s
                         );

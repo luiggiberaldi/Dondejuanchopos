@@ -22,6 +22,7 @@ import {
     buildRemoteBackup,
     extractRemoteKardexData,
     fetchRemoteDocuments,
+    fetchRemoteEmployeePayrollDetail,
     fetchRemoteFullBackup,
     fetchRemoteInventoryAudit,
     fetchRemoteKardex,
@@ -180,6 +181,42 @@ describe('remoteAuditService — lectura remota bajo demanda', () => {
             p_monitor_device_id: 'MONITOR-TEST-001',
             p_updated_after: null,
         });
+    });
+
+    it('REMOTE-007: solicita detalle de nómina solo para empleado y período válidos', async () => {
+        configureQuery({
+            data: [{
+                consumptions: [{ id: 'cons-1', employeeId: 'e1', periodoId: '2026-08-17' }],
+                settlements: [{ id: 'set-1', employeeId: 'e1', periodoId: '2026-08-17' }],
+            }],
+        });
+
+        const result = await fetchRemoteEmployeePayrollDetail(
+            pairedDeviceId,
+            'e1',
+            '2026-08-17',
+            cloudClient,
+        );
+
+        expect(result).toMatchObject({
+            success: true,
+            employeeId: 'e1',
+            periodoId: '2026-08-17',
+            consumptions: [{ id: 'cons-1' }],
+            settlements: [{ id: 'set-1' }],
+        });
+        expect(cloudState.rpc).toHaveBeenCalledWith('read_paired_employee_payroll_detail', {
+            p_primary_device_id: pairedDeviceId,
+            p_monitor_device_id: 'MONITOR-TEST-001',
+            p_employee_id: 'e1',
+            p_period_id: '2026-08-17',
+        });
+    });
+
+    it('REMOTE-008: rechaza período inválido sin tocar la nube', async () => {
+        const result = await fetchRemoteEmployeePayrollDetail(pairedDeviceId, 'e1', 'current', cloudClient);
+        expect(result).toMatchObject({ success: false, error: { code: 'REMOTE_PAYROLL_PERIOD_INVALID' } });
+        expect(cloudState.rpc).not.toHaveBeenCalled();
     });
 });
 

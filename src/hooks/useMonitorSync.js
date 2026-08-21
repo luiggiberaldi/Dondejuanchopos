@@ -29,6 +29,7 @@ const MONITOR_DOC_IDS = [
     'my_categories_v1',
     'bodega_rate_mode',
     'bodega_users_catalog_v1',
+    'bodega_employee_payroll_projection_v1',
     'business_name',
     'business_rif',
     'bodega_custom_rate',

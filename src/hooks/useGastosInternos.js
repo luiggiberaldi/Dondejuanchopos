@@ -7,6 +7,7 @@ import { logEvent } from '../services/auditService';
 import { applyInventoryOperationUnlocked } from '../services/inventoryOperationService';
 
 const SALES_KEY = 'bodega_sales_v1';
+let isGastoProcessing = false;
 
 export const GASTO_CATEGORIES = [
     { id: 'insumos',      label: 'Insumos',          icon: '📦' },
@@ -23,6 +24,7 @@ export function useGastosInternos({ bcvRate, tasaCop, copEnabled, triggerHaptic,
 
     // ─── Gasto de caja normal (sin movimiento de inventario) ────────────────
     const registrarGasto = useCallback(async ({ description, category, amountUsd, amountBs, methodId, currency, note }) => {
+        if (isGastoProcessing) return false;
         triggerHaptic && triggerHaptic();
 
         if (!description.trim() || (!amountUsd && !amountBs)) {
@@ -30,9 +32,16 @@ export function useGastosInternos({ bcvRate, tasaCop, copEnabled, triggerHaptic,
             return false;
         }
 
-        const totalEnBs  = currency === 'BS'  ? amountBs  : (amountUsd * bcvRate);
-        const totalEnUsd = currency === 'USD' ? amountUsd : (bcvRate > 0 ? amountBs / bcvRate : 0);
-        const totalEnCop = currency === 'COP' ? amountBs  : (amountUsd * (tasaCop || 0));
+        isGastoProcessing = true;
+        try {
+
+        const isUsd = currency === 'USD';
+        const isBs  = currency === 'BS';
+        const isCop = currency === 'COP';
+
+        const totalEnBs  = isBs  ? (amountBs || 0) : 0;
+        const totalEnUsd = isUsd ? (amountUsd || 0) : 0;
+        const totalEnCop = isCop ? (amountBs || amountUsd || 0) : 0;
         const gastoTimestamp = new Date().toISOString();
         const gastoActor = useAuthStore.getState().usuarioActivo;
         const actorName = gastoActor?.nombre || gastoActor?.usuario || 'Sistema';
@@ -52,6 +61,7 @@ export function useGastosInternos({ bcvRate, tasaCop, copEnabled, triggerHaptic,
             tipo: 'GASTO_INTERNO',
             cajaCerrada: false,
             afectaCaja: true,
+            currency: currency,
             description: description.trim(),
             category: category,
             note: note?.trim() || '',
@@ -61,17 +71,17 @@ export function useGastosInternos({ bcvRate, tasaCop, copEnabled, triggerHaptic,
             paymentMethod: methodId,
             payments: [{
                 methodId:  methodId,
-                amountUsd: currency === 'USD' ? -totalEnUsd : 0,
-                amountBs:  currency === 'BS'  ? -totalEnBs  : 0,
-                ...(copEnabled && { amountCop: currency === 'COP' ? -totalEnCop : 0 }),
+                amountUsd: isUsd ? -totalEnUsd : 0,
+                amountBs:  isBs  ? -totalEnBs  : 0,
+                ...(copEnabled && { amountCop: isCop ? -totalEnCop : 0 }),
                 currency:    currency,
                 methodLabel: 'Gasto Interno'
             }],
             items: [{
                 name:     `Gasto: ${description.trim()}`,
                 qty:      1,
-                priceUsd: -totalEnUsd,
-                costBs:   0
+                priceUsd: isUsd ? -totalEnUsd : 0,
+                costBs:   isBs  ? -totalEnBs  : 0
             }]
         };
 
@@ -90,10 +100,14 @@ export function useGastosInternos({ bcvRate, tasaCop, copEnabled, triggerHaptic,
         else logEvent('CAJA', 'REGISTRO_GASTO', gastoDescription, gastoActor, { gastoId: newGasto.id, deviceId });
         setIsAddGastoOpen(false);
         return true;
+        } finally {
+            setTimeout(() => { isProcessingRef.current = false; }, 800);
+        }
     }, [setSales, bcvRate, tasaCop, copEnabled, triggerHaptic, auditLog]);
 
     // ─── Autoconsumo: retiro de mercancía por el dueño ──────────────────────
-    const registrarAutoconsumo = useCallback(async ({ description, items, valoracion = 'costo', note, totalUsd, totalBs }) => {
+    const registrarAutoconsumo = useCallback(async ({ description, items, valoracion = 'venta', note, totalUsd, totalBs }) => {
+        if (isGastoProcessing) return false;
         triggerHaptic && triggerHaptic();
 
         if (!items || items.length === 0) {
@@ -101,99 +115,104 @@ export function useGastosInternos({ bcvRate, tasaCop, copEnabled, triggerHaptic,
             return false;
         }
 
-        const result = await withLock('pos_write_lock', async () => {
-            // 1. Leer productos frescos de IndexedDB
-            const allowNeg = localStorage.getItem('allow_negative_stock') === 'true';
+        isGastoProcessing = true;
+        try {
+            const result = await withLock('pos_write_lock', async () => {
+                // 1. Leer productos frescos de IndexedDB
+                const allowNeg = localStorage.getItem('allow_negative_stock') === 'true';
 
-            // 2. Crear el registro de gasto y aplicar el retiro físico mediante
-            // la fachada única Stock + Kardex.
-            const gastoTimestamp = new Date().toISOString();
-            const gastoActor = useAuthStore.getState().usuarioActivo;
-            const gasto = {
-                id:           crypto.randomUUID(),
-                timestamp:    gastoTimestamp,
-                createdAt:    gastoTimestamp,
-                updatedAt:    gastoTimestamp,
-                usuarioId:    gastoActor?.id || null,
-                usuarioNombre: gastoActor?.nombre || gastoActor?.usuario || 'Sistema',
-                usuarioRol:   gastoActor?.rol || 'SYSTEM',
-                actor:        { id: gastoActor?.id || null, nombre: gastoActor?.nombre || gastoActor?.usuario || 'Sistema', rol: gastoActor?.rol || 'SYSTEM' },
-                deviceId:     localStorage.getItem('dj_device_id') || 'CAJA_PRINCIPAL',
-                tipo:         'GASTO_INTERNO',
-                category:     'autoconsumo',
-                isAutoconsumo: true,
-                afectaCaja:   false,       // NO afecta el cuadre de caja física
-                cajaCerrada:  false,
-                valoracion,
-                description:  description.trim(),
-                note:         note?.trim() || '',
-                totalUsd:     -Math.abs(totalUsd),
-                totalBs:      -Math.abs(totalBs),
-                ...(copEnabled && { totalCop: -(Math.abs(totalUsd) * (tasaCop || 0)) }),
-                paymentMethod: 'autoconsumo',
-                payments: [{
-                    methodId:    'autoconsumo',
-                    amountUsd:   -Math.abs(totalUsd),
-                    amountBs:    -Math.abs(totalBs),
-                    currency:    'USD',
-                    methodLabel: 'Autoconsumo de Inventario'
-                }],
-                items: items.map(i => ({
-                    id:       i.id,
-                    name:     i.name,
-                    qty:      i.qty,
-                    costUsd:  i.costUsd  || 0,
-                    priceUsd: i.priceUsd || 0,
-                })),
-            };
+                // 2. Crear el registro de gasto y aplicar el retiro físico mediante
+                // la fachada única Stock + Kardex.
+                const gastoTimestamp = new Date().toISOString();
+                const gastoActor = useAuthStore.getState().usuarioActivo;
+                const gasto = {
+                    id:           crypto.randomUUID(),
+                    timestamp:    gastoTimestamp,
+                    createdAt:    gastoTimestamp,
+                    updatedAt:    gastoTimestamp,
+                    usuarioId:    gastoActor?.id || null,
+                    usuarioNombre: gastoActor?.nombre || gastoActor?.usuario || 'Sistema',
+                    usuarioRol:   gastoActor?.rol || 'SYSTEM',
+                    actor:        { id: gastoActor?.id || null, nombre: gastoActor?.nombre || gastoActor?.usuario || 'Sistema', rol: gastoActor?.rol || 'SYSTEM' },
+                    deviceId:     localStorage.getItem('dj_device_id') || 'CAJA_PRINCIPAL',
+                    tipo:         'GASTO_INTERNO',
+                    category:     'autoconsumo',
+                    isAutoconsumo: true,
+                    afectaCaja:   false,       // NO afecta el cuadre de caja física
+                    cajaCerrada:  false,
+                    valoracion,
+                    description:  description.trim(),
+                    note:         note?.trim() || '',
+                    totalUsd:     -Math.abs(totalUsd),
+                    totalBs:      -Math.abs(totalBs),
+                    ...(copEnabled && { totalCop: -(Math.abs(totalUsd) * (tasaCop || 0)) }),
+                    paymentMethod: 'autoconsumo',
+                    payments: [{
+                        methodId:    'autoconsumo',
+                        amountUsd:   -Math.abs(totalUsd),
+                        amountBs:    -Math.abs(totalBs),
+                        currency:    'USD',
+                        methodLabel: 'Autoconsumo de Inventario'
+                    }],
+                    items: items.map(i => ({
+                        id:       i.id,
+                        name:     i.name,
+                        qty:      i.qty,
+                        costUsd:  i.costUsd  || 0,
+                        priceUsd: i.priceUsd || 0,
+                    })),
+                };
 
-            const inventoryResult = await applyInventoryOperationUnlocked({
-                operationId: `gasto_${gasto.id}`,
-                referenceId: gasto.id,
-                referenceType: 'GASTO_INTERNO',
-                source: 'AUTOCONSUMO',
-                tipo: 'SALIDA',
-                subtipo: 'AUTOCONSUMO',
-                reason: description.trim() || 'Autoconsumo',
-                allowNegative: allowNeg,
-                actor: {
-                    usuarioId: gastoActor?.id || null,
-                    usuarioNombre: gastoActor?.nombre || gastoActor?.usuario || 'Administrador',
-                    usuarioRol: gastoActor?.rol || 'SYSTEM',
-                },
-                deductions: items.map(item => ({
-                    productoId: item.id,
-                    cantidad: -Math.abs(Number(item.qty) || 0),
-                    origen: 'AUTOCONSUMO'
-                })),
-                metadata: { gastoId: gasto.id, category: 'autoconsumo' }
+                const inventoryResult = await applyInventoryOperationUnlocked({
+                    operationId: `gasto_${gasto.id}`,
+                    referenceId: gasto.id,
+                    referenceType: 'GASTO_INTERNO',
+                    source: 'AUTOCONSUMO',
+                    tipo: 'AUTOCONSUMO',
+                    subtipo: 'AUTOCONSUMO',
+                    reason: description.trim() || 'Autoconsumo',
+                    allowNegative: allowNeg,
+                    actor: {
+                        usuarioId: gastoActor?.id || null,
+                        usuarioNombre: gastoActor?.nombre || gastoActor?.usuario || 'Administrador',
+                        usuarioRol: gastoActor?.rol || 'SYSTEM',
+                    },
+                    deductions: items.map(item => ({
+                        productoId: item.id,
+                        cantidad: -Math.abs(Number(item.qty) || 0),
+                        origen: 'AUTOCONSUMO'
+                    })),
+                    metadata: { gastoId: gasto.id, category: 'autoconsumo' }
+                });
+                if (!inventoryResult.success) {
+                    throw new Error(inventoryResult.error || 'No se pudo retirar el inventario');
+                }
+
+                // 3. Guardar el gasto después de que el movimiento físico quedó
+                // aplicado/registrado. Si este paso falla, el gasto puede reintentarse
+                // con el mismo ID sin volver a descontar stock.
+                const freshSales = await storageService.getItem(SALES_KEY, []);
+                const updatedSales = [gasto, ...freshSales];
+                await storageService.setItem(SALES_KEY, updatedSales);
+
+                return { gasto, updatedSales, updatedProducts: inventoryResult.updatedProducts };
             });
-            if (!inventoryResult.success) {
-                throw new Error(inventoryResult.error || 'No se pudo retirar el inventario');
+
+            if (result) {
+                if (typeof setSales === 'function') setSales(result.updatedSales);
+                showToast('Retiro de inventario registrado', 'success');
+                const autoconsumoDescription = `Retiro de ${items.length} producto(s) - $${Math.abs(totalUsd).toFixed(2)}`;
+                if (typeof auditLog === 'function') auditLog('CAJA', 'AUTOCONSUMO', autoconsumoDescription);
+                else logEvent('INVENTARIO', 'AUTOCONSUMO_REGISTRADO', autoconsumoDescription, result.gasto.actor, { gastoId: result.gasto.id, deviceId: result.gasto.deviceId });
+                setIsAddGastoOpen(false);
+                return true;
             }
 
-            // 3. Guardar el gasto después de que el movimiento físico quedó
-            // aplicado/registrado. Si este paso falla, el gasto puede reintentarse
-            // con el mismo ID sin volver a descontar stock.
-            const freshSales = await storageService.getItem(SALES_KEY, []);
-            const updatedSales = [gasto, ...freshSales];
-            await storageService.setItem(SALES_KEY, updatedSales);
-
-            return { gasto, updatedSales, updatedProducts: inventoryResult.updatedProducts };
-        });
-
-        if (result) {
-            if (typeof setSales === 'function') setSales(result.updatedSales);
-            showToast('Retiro de inventario registrado', 'success');
-            const autoconsumoDescription = `Retiro de ${items.length} producto(s) - $${Math.abs(totalUsd).toFixed(2)}`;
-            if (typeof auditLog === 'function') auditLog('CAJA', 'AUTOCONSUMO', autoconsumoDescription);
-            else logEvent('INVENTARIO', 'AUTOCONSUMO_REGISTRADO', autoconsumoDescription, result.gasto.actor, { gastoId: result.gasto.id, deviceId: result.gasto.deviceId });
-            setIsAddGastoOpen(false);
-            return true;
+            showToast('Error al registrar el retiro', 'error');
+            return false;
+        } finally {
+            setTimeout(() => { isGastoProcessing = false; }, 800);
         }
-
-        showToast('Error al registrar el retiro', 'error');
-        return false;
     }, [sales, setSales, bcvRate, tasaCop, copEnabled, triggerHaptic, auditLog]);
 
     // ─── Anulación (con reversión de stock si es autoconsumo) ───────────────

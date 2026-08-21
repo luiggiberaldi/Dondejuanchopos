@@ -292,7 +292,7 @@ export const useAuthStore = create(
                     const session = {
                         id: userEncontrado.id,
                         nombre: userEncontrado.nombre || (userEncontrado.id === 1 ? 'Administrador' : 'Cajero'),
-                        rol: userEncontrado.rol || (userEncontrado.id === 1 ? 'ADMIN' : 'CAJERO'),
+                        rol: userEncontrado.id === 1 ? 'ADMIN' : (userEncontrado.rol || 'CAJERO'),
                     };
                     set({
                         usuarioActivo: session,
@@ -614,17 +614,17 @@ export const useAuthStore = create(
                         useAuthStore.setState(patch);
                     });
                 } else {
-                    // Limpiar cualquier campo `pin` en texto plano que venga de versiones viejas.
+                    // Limpiar cualquier campo `pin` en texto plano que venga de versiones viejas y asegurar rol canónico.
                     state.usuarios = state.usuarios.map(u => {
+                        let validatedPin = '';
                         if (typeof u.pin === 'string' && u.pin.length === 64 && /^[0-9a-f]{64}$/i.test(u.pin)) {
                             // Hash legacy SHA-256 — se mantiene hasta que verifyPin.needsRehash lo migre.
-                            return u;
+                            validatedPin = u.pin;
+                        } else if (typeof u.pin === 'string' && u.pin.startsWith('pbkdf2$')) {
+                            validatedPin = u.pin;
                         }
-                        if (typeof u.pin === 'string' && u.pin.startsWith('pbkdf2$')) {
-                            return u;
-                        }
-                        // PIN en claro o malformado: invalidar para forzar reseteo.
-                        return { ...u, pin: '' };
+                        const rol = u.id === 1 ? 'ADMIN' : (u.rol || 'CAJERO');
+                        return { ...u, pin: validatedPin, rol };
                     });
                 }
             },

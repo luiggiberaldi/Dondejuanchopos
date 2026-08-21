@@ -284,6 +284,12 @@ export function ProductProvider({ children, rates }) {
             } catch (error) {
                 console.error('[ProductContext] No se pudieron recuperar operaciones de inventario:', error);
             }
+            try {
+                const { recoverPendingEmployeeOperations } = await import('../services/employeeService');
+                await recoverPendingEmployeeOperations();
+            } catch (error) {
+                console.error('[ProductContext] No se pudieron recuperar operaciones de empleados:', error);
+            }
             const savedProducts = await storageService.getItem('bodega_products_v1', []);
             const savedCategories = await storageService.getItem('my_categories_v1', BODEGA_CATEGORIES);
             if (isMounted) {
@@ -837,7 +843,30 @@ export function ProductProvider({ children, rates }) {
 export const useProductContext = () => {
     const context = useContext(ProductContext);
     if (!context) {
-        throw new Error("useProductContext must be used within a ProductProvider");
+        return {
+            products: [],
+            setProducts: () => {},
+            rawProducts: [],
+            categories: [],
+            setCategories: () => {},
+            effectiveRate: 1,
+            rateMode: 'bcv',
+            tasaCop: 4150,
+            copEnabled: false,
+            copPrimary: false,
+            bsRoundingStep: 10,
+            setBsRoundingStep: () => {},
+            bsCongeladoAlert: null,
+            isBsWizardOpen: false,
+            dismissBsCongeladoAlert: () => {},
+            openBsCongeladoWizard: () => {},
+            closeBsCongeladoWizard: () => {},
+            previousRate: 0,
+            addProduct: async () => {},
+            updateProduct: async () => {},
+            deleteProduct: async () => {},
+            adjustStock: async () => {},
+        };
     }
     return context;
 };

@@ -32,10 +32,12 @@ export function findOpenApertura(sales) {
 
 /**
  * Movimientos del turno abierto: todo lo no cerrado desde la apertura vigente.
- * @returns {{ movements: Array, orphans: Array, apertura: object|null }}
+ * @returns {{ movements: Array, orphans: Array, voided: Array, apertura: object|null }}
  *   `orphans` son movimientos sin cerrar ANTERIORES a la apertura vigente —
  *   restos de un turno que nunca se cerró. No se arrastran en silencio: se
  *   reportan para que el usuario decida.
+ *   `voided` son ventas anuladas ocurridas durante el turno activo para archivarlas
+ *   al cerrar caja.
  */
 export function getOpenShiftMovements(sales) {
     const apertura = findOpenApertura(sales);
@@ -43,13 +45,20 @@ export function getOpenShiftMovements(sales) {
 
     const movements = [];
     const orphans = [];
+    const voided = [];
     for (const s of sales || []) {
         if (s.cajaCerrada === true) continue;
-        if (s.status === 'ANULADA') continue;
-        if (!TIPOS_CIERRE.includes(s.tipo || 'VENTA')) continue;
         const ts = s.timestamp ? new Date(s.timestamp).getTime() : null;
+        if (s.status === 'ANULADA') {
+            if (from !== null && ts !== null && ts >= from) {
+                voided.push(s);
+            }
+            continue;
+        }
+        if (!TIPOS_CIERRE.includes(s.tipo || 'VENTA')) continue;
         if (from !== null && ts !== null && ts < from) orphans.push(s);
         else movements.push(s);
     }
-    return { movements, orphans, apertura };
+    return { movements, orphans, voided, apertura };
 }
+

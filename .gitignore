@@ -62,6 +62,12 @@ logodark*.png
 Manual_Usuario_*.md
 
 # ── Docs internos y artefactos de auditoría ──
+RESPALDO_*.json
+auditoria_inventario_*
+reconstruccion_existencias_*
+reporte_conciliacion_*
+*.csv
+.freebuff/
 PERFORMANCE_AUDIT.md
 EXPLICACION_ERRORES.md
 TASASALDIA_MANUAL_TEXTO.md

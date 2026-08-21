@@ -7,7 +7,8 @@ const AVATAR_COLORS = {
 
 export default function LoginAvatar({ user, size = 'lg' }) {
   const initial = (user?.nombre || 'U').charAt(0).toUpperCase();
-  const colors = AVATAR_COLORS[user?.rol] || AVATAR_COLORS.CAJERO;
+  const effectiveRole = user?.rol || (user?.id === 1 ? 'ADMIN' : 'CAJERO');
+  const colors = AVATAR_COLORS[effectiveRole] || AVATAR_COLORS.CAJERO;
   const sizeClasses = size === 'lg' ? 'w-28 h-28 short:w-20 short:h-20 text-4xl short:text-3xl' : 'w-10 h-10 text-base';
 
   return (
