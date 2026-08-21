@@ -19,4 +19,9 @@ describe('useSupervisorCommands — singleton guard (SEC estática)', () => {
     it('SG-04: retorna early si el contador supera 1', () => {
         expect(src).toMatch(/_activeSubscriberCount\s*>\s*1/);
     });
+
+    it('EMP-01: las altas remotas validan al supervisor sin usar la sesión local', () => {
+        expect(src).toContain('saveEmployeeFromSupervisor');
+        expect(src).toMatch(/action === 'save_employee'[\s\S]*saveEmployeeFromSupervisor/);
+    });
 });

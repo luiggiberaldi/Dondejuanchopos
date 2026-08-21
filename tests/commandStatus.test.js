@@ -26,6 +26,7 @@ describe('Command Status Mirror Test', () => {
         const roots = [
             path.resolve(__dirname, '../src/views/OwnerMonitorView.jsx'),
             path.resolve(__dirname, '../src/hooks/useSupervisorCommands.js'),
+            path.resolve(__dirname, '../src/hooks/useSupervisorCommandQueue.js'),
         ];
         const emitted = new Set();
         for (const file of roots) {

@@ -3,6 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const SRC = fs.readFileSync(
+    path.resolve(__dirname, '../src/hooks/useSupervisorCommandQueue.js'),
+    'utf8',
+);
+const VIEW_SRC = fs.readFileSync(
     path.resolve(__dirname, '../src/views/OwnerMonitorView.jsx'),
     'utf8',
 );
@@ -12,6 +16,10 @@ const SETTINGS_SRC = fs.readFileSync(
 );
 const SYSTEM_SETTINGS_SRC = fs.readFileSync(
     path.resolve(__dirname, '../src/components/Settings/tabs/SettingsTabSistema.jsx'),
+    'utf8',
+);
+const MONITOR_HEADER_SRC = fs.readFileSync(
+    path.resolve(__dirname, '../src/components/Monitor/MonitorHeader.jsx'),
     'utf8',
 );
 
@@ -49,9 +57,11 @@ describe('Supervisor — descarga de backup remoto v2', () => {
     });
 
     it('BACKUP-UI-004: expone la acción en menú móvil y escritorio', () => {
-        expect(SRC).toContain('Descargar backup de la caja');
-        expect(SRC).toContain('title="Descargar backup de la caja"');
-        expect(SRC.match(/handleDownloadRemoteBackup/g)?.length).toBeGreaterThanOrEqual(3);
+        expect(MONITOR_HEADER_SRC).toContain('Descargar backup de la caja');
+        expect(MONITOR_HEADER_SRC).toContain('title="Descargar backup de la caja"');
+        const hookCount = SRC.match(/handleDownloadRemoteBackup/g)?.length || 0;
+        const viewCount = VIEW_SRC.match(/handleDownloadRemoteBackup/g)?.length || 0;
+        expect(hookCount + viewCount).toBeGreaterThanOrEqual(3);
     });
 
     it('MAINTENANCE-UI-001: oculta la recuperación de fotos en todas las interfaces', () => {

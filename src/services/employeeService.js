@@ -546,27 +546,46 @@ export async function getPayrollProjection() {
     return await withLock('pos_write_lock', async () => refreshPayrollProjectionUnlocked());
 }
 
+async function saveEmployeeUnlocked(rawEmployee, actor) {
+    const normalized = normalizeEmployee(rawEmployee);
+    validateEmployeeInput(normalized);
+    const employees = await getEmployees();
+    const duplicateCedula = normalized.cedula && employees.some(item => (
+        item.id !== normalized.id && item.cedula && item.cedula === normalized.cedula
+    ));
+    if (duplicateCedula) throw new Error('Ya existe un empleado con esa cédula');
+    const exists = employees.some(item => item.id === normalized.id);
+    const updated = exists
+        ? employees.map(item => item.id === normalized.id ? normalized : item)
+        : [normalized, ...employees];
+    await persistAndVerify(EMPLOYEE_KEYS.EMPLOYEES, updated);
+    await refreshPayrollProjectionUnlocked();
+    await logEvent('USUARIO', exists ? 'EMPLEADO_ACTUALIZADO' : 'EMPLEADO_CREADO',
+        `${exists ? 'Actualizado' : 'Creado'} empleado "${normalized.nombre}"`, actor,
+        { employeeId: normalized.id });
+    return normalized;
+}
+
 export async function saveEmployee(rawEmployee) {
     const actor = assertRole(['ADMIN'], 'gestionar empleados');
-    return await withLock('pos_write_lock', async () => {
-        const normalized = normalizeEmployee(rawEmployee);
-        validateEmployeeInput(normalized);
-        const employees = await getEmployees();
-        const duplicateCedula = normalized.cedula && employees.some(item => (
-            item.id !== normalized.id && item.cedula && item.cedula === normalized.cedula
-        ));
-        if (duplicateCedula) throw new Error('Ya existe un empleado con esa cédula');
-        const exists = employees.some(item => item.id === normalized.id);
-        const updated = exists
-            ? employees.map(item => item.id === normalized.id ? normalized : item)
-            : [normalized, ...employees];
-        await persistAndVerify(EMPLOYEE_KEYS.EMPLOYEES, updated);
-        await refreshPayrollProjectionUnlocked();
-        await logEvent('USUARIO', exists ? 'EMPLEADO_ACTUALIZADO' : 'EMPLEADO_CREADO',
-            `${exists ? 'Actualizado' : 'Creado'} empleado "${normalized.nombre}"`, actor,
-            { employeeId: normalized.id });
-        return normalized;
-    });
+    return await withLock('pos_write_lock', () => saveEmployeeUnlocked(rawEmployee, actor));
+}
+
+/**
+ * Aplica una alta/edición emitida por un Monitor emparejado. La autorización
+ * del comando proviene del pairing caja↔monitor; el actor remoto se valida
+ * explícitamente para no depender del usuario local (que puede ser CAJERO).
+ */
+export async function saveEmployeeFromSupervisor(rawEmployee, supervisorActor) {
+    const actor = normalizeActor(supervisorActor);
+    if (!['ADMIN', 'SUPERVISOR'].includes(actor.rol)) {
+        const error = Object.assign(
+            new Error('Permiso denegado para gestionar empleados desde el Supervisor'),
+            { code: 'EMPLOYEE_PERMISSION_DENIED' },
+        );
+        throw error;
+    }
+    return await withLock('pos_write_lock', () => saveEmployeeUnlocked(rawEmployee, actor));
 }
 
 export async function deactivateEmployee(employeeId) {

@@ -98,8 +98,8 @@ export default function RemoteEmployeeModal({
                 updatedAt: new Date().toISOString(),
             };
 
-            await onSubmit(employeeData);
-            onClose();
+            const submitted = await onSubmit(employeeData);
+            if (submitted !== false) onClose();
         } catch (err) {
             showToast(err?.message || 'Error al guardar empleado', 'error');
         } finally {
@@ -112,22 +112,22 @@ export default function RemoteEmployeeModal({
     const maxConsumoUsd = (salarioNum * limiteNum) / 100;
 
     return (
-        <div className="fixed inset-0 z-[220] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[220] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
             <div 
-                className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-lg shadow-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden flex flex-col"
+                className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-lg max-h-[92vh] shadow-2xl border border-slate-200/80 dark:border-slate-800 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
                 onClick={e => e.stopPropagation()}
             >
-                {/* Header */}
-                <div className="p-5 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/30">
+                {/* Header Fijo */}
+                <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/30 shrink-0">
                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-2xl bg-brand/10 text-brand flex items-center justify-center font-black">
+                        <div className="w-10 h-10 rounded-2xl bg-brand/10 text-brand flex items-center justify-center font-black shrink-0">
                             <Users size={20} />
                         </div>
-                        <div>
-                            <h3 className="font-black text-slate-800 dark:text-white text-base">
+                        <div className="min-w-0">
+                            <h3 className="font-black text-slate-800 dark:text-white text-sm sm:text-base truncate">
                                 {editingEmployee ? 'Editar Empleado (Supervisor)' : 'Nuevo Empleado (Supervisor)'}
                             </h3>
-                            <p className="text-xs text-slate-400">
+                            <p className="text-[11px] sm:text-xs text-slate-400 truncate">
                                 Gestiona el personal y envía el comando en tiempo real a la caja.
                             </p>
                         </div>
@@ -135,14 +135,14 @@ export default function RemoteEmployeeModal({
                     <button 
                         type="button" 
                         onClick={onClose}
-                        className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                        className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
                     >
                         <X size={18} />
                     </button>
                 </div>
 
-                {/* Formulario */}
-                <form onSubmit={handleSubmit} className="p-5 space-y-4">
+                {/* Formulario con Scroll Interno Suave */}
+                <form id="remote-employee-form" onSubmit={handleSubmit} className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-4 custom-scrollbar">
                     {/* Selector de Usuario Asociado */}
                     <div>
                         <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1.5">
@@ -238,35 +238,36 @@ export default function RemoteEmployeeModal({
                             </span>
                         </div>
                     )}
-
-                    {/* Botones de Acción */}
-                    <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="min-h-11 px-4 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-bold transition-all cursor-pointer"
-                        >
-                            Cancelar
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={saving}
-                            className="min-h-11 px-5 rounded-2xl bg-brand text-white text-xs font-black flex items-center gap-2 hover:bg-brand-dark transition-all disabled:opacity-50 cursor-pointer shadow-md shadow-brand/20 active:scale-95"
-                        >
-                            {saving ? (
-                                <>
-                                    <Loader2 size={16} className="animate-spin" />
-                                    <span>Enviando a caja...</span>
-                                </>
-                            ) : (
-                                <>
-                                    <Check size={16} />
-                                    <span>{editingEmployee ? 'Actualizar empleado' : 'Guardar y Enviar a Caja'}</span>
-                                </>
-                            )}
-                        </button>
-                    </div>
                 </form>
+
+                {/* Footer Fijo con Botones de Acción */}
+                <div className="p-4 sm:p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20 flex justify-end gap-2.5 shrink-0">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="min-h-11 px-4 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-bold transition-all cursor-pointer"
+                    >
+                        Cancelar
+                    </button>
+                    <button
+                        type="submit"
+                        form="remote-employee-form"
+                        disabled={saving}
+                        className="min-h-11 px-5 rounded-2xl bg-brand text-white text-xs font-black flex items-center gap-2 hover:bg-brand-dark transition-all disabled:opacity-50 cursor-pointer shadow-md shadow-brand/20 active:scale-95"
+                    >
+                        {saving ? (
+                            <>
+                                <Loader2 size={16} className="animate-spin" />
+                                <span>Enviando a caja...</span>
+                            </>
+                        ) : (
+                            <>
+                                <Check size={16} />
+                                <span>{editingEmployee ? 'Actualizar empleado' : 'Guardar y Enviar a Caja'}</span>
+                            </>
+                        )}
+                    </button>
+                </div>
             </div>
         </div>
     );

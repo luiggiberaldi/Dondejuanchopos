@@ -83,6 +83,7 @@ import {
     registerEmployeeConsumption,
     recoverPendingEmployeeOperations,
     saveEmployee,
+    saveEmployeeFromSupervisor,
     settleEmployeePayroll,
     voidEmployeeConsumption,
     voidEmployeePayrollSettlement,
@@ -269,6 +270,34 @@ describe('employeeService', () => {
         await expect(saveEmployee({ nombre: 'No autorizado', salarioSemanalUsd: 50, limiteConsumoPorc: 100 }))
             .rejects.toThrow(/Permiso denegado/);
         await expect(settleEmployeePayroll({ employeeId: 'e1', tasaBcv: 700 }))
+            .rejects.toThrow(/Permiso denegado/);
+    });
+
+    it('permite al Supervisor remoto crear empleados aunque la sesión local sea CAJERO', async () => {
+        ctx.actor = { id: 2, nombre: 'Cajero', rol: 'CAJERO' };
+        const employee = await saveEmployeeFromSupervisor({
+            id: 'remote-e1',
+            nombre: 'Empleado remoto',
+            cargo: 'Cajero',
+            salarioSemanalUsd: 120,
+            limiteConsumoPorc: 80,
+        }, {
+            id: 'mon-1',
+            nombre: 'Supervisor remoto',
+            rol: 'SUPERVISOR',
+        });
+
+        expect(employee).toMatchObject({ id: 'remote-e1', nombre: 'Empleado remoto' });
+        expect((await getEmployees())[0]).toMatchObject({ id: 'remote-e1', nombre: 'Empleado remoto' });
+    });
+
+    it('rechaza actores no supervisor en el camino remoto', async () => {
+        await expect(saveEmployeeFromSupervisor({
+            id: 'remote-e2',
+            nombre: 'No autorizado',
+            salarioSemanalUsd: 50,
+            limiteConsumoPorc: 100,
+        }, { id: 2, nombre: 'Cajero', rol: 'CAJERO' }))
             .rejects.toThrow(/Permiso denegado/);
     });
 

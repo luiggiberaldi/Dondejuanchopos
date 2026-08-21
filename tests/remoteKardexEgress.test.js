@@ -18,6 +18,10 @@ const ownerSource = fs.readFileSync(
     path.resolve(__dirname, '../src/views/OwnerMonitorView.jsx'),
     'utf8',
 );
+const commandQueueSource = fs.readFileSync(
+    path.resolve(__dirname, '../src/hooks/useSupervisorCommandQueue.js'),
+    'utf8',
+);
 const cloudSyncSource = fs.readFileSync(
     path.resolve(__dirname, '../src/hooks/useCloudSync.js'),
     'utf8',
@@ -28,6 +32,18 @@ const pairingScanSource = fs.readFileSync(
 );
 const sqlSource = fs.readFileSync(
     path.resolve(__dirname, '../supabase_remote_audit_setup.sql'),
+    'utf8',
+);
+const monitorTabsSource = fs.readFileSync(
+    path.resolve(__dirname, '../src/components/Monitor/MonitorTabs.jsx'),
+    'utf8',
+);
+const kardexTabSource = fs.readFileSync(
+    path.resolve(__dirname, '../src/components/Monitor/MonitorKardexTab.jsx'),
+    'utf8',
+);
+const monitorHeaderSource = fs.readFileSync(
+    path.resolve(__dirname, '../src/components/Monitor/MonitorHeader.jsx'),
     'utf8',
 );
 
@@ -64,9 +80,11 @@ describe('Supervisor remote Kardex — egress y seguridad', () => {
     });
 
     it('UI-REMOTE-006: el Kardex remoto está disponible en el Supervisor bajo demanda', () => {
-        expect(ownerSource).toContain("setViewTab('kardex')");
-        expect(ownerSource).toMatch(/<RemoteKardexPanel\b/);
-        expect(ownerSource).toContain('grid grid-cols-8 sm:flex');
+        // El nav es data-driven: la pestaña kardex vive en MAIN_SUPERVISOR_TABS
+        expect(ownerSource).toContain("id: 'kardex', label: 'Kardex Remoto'");
+        // El render condicional vive en MonitorTabs y el panel en MonitorKardexTab
+        expect(monitorTabsSource).toMatch(/viewTab === 'kardex' && \(/);
+        expect(kardexTabSource).toMatch(/<RemoteKardexPanel\b/);
     });
 
     it('PRESENCE-REMOTE-001: el heartbeat de la caja no queda bloqueado por CloudSync/Auth', () => {
@@ -83,7 +101,7 @@ describe('Supervisor remote Kardex — egress y seguridad', () => {
 
     it('PRESENCE-REMOTE-002: un fallo de presencia no se presenta como caja offline confirmada', () => {
         expect(monitorSource).toContain('presenceError');
-        expect(ownerSource).toContain("presenceError ? 'Caja: Sin verificar' : 'Caja: Offline'");
+        expect(monitorHeaderSource).toContain("presenceError ? 'Caja: Sin verificar' : 'Caja: Offline'");
     });
 
     it('PAIRING-REMOTE-003: un dispositivo que fue caja recibe una identidad nueva al reemparejarse', () => {
@@ -116,7 +134,7 @@ describe('Supervisor remote Kardex — egress y seguridad', () => {
             'utf8',
         );
 
-        expect(ownerSource).toContain("command_type: 'request_full_backup'");
+        expect(commandQueueSource).toContain("command_type: 'request_full_backup'");
         expect(commandsSource).toContain("command.command_type === 'request_full_backup'");
         expect(commandsSource).toContain("rpc('write_paired_cloud_backup'");
         expect(commandsSource).toContain('buildLocalRemoteBackup');

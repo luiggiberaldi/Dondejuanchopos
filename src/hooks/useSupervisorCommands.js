@@ -308,12 +308,16 @@ export function useSupervisorCommands(deviceId) {
                 if (command.payload?.action === 'save_employee') {
                     try {
                         const { employee } = command.payload || {};
-                        const { saveEmployee } = await import('../services/employeeService');
+                        const { saveEmployeeFromSupervisor } = await import('../services/employeeService');
                         const { pushCloudSync } = await import('./useCloudSync');
                         const { storageService } = await import('../utils/storageService');
 
                         if (employee) {
-                            await saveEmployee(employee);
+                            await saveEmployeeFromSupervisor(employee, {
+                                id: command.payload?.supervisorId || null,
+                                nombre: command.payload?.supervisorName || command.payload?.supervisorNombre || 'Supervisor',
+                                rol: command.payload?.supervisorRole || command.payload?.supervisorRol || 'SUPERVISOR',
+                            });
                             appliedIds.add(command.id);
                             markApplied(command.id);
                             await updateCommandStatus(command.id, 'applied');
@@ -525,12 +529,16 @@ export function useSupervisorCommands(deviceId) {
             } else if (command.command_type === 'save_employee' || (command.command_type === 'inventory_update' && command.payload?.action === 'save_employee')) {
                 try {
                     const { employee } = command.payload || {};
-                    const { saveEmployee } = await import('../services/employeeService');
+                    const { saveEmployeeFromSupervisor } = await import('../services/employeeService');
                     const { pushCloudSync } = await import('./useCloudSync');
                     const { storageService } = await import('../utils/storageService');
 
                     if (employee) {
-                        await saveEmployee(employee);
+                        await saveEmployeeFromSupervisor(employee, {
+                            id: command.payload?.supervisorId || null,
+                            nombre: command.payload?.supervisorName || command.payload?.supervisorNombre || 'Supervisor',
+                            rol: command.payload?.supervisorRole || command.payload?.supervisorRol || 'SUPERVISOR',
+                        });
                         appliedIds.add(command.id);
                         markApplied(command.id);
                         await updateCommandStatus(command.id, 'applied');

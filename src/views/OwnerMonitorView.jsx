@@ -1,6 +1,10 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useProductContext } from '../context/ProductContext';
 import { useMonitorSync } from '../hooks/useMonitorSync';
+import { useSupervisorCommandQueue } from '../hooks/useSupervisorCommandQueue';
+import { useMonitorShiftMetrics } from '../hooks/useMonitorShiftMetrics';
+import { useMonitorInventory } from '../hooks/useMonitorInventory';
+import { useMonitorPayroll } from '../hooks/useMonitorPayroll';
 import { storageService } from '../utils/storageService';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { showToast } from '../components/Toast';
@@ -9,21 +13,46 @@ import SupervisorRateModal from '../components/SupervisorRateModal';
 import RemoteProductFormModal from '../components/Monitor/RemoteProductFormModal';
 import RemoteEmployeeModal from '../components/Monitor/RemoteEmployeeModal';
 import SupervisorPairingModal from '../components/Monitor/SupervisorPairingModal';
-import RemoteKardexPanel from '../components/Monitor/RemoteKardexPanel';
+import MonitorKardexTab from '../components/Monitor/MonitorKardexTab';
+import MonitorArticlesTab from '../components/Monitor/MonitorArticlesTab';
+import MonitorHeader from '../components/Monitor/MonitorHeader';
+import MonitorTabs from '../components/Monitor/MonitorTabs';
+import MonitorCierresTab from '../components/Monitor/MonitorCierresTab';
+import MonitorInventarioTab from '../components/Monitor/MonitorInventarioTab';
+import MonitorCambiosTab from '../components/Monitor/MonitorCambiosTab';
+import MonitorNominaTab from '../components/Monitor/MonitorNominaTab';
+import MonitorGastosTab from '../components/Monitor/MonitorGastosTab';
+import MonitorActivoTab from '../components/Monitor/MonitorActivoTab';
+import MonitorOverlays from '../components/Monitor/MonitorOverlays';
+import SaleDetailModal from '../components/Monitor/SaleDetailModal';
+import StockAdjustModal from '../components/Monitor/StockAdjustModal';
 import ComboFormModal from '../components/Products/ComboFormModal';
 import UsersManager from '../components/Settings/UsersManager';
-import ReportsArticleTab from '../components/Reports/ReportsArticleTab';
 import BsCongeladoWizardModal from '../components/Products/BsCongeladoWizardModal';
 import BsCongeladoAlertBanner from '../components/Products/BsCongeladoAlertBanner';
-import { COMMAND_STATUS } from '../constants/commandStatus';
 import {
-    TrendingUp, Package, Coins, Users, LogOut, QrCode, MoreVertical, Download,
-    RefreshCw, Wifi, WifiOff, Clock, FileText, DollarSign,
-    Wallet, CreditCard, Smartphone, Banknote, ArrowDownRight,
+    Package, Users, Download,
+    RefreshCw, Clock, FileText, TrendingUp, Coins, DollarSign,
+    Wallet, ArrowDownRight,
     ShieldCheck, Hash, AlertTriangle, Search, X, ChevronLeft, ChevronRight,
-    MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud, Sparkles, Gift, RotateCcw, Target, Lock, Unlock, HandCoins,
-    Wrench, Truck, User, Lightbulb, Box, Home, Receipt, SlidersHorizontal, BarChart3, ShoppingBag
+    MinusCircle, PlusCircle, Pencil, Trash2, Plus, UploadCloud, Sparkles, Gift, RotateCcw, Lock, Unlock, HandCoins,
+    Wrench, Truck, User, Lightbulb, Box, Home, Receipt, BarChart3, ShoppingBag, SlidersHorizontal
 } from 'lucide-react';
+import {
+    getEffectiveSaleTotalBs,
+    getFormattedPaymentMethod,
+    getFormattedSaleCode,
+    getMethodIcon,
+    getPaymentBadgeStyle,
+    getSaleChangeDetails,
+    formatPayrollUsd,
+} from '../utils/monitorSaleFormat';
+import { applyProjectedStock } from '../utils/supervisorStockProjection';
+import { getSupervisorCommandDetails, isDuplicateProductIdFailure } from '../utils/monitorCommandDetails';
+
+// Re-exports para compatibilidad con tests que importan helpers desde la vista.
+export { applyProjectedStock } from '../utils/supervisorStockProjection';
+export { getSaleChangeDetails, getEffectiveSaleTotalBs } from '../utils/monitorSaleFormat';
 import { formatBs, formatCop } from '../utils/calculatorUtils';
 import { mulR, round2 } from '../utils/dinero';
 import { getChangeLedger, getChangeDisplayParts } from '../utils/changeLedger';
@@ -32,613 +61,14 @@ import { getPaymentLabel, toTitleCase } from '../config/paymentMethods';
 import { findOpenApertura, getOpenShiftMovements } from '../utils/shiftScope';
 import { FinancialEngine } from '../core/FinancialEngine';
 import { calculateSupervisorChangeMetrics, calculateSupervisorOutflowMetrics } from '../utils/supervisorShiftMetrics';
-import { fetchRemoteEmployeePayrollDetail, fetchRemoteFullBackup } from '../services/remoteAuditService';
 import { generateEmployeePayrollPDF } from '../utils/employeePayrollPdfGenerator';
 import { useAuthStore } from '../hooks/store/useAuthStore';
 import {
     createSupervisorCommandId,
-    getSupervisorChangeKey,
-    getSupervisorChangeResolution,
     normalizeSupervisorChanges,
-    restoreLocalRateState,
-    SUPERVISOR_RATE_PENDING_KEY,
 } from '../utils/supervisorCommandModel';
 
-// Helper: icon por método de pago
-const PAYMENT_METHOD_ICONS = {
-    efectivo_bs: Banknote,
-    pago_movil: Smartphone,
-    punto_de_venta: CreditCard,
-    efectivo_usd: DollarSign,
-    zelle: Smartphone,
-    binance: Wallet,
-    efectivo_cop: Coins,
-    transferencia_cop: CreditCard,
-    fiado: Clock,
-    cashea: Clock,
-    vuelto_bs: RotateCcw,
-    vuelto_usd: RotateCcw,
-};
-
-function getMethodIcon(methodId) {
-    return PAYMENT_METHOD_ICONS[methodId] || Wallet;
-}
-
-const formatPayrollUsd = value => new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-}).format(Number(value) || 0);
-
-function isDuplicateProductIdFailure(command) {
-    const reason = String(command?.error_reason || '');
-    return /DUPLICATE_PRODUCT_ID_CONFLICT|Ya existe un producto con ese ID/i.test(reason);
-}
-
-export function applyProjectedStock(baseStock, changes = []) {
-    let stock = Math.max(0, Number(baseStock) || 0);
-    for (const change of changes) {
-        if (change?.action !== 'adjust_stock') continue;
-        const target = change.data?.targetStock;
-        if (target !== undefined && target !== null && target !== '') {
-            const parsedTarget = Number(target);
-            if (!Number.isNaN(parsedTarget)) stock = Math.max(0, parsedTarget);
-        } else {
-            stock = Math.max(0, stock + (Number(change.data?.delta) || 0));
-        }
-    }
-    return stock;
-}
-
-function getFormattedPaymentMethod(sale) {
-    if (!sale) return 'Efectivo (Bs)';
-
-    const isFiado = sale.tipo === 'VENTA_FIADA' || sale.isFiado || (sale.fiadoUsd > 0.009);
-    const isCashea = sale.tipo === 'VENTA_CASHEA' || sale.isCashea || (sale.casheaUsd > 0.009);
-
-    let baseLabel = '';
-
-    if (Array.isArray(sale.payments) && sale.payments.length > 0) {
-        baseLabel = sale.payments.map(p => {
-            const mId = (p.methodId || p.metodoPago || p.id || '').toLowerCase();
-            let label = p.methodLabel || getPaymentLabel(mId);
-            if (mId === 'efectivo_usd' || mId === 'efectivo usd') label = 'Efectivo ($)';
-            else if (mId === 'efectivo_bs' || mId === 'efectivo bs' || mId === 'efectivo') label = 'Efectivo (Bs)';
-            else if (mId === 'efectivo_cop' || mId === 'efectivo cop') label = 'Efectivo (COP)';
-            return label;
-        }).join(' + ');
-    } else if (!isFiado && !isCashea) {
-        const raw = (sale.metodoPago || sale.paymentMethod || 'efectivo_bs').toLowerCase();
-
-        if (raw === 'efectivo_usd' || raw === 'efectivo usd' || raw === 'usd') baseLabel = 'Efectivo ($)';
-        else if (raw === 'efectivo_bs' || raw === 'efectivo bs' || raw === 'efectivo' || raw === 'bs') baseLabel = 'Efectivo (Bs)';
-        else if (raw === 'efectivo_cop' || raw === 'efectivo cop' || raw === 'cop') baseLabel = 'Efectivo (COP)';
-        else baseLabel = getPaymentLabel(raw) || toTitleCase(raw);
-    }
-
-    if (isFiado) {
-        return baseLabel ? `${baseLabel} + Fiado` : 'Fiado (Por Cobrar)';
-    }
-
-    if (isCashea) {
-        return baseLabel ? `${baseLabel} + Cashea` : 'Cashea (Por Cobrar)';
-    }
-
-    return baseLabel || 'Efectivo (Bs)';
-}
-
-function getPaymentBadgeStyle(sale) {
-    const formatted = getFormattedPaymentMethod(sale).toLowerCase();
-    if (formatted.includes('fiado') || formatted.includes('por cobrar')) return 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300';
-    if (formatted.includes('cashea')) return 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-300';
-    if (formatted.includes('+')) return 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300';
-    if (formatted.includes('dólares') || formatted.includes('($)')) return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300';
-    if (formatted.includes('pago móvil')) return 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-300';
-    if (formatted.includes('punto')) return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-300';
-    return 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300';
-}
-
-function getFormattedSaleCode(sale) {
-    if (!sale) return '';
-    if (sale.saleNumber != null && Number(sale.saleNumber) > 0) {
-        return `#${String(sale.saleNumber).padStart(7, '0')}`;
-    }
-    return `#${sale.id ? sale.id.slice(-6).toUpperCase() : ''}`;
-}
-
-export function getSaleChangeDetails(sale, products = [], effectiveRate = 1, bcvRate = 1) {
-    if (!sale) return { changeUsd: 0, changeBs: 0, hasChange: false, hasAnyChange: false };
-
-    // El monitor debe usar la misma autoridad que tickets, caja y reportes.
-    // En particular, nunca sumar `changeUsd` y `changeBs` cuando son dos
-    // representaciones legacy del mismo vuelto.
-    const rate = sale.rate || effectiveRate || bcvRate || 0;
-    const ledger = getChangeLedger(sale, rate);
-    const hasPhysicalChange = ledger.delivered.usd > 0.009
-        || ledger.delivered.bs > 0.009
-        || ledger.delivered.cop > 0.009;
-
-    return {
-        changeUsd: ledger.delivered.usd,
-        changeBs: ledger.delivered.bs,
-        changeCop: ledger.delivered.cop,
-        hasChange: hasPhysicalChange,
-        hasAnyChange: ledger.hasChange,
-        isEquivalent: ledger.legacyEquivalent,
-        ledger,
-    };
-}
-
-export function getEffectiveSaleTotalBs(sale, products = [], effectiveRate = 1, bcvRate = 1) {
-    if (!sale) return 0;
-    if (!sale.items || sale.items.length === 0) return sale.totalBs || 0;
-
-    const rate = sale.rate || effectiveRate || 1;
-    const realBcv = sale.bcvRate || bcvRate || rate;
-
-    let hasMatch = false;
-    let sumBs = 0;
-
-    for (const item of sale.items) {
-        const cleanId = (item._originalId || item.id || '').replace(/_half|_box$/, '');
-        const prod = products.find(p => p.id === cleanId || p.id === item.productId || p.id === item.id);
-
-        if (prod) {
-            hasMatch = true;
-            const format = item._mode || (item.id && item.id.endsWith('_half') ? 'halfBox' : item.id && item.id.endsWith('_box') ? 'box' : 'unit');
-            const pricing = calculatePricing(prod, rate, realBcv, format);
-            sumBs += mulR(pricing.unitPriceBs, item.qty || 1);
-        } else if (item.priceBsManual && item.pricingMode === 'bs_fijo') {
-            hasMatch = true;
-            sumBs += mulR(item.priceBsManual, item.qty || 1);
-        } else if (item.subtotalBs != null && item.subtotalBs > 0) {
-            sumBs += item.subtotalBs;
-        } else {
-            sumBs += mulR(mulR(item.priceUsd ?? item.price ?? 0, item.qty || 1), rate);
-        }
-    }
-
-    return hasMatch ? round2(sumBs) : (sale.totalBs || 0);
-}
-
-function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId, onVoidSaleSuccess, products = [], effectiveRate = 1, actor = null, pendingVoid = false }) {
-    if (!sale) return null;
-
-    const [showConfirmVoid, setShowConfirmVoid] = useState(false);
-    const [voiding, setVoiding] = useState(false);
-
-    const isVoided = sale.status === 'ANULADA';
-
-    const formattedDate = sale.timestamp ? new Date(sale.timestamp).toLocaleString('es-VE', {
-        dateStyle: 'medium',
-        timeStyle: 'short'
-    }) : '';
-
-    const handleVoidSale = async () => {
-        if (!sale || isVoided || pendingVoid || voiding) return;
-        setVoiding(true);
-        const commandId = createSupervisorCommandId();
-        try {
-            const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
-            if (supabaseCloud && pairedDeviceId) {
-                const { error } = await supabaseCloud
-                    .from('supervisor_commands')
-                    .insert({
-                        id: commandId,
-                        primary_device_id: pairedDeviceId,
-                        monitor_device_id: monitorDeviceId,
-                        command_type: 'void_sale',
-                        payload: {
-                            commandId,
-                            saleId: sale.id,
-                            reason: 'Anulada por Supervisor desde Monitor',
-                            supervisorId: actor?.id || null,
-                            supervisorName: actor?.nombre || actor?.usuario || 'Supervisor',
-                            supervisorRole: actor?.rol || 'SUPERVISOR',
-                        },
-                        status: 'pending'
-                    });
-
-                if (error) throw error;
-                showToast('Anulación enviada; esperando confirmación de la caja.', 'success');
-                if (onVoidSaleSuccess) onVoidSaleSuccess(sale.id, commandId);
-            } else {
-                showToast('Sin conexión con la caja principal', 'error');
-            }
-            setShowConfirmVoid(false);
-        } catch (err) {
-            console.error('[OwnerMonitor] Error al solicitar anulación:', err);
-            showToast('No se pudo enviar la anulación. La venta queda sin cambios.', 'error');
-        } finally {
-            setVoiding(false);
-        }
-    };
-
-    return (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in" onClick={onClose}>
-            <div className="bg-white dark:bg-slate-900 w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col relative" onClick={e => e.stopPropagation()}>
-                {/* Modal Header */}
-                <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/70 dark:bg-slate-800/40">
-                    <div className="flex items-center gap-3 min-w-0">
-                        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black shrink-0 ${
-                            isVoided 
-                                ? 'bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400'
-                                : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
-                        }`}>
-                            <FileText size={20} />
-                        </div>
-                        <div className="min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                                <h3 className="text-sm font-black text-slate-800 dark:text-white">
-                                    Venta {getFormattedSaleCode(sale)}
-                                </h3>
-                                {isVoided ? (
-                                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/60 flex items-center gap-1">
-                                        <AlertTriangle size={10} /> ANULADA
-                                    </span>
-                                ) : (
-                                    <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${getPaymentBadgeStyle(sale)}`}>
-                                        {getFormattedPaymentMethod(sale)}
-                                    </span>
-                                )}
-                            </div>
-                            <p className="text-[11px] text-slate-400 font-medium mt-0.5">{formattedDate}</p>
-                        </div>
-                    </div>
-                    <button 
-                        onClick={onClose}
-                        className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-colors shrink-0"
-                    >
-                        <X size={20} />
-                    </button>
-                </div>
-
-                {/* Modal Content */}
-                <div className="p-4 sm:p-6 overflow-y-auto space-y-5 flex-1">
-                    {/* Banner de Estado Anulada */}
-                    {(isVoided || pendingVoid) && (
-                        <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200/80 dark:border-rose-900/50 rounded-2xl flex items-center gap-3 text-rose-800 dark:text-rose-300 text-xs font-semibold">
-                            <AlertTriangle size={18} className="shrink-0 text-rose-600 dark:text-rose-400" />
-                            <div>
-                                <p className="font-extrabold">{pendingVoid && !isVoided ? 'Anulación pendiente de la caja' : 'Esta venta fue anulada'}</p>
-                                <p className="text-[10.5px] opacity-80 mt-0.5">{pendingVoid && !isVoided ? 'La vista se restaurará automáticamente si la caja rechaza la operación.' : 'El stock de artículos fue restaurado y los saldos revertidos en la caja.'}</p>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Metadata Header */}
-                    <div className="grid grid-cols-2 gap-3 p-3.5 bg-slate-50 dark:bg-slate-800/30 border border-slate-150 dark:border-slate-800 rounded-2xl text-xs">
-                        <div>
-                            <span className="text-[9.5px] font-black uppercase tracking-wider text-slate-400 block">Cajero</span>
-                            <span className="font-bold text-slate-700 dark:text-slate-200 truncate block mt-0.5">
-                                {sale.cajero || sale.usuarioNombre || sale.usuario || 'Cajero General'}
-                            </span>
-                        </div>
-                        {sale.clientName && (
-                            <div>
-                                <span className="text-[9.5px] font-black uppercase tracking-wider text-slate-400 block">Cliente</span>
-                                <span className="font-bold text-slate-700 dark:text-slate-200 truncate block mt-0.5">
-                                    {sale.clientName}
-                                </span>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Desglose de Artículos */}
-                    <div className="space-y-2.5">
-                        <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-400 px-1">
-                            <span>Artículos ({sale.items ? sale.items.reduce((s, i) => s + (i.qty || 1), 0) : 0})</span>
-                            <span>Subtotal</span>
-                        </div>
-                        
-                            {sale.items && sale.items.length > 0 ? (
-                                sale.items.map((item, idx) => {
-                                    const qty = item.qty || 1;
-                                    const price = item.priceUsd ?? item.price ?? 0;
-                                    const subtotalUsd = qty * price;
-                                    const appliedRate = sale.rate || sale.bcvRate || effectiveRate || bcvRate || 1;
-                                    const realBcv = sale.bcvRate || bcvRate || appliedRate;
-
-                                    const cleanId = (item._originalId || item.id || '').replace(/_half|_box$/, '');
-                                    const prod = products.find(p => p.id === cleanId || p.id === item.productId || p.id === item.id);
-                                    const format = item._mode || (item.id && item.id.endsWith('_half') ? 'halfBox' : item.id && item.id.endsWith('_box') ? 'box' : 'unit');
-
-                                    const subtotalBs = prod
-                                        ? mulR(calculatePricing(prod, appliedRate, realBcv, format).unitPriceBs, qty)
-                                        : (item.subtotalBs != null ? item.subtotalBs : mulR(subtotalUsd, appliedRate));
-                                    
-                                    return (
-                                        <div key={idx} className="p-3 bg-slate-50/80 dark:bg-slate-800/20 border border-slate-100 dark:border-slate-800 rounded-2xl flex justify-between items-start gap-3">
-                                            <div className="min-w-0 flex-1 space-y-1">
-                                                <span className="text-xs font-black text-slate-800 dark:text-slate-100 block leading-snug break-words">
-                                                    {item.name}
-                                                </span>
-                                                <div className="flex items-center gap-2 text-[10.5px] text-slate-400 font-semibold">
-                                                    <span>Cant: <strong className="text-slate-700 dark:text-slate-300 font-bold">{qty}</strong></span>
-                                                    <span>•</span>
-                                                    <span>P.Unit: <strong className="font-outfit text-slate-700 dark:text-slate-300">${price.toFixed(2)}</strong></span>
-                                                </div>
-                                            </div>
-                                            <div className="text-right shrink-0">
-                                                <span className="font-outfit text-xs font-black text-slate-800 dark:text-white block">${subtotalUsd.toFixed(2)}</span>
-                                                <span className="font-outfit text-[9.5px] font-bold text-slate-400 block">{formatBs(subtotalBs)} Bs</span>
-                                            </div>
-                                        </div>
-                                    );
-                                })
-                            ) : (
-                                <div className="p-4 text-center text-xs text-slate-400 font-bold">Sin detalle de artículos</div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Desglose de Pagos Recibidos */}
-                    {Array.isArray(sale.payments) && sale.payments.length > 0 && (
-                        <div className="space-y-1.5 p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-150 dark:border-slate-800 rounded-2xl text-xs">
-                            <span className="text-[9.5px] font-black uppercase tracking-wider text-slate-400 block mb-1">
-                                Forma(s) de Pago Recibida(s)
-                            </span>
-                            {sale.payments.map((p, idx) => {
-                                const mId = (p.methodId || p.metodoPago || '').toLowerCase();
-                                const label = p.methodLabel || getPaymentLabel(mId) || mId;
-                                const isUsd = p.currency === 'USD' || mId.includes('usd');
-                                const amtUsd = p.amountUsd || p.amountInput || 0;
-                                const amtBs = p.amountBs || p.amountInput || 0;
-                                return (
-                                    <div key={idx} className="flex justify-between items-center text-xs">
-                                        <span className="font-bold text-slate-700 dark:text-slate-200">
-                                            • {label}
-                                        </span>
-                                        <span className="font-outfit font-black text-slate-800 dark:text-white">
-                                            {isUsd ? `$${Number(amtUsd).toFixed(2)} USD` : `${formatBs(amtBs)} Bs`}
-                                        </span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-
-                    {/* Resumen Total */}
-                    <div className="p-4 bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/40 rounded-2xl space-y-2">
-                        <div className="flex items-center justify-between text-xs">
-                            <span className="font-bold text-slate-600 dark:text-slate-300">Total Venta ($)</span>
-                            <span className={`font-outfit text-base font-black ${isVoided ? 'line-through text-slate-400' : 'text-slate-800 dark:text-white'}`}>${(sale.totalUsd || 0).toFixed(2)}</span>
-                        </div>
-                        <div className="flex items-center justify-between text-xs pt-1 border-t border-emerald-200/40 dark:border-emerald-900/30">
-                            <span className="font-bold text-slate-600 dark:text-slate-300">Total Venta (Bs)</span>
-                            <span className={`font-outfit text-sm font-black ${isVoided ? 'line-through text-slate-400' : 'text-emerald-700 dark:text-emerald-400'}`}>{formatBs(getEffectiveSaleTotalBs(sale, products, effectiveRate, bcvRate))} Bs</span>
-                        </div>
-
-                        {/* Libro de vuelto: todas las salidas se muestran, incluso cuando
-                            una venta combina efectivo con un destino pendiente. */}
-                        {(() => {
-                            const ledger = getChangeLedger(sale, effectiveRate || bcvRate);
-                            if (!ledger.hasChange) return null;
-                            const formatPart = (part) => getChangeDisplayParts(
-                                part,
-                                { physical: part.kind === 'delivered' },
-                            ).map(({ currency, amount }) => currency === 'BS'
-                                ? `Bs ${formatBs(amount)}`
-                                : currency === 'COP'
-                                    ? `COP ${formatCop(amount)}`
-                                    : `$${amount.toFixed(2)} USD`
-                            ).join(' + ') || '—';
-                            const labelFor = (part) => part.kind === 'owed'
-                                ? `Vuelto por fuera (${part.method || 'otro'})`
-                                : part.kind === 'wallet'
-                                    ? 'Abono a cuenta'
-                                    : part.kind === 'voucher'
-                                        ? `Voucher (${part.code || 'sin código'})`
-                                        : part.kind === 'donated'
-                                            ? 'Vuelto cedido/donado'
-                                            : 'Vuelto entregado';
-                            return (
-                                <div className="space-y-1">
-                                    {ledger.parts.map((part) => (
-                                        <div key={part.kind} className="flex items-center justify-between text-xs pt-2 border-t border-emerald-200/50 dark:border-emerald-900/40 text-amber-800 dark:text-amber-300">
-                                            <span className="flex items-center gap-1 font-black uppercase tracking-wider text-[10px]"><RotateCcw size={12} /> {labelFor(part)}</span>
-                                            <span className="font-outfit font-black text-sm text-amber-700 dark:text-amber-400">{formatPart(part)}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            );
-                        })()}
-
-                        {(sale.rate || sale.bcvRate || bcvRate) && (
-                            <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1">
-                                <span>Tasa Aplicada</span>
-                                <span>1 USD = {formatBs(sale.rate || sale.bcvRate || bcvRate)} Bs</span>
-                            </div>
-                        )}
-                    </div>
-
-                {/* Modal Footer */}
-                <div className="p-4 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-800/30">
-                    {isVoided ? (
-                        <button
-                            onClick={onClose}
-                            className="w-full py-3 px-4 bg-slate-800 hover:bg-slate-900 text-white dark:bg-slate-700 dark:hover:bg-slate-600 rounded-2xl font-black text-xs transition-colors shadow-sm cursor-pointer"
-                        >
-                            Cerrar Detalle
-                        </button>
-                    ) : (
-                        <div className="grid grid-cols-2 gap-3">
-                            <button
-                                onClick={() => setShowConfirmVoid(true)}
-                                disabled={pendingVoid}
-                                className="py-3 px-4 bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 rounded-2xl font-black text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 disabled:opacity-50"
-                            >
-                                <Trash2 size={14} /> Anular Venta
-                            </button>
-                            <button
-                                onClick={onClose}
-                                className="py-3 px-4 bg-slate-800 hover:bg-slate-900 text-white dark:bg-slate-700 dark:hover:bg-slate-600 rounded-2xl font-black text-xs transition-colors shadow-sm cursor-pointer active:scale-95"
-                            >
-                                Cerrar
-                            </button>
-                        </div>
-                    )}
-                </div>
-
-                {/* Modal de Confirmación de Anulación Remota (Regla #15: Cero window.confirm) */}
-                {showConfirmVoid && (
-                    <div className="absolute inset-0 z-50 bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in zoom-in-95 duration-200">
-                        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl max-w-sm w-full text-center space-y-4">
-                            <div className="w-14 h-14 rounded-2xl bg-rose-100 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900/60 text-rose-600 dark:text-rose-400 flex items-center justify-center mx-auto">
-                                <AlertTriangle size={28} />
-                            </div>
-                            <div>
-                                <h4 className="text-base font-black text-slate-800 dark:text-white">¿Anular Venta {getFormattedSaleCode(sale)}?</h4>
-                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed font-medium">
-                                    Se enviará un comando remoto a la caja para restaurar el stock de los productos y revertir los movimientos contables.
-                                </p>
-                            </div>
-                            <div className="grid grid-cols-2 gap-3 pt-2">
-                                <button
-                                    onClick={() => setShowConfirmVoid(false)}
-                                    disabled={voiding}
-                                    className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs transition-colors cursor-pointer"
-                                >
-                                    Cancelar
-                                </button>
-                                <button
-                                    onClick={handleVoidSale}
-                                    disabled={voiding}
-                                    className="py-2.5 px-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-black text-xs transition-all shadow-md hover:shadow-rose-600/30 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                >
-                                    {voiding ? 'Enviando...' : 'Sí, Anular'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-}
-
-function getSupervisorCommandDetails(item, products = []) {
-    if (!item) return { title: 'Modificación', actionLabel: 'Inventario', actionColor: 'bg-slate-100 text-slate-700', details: [], author: 'Supervisor' };
-
-    if (item.isLocal) {
-        const change = item.data || {};
-        const data = change.data || {};
-        const targetProd = Array.isArray(products) ? products.find(p => p.id === change.productId) : null;
-        const action = change.action || change.command_type;
-        const details = [];
-
-        if (action === 'void_employee_consumption') {
-            const title = `Consumo: ${data.employeeNombre || change.employeeNombre || 'Personal'}`;
-            const actionLabel = 'Anulación de Consumo';
-            const actionColor = 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300';
-            if (data.totalUsd || change.totalUsd) details.push(`💵 $${Number(data.totalUsd || change.totalUsd || 0).toFixed(2)} USD`);
-            details.push('↺ Devolución a Stock');
-            return { title, actionLabel, actionColor, details, author: 'Tú (Monitor)' };
-        }
-
-        const title = data.name || targetProd?.name || 'Artículo / Configuración';
-        let actionLabel = 'Modificación de Inventario';
-        let actionColor = 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300';
-
-        if (action === 'adjust_stock') {
-            const delta = data.delta || 0;
-            actionLabel = `Ajuste de Stock (${delta > 0 ? '+' : ''}${delta})`;
-            actionColor = delta > 0 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300';
-            details.push(`📦 Stock: ${delta > 0 ? '+' : ''}${delta} u`);
-        } else if (action === 'edit' || action === 'add') {
-            actionLabel = action === 'add' ? 'Nuevo Producto / Combo' : 'Edición de Producto / Combo';
-            actionColor = action === 'add' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300';
-
-            if (data.priceUsd !== undefined && data.priceUsd !== null && data.priceUsd !== '') details.push(`💵 $${Number(data.priceUsd).toFixed(2)}`);
-            if (data.pricingMode === 'bcv' || data.forceBcv) details.push('🏛️ Siempre BCV');
-            else if (data.pricingMode === 'bs_fijo') details.push(`🔒 Bs Fijo (${data.priceBsManual || data.priceBs || '0'} Bs)`);
-            else if (data.pricingMode === 'tasa_dia') details.push('⚡ Tasa del Día');
-            if (data.stock !== undefined && data.stock !== null && data.stock !== '') details.push(`📦 Stock: ${data.stock} u`);
-            if (data.category && data.category !== 'varios') details.push(`🏷️ ${data.category}`);
-            if (data.barcode) details.push(`📊 Cód: ${data.barcode}`);
-            if (data.sellByBox && data.boxUnits) details.push(`📦 Caja: ${data.boxUnits}u ($${data.boxPriceUsd || 0})`);
-            if (data.sellByHalfBox && data.halfBoxUnits) details.push(`📦 ½ Caja: ${data.halfBoxUnits}u ($${data.halfBoxPriceUsd || 0})`);
-        } else if (action === 'delete') {
-            actionLabel = 'Eliminación de Producto';
-            actionColor = 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300';
-            details.push('🗑️ Eliminado del catálogo');
-        }
-
-        return { title, actionLabel, actionColor, details, author: 'Tú (Monitor)' };
-    }
-
-    const cmd = item.data || item;
-    const payload = cmd.payload || {};
-    const action = payload.action || cmd.command_type;
-    const data = payload.data || {};
-    const prodId = payload.productId || data.id;
-    const targetProd = Array.isArray(products) ? products.find(p => p.id === prodId) : null;
-    const details = [];
-
-    let title = data.name || payload.name || payload.productName || targetProd?.name || 'Artículo / Configuración';
-    let actionLabel = 'Modificación de Inventario';
-    let actionColor = 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300';
-
-    if (action === 'void_employee_consumption' || cmd.command_type === 'void_employee_consumption') {
-        title = `Consumo: ${payload.employeeNombre || 'Personal'}`;
-        actionLabel = 'Anulación de Consumo';
-        actionColor = 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300';
-        if (payload.totalUsd) details.push(`💵 $${Number(payload.totalUsd).toFixed(2)} USD`);
-        if (payload.employeeNombre) details.push(`👤 ${payload.employeeNombre}`);
-        details.push('↺ Devolución a Stock');
-    } else if (cmd.command_type === 'user_update') {
-        title = payload.nombre ? `Cajero: "${payload.nombre}"` : `Usuario #${payload.userId || ''}`;
-        actionLabel = payload.action === 'change_pin' ? 'Cambio de PIN' : 'Datos de Usuario';
-        actionColor = 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300';
-        if (payload.nombre) details.push(`👤 Nombre: ${payload.nombre}`);
-        if (payload.userId) details.push(`ID: #${payload.userId}`);
-        if (payload.bypassPin !== undefined) details.push(payload.bypassPin ? '🔓 Acceso Libre (Sin PIN)' : '🔒 Requiere PIN');
-        if (payload.action === 'change_pin') details.push('🔑 Clave/PIN Actualizado');
-    } else if (cmd.command_type === 'rate_change') {
-        title = 'Tasa de Cambio';
-        actionLabel = 'Ajuste de Tasa';
-        actionColor = 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300';
-        if (payload.rate || payload.tasa) details.push(`💵 Tasa: ${payload.rate || payload.tasa} Bs`);
-        if (payload.bcvRate) details.push(`🏛️ BCV: ${payload.bcvRate} Bs`);
-    } else if (cmd.command_type === 'void_sale') {
-        title = `Anulación de Venta #${payload.saleNumber || String(payload.saleId || '').slice(-6)}`;
-        actionLabel = 'Anulación de Venta';
-        actionColor = 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300';
-        if (payload.totalUsd || payload.totalBs) details.push(`💵 $${payload.totalUsd || 0} / ${payload.totalBs || 0} Bs`);
-        if (payload.reason) details.push(`Motivo: ${payload.reason}`);
-    } else {
-        // inventory_update
-        if (action === 'adjust_stock') {
-            const delta = data.delta || 0;
-            actionLabel = `Ajuste de Stock (${delta > 0 ? '+' : ''}${delta})`;
-            actionColor = delta > 0 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300';
-            details.push(`📦 Stock: ${delta > 0 ? '+' : ''}${delta} unidades`);
-        } else if (action === 'edit' || action === 'add') {
-            actionLabel = action === 'add' ? 'Nuevo Producto / Combo' : 'Edición de Producto / Combo';
-            actionColor = action === 'add' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300';
-
-            if (data.priceUsd !== undefined && data.priceUsd !== null && data.priceUsd !== '') details.push(`💵 $${Number(data.priceUsd).toFixed(2)}`);
-            if (data.pricingMode === 'bcv' || data.forceBcv) details.push('🏛️ Siempre BCV');
-            else if (data.pricingMode === 'bs_fijo') details.push(`🔒 Bs Fijo (${data.priceBsManual || data.priceBs || '0'} Bs)`);
-            else if (data.pricingMode === 'tasa_dia') details.push('⚡ Tasa del Día');
-            if (data.stock !== undefined && data.stock !== null && data.stock !== '') details.push(`📦 Stock: ${data.stock} u`);
-            if (data.category && data.category !== 'varios') details.push(`🏷️ ${data.category}`);
-            if (data.barcode) details.push(`📊 Cód: ${data.barcode}`);
-            if (data.sellByBox && data.boxUnits) details.push(`📦 Caja: ${data.boxUnits}u ($${data.boxPriceUsd || 0})`);
-            if (data.sellByHalfBox && data.halfBoxUnits) details.push(`📦 ½ Caja: ${data.halfBoxUnits}u ($${data.halfBoxPriceUsd || 0})`);
-        } else if (action === 'delete') {
-            actionLabel = 'Eliminación de Producto';
-            actionColor = 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300';
-            details.push('🗑️ Eliminado del catálogo');
-        }
-    }
-
-    const author = payload.supervisorNombre || payload.supervisorName || payload.actor?.nombre || cmd.monitor_device_id || 'Supervisor';
-    return { title, actionLabel, actionColor, details, author };
-}
-
 const PENDING_KEY = 'dj_pending_inventory_changes_v1';
-const INFLIGHT_KEY = 'dj_inflight_inventory_changes_v1';
 
 const MAIN_SUPERVISOR_TABS = [
     {
@@ -691,24 +121,100 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const { isConnected, lastSync, loading: syncLoading, triggerRefresh, posLastSeen, isPosOnline, presenceError } = useMonitorSync(pairedDeviceId);
 
     const [sales, setSales] = useState([]);
-    const [payrollProjection, setPayrollProjection] = useState(null);
-    const [payrollDetail, setPayrollDetail] = useState(null);
-    const [payrollDetailLoading, setPayrollDetailLoading] = useState(false);
-    const [payrollDetailError, setPayrollDetailError] = useState(null);
-    const [confirmVoidConsumptionTarget, setConfirmVoidConsumptionTarget] = useState(null);
-    const [voidingConsumption, setVoidingConsumption] = useState(false);
     const [activeCashier, setActiveCashier] = useState({ nombre: 'Ninguno', rol: '' });
     const [loadingData, setLoadingData] = useState(true);
     const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
     const [showRateModal, setShowRateModal] = useState(false);
     const [selectedSaleDetail, setSelectedSaleDetail] = useState(null);
-    const [pendingVoidSaleIds, setPendingVoidSaleIds] = useState(() => new Set());
-    const [pendingVoidCommands, setPendingVoidCommands] = useState({});
+    const [showRemoteCloseModal, setShowRemoteCloseModal] = useState(false);
+    const [closingRemote, setClosingRemote] = useState(false);
     const supervisorUser = useAuthStore(state => state.usuarioActivo);
+    const queue = useSupervisorCommandQueue({
+        pairedDeviceId,
+        products,
+        setProducts,
+        supervisorUser,
+        triggerHaptic,
+        setSales,
+        setSelectedSaleDetail,
+    });
+    const {
+        allCloudCmds,
+        cloudPendingCmds,
+        cmdTabFilter,
+        setCmdTabFilter,
+        currentPageCambios,
+        setCurrentPageCambios,
+        ITEMS_PER_PAGE_CAMBIOS,
+        showCloudPendingModal,
+        setShowCloudPendingModal,
+        showDiscardQueueModal,
+        setShowDiscardQueueModal,
+        cancellingCmdId,
+        downloadingBackup,
+        pendingChanges,
+        setPendingChanges,
+        inFlightChanges,
+        uploading,
+        recentlyConfirmedIds,
+        pendingVoidSaleIds,
+        setPendingVoidSaleIds,
+        pendingVoidCommands,
+        setPendingVoidCommands,
+        persistPending,
+        queueInventoryChange,
+        pendingStockDelta,
+        hasPendingFor,
+        hasInventoryChanges,
+        uploadPendingChanges,
+        discardPendingChanges,
+        discardSinglePendingChange,
+        cancelSingleCloudCmd,
+        cancelAllCloudCmds,
+        handleDownloadRemoteBackup,
+        totalControlChanges,
+        wipeMonitorSession,
+        fetchAllCloudCmds,
+    } = queue;
+    const shift = useMonitorShiftMetrics({
+        sales,
+        products,
+        effectiveRate,
+        bcvRate,
+        pairedDeviceId,
+        supervisorUser,
+        copEnabled,
+        tasaCop,
+        activeCashier,
+        triggerHaptic,
+        setClosingRemote,
+        setShowRemoteCloseModal,
+    });
+    const {
+        selectedCierreId,
+        setSelectedCierreId,
+        exportingCierreId,
+        setExportingCierreId,
+        activeShiftApertura,
+        shiftStatusInfo,
+        activeShiftSales,
+        activeShiftMetrics,
+        activeShiftExpensesMetrics,
+        activeShiftAutoconsumoMetrics,
+        activeShiftOutflowMetrics,
+        activeShiftSupplierMetrics,
+        activeShiftPaymentBreakdown,
+        activeShiftChangeMetrics,
+        activeShiftGrossUsd,
+        activeShiftExpectedCash,
+        activeShiftTipTotals,
+        activeShiftAvgTicket,
+        registerCloses,
+        handleDownloadCierrePDF,
+        handleRemoteForceDailyClose,
+        handleReopenRemoteShift,
+    } = shift;
     const [viewTab, setViewTab] = useState('activo'); // 'activo' o 'cierres'
-    const [selectedCierreId, setSelectedCierreId] = useState(null);
-    const [searchTermInventario, setSearchTermInventario] = useState('');
-    const [filterStockInventario, setFilterStockInventario] = useState('todos'); // 'todos', 'bajo', 'agotado'
 
     // ── Estado de Reporte por Artículos ──
     const [artRange, setArtRange] = useState('week');
@@ -716,63 +222,62 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const [artTo, setArtTo] = useState(() => getDateRange('week').to);
 
     // ── Edición remota de inventario (comandos supervisor → caja) ──
-    const [showRemoteForm, setShowRemoteForm] = useState(false);
-    const [remoteEditingProduct, setRemoteEditingProduct] = useState(null);
-    const [showComboModal, setShowComboModal] = useState(false);
-    const [editingCombo, setEditingCombo] = useState(null);
-    const [remoteDeleteTarget, setRemoteDeleteTarget] = useState(null);
-    const [stockAdjustProduct, setStockAdjustProduct] = useState(null);
-    const [cloudPendingCmds, setCloudPendingCmds] = useState([]);
-    const [allCloudCmds, setAllCloudCmds] = useState([]);
-    const [cmdTabFilter, setCmdTabFilter] = useState('todos'); // 'todos', 'pending', 'applied', 'cancelled'
-    const [currentPageCambios, setCurrentPageCambios] = useState(1);
-    const ITEMS_PER_PAGE_CAMBIOS = 10;
-    const [showCloudPendingModal, setShowCloudPendingModal] = useState(false);
-    const [showDiscardQueueModal, setShowDiscardQueueModal] = useState(false);
     const [showUsersModal, setShowUsersModal] = useState(false);
-    const [showRemoteCloseModal, setShowRemoteCloseModal] = useState(false);
-    const [closingRemote, setClosingRemote] = useState(false);
     const [showPairingModal, setShowPairingModal] = useState(false);
     const [showCreateEmployeeModal, setShowCreateEmployeeModal] = useState(false);
     const [editingEmployee, setEditingEmployee] = useState(null);
-    const usuarios = useAuthStore(state => state.usuarios) || [];
+
+    // ── Catálogo de usuarios sincronizados desde la caja principal ──
+    const [syncedUsers, setSyncedUsers] = useState(() => {
+        try {
+            const raw = localStorage.getItem('bodega_users_catalog_v1');
+            const arr = raw ? JSON.parse(raw) : null;
+            if (Array.isArray(arr) && arr.length > 0) return arr;
+        } catch {}
+        return null;
+    });
+
+    useEffect(() => {
+        const loadSyncedUsers = async () => {
+            try {
+                const raw = localStorage.getItem('bodega_users_catalog_v1');
+                let arr = raw ? JSON.parse(raw) : null;
+                if (!arr || !Array.isArray(arr) || arr.length === 0) {
+                    const { storageService } = await import('../utils/storageService');
+                    arr = await storageService.getItem('bodega_users_catalog_v1', null);
+                }
+                if (Array.isArray(arr) && arr.length > 0) {
+                    setSyncedUsers(arr);
+                }
+            } catch (e) {
+                console.warn('[OwnerMonitorView] Error cargando usuarios sincronizados:', e);
+            }
+        };
+
+        loadSyncedUsers();
+
+        const handleSync = () => {
+            loadSyncedUsers();
+        };
+
+        window.addEventListener('app_storage_update', handleSync);
+        window.addEventListener('storage', handleSync);
+        return () => {
+            window.removeEventListener('app_storage_update', handleSync);
+            window.removeEventListener('storage', handleSync);
+        };
+    }, []);
+
+    const storeUsuarios = useAuthStore(state => state.usuarios) || [];
+    const usuarios = useMemo(() => {
+        const list = syncedUsers && syncedUsers.length > 0 ? syncedUsers : storeUsuarios;
+        return (list || []).map(u => ({
+            ...u,
+            rol: u.rol || (u.id === 1 ? 'ADMIN' : 'CAJERO'),
+        }));
+    }, [syncedUsers, storeUsuarios]);
+
     const [showMobileMenu, setShowMobileMenu] = useState(false);
-    const [cancellingCmdId, setCancellingCmdId] = useState(null);
-    const [downloadingBackup, setDownloadingBackup] = useState(false);
-    const [pendingChanges, setPendingChanges] = useState(() => {
-        try {
-            const raw = localStorage.getItem(PENDING_KEY);
-            const arr = raw ? JSON.parse(raw) : [];
-            const now = Date.now();
-            const MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h para pendientes locales
-            const valid = (Array.isArray(arr) ? arr : []).filter(c => {
-                const time = new Date(c.queuedAt || c.sentAt || 0).getTime();
-                return !Number.isFinite(time) || (now - time) < MAX_AGE_MS;
-            });
-            return normalizeSupervisorChanges(valid);
-        } catch { return []; }
-    });
-    const [inFlightChanges, setInFlightChanges] = useState(() => {
-        try {
-            const raw = localStorage.getItem(INFLIGHT_KEY);
-            const arr = raw ? JSON.parse(raw) : [];
-            const now = Date.now();
-            const MAX_INFLIGHT_AGE_MS = 20 * 60 * 1000; // 20 minutos máximo para cambios en confirmación huérfanos
-            const valid = (Array.isArray(arr) ? arr : []).filter(c => {
-                const time = new Date(c.sentAt || c.queuedAt || 0).getTime();
-                return Number.isFinite(time) && (now - time) < MAX_INFLIGHT_AGE_MS;
-            });
-            return normalizeSupervisorChanges(valid);
-        } catch { return []; }
-    });
-    const [uploading, setUploading] = useState(false);
-    const uploadingRef = React.useRef(false);
-    const [exportingCierreId, setExportingCierreId] = useState(null);
-    const [stockAlertTab, setStockAlertTab] = useState('agotados'); // 'agotados' | 'critico'
-    const notifiedCommandIdsRef = React.useRef(new Set());
-    const [recentlyConfirmedIds, setRecentlyConfirmedIds] = useState(() => new Set());
-    const autoUploadTimerRef = React.useRef(null);
-    const uploadPendingChangesRef = React.useRef(null);
 
     const activeMainTabId = useMemo(() => {
         const found = MAIN_SUPERVISOR_TABS.find(main => main.subTabs.some(sub => sub.id === viewTab));
@@ -783,279 +288,9 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         return MAIN_SUPERVISOR_TABS.find(main => main.id === activeMainTabId) || MAIN_SUPERVISOR_TABS[0];
     }, [activeMainTabId]);
 
-    const totalControlChanges = pendingChanges.length + cloudPendingCmds.length;
 
-    // El polling de estado solo consulta IDs que el Supervisor ya conoce. Así
-    // recupera un UPDATE perdido sin volver a descargar los 150 comandos cada
-    // pocos segundos ni consumir egress cuando no hay nada pendiente.
-    const commandStateRefs = React.useRef({
-        allCloudCmds: [],
-        pendingChanges: [],
-        inFlightChanges: [],
-        pendingVoidCommands: {},
-    });
-
-    useEffect(() => {
-        commandStateRefs.current = {
-            allCloudCmds,
-            pendingChanges,
-            inFlightChanges,
-            pendingVoidCommands,
-        };
-    }, [allCloudCmds, pendingChanges, inFlightChanges, pendingVoidCommands]);
-
-    const persistInFlight = useCallback((next) => {
-        const normalized = normalizeSupervisorChanges(next);
-        setInFlightChanges(normalized);
-        try {
-            localStorage.setItem(INFLIGHT_KEY, JSON.stringify(normalized));
-        } catch { /* storage lleno */ }
-    }, []);
-
-    const getChangeKey = useCallback((change) => getSupervisorChangeKey(change), []);
-
-    const isInventoryChangeConfirmed = useCallback((change, catalog) => {
-        if (!change || !Array.isArray(catalog)) return false;
-        const product = catalog.find(p => String(p.id) === String(change.productId));
-
-        if (change.action === 'add') {
-            if (!product) return false;
-            const expectedStock = Number(change.data?.stock);
-            return Number.isFinite(expectedStock)
-                ? Number(product.stock) === Math.max(0, expectedStock)
-                    || product.stockOperationIds?.includes(change.commandId)
-                : true;
-        }
-        if (change.action === 'delete') return !product;
-        if (change.action === 'adjust_stock') {
-            if (product.stockOperationIds?.includes(change.commandId)) return true;
-            const target = change.data?.targetStock;
-            const expectedStock = target !== undefined && target !== null && target !== ''
-                ? Math.max(0, Number(target))
-                : (change.baseStock !== undefined
-                    ? applyProjectedStock(Number(change.baseStock), [change])
-                    : null);
-            return Boolean(product && expectedStock !== null && Number(product.stock) === expectedStock);
-        }
-        if (change.action !== 'edit' || !product) return false;
-
-        const data = change.data || {};
-        return Object.entries(data)
-            .filter(([key]) => !['baseUpdatedAt', 'updatedAt', 'createdAt', 'stock'].includes(key) && !key.startsWith('_'))
-            .every(([key, expected]) => {
-                if (key === 'name') return String(product[key] || '').trim() === String(expected || '').trim();
-                if (expected === null || expected === undefined || expected === '') return true;
-                return String(product[key] ?? '') === String(expected);
-            });
-    }, []);
-
-    useEffect(() => {
-        if (inFlightChanges.length === 0 || !Array.isArray(products)) return;
-
-        const ownMonitorId = localStorage.getItem('dj_device_id');
-        const inventoryCommands = new Map(
-            (Array.isArray(allCloudCmds) ? allCloudCmds : [])
-                .filter(command => command.monitor_device_id === ownMonitorId
-                    && command.command_type === 'inventory_update')
-                .map(command => [command.id, command])
-        );
-        const commandList = [...inventoryCommands.values()];
-        const confirmedKeys = new Set();
-        const rejectedKeys = new Set();
-
-        for (const change of inFlightChanges) {
-            const resolution = getSupervisorChangeResolution(change, commandList);
-            const command = resolution.command;
-            if (resolution.status === 'pending' || !command) continue;
-
-            if (resolution.status === 'rejected') {
-                rejectedKeys.add(getChangeKey(change));
-                if (command.id && !notifiedCommandIdsRef.current.has(command.id)) {
-                    notifiedCommandIdsRef.current.add(command.id);
-                    showToast(
-                        `La caja rechazó ${change.action === 'adjust_stock' ? 'el ajuste de stock' : 'el cambio de inventario'}${command.error_reason ? `: ${command.error_reason}` : ''}. Se restauró la vista anterior.`,
-                        'error'
-                    );
-                }
-            } else if (resolution.status === 'applied' || ['applied', 'applied_with_warnings'].includes(command.status)) {
-                confirmedKeys.add(getChangeKey(change));
-            }
-        }
-
-        // Las órdenes confirmadas por la caja (o reflejadas en catálogo) se retiran de inmediato de la cola
-        for (const change of inFlightChanges) {
-            if (rejectedKeys.has(getChangeKey(change)) || confirmedKeys.has(getChangeKey(change))) continue;
-            const command = inventoryCommands.get(change.commandId);
-            if (command && ['applied', 'applied_with_warnings'].includes(command.status)) {
-                confirmedKeys.add(getChangeKey(change));
-            } else if (change.action !== 'adjust_stock' && isInventoryChangeConfirmed(change, products)) {
-                confirmedKeys.add(getChangeKey(change));
-            }
-        }
-
-        const stockGroups = new Map();
-        inFlightChanges
-            .filter(change => change.action === 'adjust_stock' && !rejectedKeys.has(getChangeKey(change)) && !confirmedKeys.has(getChangeKey(change)))
-            .forEach(change => {
-                const key = String(change.productId);
-                if (!stockGroups.has(key)) stockGroups.set(key, []);
-                stockGroups.get(key).push(change);
-            });
-
-        for (const [productId, group] of stockGroups) {
-            const product = products.find(p => String(p.id) === productId);
-            if (!product || group.length === 0) continue;
-            const ordered = [...group].sort((a, b) =>
-                String(a.sentAt || a.queuedAt || '').localeCompare(String(b.sentAt || b.queuedAt || ''))
-            );
-            const firstBase = Number(ordered[0].baseStock);
-            if (!Number.isFinite(firstBase)) continue;
-
-            let expected = Math.max(0, firstBase);
-            let matchedPrefix = -1;
-            for (let index = 0; index < ordered.length; index++) {
-                const command = inventoryCommands.get(ordered[index].commandId);
-                if (command && ['applied', 'applied_with_warnings'].includes(command.status)) {
-                    matchedPrefix = index;
-                    break;
-                }
-                expected = applyProjectedStock(expected, [ordered[index]]);
-                if (Number(product.stock) === Number(expected)) matchedPrefix = index;
-            }
-            if (matchedPrefix >= 0) {
-                ordered.slice(0, matchedPrefix + 1).forEach(change => confirmedKeys.add(getChangeKey(change)));
-            }
-        }
-
-        const resolvedKeys = new Set([...confirmedKeys, ...rejectedKeys]);
-        if (resolvedKeys.size > 0) {
-            const confirmedChanges = inFlightChanges.filter(change => confirmedKeys.has(getChangeKey(change)));
-            const confirmedProdIds = confirmedChanges.map(c => String(c.productId || c.data?.id)).filter(Boolean);
-
-            if (confirmedChanges.length > 0 && typeof setProducts === 'function') {
-                setProducts(prevProducts => {
-                    let updated = Array.isArray(prevProducts) ? [...prevProducts] : [];
-                    for (const change of confirmedChanges) {
-                        const pId = String(change.productId || change.data?.id);
-                        const existingIdx = updated.findIndex(p => String(p.id) === pId);
-
-                        if (change.action === 'adjust_stock' && existingIdx >= 0) {
-                            const newStock = applyProjectedStock(updated[existingIdx].stock, [change]);
-                            updated[existingIdx] = { ...updated[existingIdx], stock: newStock };
-                        } else if (change.action === 'edit' && existingIdx >= 0) {
-                            updated[existingIdx] = { ...updated[existingIdx], ...(change.data || {}) };
-                        } else if (change.action === 'add') {
-                            if (existingIdx < 0 && change.data) {
-                                updated.unshift({ ...change.data, id: change.productId || change.data.id });
-                            }
-                        } else if (change.action === 'delete' && existingIdx >= 0) {
-                            updated.splice(existingIdx, 1);
-                        }
-                    }
-                    try {
-                        import('../utils/storageService').then(({ storageService }) => {
-                            storageService.setItem('bodega_products_v1', updated).catch(() => {});
-                        });
-                    } catch {}
-                    return updated;
-                });
-            }
-
-            if (confirmedProdIds.length > 0) {
-                setRecentlyConfirmedIds(prev => {
-                    const next = new Set(prev);
-                    confirmedProdIds.forEach(id => next.add(id));
-                    return next;
-                });
-                setTimeout(() => {
-                    setRecentlyConfirmedIds(prev => {
-                        const next = new Set(prev);
-                        confirmedProdIds.forEach(id => next.delete(id));
-                        return next;
-                    });
-                }, 3000);
-            }
-
-            persistInFlight(inFlightChanges.filter(change => !resolvedKeys.has(getChangeKey(change))));
-        }
-    }, [products, setProducts, inFlightChanges, allCloudCmds, getChangeKey, isInventoryChangeConfirmed, persistInFlight]);
 
     // 📄 Generar y Descargar PDF del Cierre Seleccionado
-    const handleDownloadCierrePDF = async (cierreObj, e) => {
-        if (e) e.stopPropagation();
-        triggerHaptic?.();
-        if (!cierreObj) return;
-
-        setExportingCierreId(cierreObj.cierreId);
-        try {
-            const { generateDailyClosePDF } = await import('../utils/dailyCloseGenerator');
-
-            // Agrupar los productos más vendidos del cierre
-            const prodMap = {};
-            (cierreObj.sales || []).forEach(s => {
-                (s.items || []).forEach(item => {
-                    const name = item.name || 'Producto';
-                    if (!prodMap[name]) prodMap[name] = { name, qty: 0, revenue: 0 };
-                    prodMap[name].qty += item.qty || 1;
-                    prodMap[name].revenue += (item.priceUsd || item.price || 0) * (item.qty || 1);
-                });
-            });
-            const topProducts = Object.values(prodMap).sort((a, b) => b.revenue - a.revenue).slice(0, 10);
-
-            // Formatear paymentBreakdown como objeto
-            const paymentBreakdownObj = {};
-            if (Array.isArray(cierreObj.paymentBreakdown)) {
-                cierreObj.paymentBreakdown.forEach(([mId, data]) => {
-                    paymentBreakdownObj[mId] = data;
-                });
-            } else if (typeof cierreObj.paymentBreakdown === 'object' && cierreObj.paymentBreakdown !== null) {
-                Object.assign(paymentBreakdownObj, cierreObj.paymentBreakdown);
-            }
-
-            // Calcular ganancia estimada del cierre
-            let calculatedProfitUsd = 0;
-            (cierreObj.sales || []).forEach(s => {
-                (s.items || []).forEach(it => {
-                    const price = it.priceUsd != null ? it.priceUsd : (it.price || 0);
-                    const cost = it.costUsd != null ? it.costUsd : (it.costPrice != null ? it.costPrice : (it.cost || 0));
-                    calculatedProfitUsd += (price - cost) * (it.qty || 1);
-                });
-            });
-
-            // Normalizar reconData con propiedades unificadas
-            const reconDataFormatted = cierreObj.reconData ? {
-                ...cierreObj.reconData,
-                declaredUsd: cierreObj.reconData.cashUsd ?? cierreObj.reconData.declaredUsd ?? 0,
-                declaredBs: cierreObj.reconData.cashBs ?? cierreObj.reconData.declaredBs ?? 0,
-                declaredCop: cierreObj.reconData.cashCop ?? cierreObj.reconData.declaredCop ?? 0,
-                diffUsd: cierreObj.reconData.diffUsd ?? ((cierreObj.reconData.cashUsd ?? 0) - (cierreObj.reconData.expectedUsd ?? cierreObj.totalUsd ?? 0)),
-                diffBs: cierreObj.reconData.diffBs ?? ((cierreObj.reconData.cashBs ?? 0) - (cierreObj.reconData.expectedBs ?? cierreObj.totalBs ?? 0)),
-            } : null;
-
-            await generateDailyClosePDF({
-                sales: cierreObj.sales || [],
-                allSales: cierreObj.sales || [],
-                bcvRate: effectiveRate || bcvRate || 1,
-                paymentBreakdown: paymentBreakdownObj,
-                topProducts,
-                todayTotalUsd: cierreObj.totalUsd || 0,
-                todayTotalBs: cierreObj.totalBs || 0,
-                todayProfit: calculatedProfitUsd,
-                todayProfitUsd: calculatedProfitUsd,
-                todayItemsSold: cierreObj.totalItems || 0,
-                reconData: reconDataFormatted,
-                apertura: cierreObj.apertura || null,
-                action: 'download',
-            });
-            showToast?.(`PDF del Cierre #${cierreObj.cierreNumber || ''} descargado`, 'success');
-        } catch (err) {
-            console.error('Error generando PDF del cierre:', err);
-            showToast?.('Error al generar PDF del cierre', 'error');
-        } finally {
-            setExportingCierreId(null);
-        }
-    };
-
     // R3: Verificar el vínculo del monitor vía list_monitors
     const handleAutoRepairPairing = async () => {
         if (!supabaseCloud) return;
@@ -1071,886 +306,85 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 showToast('Este dispositivo no está autorizado en ninguna caja. Vuelve a emparejar con un código.', 'error');
                 return;
             }
-            showToast('Vínculo verificado. Si sigue sin conectar, vuelve a emparejar con un código.', 'info');
-        } catch (err) {
+            showToast('Vínculo verificado. Si sigue sin conectar, vuelve a emparejar con un código.', 'info'    );
+}
+ catch (err) {
             console.error('[OwnerMonitor] Error al verificar vínculo:', err);
-            showToast('Error al consultar estado de vinculación', 'error');
-        }
+            showToast('Error al consultar estado de vinculación', 'error'    );
+}
+
     };
 
-    // Consulta en tiempo real del historial completo de comandos (pendientes, aplicados y anulados)
-    const fetchAllCloudCmds = useCallback(async () => {
-        if (!supabaseCloud || !pairedDeviceId) return;
-        try {
-            const { data } = await supabaseCloud
-                .from('supervisor_commands')
-                .select('*')
-                .eq('primary_device_id', pairedDeviceId)
-                .order('created_at', { ascending: false })
-                .limit(150);
 
-            const all = data || [];
-            setAllCloudCmds(all);
-            setCloudPendingCmds(all.filter(c => c.status === 'pending'));
-        } catch (err) {
-            console.warn('[OwnerMonitor] Error al consultar historial de comandos:', err);
-        }
-    }, [pairedDeviceId]);
 
-    useEffect(() => {
-        fetchAllCloudCmds();
-        if (!supabaseCloud || !pairedDeviceId) return;
 
-        const myDeviceId = localStorage.getItem('dj_device_id');
 
-        const channel = supabaseCloud
-            .channel(`supervisor_cmds:${pairedDeviceId}`)
-            .on('postgres_changes', {
-                event: '*',
-                schema: 'public',
-                table: 'supervisor_commands',
-                filter: `primary_device_id=eq.${pairedDeviceId}`
-            }, (payload) => {
-                fetchAllCloudCmds();
-
-                // Notificar en tiempo real únicamente cuando OTRO supervisor inserte un comando nuevo (FP6)
-                const newCmd = payload.new;
-                if (payload.eventType === 'INSERT' && newCmd && newCmd.monitor_device_id !== myDeviceId) {
-                    let actionText = 'realizó un cambio remoto';
-                    if (newCmd.command_type === 'void_sale') actionText = 'anuló una venta';
-                    else if (newCmd.command_type === 'rate_change') actionText = 'actualizó la tasa de cambio';
-                    else if (newCmd.command_type === 'inventory_update') actionText = 'actualizó el inventario';
-                    else if (newCmd.command_type === 'user_update') actionText = 'modificó la lista de usuarios';
-
-                    showToast(`Otro supervisor ${actionText}`, 'info');
-                }
-
-                // Notificar confirmación / error de aplicación en la caja principal para comandos emitidos por este monitor
-                if (payload.eventType === 'UPDATE' && newCmd && newCmd.monitor_device_id === myDeviceId) {
-                    const oldCmd = payload.old;
-                    if (oldCmd?.status === COMMAND_STATUS.PENDING && (newCmd.status === COMMAND_STATUS.APPLIED || newCmd.status === COMMAND_STATUS.APPLIED_WITH_WARNINGS)) {
-                        const count = newCmd.payload?.data?.items?.length || 1;
-                        if (newCmd.status === COMMAND_STATUS.APPLIED_WITH_WARNINGS) {
-                            showToast(`⚠️ Caja aplicó cambios con advertencias: ${newCmd.error_reason || ''}`, 'info');
-                        } else {
-                            showToast(`✅ Caja principal confirmó actualización de ${count} precio(s)`, 'success');
-                        }
-                    } else if (oldCmd?.status === COMMAND_STATUS.PENDING && newCmd.status === COMMAND_STATUS.FAILED) {
-                        showToast(`❌ La caja rechazó los cambios: ${newCmd.error_reason || 'Error desconocido'}`, 'error');
-                    }
-                }
-            })
-            .subscribe();
-
-        return () => {
-            supabaseCloud.removeChannel(channel).catch(() => {});
-        };
-    }, [pairedDeviceId, fetchAllCloudCmds]);
-
-    const refreshPendingCloudCmds = useCallback(async () => {
-        if (!supabaseCloud || !pairedDeviceId) return;
-
-        const state = commandStateRefs.current;
-        const trackedIds = new Set([
-            ...(state.allCloudCmds || [])
-                .filter(command => command?.status === 'pending')
-                .map(command => command.id),
-            ...(state.pendingChanges || []).map(change => change.commandId),
-            ...(state.inFlightChanges || []).map(change => change.commandId),
-            ...Object.values(state.pendingVoidCommands || {}),
-        ].filter(Boolean));
-
-        try {
-            const pendingRate = localStorage.getItem(SUPERVISOR_RATE_PENDING_KEY);
-            if (pendingRate) {
-                const parsed = JSON.parse(pendingRate);
-                if (parsed?.commandId) trackedIds.add(parsed.commandId);
-            }
-        } catch { /* una cola de tasa corrupta no debe romper el polling */ }
-
-        if (trackedIds.size === 0) return;
-
-        try {
-            const { data, error } = await supabaseCloud
-                .from('supervisor_commands')
-                .select('id,status,error_reason,applied_at,payload,command_type,monitor_device_id,created_at,primary_device_id')
-                .eq('primary_device_id', pairedDeviceId)
-                .in('id', [...trackedIds]);
-
-            if (error) {
-                console.warn('[OwnerMonitor] No se pudieron actualizar estados de comandos:', error.message);
-                return;
-            }
-
-            const remoteRows = Array.isArray(data) ? data : [];
-            const mergeRows = current => {
-                const byId = new Map(remoteRows.map(row => [row.id, row]));
-                const merged = (current || []).map(command => (
-                    byId.has(command.id) ? { ...command, ...byId.get(command.id) } : command
-                ));
-                const known = new Set(merged.map(command => command.id));
-                remoteRows.forEach(row => {
-                    if (!known.has(row.id)) merged.push(row);
-                });
-                return merged.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
-            };
-
-            setAllCloudCmds(previous => mergeRows(previous));
-            setCloudPendingCmds(previous => mergeRows(previous).filter(command => command.status === 'pending'));
-        } catch (error) {
-            console.warn('[OwnerMonitor] Excepción actualizando estados de comandos:', error);
-        }
-    }, [pairedDeviceId]);
-
-    // Realtime sigue siendo el camino rápido. Este respaldo barato consulta solo
-    // comandos conocidos cada 15 s y al volver a la pestaña/red, evitando que un
-    // UPDATE perdido obligue a pulsar «Subir» por segunda vez.
-    useEffect(() => {
-        if (!supabaseCloud || !pairedDeviceId) return;
-
-        refreshPendingCloudCmds();
-        const intervalId = setInterval(refreshPendingCloudCmds, 15000);
-        const handleOnline = () => refreshPendingCloudCmds();
-        const handleVisibility = () => {
-            if (document.visibilityState === 'visible') refreshPendingCloudCmds();
-        };
-        window.addEventListener('online', handleOnline);
-        document.addEventListener('visibilitychange', handleVisibility);
-
-        return () => {
-            clearInterval(intervalId);
-            window.removeEventListener('online', handleOnline);
-            document.removeEventListener('visibilitychange', handleVisibility);
-        };
-    }, [pairedDeviceId, refreshPendingCloudCmds]);
-
-    // Cerrar una orden remota es una transacción de UI: mientras está pendiente
-    // se pinta de forma optimista; si la caja la rechaza/cancela se quita la
-    // proyección y se vuelve al catálogo/venta sincronizada anterior.
-    useEffect(() => {
-        if (!Array.isArray(allCloudCmds) || allCloudCmds.length === 0) return;
-        const ownMonitorId = localStorage.getItem('dj_device_id');
-        const terminalStatuses = new Set(['applied', 'applied_with_warnings', 'failed', 'cancelled']);
-
-        const ratePendingRaw = localStorage.getItem(SUPERVISOR_RATE_PENDING_KEY);
-        if (ratePendingRaw) {
-            try {
-                const ratePending = JSON.parse(ratePendingRaw);
-                const rateCommand = allCloudCmds.find(command => command.id === ratePending.commandId);
-                if (rateCommand && terminalStatuses.has(rateCommand.status)) {
-                    if (rateCommand.status === 'failed' || rateCommand.status === 'cancelled') {
-                        restoreLocalRateState(ratePending.previous);
-                        showToast('La caja rechazó la tasa. Se restauró el valor anterior.', 'error');
-                    } else {
-                        // No borrar todavía el recibo: useMonitorSync lo conserva
-                        // como barrera hasta observar en la nube las tres claves
-                        // de la tasa. Si se elimina aquí, un pull viejo puede
-                        // devolver visualmente la tasa anterior y provocar el
-                        // segundo clic que este flujo debe evitar.
-                        showToast('La caja confirmó la nueva tasa. Esperando eco de configuración.', 'success');
-                    }
-                }
-            } catch {
-                localStorage.removeItem(SUPERVISOR_RATE_PENDING_KEY);
-            }
-        }
-
-
-
-        const terminalVoidCommands = allCloudCmds.filter(command =>
-            command.monitor_device_id === ownMonitorId
-            && command.command_type === 'void_sale'
-            && terminalStatuses.has(command.status)
-        );
-        for (const command of terminalVoidCommands) {
-            const saleId = command.payload?.saleId;
-            if (!saleId || !pendingVoidSaleIds.has(saleId)) continue;
-            setPendingVoidSaleIds(previous => {
-                const next = new Set(previous);
-                next.delete(saleId);
-                return next;
-            });
-            setPendingVoidCommands(previous => {
-                const next = { ...previous };
-                delete next[saleId];
-                return next;
-            });
-            if (command.status === 'failed' || command.status === 'cancelled') {
-                showToast(`La caja no anuló la venta: ${command.error_reason || 'operación rechazada'}.`, 'error');
-            } else {
-                setSales(previous => previous.map(sale => sale.id === saleId ? { ...sale, status: 'ANULADA' } : sale));
-                setSelectedSaleDetail(previous => previous?.id === saleId
-                    ? { ...previous, status: 'ANULADA' }
-                    : previous);
-                showToast('La caja confirmó la anulación de la venta.', 'success');
-            }
-        }
-    }, [allCloudCmds, inFlightChanges, pendingVoidSaleIds, pendingVoidCommands, persistInFlight, getChangeKey]);
-
-    const wipeMonitorSession = async () => {
-        localStorage.removeItem('dj_pairing_code');
-        localStorage.removeItem('dj_pairing_mode');
-        localStorage.removeItem('dj_paired_device_id');
-        localStorage.removeItem('monitor_last_sync');
-        localStorage.removeItem('business_name');
-        localStorage.removeItem('business_rif');
-        localStorage.removeItem(PENDING_KEY);
-
-        try {
-            const { default: localforage } = await import('localforage');
-            localforage.config({ name: 'BodegaApp', storeName: 'bodega_app_data' });
-            await localforage.clear();
-        } catch (e) {
-            console.warn('[OwnerMonitorView] Error limpiando IndexedDB:', e);
-        }
-    };
-
-    // Detección de revocación remota emitida por el heartbeat (F4, B4, FX4)
-    useEffect(() => {
-        const handleRevoked = async () => {
-            showToast('El acceso de este dispositivo ha sido revocado', 'error');
-            await wipeMonitorSession();
-            setTimeout(() => {
-                window.location.reload();
-            }, 1500);
-        };
-
-        window.addEventListener('monitor_revoked', handleRevoked);
-        return () => window.removeEventListener('monitor_revoked', handleRevoked);
-    }, []);
-
-    const persistPending = useCallback((next) => {
-        const normalized = normalizeSupervisorChanges(next);
-        setPendingChanges(normalized);
-        try { localStorage.setItem(PENDING_KEY, JSON.stringify(normalized)); } catch { /* storage lleno */ }
-    }, []);
-
-    // Fusión de cambios en cola con setPendingChanges(prev => ...) para evitar
-    // closure stale cuando el usuario pulsa +/- rápidamente antes del re-render.
-    // Cada cambio conserva un UUID desde el primer intento; así un timeout del
-    // monitor no puede convertir el mismo clic en dos comandos distintos.
-    const queueInventoryChange = useCallback((action, productId, data) => {
-        setPendingChanges(prev => {
-            const next = normalizeSupervisorChanges([...prev]);
-            const now = new Date().toISOString();
-            const idxOf = (act) => next.findIndex(c => c.productId === productId && c.action === act);
-            const makeChange = (existing = null, nextData = data) => ({
-                ...(existing || {}),
-                action,
-                productId,
-                data: nextData,
-                commandId: existing?.commandId || createSupervisorCommandId(),
-                queuedAt: existing?.queuedAt || now,
-            });
-
-            if (action === 'adjust_stock') {
-                const hasTarget = data?.targetStock !== undefined && data?.targetStock !== null && data?.targetStock !== '';
-                const adjustIndexes = next
-                    .map((change, index) => ({ change, index }))
-                    .filter(({ change }) => change.productId === productId && change.action === 'adjust_stock');
-                const lastAdjust = adjustIndexes[adjustIndexes.length - 1]?.change;
-
-                if (hasTarget) {
-                    // Un objetivo absoluto reemplaza únicamente lo que todavía
-                    // está en la cola local. Los comandos ya enviados tienen su
-                    // propio UUID y terminarán antes de este objetivo.
-                    for (let i = adjustIndexes.length - 1; i >= 0; i--) next.splice(adjustIndexes[i].index, 1);
-                    next.push(makeChange(lastAdjust, { targetStock: Number(data.targetStock) }));
-                } else {
-                    const pendingTargetIndex = adjustIndexes.find(({ change }) =>
-                        change.data?.targetStock !== undefined && change.data?.targetStock !== null && change.data?.targetStock !== ''
-                    )?.index;
-                    if (pendingTargetIndex !== undefined) {
-                        next.push(makeChange(null, { delta: Number(data?.delta) || 0 }));
-                    } else {
-                        const pendingDeltaIndexes = adjustIndexes.filter(({ change }) =>
-                            change.data?.targetStock === undefined || change.data?.targetStock === null || change.data?.targetStock === ''
-                        );
-                        const firstDelta = pendingDeltaIndexes[0];
-                        if (firstDelta) {
-                            const newDelta = (Number(firstDelta.change.data?.delta) || 0) + (Number(data?.delta) || 0);
-                            if (newDelta === 0) next.splice(firstDelta.index, 1);
-                            else next[firstDelta.index] = {
-                                ...firstDelta.change,
-                                data: { delta: newDelta },
-                                queuedAt: firstDelta.change.queuedAt || now,
-                            };
-                        } else {
-                            next.push(makeChange(null, { delta: Number(data?.delta) || 0 }));
-                        }
-                    }
-                }
-            } else if (action === 'edit') {
-                // F5: enviar la versión base (baseUpdatedAt) únicamente en edits para versionado optimista.
-                const targetProd = (products || []).find(p => p.id === productId);
-                const editData = (targetProd?.updatedAt && !data?.baseUpdatedAt)
-                    ? { ...data, baseUpdatedAt: targetProd.updatedAt }
-                    : data;
-                const addIdx = idxOf('add');
-                if (addIdx >= 0) {
-                    next[addIdx] = {
-                        ...next[addIdx],
-                        data: { ...editData, id: productId },
-                        commandId: next[addIdx].commandId || createSupervisorCommandId(),
-                        queuedAt: next[addIdx].queuedAt || now,
-                    };
-                } else {
-                    const i = idxOf('edit');
-                    next[i >= 0 ? i : next.length] = makeChange(i >= 0 ? next[i] : null, editData);
-                }
-            } else if (action === 'delete') {
-                const existing = next.find(c => c.productId === productId);
-                const hadAdd = idxOf('add') >= 0;
-                for (let i = next.length - 1; i >= 0; i--) {
-                    if (next[i].productId === productId) next.splice(i, 1);
-                }
-                if (!hadAdd) next.push(makeChange(existing, null));
-            } else {
-                next.push(makeChange());
-            }
-
-            const normalized = normalizeSupervisorChanges(next);
-            try { localStorage.setItem(PENDING_KEY, JSON.stringify(normalized)); } catch { /* storage lleno */ }
-            return normalized;
-        });
-
-        return true;
-    }, [products]);
-
-    // Delta de stock pendiente por producto (para proyectar en la fila)
-    const pendingStockDelta = (productId) => {
-        const baseStock = (products || []).find(p => String(p.id) === String(productId))?.stock || 0;
-        const changes = [...inFlightChanges, ...pendingChanges]
-            .filter(c => String(c.productId) === String(productId) && c.action === 'adjust_stock');
-        return applyProjectedStock(baseStock, changes) - (Number(baseStock) || 0);
-    };
-
-    const hasPendingFor = (productId) => [...inFlightChanges, ...pendingChanges].some(c => c.productId === productId);
-    const hasInventoryChanges = pendingChanges.length > 0 || inFlightChanges.length > 0;
-
-    const handleDownloadRemoteBackup = async () => {
-        if (downloadingBackup) return;
-        if (!pairedDeviceId) {
-            showToast('No hay una caja emparejada para respaldar.', 'error');
-            return;
-        }
-
-        setDownloadingBackup(true);
-        triggerHaptic?.();
-        try {
-            if (!supabaseCloud) throw new Error('La conexión Cloud no está configurada.');
-
-            const monitorDeviceId = localStorage.getItem('dj_device_id');
-            if (!monitorDeviceId) throw new Error('El Supervisor no tiene una identidad válida.');
-
-            // No se arma el backup con la copia del Supervisor: se solicita a la
-            // caja que lea su IndexedDB bajo lock y publique un snapshot completo.
-            const requestId = crypto.randomUUID();
-            const { error: requestError } = await supabaseCloud
-                .from('supervisor_commands')
-                .insert({
-                    id: requestId,
-                    primary_device_id: pairedDeviceId,
-                    monitor_device_id: monitorDeviceId,
-                    command_type: 'request_full_backup',
-                    payload: {
-                        requestedAt: new Date().toISOString(),
-                        purpose: 'inventory_kardex_reconciliation',
-                    },
-                    status: 'pending',
-                });
-
-            if (requestError) throw requestError;
-
-            let backup = null;
-            for (let attempt = 0; attempt < 30; attempt += 1) {
-                if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 1000));
-
-                // Consultar primero el estado pequeño del comando evita descargar
-                // repetidamente un backup anterior de varios megabytes mientras la
-                // caja todavía está capturando su IndexedDB.
-                const { data: requestRow, error: statusError } = await supabaseCloud
-                    .from('supervisor_commands')
-                    .select('status, error_reason')
-                    .eq('id', requestId)
-                    .maybeSingle();
-                if (statusError) throw statusError;
-
-                if (requestRow?.status === 'failed') {
-                    throw new Error(requestRow.error_reason || 'La caja no pudo generar el backup completo.');
-                }
-
-                if (requestRow?.status === 'applied' || requestRow?.status === 'applied_with_warnings') {
-                    const result = await fetchRemoteFullBackup(pairedDeviceId);
-                    if (!result.success) {
-                        throw new Error(result.error?.message || 'No se pudo leer el backup completo de la caja.');
-                    }
-
-                    // El requestId evita descargar un backup anterior que estuviera
-                    // guardado en cloud_backups antes de esta solicitud.
-                    if (result.backup?.metadata?.requestId === requestId) {
-                        backup = result.backup;
-                        break;
-                    }
-                    throw new Error('La caja confirmó la captura, pero el snapshot remoto no coincide con la solicitud.');
-                }
-            }
-
-            if (!backup) {
-                throw new Error('La caja no respondió con un backup completo. Verifica que esté en línea y tenga la versión actualizada.');
-            }
-
-            const isPartial = backup.metadata?.isReconciliationReady !== true
-                || (backup.metadata?.missingCriticalDocIds || []).length > 0;
-            const suffix = isPartial ? 'parcial' : 'completo';
-            const safeDeviceId = pairedDeviceId.replace(/[^a-zA-Z0-9_-]/g, '_');
-            const date = new Date().toISOString().slice(0, 10);
-            const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const anchor = document.createElement('a');
-            anchor.href = url;
-            anchor.download = `backup_${safeDeviceId}_${suffix}_${date}.json`;
-            document.body.appendChild(anchor);
-            anchor.click();
-            document.body.removeChild(anchor);
-            URL.revokeObjectURL(url);
-
-            if (isPartial) {
-                showToast(
-                    `Backup generado, pero faltan datos para conciliación: ${(backup.metadata?.missingCriticalDocIds || backup.metadata?.missingDocIds || []).join(', ')}`,
-                    'warning',
-                );
-            } else {
-                showToast('Backup completo de la caja descargado.', 'success');
-            }
-        } catch (error) {
-            console.error('[OwnerMonitor] Error descargando backup completo remoto:', error);
-            showToast(error.message || 'No se pudo descargar el backup completo.', 'error');
-        } finally {
-            setDownloadingBackup(false);
-        }
-    };
-
-    // «Subir al sistema»: vacía la cola enviando los comandos individuales ya
-    // fusionados. Reutiliza toda la infraestructura existente (dedup, catch-up,
-    // validación y estado por comando en la caja). Los que fallen al insertar
-    // permanecen en la cola.
-    const uploadPendingChanges = async (overrideList = null) => {
-        if (!supabaseCloud || !pairedDeviceId) {
-            showToast('Sin conexión con la caja', 'error');
-            return;
-        }
-        if (uploadingRef.current) return;
-        const listToProcess = normalizeSupervisorChanges(overrideList || pendingChanges);
-        if (!listToProcess || listToProcess.length === 0) return;
-
-        uploadingRef.current = true;
-        setUploading(true);
-        const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
-        const actor = {
-            supervisorId: supervisorUser?.id || null,
-            supervisorNombre: supervisorUser?.nombre || supervisorUser?.usuario || 'Supervisor',
-            supervisorRol: supervisorUser?.rol || 'SUPERVISOR',
-        };
-
-        try {
-            const rowsToInsert = listToProcess.map(change => {
-                const commandId = change.commandId || createSupervisorCommandId();
-                const commandType = change.action === 'user_update' ? 'user_update' : 'inventory_update';
-                const payload = change.action === 'user_update'
-                    ? { ...(change.data || {}), commandId, ...actor }
-                    : {
-                        action: change.action,
-                        productId: change.productId,
-                        data: change.data,
-                        commandId,
-                        issuedAt: change.queuedAt || new Date().toISOString(),
-                        ...actor,
-                    };
-
-                return {
-                    id: commandId,
-                    primary_device_id: pairedDeviceId,
-                    monitor_device_id: monitorDeviceId,
-                    command_type: commandType,
-                    payload,
-                    status: 'pending'
-                };
-            });
-
-            // Inserción fila a fila: un cambio inválido no bloquea los demás.
-            // Si la respuesta se perdió después de que Postgres insertó la fila,
-            // el UUID estable se resuelve como "ya aceptado" en vez de crear otro.
-            const okRows = [];
-            const failedRows = [];
-            const okChanges = [];
-
-            for (let i = 0; i < rowsToInsert.length; i++) {
-                const row = rowsToInsert[i];
-                const change = listToProcess[i];
-                let { error: rowError } = await supabaseCloud
-                    .from('supervisor_commands')
-                    .insert(row);
-
-                if (rowError?.code === '23505') {
-                    const { data: existingCommand, error: lookupError } = await supabaseCloud
-                        .from('supervisor_commands')
-                        .select('id,status,primary_device_id,monitor_device_id')
-                        .eq('id', row.id)
-                        .maybeSingle();
-                    const isSamePair = existingCommand
-                        && existingCommand.primary_device_id === pairedDeviceId
-                        && existingCommand.monitor_device_id === monitorDeviceId;
-                    if (!lookupError && isSamePair
-                        && ['pending', 'applied', 'applied_with_warnings'].includes(existingCommand.status)) {
-                        rowError = null;
-                    }
-                }
-
-                if (rowError) {
-                    failedRows.push({ row, change, message: rowError.message, code: rowError.code });
-                    console.warn(
-                        `[OwnerMonitor] Comando '${row.command_type}' rechazado ` +
-                        `(${rowError.code || 's/c'}): ${rowError.message}`
-                    );
-                } else {
-                    okRows.push(row);
-                    okChanges.push({ ...change, commandId: row.id });
-                }
-            }
-
-            if (failedRows.length > 0) {
-                const detalle = failedRows
-                    .map(f => `${f.row.command_type}${f.code ? ` (${f.code})` : ''}`)
-                    .join(', ');
-                showToast(
-                    `${okRows.length} de ${rowsToInsert.length} cambios enviados. Fallaron: ${detalle}`,
-                    okRows.length > 0 ? 'warning' : 'error'
-                );
-            }
-
-            if (!overrideList) {
-                const sentKeys = new Set(okChanges.map(getChangeKey));
-                const remainingPending = pendingChanges.filter(c => !sentKeys.has(getChangeKey(c)));
-                persistPending(remainingPending);
-                if (okChanges.length > 0) {
-                    const sentAt = new Date().toISOString();
-                    const nextInFlight = [
-                        ...inFlightChanges.filter(existing => !sentKeys.has(getChangeKey(existing))),
-                        ...okChanges.map(change => ({
-                            ...change,
-                            ...(change.action === 'adjust_stock'
-                                ? { baseStock: products.find(p => String(p.id) === String(change.productId))?.stock }
-                                : {}),
-                            sentAt,
-                            syncState: 'sent',
-                        })),
-                    ];
-                    persistInFlight(nextInFlight);
-                }
-                if (failedRows.length === 0) {
-                    showToast(`${okRows.length} cambio${okRows.length !== 1 ? 's' : ''} enviado${okRows.length !== 1 ? 's' : ''}; esperando confirmación de la caja`, 'success');
-                }
-            } else if (failedRows.length === 0) {
-                showToast(`${okRows.length} cambio${okRows.length !== 1 ? 's' : ''} enviado${okRows.length !== 1 ? 's' : ''} con éxito a la caja principal`, 'success');
-            }
-        } catch (err) {
-            console.error('[OwnerMonitor] Excepción al subir lote:', err);
-            showToast('Error de conexión al enviar cambios. La cola local se conserva.', 'error');
-        } finally {
-            uploadingRef.current = false;
-            setUploading(false);
-        }
-    };
-    uploadPendingChangesRef.current = uploadPendingChanges;
-
-    const discardPendingChanges = () => {
-        persistPending([]);
-        persistInFlight([]);
-        showToast('Cola de cambios descartada', 'info');
-    };
-
-    const discardSinglePendingChange = (targetIndex) => {
-        const next = pendingChanges.filter((_, idx) => idx !== targetIndex);
-        persistPending(next);
-        showToast('Cambio descartado de la cola', 'info');
-    };
-
-    const cancelSingleCloudCmd = async (cmdId) => {
-        setCancellingCmdId(cmdId);
-        try {
-            const { error } = await supabaseCloud
-                .from('supervisor_commands')
-                .update({ status: 'cancelled' })
-                .eq('id', cmdId);
-
-            if (error) throw error;
-            setCloudPendingCmds(prev => prev.filter(c => c.id !== cmdId));
-            showToast('Comando anulado en la nube', 'success');
-        } catch (err) {
-            console.error('[OwnerMonitor] Error al anular comando:', err);
-            showToast('No se pudo anular el comando', 'error');
-        } finally {
-            setCancellingCmdId(null);
-        }
-    };
-
-    const cancelAllCloudCmds = async () => {
-        if (cloudPendingCmds.length === 0) return;
-        try {
-            const ids = cloudPendingCmds.map(c => c.id);
-            const { error } = await supabaseCloud
-                .from('supervisor_commands')
-                .update({ status: 'cancelled' })
-                .in('id', ids);
-
-            if (error) throw error;
-            setCloudPendingCmds([]);
-            setShowCloudPendingModal(false);
-            showToast('Todos los comandos pendientes fueron anulados', 'success');
-        } catch (err) {
-            console.error('[OwnerMonitor] Error al anular comandos:', err);
-            showToast('Error al anular los comandos', 'error');
-        }
-    };
-
-    const handleRemoteForceDailyClose = async () => {
-        if (!pairedDeviceId || !supabaseCloud) return;
-        setClosingRemote(true);
-        triggerHaptic?.();
-        try {
-            const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
-            const commandId = createSupervisorCommandId();
-            const currentCierreId = Date.now();
-
-            // El monitor NO calcula el cierre: su copia de bodega_sales_v1 puede estar
-            // atrasada y sobrescribir el documento financiero de la caja borraría ventas.
-            // Envía la orden; la caja re-lee fresco bajo lock y publica el resultado.
-            const { error } = await supabaseCloud
-                .from('supervisor_commands')
-                .insert({
-                    id: commandId,
-                    primary_device_id: pairedDeviceId,
-                    monitor_device_id: monitorDeviceId,
-                    command_type: 'force_daily_close',
-                    payload: {
-                        commandId,
-                        cierreId: currentCierreId,
-                        referencia: {
-                            totalUsd: activeShiftMetrics.totalUsd,
-                            totalBs: activeShiftMetrics.totalBs,
-                            count: activeShiftMetrics.count,
-                        },
-                        cashier: { nombre: 'Supervisión Remota', rol: 'SUPERVISOR_REMOTO' },
-                        observedCashier: activeCashier?.nombre || null,
-                        supervisorId: supervisorUser?.id || null,
-                        supervisorName: supervisorUser?.nombre || supervisorUser?.usuario || 'Supervisor',
-                        supervisorRole: supervisorUser?.rol || 'SUPERVISOR',
-                        copEnabled,
-                        tasaCop,
-                    },
-                    status: 'pending'
-                });
-
-            if (error) throw error;
-
-            setShowRemoteCloseModal(false);
-            showToast('Orden de cierre enviada. Se aplicará en la caja al recibirla.', 'success');
-        } catch (err) {
-            console.error('[OwnerMonitor] Error al enviar el cierre remoto:', err);
-            showToast('No se pudo enviar la orden de cierre', 'error');
-        } finally {
-            setClosingRemote(false);
-        }
-    };
-
-    const handleReopenRemoteShift = async (targetCierreId = null) => {
-        if (shiftStatusInfo.isOpen) {
-            showToast('Ya hay un turno abierto actualmente en la caja', 'warning');
-            return;
-        }
-        if (!pairedDeviceId || !supabaseCloud) return;
-        triggerHaptic?.();
-        try {
-            const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
-            const commandId = createSupervisorCommandId();
-            const { error } = await supabaseCloud
-                .from('supervisor_commands')
-                .insert({
-                    id: commandId,
-                    primary_device_id: pairedDeviceId,
-                    monitor_device_id: monitorDeviceId,
-                    command_type: 'reopen_shift',
-                    payload: {
-                        commandId,
-                        cierreId: targetCierreId || null,
-                        cashier: { nombre: 'Supervisión Remota', rol: 'SUPERVISOR_REMOTO' },
-                        observedCashier: activeCashier?.nombre || null,
-                        supervisorId: supervisorUser?.id || null,
-                        supervisorName: supervisorUser?.nombre || supervisorUser?.usuario || 'Supervisor',
-                        supervisorRole: supervisorUser?.rol || 'SUPERVISOR',
-                    },
-                    status: 'pending'
-                });
-
-            if (error) throw error;
-
-            showToast('🔓 Orden de reapertura de turno enviada a la caja.', 'success');
-        } catch (err) {
-            console.error('[OwnerMonitor] Error enviando comando de reapertura:', err);
-            showToast('No se pudo enviar la orden de reapertura', 'error');
-        }
-    };
-
-    // Proyección instantánea en memoria de los productos + cambios en cola
-    const projectedProducts = useMemo(() => {
-        if (!products) return [];
-
-        const allProjectedChanges = [...inFlightChanges, ...pendingChanges];
-        const baseList = products.map(p => {
-            const stockChanges = allProjectedChanges
-                .filter(c => c.productId === p.id && c.action === 'adjust_stock');
-            const baseStockValue = Number(p.stock) || 0;
-            const projectedStock = applyProjectedStock(baseStockValue, stockChanges);
-            const stockDelta = projectedStock - baseStockValue;
-
-            const productEdits = allProjectedChanges
-                .filter(c => c.productId === p.id && c.action === 'edit')
-                .sort((a, b) => String(a.queuedAt || a.sentAt || '').localeCompare(String(b.queuedAt || b.sentAt || '')));
-            const editChange = productEdits[productEdits.length - 1];
-            const isDeleted = allProjectedChanges.some(c => c.productId === p.id && c.action === 'delete');
-
-            let merged = { ...p };
-            if (editChange?.data) {
-                merged = { ...merged, ...editChange.data };
-            }
-
-            const isLocalPending = pendingChanges.some(c => String(c.productId) === String(p.id));
-            const isInFlight = inFlightChanges.some(c => String(c.productId) === String(p.id));
-            const isRecentlyConfirmed = recentlyConfirmedIds.has(String(p.id));
-
-            const baseStock = Number(merged.stock) || 0;
-            return {
-                ...merged,
-                stock: projectedStock,
-                _rawStock: baseStock,
-                _stockDelta: stockDelta,
-                _isQueuedDelete: isDeleted,
-                _isQueuedEdit: !!editChange,
-                _isLocalPending: isLocalPending,
-                _isInFlight: isInFlight,
-                _isPendingSync: isLocalPending || isInFlight,
-                _isRecentlyConfirmed: isRecentlyConfirmed,
-            };
-        });
-
-        // Excluir de la vista los eliminados en cola
-        const activeList = baseList.filter(p => !p._isQueuedDelete);
-
-        // Agregar a la vista los creados en cola (nuevos)
-        const addChanges = allProjectedChanges.filter(c => c.action === 'add');
-        const newItems = addChanges.filter(c => c.data).map(addChange => {
-            const tempId = addChange.productId || addChange.data.id || `temp_${Date.now()}`;
-            const isAddInFlight = inFlightChanges.some(c => c.action === 'add' && String(c.productId || c.data?.id) === String(tempId));
-            return {
-                ...addChange.data,
-                id: tempId,
-                name: addChange.data.name || 'Nuevo Producto',
-                category: addChange.data.category || 'Varios',
-                stock: Number(addChange.data.stock || 0),
-                priceUsd: Number(addChange.data.priceUsd || addChange.data.price || 0),
-                costUsd: Number(addChange.data.costUsd || addChange.data.costPrice || 0),
-                _isQueuedNew: true,
-                _isLocalPending: !isAddInFlight,
-                _isInFlight: isAddInFlight,
-                _isPendingSync: true,
-                _isRecentlyConfirmed: recentlyConfirmedIds.has(String(tempId)),
-            };
-        });
-
-        const combinedList = [...newItems, ...activeList];
-
-        // Recalcular stock dinámico y costo efectivo para combos basándonos en la proyección de sus insumos
-        return combinedList.map(p => {
-            const effCost = getEffectiveCostUsd(p, combinedList);
-            if (p.isCombo || p.type === 'combo' || p.category === 'combo') {
-                const dynamicStock = calculateComboStock(p, combinedList);
-                return { ...p, stock: dynamicStock, _isCombo: true, _effectiveCost: effCost, costUsd: p.costUsd || effCost };
-            }
-            return { ...p, _effectiveCost: effCost, costUsd: p.costUsd || effCost };
-        });
-    }, [products, pendingChanges, inFlightChanges, recentlyConfirmedIds]);
-
-    const filteredProducts = useMemo(() => {
-        return projectedProducts.filter(p => {
-            const matchesSearch = (p.name || '').toLowerCase().includes(searchTermInventario.toLowerCase()) || 
-                                 (p.barcode && p.barcode.includes(searchTermInventario));
-            
-            if (!matchesSearch) return false;
-            
-            if (filterStockInventario === 'bajo') {
-                return p.stock > 0 && p.stock <= (p.minStock || 5);
-            }
-            if (filterStockInventario === 'agotado') {
-                return p.stock <= 0;
-            }
-            return true;
-        });
-    }, [projectedProducts, searchTermInventario, filterStockInventario]);
-
-    const [currentPageInventario, setCurrentPageInventario] = useState(1);
-    const ITEMS_PER_PAGE_INVENTARIO = 15;
-
-    useEffect(() => {
-        setCurrentPageInventario(1);
-    }, [searchTermInventario, filterStockInventario]);
-
-    const totalPagesInventario = Math.ceil(filteredProducts.length / ITEMS_PER_PAGE_INVENTARIO);
-
-    const paginatedProducts = useMemo(() => {
-        const start = (currentPageInventario - 1) * ITEMS_PER_PAGE_INVENTARIO;
-        return filteredProducts.slice(start, start + ITEMS_PER_PAGE_INVENTARIO);
-    }, [filteredProducts, currentPageInventario]);
-
-    const inventoryMetrics = useMemo(() => {
-        if (!projectedProducts) {
-            return { totalCost: 0, totalRetail: 0, totalQty: 0, lowStockCount: 0, outOfStockCount: 0, expectedProfit: 0, count: 0 };
-        }
-        let totalCost = 0;
-        let totalRetail = 0;
-        let totalQty = 0;
-        let lowStockCount = 0;
-        let outOfStockCount = 0;
-
-        projectedProducts.forEach(p => {
-            const stock = p.stock || 0;
-            const cost = p._effectiveCost ?? (p.costUsd || p.costPrice || 0);
-            const retail = p.priceUsd || 0;
-            const minStock = p.minStock || 5;
-
-            totalCost += cost * stock;
-            totalRetail += retail * stock;
-            totalQty += stock;
-
-            if (stock <= 0) {
-                outOfStockCount++;
-            } else if (stock <= minStock) {
-                lowStockCount++;
-            }
-        });
-
-        const expectedProfit = Math.max(0, totalRetail - totalCost);
-
-        return {
-            totalCost,
-            totalRetail,
-            totalQty,
-            lowStockCount,
-            outOfStockCount,
-            expectedProfit,
-            count: projectedProducts.length
-        };
-    }, [projectedProducts]);
+    const inventory = useMonitorInventory({
+        products,
+        pendingChanges,
+        inFlightChanges,
+        recentlyConfirmedIds,
+    });
+    const {
+        searchTermInventario,
+        setSearchTermInventario,
+        filterStockInventario,
+        setFilterStockInventario,
+        currentPageInventario,
+        setCurrentPageInventario,
+        totalPagesInventario,
+        projectedProducts,
+        filteredProducts,
+        paginatedProducts,
+        inventoryMetrics,
+        stockAlertTab,
+        setStockAlertTab,
+        outOfStockProducts,
+        lowStockProducts,
+        activeStockAlertTab,
+        showRemoteForm,
+        setShowRemoteForm,
+        remoteEditingProduct,
+        setRemoteEditingProduct,
+        showComboModal,
+        setShowComboModal,
+        editingCombo,
+        setEditingCombo,
+        remoteDeleteTarget,
+        setRemoteDeleteTarget,
+        stockAdjustProduct,
+        setStockAdjustProduct,
+    } = inventory;
+    const payroll = useMonitorPayroll({
+        pairedDeviceId,
+        supabaseCloud,
+        supervisorUser,
+        triggerHaptic,
+        setShowCreateEmployeeModal,
+        setEditingEmployee,
+        editingEmployee,
+    });
+    const {
+        payrollProjection,
+        setPayrollProjection,
+        payrollDetail,
+        setPayrollDetail,
+        payrollDetailLoading,
+        payrollDetailError,
+        confirmVoidConsumptionTarget,
+        setConfirmVoidConsumptionTarget,
+        voidingConsumption,
+        deleteEmployeeTarget,
+        setDeleteEmployeeTarget,
+        handlePayrollDetail,
+        handleVoidConsumptionSupervisor,
+        executeVoidConsumptionSupervisor,
+        handleSaveRemoteEmployee,
+        requestDeleteRemoteEmployee,
+        executeDeleteRemoteEmployee,
+        payrollEmployees,
+        payrollTotals,
+    } = payroll;
 
     const today = getLocalISODate();
 
@@ -1970,248 +404,15 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
             setSales(savedSales);
             setPayrollProjection(savedPayrollProjection?.employees ? savedPayrollProjection : null);
-            setActiveCashier({ nombre: 'Ninguno', rol: '' });
-        } catch (e) {
-            console.error('[OwnerMonitorView] Error cargando datos locales:', e);
-        } finally {
-            setLoadingData(false);
-        }
-    };
+            setActiveCashier({ nombre: 'Ninguno', rol: '' }    );
+}
+ catch (e) {
+            console.error('[OwnerMonitorView] Error cargando datos locales:', e    );
+}
+ finally {
+            setLoadingData(false    );
+}
 
-    const handlePayrollDetail = useCallback(async (employee) => {
-        const periodId = payrollProjection?.periodo?.id || payrollProjection?.periodo?.periodoId || 'actual';
-        if (!employee) return;
-        setPayrollDetailLoading(true);
-        setPayrollDetailError(null);
-        setPayrollDetail(null);
-        const detailData = {
-            employeeId: employee.employeeId,
-            employee,
-            periodoId: periodId,
-            consumptions: [],
-            settlements: []
-        };
-        try {
-            if (pairedDeviceId && periodId && periodId !== 'actual') {
-                const result = await fetchRemoteEmployeePayrollDetail(
-                    pairedDeviceId,
-                    employee.employeeId,
-                    periodId,
-                    supabaseCloud,
-                );
-                if (result.success) {
-                    detailData.consumptions = Array.isArray(result.consumptions) ? result.consumptions : [];
-                    detailData.settlements = Array.isArray(result.settlements) ? result.settlements : [];
-                }
-            }
-            setPayrollDetail(detailData);
-        } catch (err) {
-            console.warn('[OwnerMonitorView] Detalle remoto no disponible, usando proyección local:', err);
-            setPayrollDetail(detailData);
-        } finally {
-            setPayrollDetailLoading(false);
-        }
-    }, [pairedDeviceId, payrollProjection]);
-
-    const handleVoidConsumptionSupervisor = (consumption) => {
-        if (!consumption?.id || consumption.settlementId || consumption.status === 'VOIDED') return;
-        setConfirmVoidConsumptionTarget(consumption);
-    };
-
-    const executeVoidConsumptionSupervisor = async (consumption) => {
-        if (!consumption?.id || consumption.settlementId || consumption.status === 'VOIDED' || voidingConsumption) return;
-        setVoidingConsumption(true);
-        const commandId = createSupervisorCommandId();
-        try {
-            const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
-            if (supabaseCloud && pairedDeviceId) {
-                const { error } = await supabaseCloud
-                    .from('supervisor_commands')
-                    .insert({
-                        id: commandId,
-                        primary_device_id: pairedDeviceId,
-                        monitor_device_id: monitorDeviceId,
-                        command_type: 'inventory_update',
-                        payload: {
-                            action: 'void_employee_consumption',
-                            commandId,
-                            consumptionId: consumption.id,
-                            employeeId: consumption.employeeId,
-                            employeeNombre: payrollDetail?.employee?.employeeNombre || consumption.employeeNombre || 'Empleado',
-                            totalUsd: consumption.totalUsd || 0,
-                            totalBs: consumption.totalBs || 0,
-                            reason: 'Anulado por Supervisor desde Monitor',
-                            supervisorId: supervisorUser?.id || null,
-                            supervisorName: supervisorUser?.nombre || supervisorUser?.usuario || 'Supervisor',
-                            supervisorRole: supervisorUser?.rol || 'SUPERVISOR',
-                        },
-                        status: 'pending'
-                    });
-
-                if (error) throw error;
-                showToast('Comando de anulación enviado a la caja principal', 'success');
-                setPayrollDetail(prev => {
-                    if (!prev) return prev;
-                    const nextConsumptions = (prev.consumptions || []).map(c => c.id === consumption.id ? { ...c, status: 'VOIDED' } : c);
-                    const activeCons = nextConsumptions.filter(c => c.status !== 'VOIDED');
-                    const newTotalConsumos = activeCons.reduce((sum, c) => sum + Number(c.totalUsd || 0), 0);
-                    const baseSalary = Number(prev.employee?.salarioSemanalUsd || 0);
-                    const newNeto = Math.max(0, baseSalary - newTotalConsumos);
-
-                    return {
-                        ...prev,
-                        consumptions: nextConsumptions,
-                        employee: {
-                            ...prev.employee,
-                            totalConsumosUsd: newTotalConsumos,
-                            netoAPagarUsd: newNeto,
-                        }
-                    };
-                });
-                setConfirmVoidConsumptionTarget(null);
-            } else {
-                showToast('Sin conexión con la caja principal', 'error');
-            }
-        } catch (err) {
-            console.error('[OwnerMonitor] Error al solicitar anulación de consumo:', err);
-            showToast('No se pudo enviar la anulación de consumo', 'error');
-        } finally {
-            setVoidingConsumption(false);
-        }
-    };
-
-    const handleSaveRemoteEmployee = async (employeeData) => {
-        const commandId = createSupervisorCommandId();
-        const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
-        if (supabaseCloud && pairedDeviceId) {
-            const { error } = await supabaseCloud
-                .from('supervisor_commands')
-                .insert({
-                    id: commandId,
-                    primary_device_id: pairedDeviceId,
-                    monitor_device_id: monitorDeviceId,
-                    command_type: 'inventory_update',
-                    payload: {
-                        action: 'save_employee',
-                        commandId,
-                        employee: employeeData,
-                        supervisorId: supervisorUser?.id || null,
-                        supervisorName: supervisorUser?.nombre || supervisorUser?.usuario || 'Supervisor',
-                        supervisorRole: supervisorUser?.rol || 'SUPERVISOR',
-                    },
-                    status: 'pending'
-                });
-
-            if (error) throw error;
-            showToast(editingEmployee ? 'Empleado actualizado y comando enviado a la caja' : 'Empleado creado y comando enviado a la caja', 'success');
-
-            // Actualización optimista de la lista y proyección de nómina
-            setPayrollProjection(prev => {
-                const currentEmps = Array.isArray(prev?.employees) ? [...prev.employees] : [];
-                const idx = currentEmps.findIndex(e => e.employeeId === employeeData.id || e.id === employeeData.id);
-                const summaryEntry = {
-                    employeeId: employeeData.id,
-                    employeeNombre: employeeData.nombre,
-                    cargo: employeeData.cargo,
-                    salarioSemanalUsd: employeeData.salarioSemanalUsd,
-                    limiteConsumoPorc: employeeData.limiteConsumoPorc,
-                    totalConsumosUsd: idx >= 0 ? (currentEmps[idx].totalConsumosUsd || 0) : 0,
-                    netoAPagarUsd: idx >= 0 ? Math.max(0, employeeData.salarioSemanalUsd - (currentEmps[idx].totalConsumosUsd || 0)) : employeeData.salarioSemanalUsd,
-                    porcentajeConsumido: idx >= 0 ? (currentEmps[idx].porcentajeConsumido || 0) : 0,
-                    settled: idx >= 0 ? currentEmps[idx].settled : false,
-                    settlementId: idx >= 0 ? currentEmps[idx].settlementId : null,
-                };
-                if (idx >= 0) {
-                    currentEmps[idx] = { ...currentEmps[idx], ...summaryEntry };
-                } else {
-                    currentEmps.push(summaryEntry);
-                }
-                const totalNomina = currentEmps.reduce((acc, e) => acc + Number(e.salarioSemanalUsd || 0), 0);
-                const totalCons = currentEmps.reduce((acc, e) => acc + Number(e.totalConsumosUsd || 0), 0);
-                const totalNeto = currentEmps.reduce((acc, e) => acc + Number(e.netoAPagarUsd || 0), 0);
-                return {
-                    ...(prev || {}),
-                    periodo: prev?.periodo || { id: 'actual', status: 'OPEN' },
-                    employees: currentEmps,
-                    totals: {
-                        nominaTotalUsd: totalNomina,
-                        consumosTotalUsd: totalCons,
-                        netoTotalUsd: totalNeto,
-                        employeesCount: currentEmps.length,
-                    }
-                };
-            });
-            setShowCreateEmployeeModal(false);
-            setEditingEmployee(null);
-        } else {
-            showToast('Sin conexión con la caja principal', 'error');
-        }
-    };
-
-    const handleDeleteRemoteEmployee = async (employee) => {
-        if (!employee) return;
-        const employeeName = employee.employeeNombre || employee.nombre || 'este empleado';
-        const empId = employee.employeeId || employee.id;
-
-        // Paso 1 de 2: Primera confirmación
-        const step1 = window.confirm(`¿Eliminar al empleado "${employeeName}"? (Paso 1 de 2)\n\nEsta acción eliminará al empleado del sistema.`);
-        if (!step1) return;
-
-        // Paso 2 de 2: Segunda confirmación obligatoria
-        const step2 = window.confirm(`⚠️ ¡CONFIRMACIÓN FINAL! (Paso 2 de 2)\n\n¿Estás 100% seguro de eliminar definitivamente a "${employeeName}"?\n\nEsta acción es TOTALMENTE IRREVERSIBLE.`);
-        if (!step2) return;
-
-        const commandId = createSupervisorCommandId();
-        const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
-        if (supabaseCloud && pairedDeviceId) {
-            try {
-                const { error } = await supabaseCloud
-                    .from('supervisor_commands')
-                    .insert({
-                        id: commandId,
-                        primary_device_id: pairedDeviceId,
-                        monitor_device_id: monitorDeviceId,
-                        command_type: 'inventory_update',
-                        payload: {
-                            action: 'delete_employee',
-                            commandId,
-                            employeeId: empId,
-                            supervisorId: supervisorUser?.id || null,
-                            supervisorName: supervisorUser?.nombre || supervisorUser?.usuario || 'Supervisor',
-                            supervisorRole: supervisorUser?.rol || 'SUPERVISOR',
-                        },
-                        status: 'pending'
-                    });
-
-                if (error) throw error;
-                showToast(`Empleado "${employeeName}" eliminado y comando enviado a la caja`, 'success');
-                triggerHaptic?.();
-
-                // Actualización optimista de la proyección
-                setPayrollProjection(prev => {
-                    const currentEmps = Array.isArray(prev?.employees) 
-                        ? prev.employees.filter(e => String(e.employeeId || e.id) !== String(empId))
-                        : [];
-                    const totalNomina = currentEmps.reduce((acc, e) => acc + Number(e.salarioSemanalUsd || 0), 0);
-                    const totalCons = currentEmps.reduce((acc, e) => acc + Number(e.totalConsumosUsd || 0), 0);
-                    const totalNeto = currentEmps.reduce((acc, e) => acc + Number(e.netoAPagarUsd || 0), 0);
-                    return {
-                        ...(prev || {}),
-                        employees: currentEmps,
-                        totals: {
-                            nominaTotalUsd: totalNomina,
-                            consumosTotalUsd: totalCons,
-                            netoTotalUsd: totalNeto,
-                            employeesCount: currentEmps.length,
-                        }
-                    };
-                });
-            } catch (err) {
-                showToast(err?.message || 'No se pudo eliminar el empleado', 'error');
-            }
-        } else {
-            showToast('Sin conexión con la caja principal', 'error');
-        }
     };
 
     useEffect(() => {
@@ -2233,555 +434,11 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         window.addEventListener('storage', handleUpdate);
         return () => {
             window.removeEventListener('app_storage_update', handleUpdate);
-            window.removeEventListener('storage', handleUpdate);
-        };
+            window.removeEventListener('storage', handleUpdate    );
+}
+;
     }, []);
 
-    // ── TURNO ACTIVO & ESTADO DE CAJA ──
-    const [nowTick, setNowTick] = useState(() => Date.now());
-
-    useEffect(() => {
-        const timer = setInterval(() => setNowTick(Date.now()), 30000);
-        return () => clearInterval(timer);
-    }, []);
-
-    // Apertura de caja del turno activo
-    const activeShiftApertura = useMemo(() => {
-        return findOpenApertura(sales);
-    }, [sales]);
-
-    // Estado global del turno (Abierta/Cerrada + Tiempo transcurrido)
-    const shiftStatusInfo = useMemo(() => {
-        const openTs = activeShiftApertura?.timestamp;
-
-        if (!openTs) {
-            return { isOpen: false, openTime: null, formattedTime: '', elapsedLabel: 'Caja Cerrada' };
-        }
-
-        const openDate = new Date(openTs);
-        const diffMs = Math.max(0, nowTick - openDate.getTime());
-        const diffMins = Math.floor(diffMs / 60000);
-
-        let elapsedLabel = '';
-        if (diffMins < 1) {
-            elapsedLabel = 'hace menos de 1m';
-        } else if (diffMins < 60) {
-            elapsedLabel = `hace ${diffMins}m`;
-        } else if (diffMins < 1440) {
-            const h = Math.floor(diffMins / 60);
-            const m = diffMins % 60;
-            elapsedLabel = m > 0 ? `hace ${h}h ${m}m` : `hace ${h}h`;
-        } else {
-            const d = Math.floor(diffMins / 1440);
-            const h = Math.floor((diffMins % 1440) / 60);
-            elapsedLabel = h > 0 ? `hace ${d}d ${h}h` : `hace ${d}d`;
-        }
-
-        const formattedTime = openDate.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit', hour12: true });
-
-        return {
-            isOpen: true,
-            openTime: openDate,
-            formattedTime,
-            elapsedLabel
-        };
-    }, [sales, activeShiftApertura, nowTick]);
-
-    // Filtrar ventas del turno activo con guarda-railes estrictos
-    const activeShiftSales = useMemo(() => {
-        // Guarda-rail 1: Si la caja está cerrada, no hay ventas en el turno activo
-        if (!activeShiftApertura || !activeShiftApertura.timestamp) return [];
-
-        const aperturaTs = new Date(activeShiftApertura.timestamp).getTime();
-        if (isNaN(aperturaTs)) return [];
-
-        const filtered = sales.filter(s => {
-            // Validar tipos de transacción de venta
-            if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'VENTA_CASHEA') return false;
-            
-            // Guarda-rail 4: Ignorar ventas cerradas en arqueos previos
-            if (s.cajaCerrada === true || s.cajaCerrada === 'true') return false;
-            
-            // Guarda-rail 2: Solo transacciones posteriores a la apertura activa
-            const saleTs = s.timestamp ? new Date(s.timestamp).getTime() : 0;
-            if (isNaN(saleTs) || saleTs < aperturaTs) return false;
-
-            return true;
-        });
-
-        return filtered.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-    }, [sales, activeShiftApertura]);
-
-    // Métricas del turno activo
-    const activeShiftMetrics = useMemo(() => {
-        let usd = 0;
-        let bs = 0;
-        const validSales = activeShiftSales.filter(s => s.status !== 'ANULADA');
-        validSales.forEach(s => {
-            usd += s.totalUsd || 0;
-            bs += getEffectiveSaleTotalBs(s, products, effectiveRate, bcvRate);
-        });
-
-        // Calcular ganancia estimada si los productos tienen costo
-        let costSum = 0;
-        validSales.forEach(s => {
-            if (!s.items) return;
-            s.items.forEach(item => {
-                const prod = products.find(p => p.id === item.productId || p.id === item.id);
-                if (prod && (prod.costUsd || prod.costPrice)) {
-                    costSum += (prod.costUsd || prod.costPrice) * item.qty;
-                }
-            });
-        });
-
-        const profitUsd = Math.max(0, usd - costSum);
-
-        return {
-            totalUsd: usd,
-            totalBs: bs,
-            profitUsd,
-            count: validSales.length
-        };
-    }, [activeShiftSales, products, effectiveRate, bcvRate]);
-
-    // Métricas de gastos de caja (Egresos de dinero físico) del turno activo
-    const activeShiftExpensesMetrics = useMemo(() => {
-        const flow = getOpenShiftMovements(sales).movements;
-        const gastos = flow.filter(s => 
-            s.tipo === 'GASTO_INTERNO' && 
-            s.status !== 'ANULADA' && 
-            !s.isAutoconsumo && 
-            s.category !== 'autoconsumo' && 
-            s.afectaCaja !== false
-        );
-        let totalUsd = 0;
-        let totalBs = 0;
-        let totalCop = 0;
-        const categoryMap = {};
-
-        gastos.forEach(g => {
-            const payment = Array.isArray(g.payments) && g.payments[0] ? g.payments[0] : null;
-            const curr = g.currency || payment?.currency || (
-                (g.paymentMethod && (g.paymentMethod.includes('usd') || g.paymentMethod.includes('zelle') || g.paymentMethod.includes('binance') || g.paymentMethod === 'dolares')) ? 'USD' :
-                (g.paymentMethod && g.paymentMethod.includes('cop')) ? 'COP' : 'BS'
-            );
-
-            let usd = 0;
-            let bs = 0;
-            let cop = 0;
-
-            if (curr === 'USD') {
-                usd = Math.abs(payment?.amountUsd ? payment.amountUsd : (g.totalUsd || 0));
-            } else if (curr === 'COP') {
-                cop = Math.abs(payment?.amountCop ? payment.amountCop : (g.totalCop || g.totalBs || 0));
-            } else {
-                bs = Math.abs(payment?.amountBs ? payment.amountBs : (g.totalBs || 0));
-            }
-
-            totalUsd += usd;
-            totalBs += bs;
-            totalCop += cop;
-
-            const cat = g.category || 'otros';
-            if (!categoryMap[cat]) {
-                categoryMap[cat] = { count: 0, totalUsd: 0, totalBs: 0, totalCop: 0 };
-            }
-            categoryMap[cat].count += 1;
-            categoryMap[cat].totalUsd += usd;
-            categoryMap[cat].totalBs += bs;
-            categoryMap[cat].totalCop += cop;
-        });
-
-        return {
-            totalUsd,
-            totalBs,
-            totalCop,
-            count: gastos.length,
-            categoryMap,
-            gastosList: gastos.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-        };
-    }, [sales]);
-
-    // Métricas de Consumo Interno / Autoconsumo (Retiro físico de mercancía / Artículos)
-    const activeShiftAutoconsumoMetrics = useMemo(() => {
-        const flow = getOpenShiftMovements(sales).movements;
-        const autoconsumos = flow.filter(s => 
-            (s.isAutoconsumo === true || s.category === 'autoconsumo' || s.paymentMethod === 'autoconsumo') && 
-            s.status !== 'ANULADA'
-        );
-        let totalUnits = 0;
-        autoconsumos.forEach(g => {
-            if (Array.isArray(g.items) && g.items.length > 0) {
-                totalUnits += g.items.reduce((sum, it) => sum + (Number(it.qty) || 0), 0);
-            } else {
-                totalUnits += 1;
-            }
-        });
-
-        return {
-            count: autoconsumos.length,
-            totalUnits,
-            list: autoconsumos.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-        };
-    }, [sales]);
-
-    const activeShiftOutflowMetrics = useMemo(() => (
-        calculateSupervisorOutflowMetrics(getOpenShiftMovements(sales).movements)
-    ), [sales]);
-
-    const activeShiftSupplierMetrics = activeShiftOutflowMetrics.supplierPayments;
-
-    // Desglose por método de pago del turno activo (Cobros de clientes + vueltos)
-    const activeShiftPaymentBreakdown = useMemo(() => {
-        const breakdown = {};
-        let totalVueltoBs = 0;
-        let totalVueltoUsd = 0;
-        let totalVueltoCop = 0;
-
-        // Movimientos de ventas del turno activo (excluyendo egresos de caja y autoconsumo)
-        const activeFlow = getOpenShiftMovements(sales).movements.filter(s => 
-            s.tipo !== 'APERTURA_CAJA' && 
-            s.tipo !== 'GASTO_INTERNO' && 
-            !s.isAutoconsumo && 
-            s.category !== 'autoconsumo' && 
-            s.tipo !== 'REGISTRO_CIERRE' &&
-            s.status !== 'ANULADA'
-        );
-
-        const addResolutionRow = (id, label, part) => {
-            if (!part || (part.usd <= 0.009 && part.bs <= 0.009)) return;
-            if (!breakdown[id]) {
-                breakdown[id] = {
-                    totalUsd: 0,
-                    totalBs: 0,
-                    count: 0,
-                    label,
-                    currency: part.bs > 0.009 && part.usd <= 0.009 ? 'BS' : 'USD',
-                    isChange: true,
-                };
-            }
-            breakdown[id].totalUsd = round2(breakdown[id].totalUsd + part.usd);
-            breakdown[id].totalBs = round2(breakdown[id].totalBs + part.bs);
-        };
-
-        activeFlow.forEach(sale => {
-            const saleChange = getSaleChangeDetails(sale, products, effectiveRate, bcvRate);
-            const { changeUsd, changeBs, changeCop } = saleChange;
-            if (changeBs > 0) totalVueltoBs = round2(totalVueltoBs + changeBs);
-            if (changeUsd > 0) totalVueltoUsd = round2(totalVueltoUsd + changeUsd);
-            if (changeCop > 0) totalVueltoCop = round2(totalVueltoCop + changeCop);
-
-            const ledger = saleChange.ledger;
-            addResolutionRow('vuelto_wallet', 'Abono a cuenta', ledger?.wallet);
-            addResolutionRow(
-                'vuelto_owed',
-                `Vuelto por fuera${ledger?.owed?.method ? ` (${ledger.owed.method})` : ''}`,
-                ledger?.owed,
-            );
-            addResolutionRow(
-                'vuelto_voucher',
-                `Voucher emitido${ledger?.voucher?.code ? ` (${ledger.voucher.code})` : ''}`,
-                ledger?.voucher,
-            );
-            addResolutionRow('vuelto_donado', 'Vuelto cedido/donado', ledger?.donated);
-
-            if (sale.tipo === 'VENTA_FIADA') {
-                if (!breakdown['fiado']) {
-                    breakdown['fiado'] = { totalUsd: 0, totalBs: 0, count: 0, label: 'Fiado (Por Cobrar)', currency: 'FIADO' };
-                }
-                const fiadoAmountUsd = sale.fiadoUsd != null ? sale.fiadoUsd : (sale.totalUsd || 0);
-                const fiadoAmountBs = sale.totalBs || 0;
-                breakdown['fiado'].totalUsd += fiadoAmountUsd;
-                breakdown['fiado'].totalBs += fiadoAmountBs;
-                breakdown['fiado'].count += 1;
-
-                const remainingUpfrontUsd = (sale.totalUsd || 0) - fiadoAmountUsd;
-                if (remainingUpfrontUsd <= 0.009 && (!sale.payments || sale.payments.length === 0)) {
-                    return;
-                }
-            }
-
-            if (sale.tipo === 'VENTA_CASHEA' || (sale.casheaUsd && sale.casheaUsd > 0)) {
-                if (!breakdown['cashea']) {
-                    breakdown['cashea'] = { totalUsd: 0, totalBs: 0, count: 0, label: 'Cashea (Por Cobrar)', currency: 'FIADO' };
-                }
-                const casheaAmountUsd = sale.casheaUsd || 0;
-                if (casheaAmountUsd > 0) {
-                    breakdown['cashea'].totalUsd += casheaAmountUsd;
-                    breakdown['cashea'].totalBs += sale.totalBs || 0;
-                    breakdown['cashea'].count += 1;
-                }
-                const remainingUpfrontUsd = (sale.totalUsd || 0) - casheaAmountUsd;
-                if (remainingUpfrontUsd <= 0.009 && (!sale.payments || sale.payments.length === 0)) {
-                    return;
-                }
-            }
-
-            if (sale.payments && sale.payments.length > 0) {
-                sale.payments.forEach(p => {
-                    if (p.methodId === 'fiado' || p.methodId === 'cashea' || p.methodId === 'autoconsumo') return;
-                    const methodId = p.methodId || 'efectivo_bs';
-                    if (!breakdown[methodId]) {
-                        const label = p.methodLabel || getPaymentLabel(methodId) || toTitleCase(methodId.replace(/_/g, ' '));
-                        breakdown[methodId] = { totalUsd: 0, totalBs: 0, count: 0, label, currency: p.currency || 'BS' };
-                    }
-                    breakdown[methodId].totalUsd += p.amountUsd || 0;
-                    breakdown[methodId].totalBs += p.amountBs || 0;
-                    breakdown[methodId].count += 1;
-                });
-            } else {
-                if (sale.tipo === 'VENTA_FIADA' || sale.tipo === 'VENTA_CASHEA' || sale.paymentMethod === 'autoconsumo' || sale.metodoPago === 'autoconsumo') return;
-                const methodId = sale.paymentMethod || sale.metodoPago || 'efectivo_bs';
-                if (methodId === 'autoconsumo') return;
-                if (!breakdown[methodId]) {
-                    const label = getPaymentLabel(methodId) || toTitleCase(methodId.replace(/_/g, ' '));
-                    let currency = 'BS';
-                    if (methodId.includes('usd') || methodId.includes('zelle') || methodId.includes('binance')) currency = 'USD';
-                    else if (methodId.includes('cop')) currency = 'COP';
-                    breakdown[methodId] = { totalUsd: 0, totalBs: 0, count: 0, label, currency };
-                }
-                breakdown[methodId].totalUsd += sale.totalUsd || 0;
-                breakdown[methodId].totalBs += sale.totalBs || 0;
-                breakdown[methodId].count += 1;
-            }
-        });
-
-        const rate = effectiveRate || bcvRate || 1;
-
-        if (totalVueltoBs > 0) {                breakdown['vuelto_bs'] = {
-                totalUsd: 0,
-                totalBs: totalVueltoBs,
-                count: 0,
-                label: 'Vuelto Entregado (en Bs)',
-                currency: 'BS',
-                isChange: true
-            };
-
-        }
-        if (totalVueltoUsd > 0) {
-            breakdown['vuelto_usd'] = {
-                totalUsd: totalVueltoUsd,
-                totalBs: totalVueltoUsd * rate,
-                count: 0,
-                label: 'Vuelto Entregado (en $)',
-                currency: 'USD',
-                isChange: true
-            };
-        }
-        if (totalVueltoCop > 0) {
-            breakdown['vuelto_cop'] = {
-                totalUsd: 0,
-                totalBs: 0,
-                totalCop: totalVueltoCop,
-                count: 0,
-                label: 'Vuelto Entregado (en COP)',
-                currency: 'COP',
-                isChange: true
-            };
-        }
-
-        return Object.entries(breakdown)
-            .filter(([mId, data]) => mId !== 'autoconsumo' && (data.totalUsd > 0 || data.totalBs > 0 || data.count > 0))
-            .sort(([, a], [, b]) => {
-                if (a.isChange && !b.isChange) return 1;
-                if (!a.isChange && b.isChange) return -1;
-                return b.totalUsd - a.totalUsd;
-            });
-    }, [sales, activeShiftApertura, effectiveRate, bcvRate]);
-
-    const activeShiftChangeMetrics = useMemo(() => (
-        calculateSupervisorChangeMetrics(
-            getOpenShiftMovements(sales).movements,
-            sale => getSaleChangeDetails(sale, products, effectiveRate, bcvRate)
-        )
-    ), [sales, products, effectiveRate, bcvRate]);
-
-    // Base de los porcentajes del desglose: SOLO los cobros reales.
-    // Los vueltos (isChange) y las propinas (isTip) son disposiciones de ese mismo
-    // dinero, no ingresos adicionales. Antes se dividía entre el total NETO de
-    // ventas mientras los numeradores eran importes BRUTOS, así que un pago de
-    // $26.00 sobre un neto de $19.24 se mostraba como 135% y la suma pasaba de 100.
-    const activeShiftGrossUsd = useMemo(
-        () => activeShiftPaymentBreakdown
-            .filter(([, d]) => !d.isChange && !d.isTip)
-            .reduce((sum, [, d]) => sum + (d.totalUsd || 0), 0),
-        [activeShiftPaymentBreakdown]
-    );
-
-    // Cálculo exacto del Efectivo Físico Esperado en Gaveta mediante FinancialEngine (Arqueo Teórico de Caja en Vivo)
-    const activeShiftExpectedCash = useMemo(() => {
-        const openMovements = getOpenShiftMovements(sales).movements;
-        const breakdown = FinancialEngine.calculatePaymentBreakdown(openMovements);
-        const expected = FinancialEngine.computeExpectedCash(breakdown);
-
-        return {
-            expectedBs: Math.max(0, round2(expected.bs || 0)),
-            expectedUsd: Math.max(0, round2(expected.usd || 0)),
-            expectedCop: Math.max(0, round2(expected.cop || 0))
-        };
-    }, [sales]);
-
-    const activeShiftTipTotals = useMemo(() => {
-        const activeFlow = getOpenShiftMovements(sales).movements;
-        let tipUsd = 0;
-        let tipBs = 0;
-        let tipCount = 0;
-        activeFlow.forEach(s => {
-            if (s.tipDonated) {
-                tipUsd += (s.tipDonated.amountUsd || 0);
-                tipBs += (s.tipDonated.amountBs || 0);
-                tipCount++;
-            }
-        });
-        return { tipUsd: round2(tipUsd), tipBs: round2(tipBs), tipCount };
-    }, [sales]);
-
-    // Ticket promedio del turno activo
-    const activeShiftAvgTicket = useMemo(() => {
-        if (activeShiftSales.length === 0) return 0;
-        return activeShiftMetrics.totalUsd / activeShiftSales.length;
-    }, [activeShiftMetrics.totalUsd, activeShiftSales.length]);
-
-
-    // ── HISTORIAL DE CIERRES DE CAJA ──
-
-    // Reconstruir cierres agrupados por cierreId
-    const registerCloses = useMemo(() => {
-        const explicitCloses = sales.filter(s => s.tipo === 'REGISTRO_CIERRE');
-        
-        // Agrupar transacciones cerradas por cierreId
-        const groups = {};
-        sales.forEach(s => {
-            if (s.cierreId && s.tipo !== 'REGISTRO_CIERRE') {
-                const cId = s.cierreId;
-                if (!groups[cId]) {
-                    groups[cId] = {
-                        cierreId: cId,
-                        timestamp: typeof cId === 'number' ? new Date(cId).toISOString() : (s.timestamp || new Date().toISOString()),
-                        sales: []
-                    };
-                }
-                groups[cId].sales.push(s);
-            }
-        });
-
-        // Asegurar que todo REGISTRO_CIERRE explícito quede incluido en los grupos
-        explicitCloses.forEach(ec => {
-            const cId = ec.cierreId || ec.timestamp;
-            if (!cId) return;
-            if (!groups[cId]) {
-                groups[cId] = {
-                    cierreId: cId,
-                    timestamp: ec.timestamp || (typeof cId === 'number' ? new Date(cId).toISOString() : new Date().toISOString()),
-                    sales: []
-                };
-            }
-        });
-
-        // Formatear cada grupo combinando datos explícitos de arqueo si existen
-        return Object.values(groups).filter(g => {
-            const explicit = explicitCloses.find(ec => ec.cierreId === g.cierreId || ec.timestamp === g.timestamp);
-            return explicit || g.sales.some(s => s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA');
-        }).map(g => {
-            const explicit = explicitCloses.find(ec => ec.cierreId === g.cierreId || ec.timestamp === g.timestamp);
-            
-            // Filtrar para métricas generales y de caja
-            const salesForStats = g.sales.filter(s => s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA');
-            const salesForCashFlow = g.sales.filter(s => s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA' || s.tipo === 'COBRO_DEUDA' || s.tipo === 'PAGO_PROVEEDOR');
-            
-            const calculatedTotalUsd = salesForStats.reduce((sum, s) => sum + (s.totalUsd || 0), 0);
-            const calculatedTotalBs = salesForStats.reduce((sum, s) => sum + (s.totalBs || 0), 0);
-            const calculatedTotalItems = salesForStats.reduce((sum, s) => sum + (s.items ? s.items.reduce((is, it) => is + it.qty, 0) : 0), 0);
-            
-            const totalUsd = explicit?.summary?.todayTotalUsd ?? calculatedTotalUsd;
-            const totalBs = explicit?.summary?.todayTotalBs ?? calculatedTotalBs;
-            const totalItems = explicit?.summary?.todayItemsSold ?? calculatedTotalItems;
-
-            // Reconstruir desglose de pagos del cierre
-            const breakdown = {};
-            salesForCashFlow.forEach(sale => {
-                if (sale.tipo === 'VENTA_FIADA') {
-                    if (!breakdown['fiado']) {
-                        breakdown['fiado'] = { totalUsd: 0, totalBs: 0, count: 0, label: 'Fiado (Por Cobrar)', currency: 'FIADO' };
-                    }
-                    const fiadoAmountUsd = sale.fiadoUsd != null ? sale.fiadoUsd : (sale.totalUsd || 0);
-                    const fiadoAmountBs = sale.totalBs || 0;
-                    breakdown['fiado'].totalUsd += fiadoAmountUsd;
-                    breakdown['fiado'].totalBs += fiadoAmountBs;
-                    breakdown['fiado'].count += 1;
-
-                    const remainingUpfrontUsd = (sale.totalUsd || 0) - fiadoAmountUsd;
-                    if (remainingUpfrontUsd <= 0.009 && (!sale.payments || sale.payments.length === 0)) {
-                        return;
-                    }
-                }
-
-                if (sale.tipo === 'VENTA_CASHEA' || (sale.casheaUsd && sale.casheaUsd > 0)) {
-                    if (!breakdown['cashea']) {
-                        breakdown['cashea'] = { totalUsd: 0, totalBs: 0, count: 0, label: 'Cashea (Por Cobrar)', currency: 'FIADO' };
-                    }
-                    const casheaAmountUsd = sale.casheaUsd || 0;
-                    if (casheaAmountUsd > 0) {
-                        breakdown['cashea'].totalUsd += casheaAmountUsd;
-                        breakdown['cashea'].totalBs += sale.totalBs || 0;
-                        breakdown['cashea'].count += 1;
-                    }
-                    const remainingUpfrontUsd = (sale.totalUsd || 0) - casheaAmountUsd;
-                    if (remainingUpfrontUsd <= 0.009 && (!sale.payments || sale.payments.length === 0)) {
-                        return;
-                    }
-                }
-
-                if (sale.payments && sale.payments.length > 0) {
-                    sale.payments.forEach(p => {
-                        if (p.methodId === 'fiado' || p.methodId === 'cashea') return;
-                        const mId = p.methodId || 'efectivo_bs';
-                        if (!breakdown[mId]) {
-                            breakdown[mId] = { totalUsd: 0, totalBs: 0, count: 0, label: p.methodLabel || getPaymentLabel(mId), currency: p.currency || 'BS' };
-                        }
-                        breakdown[mId].totalUsd += p.amountUsd || 0;
-                        breakdown[mId].totalBs += p.amountBs || 0;
-                        breakdown[mId].count += 1;
-                    });
-                } else {
-                    if (sale.tipo === 'VENTA_FIADA' || sale.tipo === 'VENTA_CASHEA') return;
-                    const mId = sale.paymentMethod || sale.metodoPago || 'efectivo_bs';
-                    if (!breakdown[mId]) {
-                        breakdown[mId] = { totalUsd: 0, totalBs: 0, count: 0, label: getPaymentLabel(mId), currency: mId.includes('usd') ? 'USD' : 'BS' };
-                    }
-                    breakdown[mId].totalUsd += sale.totalUsd || 0;
-                    breakdown[mId].totalBs += sale.totalBs || 0;
-                    breakdown[mId].count += 1;
-                }
-            });
-
-            const sortedBreakdown = Object.entries(breakdown)
-                .sort(([, a], [, b]) => b.totalUsd - a.totalUsd);
-
-            const apertura = g.sales.find(s => s.tipo === 'APERTURA_CAJA') || null;
-
-            return {
-                cierreId: g.cierreId,
-                cierreNumber: explicit?.cierreNumber || (typeof g.cierreId === 'number' ? String(g.cierreId).slice(-4) : 'N/A'),
-                timestamp: g.timestamp,
-                sales: salesForStats,
-                totalUsd,
-                totalBs,
-                totalItems,
-                paymentBreakdown: sortedBreakdown,
-                apertura,
-                reconData: explicit?.summary?.reconData || null,
-                cashier: explicit?.summary?.cashier || { nombre: 'Cajero', rol: 'CAJERO' }
-            };
-        }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-    }, [sales]);
-
-    // Establecer primer cierre por defecto si cambia la lista
-    useEffect(() => {
-        if (registerCloses.length > 0 && !selectedCierreId) {
-            setSelectedCierreId(registerCloses[0].cierreId);
-        }
-    }, [registerCloses, selectedCierreId]);
 
     // ── Ventas para Reporte de Artículos según Rango Seleccionado ──
     const artSalesForStats = useMemo(() => {
@@ -2792,9 +449,8 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 return activeShiftSales.filter(s => s.status !== 'ANULADA');
             }
             const openMovements = getOpenShiftMovements(sales).movements;
-            return openMovements.filter(s => s.status !== 'ANULADA' && (s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA'));
-        }
-
+            return openMovements.filter(s => s.status !== 'ANULADA' && (s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA')    );
+}
         if (artRange === 'lastShift') {
             if (registerCloses && registerCloses.length > 0) {
                 const latestCierre = registerCloses[0];
@@ -2822,31 +478,6 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
     // ── COMPONENTES GENERALES ──
 
-    // 🚫 Productos Agotados (Stock <= 0)
-    const outOfStockProducts = useMemo(() => {
-        return products.filter(p => (p.stock || 0) <= 0);
-    }, [products]);
-
-    // ⚠️ Stock Crítico (Stock > 0 && Stock <= minStock)
-    const lowStockProducts = useMemo(() => {
-        return products.filter(p => {
-            const stock = Number(p.stock) || 0;
-            const minStock = Number(p.minStock ?? p.min_stock ?? 5);
-            return stock > 0 && stock <= minStock;
-        });
-    }, [products]);
-
-    // Guarda-rail 1: Auto-selección inteligente de pestaña de alertas si una categoría está vacía
-    const activeStockAlertTab = useMemo(() => {
-        if (stockAlertTab === 'agotados' && outOfStockProducts.length === 0 && lowStockProducts.length > 0) {
-            return 'critico';
-        }
-        if (stockAlertTab === 'critico' && lowStockProducts.length === 0 && outOfStockProducts.length > 0) {
-            return 'agotados';
-        }
-        return stockAlertTab;
-    }, [stockAlertTab, outOfStockProducts.length, lowStockProducts.length]);
-
     // Desvincular Monitor (FX5)
     const handleDisconnect = async () => {
         triggerHaptic?.();
@@ -2860,7 +491,11 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 });
                 if (error || (data && !data.success)) {
                     // Fallback a unpair_monitor si la RPC revoke_monitor no está disponible (D6)
-                    await supabaseCloud.rpc('unpair_monitor', { p_device_id: pairedDeviceId }).catch(() => {});
+                    try {
+                        await supabaseCloud.rpc('unpair_monitor', { p_device_id: pairedDeviceId });
+                    } catch {
+                        // La limpieza local continúa aunque la RPC de fallback no esté disponible.
+                    }
                 }
             }
         } catch (err) {
@@ -2885,3424 +520,288 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
     // Determinar si la caja está actualmente inactiva (sin turno abierto)
     const isShiftActive = activeShiftApertura !== null || activeShiftSales.length > 0;
-    const payrollEmployees = Array.isArray(payrollProjection?.employees) ? payrollProjection.employees : [];
-    const payrollTotals = payrollProjection?.totals || {
-        nominaTotalUsd: 0,
-        consumosTotalUsd: 0,
-        netoTotalUsd: 0,
-        employeesCount: 0,
-    };
 
+
+    const monitorCtx = {
+        ...queue,
+        ...shift,
+        ...inventory,
+        ...payroll,
+        AlertTriangle,
+        ArrowDownRight,
+        Box,
+        Coins,
+        ChevronLeft,
+        ChevronRight,
+        Clock,
+        DollarSign,
+        Download,
+        FileText,
+        HandCoins,
+        Hash,
+        ITEMS_PER_PAGE_CAMBIOS,
+        Lightbulb,
+        Lock,
+        MinusCircle,
+        Package,
+        Pencil,
+        Plus,
+        PlusCircle,
+        Receipt,
+        RefreshCw,
+        RotateCcw,
+        Search,
+        ShieldCheck,
+        ShoppingBag,
+        Sparkles,
+        Trash2,
+        Truck,
+        Unlock,
+        User,
+        Users,
+        Wallet,
+        Wrench,
+        X,
+        activeCashier,
+        activeShiftApertura,
+        activeShiftAutoconsumoMetrics,
+        activeShiftAvgTicket,
+        activeShiftChangeMetrics,
+        activeShiftExpectedCash,
+        activeShiftExpensesMetrics,
+        activeShiftGrossUsd,
+        activeShiftMetrics,
+        activeShiftPaymentBreakdown,
+        activeShiftSales,
+        activeShiftTipTotals,
+        activeStockAlertTab,
+        allCloudCmds,
+        artRange,
+        bcvRate,
+        calculatePricing,
+        cancelAllCloudCmds,
+        cancelSingleCloudCmd,
+        cancellingCmdId,
+        categories,
+        cloudPendingCmds,
+        currentPageCambios,
+        currentPageInventario,
+        discardSinglePendingChange,
+        effectiveRate,
+        exportingCierreId,
+        filterStockInventario,
+        filteredProducts,
+        formatBs,
+        formatCop,
+        formatPayrollUsd,
+        formatTime,
+        from: artFrom,
+        generateEmployeePayrollPDF,
+        getEffectiveSaleTotalBs,
+        getFormattedPaymentMethod,
+        getFormattedSaleCode,
+        getMethodIcon,
+        getPaymentBadgeStyle,
+        getPaymentLabel,
+        getSaleChangeDetails,
+        getSupervisorCommandDetails,
+        handleDownloadCierrePDF,
+        handlePayrollDetail,
+        handleReopenRemoteShift,
+        handleVoidConsumptionSupervisor,
+        hasPendingFor,
+        inventoryMetrics,
+        isConnected,
+        isDuplicateProductIdFailure,
+        isShiftActive,
+        loadingData,
+        lowStockProducts,
+        outOfStockProducts,
+        paginatedProducts,
+        pairedDeviceId,
+        payrollDetail,
+        payrollDetailError,
+        payrollDetailLoading,
+        payrollEmployees,
+        payrollProjection,
+        payrollTotals,
+        pendingChanges,
+        pendingStockDelta,
+        products,
+        queueInventoryChange,
+        registerCloses,
+        requestDeleteRemoteEmployee,
+        salesForStats: artSalesForStats,
+        searchTermInventario,
+        selectedCierreId,
+        setArtFrom,
+        setArtRange,
+        setArtTo,
+        setCmdTabFilter,
+        setCurrentPageCambios,
+        setCurrentPageInventario,
+        setEditingCombo,
+        setEditingEmployee,
+        setFilterStockInventario,
+        setPayrollDetail,
+        setRemoteDeleteTarget,
+        setRemoteEditingProduct,
+        setSearchTermInventario,
+        setSelectedCierreId,
+        setSelectedSaleDetail,
+        setShowCloudPendingModal,
+        setShowComboModal,
+        setShowCreateEmployeeModal,
+        setShowDiscardQueueModal,
+        setShowRemoteCloseModal,
+        setShowRemoteForm,
+        setStockAdjustProduct,
+        setStockAlertTab,
+        setViewTab,
+        shiftStatusInfo,
+        showToast,
+        to: artTo,
+        toTitleCase,
+        TrendingUp,
+        totalPagesInventario,
+        triggerHaptic,
+        triggerRefresh,
+        uploadPendingChanges,
+        uploading,
+        viewTab,
+    };
     return (
         <div className={`min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-sans transition-colors duration-300 overflow-x-hidden ${hasInventoryChanges && viewTab === 'inventario' ? 'pb-48 sm:pb-36' : 'pb-16'}`}>
-            {/* Header del Monitor (100% Responsivo) */}
-            <header className="sticky top-0 z-50 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3 sm:px-5 py-2.5 shadow-xs">
-                <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-2.5">
-                    {/* Fila Superior en Móvil / Izquierda en PC */}
-                    <div className="flex items-center justify-between gap-3 min-w-0">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-2xl bg-emerald-500 flex items-center justify-center shadow-md shadow-emerald-500/20 text-white font-bold shrink-0">
-                                <ShieldCheck size={18} className="sm:hidden" />
-                                <ShieldCheck size={20} className="hidden sm:block" />
-                            </div>
-                            <div className="min-w-0">
-                                <h1 className="text-xs sm:text-base font-black leading-tight text-slate-800 dark:text-white truncate">Panel de Supervisión</h1>
-                                <p className="text-[9px] sm:text-[10.5px] text-slate-400 font-medium truncate">Monitoreo en vivo • {localStorage.getItem('business_name') || 'Mi Negocio'}</p>
-                            </div>
-                        </div>
-
-                        {/* Acciones Rápidas en Móvil: Refrescar + Menú ... */}
-                        <div className="flex md:hidden items-center gap-1.5 shrink-0 relative">
-                            <button 
-                                onClick={async () => { 
-                                    triggerHaptic?.(); 
-                                    await triggerRefresh(); 
-                                    showToast?.('Datos actualizados', 'success');
-                                }}
-                                disabled={syncLoading}
-                                className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 transition-colors disabled:opacity-50 active:scale-95"
-                                title="Actualizar Datos"
-                            >
-                                <RefreshCw size={15} className={syncLoading ? "animate-spin text-emerald-500" : ""} />
-                            </button>
-
-                            <button 
-                                onClick={() => { triggerHaptic?.(); setShowMobileMenu(!showMobileMenu); }}
-                                className={`p-2 rounded-xl border transition-colors active:scale-95 ${
-                                    showMobileMenu 
-                                        ? 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-white' 
-                                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900'
-                                }`}
-                                title="Menú de Acciones"
-                            >
-                                <MoreVertical size={16} />
-                            </button>
-
-                            {/* Dropdown Menu para Acciones Secundarias en Móvil */}
-                            {showMobileMenu && (
-                                <>
-                                    <div 
-                                        className="fixed inset-0 z-50" 
-                                        onClick={() => setShowMobileMenu(false)} 
-                                    />
-                                    <div className="absolute right-0 top-11 z-50 w-56 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-150">
-                                        <button
-                                            onClick={() => { triggerHaptic?.(); setShowMobileMenu(false); setShowRateModal(true); }}
-                                            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-left"
-                                        >
-                                            <TrendingUp size={15} className="text-amber-500 shrink-0" />
-                                            <span>Cambiar Tasa Remota</span>
-                                        </button>
-                                        <button
-                                            onClick={() => { triggerHaptic?.(); setShowMobileMenu(false); setShowUsersModal(true); }}
-                                            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-left"
-                                        >
-                                            <Users size={15} className="text-blue-500 shrink-0" />
-                                            <span>Gestión de Usuarios / PINs</span>
-                                        </button>
-                                        <button
-                                            onClick={() => { triggerHaptic?.(); setShowMobileMenu(false); setShowPairingModal(true); }}
-                                            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-left"
-                                        >
-                                            <QrCode size={15} className="text-emerald-500 shrink-0" />
-                                            <span>Vincular Dispositivo</span>
-                                        </button>
-                                        <button
-                                            onClick={() => { setShowMobileMenu(false); handleDownloadRemoteBackup(); }}
-                                            disabled={downloadingBackup}
-                                            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-left disabled:opacity-50"
-                                        >
-                                            {downloadingBackup ? <RefreshCw size={15} className="text-cyan-500 animate-spin shrink-0" /> : <Download size={15} className="text-cyan-500 shrink-0" />}
-                                            <span>{downloadingBackup ? 'Generando backup...' : 'Descargar backup de la caja'}</span>
-                                        </button>
-                                        <div className="border-t border-slate-100 dark:border-slate-800 my-1" />
-                                        <button
-                                            onClick={() => { triggerHaptic?.(); setShowMobileMenu(false); setShowDisconnectConfirm(true); }}
-                                            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-xl transition-colors text-left"
-                                        >
-                                            <LogOut size={15} className="shrink-0" />
-                                            <span>Desvincular Dispositivo</span>
-                                        </button>
-                                    </div>
-                                </>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Status Badges y Acciones en PC */}
-                    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pb-0.5 md:pb-0">
-                        {/* Status Badge del Supervisor */}
-                        <div className={`flex items-center gap-1 sm:gap-1.5 px-2.5 py-1 rounded-full text-[9px] sm:text-[10px] font-black tracking-wider uppercase shadow-xs shrink-0 transition-colors duration-300 ${
-                            isConnected 
-                                ? 'bg-emerald-50 border border-emerald-200/50 text-emerald-600 dark:bg-emerald-950/20 dark:border-emerald-800/30 dark:text-emerald-400' 
-                                : 'bg-rose-50 border border-rose-200/50 text-rose-600 dark:bg-rose-950/20 dark:border-rose-800/30 dark:text-rose-400 animate-pulse'
-                        }`}>
-                            {isConnected ? (
-                                <>
-                                    <Wifi size={11} className="shrink-0" />
-                                    <span>En Vivo</span>
-                                </>
-                            ) : (
-                                <>
-                                    <WifiOff size={11} className="shrink-0" />
-                                    <span>Offline</span>
-                                </>
-                            )}
-                        </div>
-
-                        {/* Status Badge de la Caja Principal (Online/Offline) */}
-                        <div 
-                            onClick={!isPosOnline ? handleAutoRepairPairing : undefined}
-                            title={isPosOnline
-                                ? `Caja conectada (${posLastSeen ? posLastSeen.toLocaleTimeString() : ''})`
-                                : presenceError
-                                    ? `No se pudo verificar la presencia: ${presenceError}`
-                                    : 'Haz clic para verificar vínculo con la caja'}
-                            className={`flex items-center gap-1 sm:gap-1.5 px-2.5 py-1 rounded-full text-[9px] sm:text-[10px] font-black tracking-wider uppercase shadow-xs shrink-0 transition-all duration-300 ${
-                                !isPosOnline ? 'cursor-pointer bg-amber-500 text-white border border-amber-600 active:scale-95 shadow-tone-sm' : 'bg-emerald-50 border border-emerald-200/60 text-emerald-700 dark:bg-emerald-950/30 dark:border-emerald-800/50 dark:text-emerald-400'
-                            }`}
-                        >
-                            <span className={`w-2 h-2 rounded-full shrink-0 ${isPosOnline ? 'bg-emerald-500 animate-pulse' : 'bg-white'}`} />
-                            <span>{isPosOnline ? 'Caja: En Línea' : presenceError ? 'Caja: Sin verificar' : 'Caja: Offline'}</span>
-                            {!isPosOnline && <Target size={11} className="text-white animate-pulse ml-0.5" />}
-                        </div>
-
-
-
-                        {/* Botones de Acción en PC */}
-                        <div className="hidden md:flex items-center gap-1.5 ml-2 border-l border-slate-200 dark:border-slate-800 pl-2 shrink-0">
-                            <button 
-                                onClick={async () => { 
-                                    triggerHaptic?.(); 
-                                    await triggerRefresh(); 
-                                    showToast?.('Datos actualizados', 'success');
-                                }}
-                                disabled={syncLoading}
-                                className="p-2 rounded-xl text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-emerald-400 transition-colors disabled:opacity-50 cursor-pointer"
-                                title="Actualizar Datos"
-                            >
-                                <RefreshCw size={15} className={syncLoading ? "animate-spin text-emerald-500" : ""} />
-                            </button>
-
-                            <button 
-                                onClick={() => { triggerHaptic?.(); setShowRateModal(true); }}
-                                className="p-2 rounded-xl text-slate-400 hover:text-brand hover:bg-brand-light border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-brand transition-colors cursor-pointer"
-                                title="Cambiar Tasa Remota"
-                            >
-                                <TrendingUp size={15} />
-                            </button>
-
-                            <button 
-                                onClick={() => { triggerHaptic?.(); setShowUsersModal(true); }}
-                                className="p-2 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-blue-400 transition-colors flex items-center gap-1.5 cursor-pointer"
-                                title="Gestión de Usuarios, Roles y PINs"
-                            >
-                                <Users size={15} />
-                                <span className="hidden lg:inline text-xs font-black text-slate-600 dark:text-slate-300">Usuarios</span>
-                            </button>
-
-                            <button 
-                                onClick={() => { triggerHaptic?.(); setShowPairingModal(true); }}
-                                className="px-2.5 py-2 rounded-xl text-emerald-600 dark:text-emerald-400 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-800/60 dark:bg-emerald-950/30 transition-colors flex items-center gap-1.5 cursor-pointer"
-                                title="Vincular Celular u otro equipo Supervisor"
-                            >
-                                <QrCode size={15} />
-                                <span className="hidden lg:inline text-xs font-black text-emerald-700 dark:text-emerald-300">+ Vincular Celular</span>
-                            </button>
-
-                            <button
-                                onClick={handleDownloadRemoteBackup}
-                                disabled={downloadingBackup}
-                                className="p-2 rounded-xl text-cyan-500 hover:text-cyan-700 hover:bg-cyan-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-cyan-400 transition-colors disabled:opacity-50 cursor-pointer"
-                                title="Descargar backup de la caja"
-                            >
-                                {downloadingBackup ? <RefreshCw size={15} className="animate-spin" /> : <Download size={15} />}
-                            </button>
-
-                            <button 
-                                onClick={() => { triggerHaptic?.(); setShowDisconnectConfirm(true); }}
-                                className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-rose-400 transition-colors cursor-pointer"
-                                title="Desvincular Dispositivo"
-                            >
-                                <LogOut size={15} />
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </header>
-
-            {/* Banner Offline */}
-            {!isConnected && lastSync && (
-                <div className="mx-4 mt-4 p-3.5 bg-amber-50 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-900/30 rounded-2xl flex gap-3 items-center text-amber-800 dark:text-amber-400 shadow-sm animate-fade-in">
-                    <Clock size={18} className="shrink-0" />
-                    <p className="text-xs font-semibold leading-relaxed">
-                        Sin conexión a internet. Mostrando últimos datos sincronizados el {lastSync.toLocaleDateString()} a las {lastSync.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.
-                    </p>
-                </div>
-            )}
-
-            {/* Contenido Principal */}
-            <main className="max-w-7xl mx-auto px-4 mt-6 space-y-6">
-                {/* ── SELECTOR DE NAVEGACIÓN AGRUPADA (NIVEL 1: 4 GRUPOS PRINCIPALES + NIVEL 2: SUB-PESTAÑAS) ── */}
-                <div className="space-y-2.5">
-                    {/* Nivel 1: 4 Grupos Principales (100% Responsivo en Móvil y Desktop) */}
-                    <div className="bg-slate-200/70 dark:bg-slate-900/80 p-1.5 rounded-2xl sm:rounded-3xl w-full shadow-xs border border-slate-300/40 dark:border-slate-800">
-                        <div className="grid grid-cols-4 gap-1 sm:gap-2 w-full">
-                            {MAIN_SUPERVISOR_TABS.map(main => {
-                                const Icon = main.icon;
-                                const isActive = activeMainTabId === main.id;
-                                const showBadge = main.hasBadge && totalControlChanges > 0;
-
-                                return (
-                                    <button
-                                        key={main.id}
-                                        onClick={() => {
-                                            triggerHaptic?.();
-                                            if (!isActive) {
-                                                setViewTab(main.defaultSubTab);
-                                            }
-                                        }}
-                                        className={`relative py-2 sm:py-2.5 px-1 sm:px-3 text-center font-black rounded-xl sm:rounded-2xl transition-all flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 cursor-pointer ${
-                                            isActive
-                                                ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm ring-1 ring-black/5 dark:ring-white/10'
-                                                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-white/40 dark:hover:bg-slate-850'
-                                        }`}
-                                    >
-                                        <Icon size={16} className={`shrink-0 ${isActive ? 'text-brand' : 'text-slate-400 dark:text-slate-500'}`} />
-                                        <span className="text-[11px] sm:text-xs tracking-tight font-black">{main.label}</span>
-                                        {showBadge && (
-                                            <span className="absolute -top-1 -right-1 sm:static px-1.5 py-0.2 rounded-full bg-amber-500 text-white text-[8px] sm:text-[9px] font-black tabular-nums animate-pulse shadow-xs">
-                                                {totalControlChanges}
-                                            </span>
-                                        )}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
-
-                    {/* Nivel 2: Sub-pestañas del grupo activo (Perfectamente distribuidas en móvil y PC) */}
-                    {currentMainTab.subTabs.length > 1 && (
-                        <div className={`grid ${currentMainTab.subTabs.length === 2 ? 'grid-cols-2' : currentMainTab.subTabs.length === 3 ? 'grid-cols-3' : 'grid-cols-1 sm:flex'} gap-1.5 w-full py-0.5 px-0.5 animate-fade-in`}>
-                            {currentMainTab.subTabs.map(sub => {
-                                const SubIcon = sub.icon;
-                                const isSubActive = viewTab === sub.id;
-
-                                return (
-                                    <button
-                                        key={sub.id}
-                                        onClick={() => {
-                                            triggerHaptic?.();
-                                            setViewTab(sub.id);
-                                        }}
-                                        className={`min-h-[38px] px-2 sm:px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer w-full text-center ${
-                                            isSubActive
-                                                ? 'bg-brand text-white shadow-sm shadow-brand/25 ring-1 ring-brand'
-                                                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200/70 dark:border-slate-800'
-                                        }`}
-                                    >
-                                        <SubIcon size={14} className={`shrink-0 ${isSubActive ? 'text-white' : 'text-slate-400'}`} />
-                                        <span className="sm:hidden text-[11px] font-black truncate">{sub.shortLabel || sub.label}</span>
-                                        <span className="hidden sm:inline truncate">{sub.label}</span>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
-
-                {/* ── SECCIÓN 1: TURNO ACTIVO ── */}
-                {viewTab === 'activo' && (
-                    <div className="space-y-6">
-                        {/* Banner de Estado de Apertura del Turno (Estructura Ultra-Óptima 2 Filas) */}
-                        <div className={`p-3 sm:p-3.5 rounded-2xl border flex flex-col gap-2 shadow-sm ${
-                            shiftStatusInfo.isOpen
-                                ? 'bg-emerald-50/90 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/40 text-emerald-900 dark:text-emerald-300'
-                                : 'bg-slate-100/90 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800/60 text-slate-700 dark:text-slate-300'
-                        }`}>
-                            {/* Fila 1: Estado del Turno + Hora/Duración (Izquierda) | Tasa Activa (Derecha) */}
-                            <div className="flex items-center justify-between gap-2 w-full">
-                                <div className="flex items-center gap-2 min-w-0">
-                                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${shiftStatusInfo.isOpen ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
-                                    <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                                        <span className="font-black text-xs sm:text-sm leading-none shrink-0">
-                                            {shiftStatusInfo.isOpen ? 'Turno Activo' : 'Caja Cerrada'}
-                                        </span>
-                                        {shiftStatusInfo.isOpen && (
-                                            <span className="text-[11px] text-slate-600 dark:text-slate-400 font-medium leading-none truncate">
-                                                · {shiftStatusInfo.formattedTime} ({shiftStatusInfo.elapsedLabel})
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Tasa Activa Compacta */}
-                                <div className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white dark:bg-slate-900 border border-emerald-500/30 shadow-2xs shrink-0">
-                                    <span className="text-[8.5px] font-black uppercase text-slate-400">Tasa:</span>
-                                    <span className="text-[11px] font-black text-emerald-600 dark:text-emerald-400 font-outfit leading-none">
-                                        {effectiveRate ? `${effectiveRate.toFixed(2)} Bs/$` : 'N/D'}
-                                    </span>
-                                </div>
-                            </div>
-
-                            {/* Fila 2: Cajero en turno (Izquierda) + Botón de Cierre Remoto (Derecha) */}
-                            {shiftStatusInfo.isOpen && (
-                                <div className="flex items-center justify-between gap-2 w-full pt-1.5 border-t border-emerald-200/40 dark:border-emerald-800/30">
-                                    <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate">
-                                        Cajero: <strong className="text-slate-700 dark:text-slate-200 font-bold">{activeCashier?.nombre && activeCashier.nombre !== 'Ninguno' ? activeCashier.nombre : 'En Turno'}</strong>
-                                    </span>
-                                    <button
-                                        onClick={() => { triggerHaptic?.(); setShowRemoteCloseModal(true); }}
-                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
-                                    >
-                                        <Lock size={13} />
-                                        <span>Cerrar Caja Remotamente</span>
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Banner de Efectivo Esperado en Gaveta (Cuadre Teórico de Caja en Vivo) */}
-                        <div className="bg-white dark:bg-slate-900 border border-emerald-500/30 dark:border-emerald-800/60 p-3.5 sm:p-4 rounded-2xl shadow-sm flex flex-col gap-2.5">
-                            <div className="flex items-center justify-between flex-wrap gap-2">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-black shrink-0">
-                                        <Wallet size={18} />
-                                    </div>
-                                    <div>
-                                        <h4 className="font-black text-xs sm:text-sm text-slate-800 dark:text-white leading-tight">
-                                            Efectivo Esperado en Gaveta
-                                        </h4>
-                                        <p className="text-[10px] sm:text-[11px] text-slate-400 font-medium leading-none mt-0.5">
-                                            Saldo físico teórico que debe existir en billetes para el cuadre de caja
-                                        </p>
-                                    </div>
-                                </div>
-                                <span className="text-[9px] font-black uppercase text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-300 dark:border-emerald-800">
-                                    Arqueo en Vivo
-                                </span>
-                            </div>
-
-                            {/* Cajas de Saldo Físico Teórico */}
-                            <div className="grid grid-cols-2 gap-2.5 pt-1">
-                                {/* Efectivo Esperado en Bs */}
-                                <div className="bg-emerald-50/70 dark:bg-emerald-950/30 p-2.5 sm:p-3 rounded-xl border border-emerald-200/80 dark:border-emerald-800/40 flex flex-col justify-between">
-                                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
-                                        En Billetes Bs
-                                    </span>
-                                    <span className="font-outfit text-base sm:text-lg lg:text-xl font-black text-emerald-700 dark:text-emerald-400 tabular-nums leading-tight mt-1">
-                                        {formatBs(activeShiftExpectedCash.expectedBs)} Bs
-                                    </span>
-                                    <span className="text-[8.5px] text-emerald-600/80 dark:text-emerald-400/70 font-bold block mt-1">
-                                        Apertura + Cobros Bs - Vueltos
-                                    </span>
-                                </div>
-
-                                {/* Efectivo Esperado en USD ($) */}
-                                <div className="bg-blue-50/70 dark:bg-blue-950/30 p-2.5 sm:p-3 rounded-xl border border-blue-200/80 dark:border-blue-800/40 flex flex-col justify-between">
-                                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-blue-800 dark:text-blue-300">
-                                        En Billetes ($)
-                                    </span>
-                                    <span className="font-outfit text-base sm:text-lg lg:text-xl font-black text-blue-700 dark:text-blue-400 tabular-nums leading-tight mt-1">
-                                        ${activeShiftExpectedCash.expectedUsd.toFixed(2)}
-                                    </span>
-                                    <span className="text-[8.5px] text-blue-600/80 dark:text-blue-400/70 font-bold block mt-1">
-                                        Apertura + Cobros $ - Vueltos
-                                    </span>
-                                </div>
-                            </div>
-
-                            {activeShiftTipTotals.tipCount > 0 && (
-                                <div className="mt-2.5 p-3 bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-300/80 dark:border-emerald-800/60 rounded-xl flex items-center justify-between shadow-xs">
-                                    <div className="flex items-center gap-2">
-                                        <HandCoins size={18} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
-                                        <div>
-                                            <span className="text-[10px] sm:text-xs font-black text-emerald-800 dark:text-emerald-300 uppercase tracking-wide block leading-tight">
-                                                Cambios Dejados en Caja ({activeShiftTipTotals.tipCount} {activeShiftTipTotals.tipCount === 1 ? 'venta' : 'ventas'})
-                                            </span>
-                                            <span className="text-[9px] text-emerald-600/80 dark:text-emerald-400/80 font-semibold block">
-                                                Propina retenida en efectivo sin salir de gaveta
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div className="text-right font-outfit font-black text-xs sm:text-sm text-emerald-700 dark:text-emerald-300">
-                                        {activeShiftTipTotals.tipUsd > 0 && <span>${activeShiftTipTotals.tipUsd.toFixed(2)} USD</span>}
-                                        {activeShiftTipTotals.tipUsd > 0 && activeShiftTipTotals.tipBs > 0 && <span className="mx-1">/</span>}
-                                        {activeShiftTipTotals.tipBs > 0 && <span>{formatBs(activeShiftTipTotals.tipBs)} Bs</span>}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Fila 1: Tarjetas de Métricas de Turno Activo */}
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                            {/* Ventas Turno USD */}
-                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800/80 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px]">
-                                <div className="flex items-center justify-between w-full">
-                                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">Vendido Turno (USD)</span>
-                                    <div className="w-7 h-7 sm:w-9 sm:h-9 bg-emerald-50 dark:bg-emerald-950/20 rounded-xl flex items-center justify-center text-emerald-500 shrink-0">
-                                        <DollarSign size={16} />
-                                    </div>
-                                </div>
-                                <div className="mt-2.5 min-w-0">
-                                    <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-slate-800 dark:text-white tabular-nums block break-words leading-none">
-                                        ${activeShiftMetrics.totalUsd.toFixed(2)}
-                                    </span>
-                                </div>
-                            </div>
-
-                            {/* Ventas Turno Bs */}
-                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800/80 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px]">
-                                <div className="flex items-center justify-between w-full">
-                                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">Vendido Turno (Bs)</span>
-                                    <div className="w-7 h-7 sm:w-9 sm:h-9 bg-emerald-50 dark:bg-emerald-950/20 rounded-xl flex items-center justify-center text-emerald-500 shrink-0">
-                                        <Coins size={16} />
-                                    </div>
-                                </div>
-                                <div className="mt-2.5 min-w-0">
-                                    <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums block break-words leading-none">
-                                        {formatBs(activeShiftMetrics.totalBs)} Bs
-                                    </span>
-                                    <span className="text-[9px] text-slate-400 block font-medium mt-1">
-                                        Acumulado tickets Bs
-                                    </span>
-                                </div>
-                            </div>
-
-                            {/* Margen Estimado Turno */}
-                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800/80 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px]">
-                                <div className="flex items-center justify-between w-full">
-                                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">Ganancia Turno</span>
-                                    <div className="w-7 h-7 sm:w-9 sm:h-9 bg-blue-50 dark:bg-blue-950/20 rounded-xl flex items-center justify-center text-blue-500 shrink-0">
-                                        <TrendingUp size={16} />
-                                    </div>
-                                </div>
-                                <div className="mt-2.5 min-w-0">
-                                    <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-blue-600 dark:text-blue-400 tabular-nums block break-words leading-none">
-                                        ${activeShiftMetrics.profitUsd.toFixed(2)}
-                                    </span>
-                                </div>
-                            </div>
-
-                            {/* Cajero Activo */}
-                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800/80 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px]">
-                                <div className="flex items-center justify-between w-full">
-                                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">Cajero de Turno</span>
-                                    <div className="w-7 h-7 sm:w-9 sm:h-9 bg-slate-50 dark:bg-slate-800/50 rounded-xl flex items-center justify-center text-slate-450 shrink-0">
-                                        <Users size={16} />
-                                    </div>
-                                </div>
-                                <div className="mt-2.5 min-w-0">
-                                    <span className="text-sm sm:text-base lg:text-lg font-black text-slate-800 dark:text-white block truncate leading-none">
-                                        {isShiftActive ? (
-                                            activeCashier.nombre !== 'Ninguno' 
-                                                ? activeCashier.nombre 
-                                                : (activeShiftSales.find(s => s.cajero || s.usuarioNombre || s.usuario)?.cajero || activeShiftApertura?.cajero || 'Cajero General')
-                                        ) : 'Ninguno'}
-                                    </span>
-                                    <span className="text-[9px] text-slate-400 block font-medium mt-1">
-                                        {activeShiftMetrics.count} {activeShiftMetrics.count === 1 ? 'venta' : 'ventas'} en curso
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Fila 2: Egresos, Consumo Interno, Nómina y Vueltos (Solo fichas con registros) */}
-                        {(() => {
-                            const showGastos = (activeShiftExpensesMetrics.count > 0 || Math.abs(activeShiftExpensesMetrics.totalUsd || 0) > 0.001 || Math.abs(activeShiftExpensesMetrics.totalBs || 0) > 0.001);
-                            const showConsumoInterno = (activeShiftAutoconsumoMetrics.count > 0 || (activeShiftAutoconsumoMetrics.totalUnits || 0) > 0);
-                            const showConsumoEmpleados = (Number(payrollTotals.consumosTotalUsd || 0) > 0.001);
-                            const showVueltosEntregados = (activeShiftChangeMetrics.count > 0 || Math.abs(activeShiftChangeMetrics.totalUsd || 0) > 0.001 || Math.abs(activeShiftChangeMetrics.totalBs || 0) > 0.001);
-                            const showVueltosCaja = (activeShiftTipTotals.tipCount > 0 || (activeShiftTipTotals.tipUsd || 0) > 0.001 || (activeShiftTipTotals.tipBs || 0) > 0.001);
-
-                            const totalVisible = [showGastos, showConsumoInterno, showConsumoEmpleados, showVueltosEntregados, showVueltosCaja].filter(Boolean).length;
-
-                            if (totalVisible === 0) return null;
-
-                            return (
-                                <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 mt-3 sm:mt-4 animate-in fade-in duration-200">
-                                    {/* Gastos de Caja (Dinero) */}
-                                    {showGastos && (
-                                        <div 
-                                            onClick={() => { triggerHaptic?.(); setViewTab('gastos'); }}
-                                            className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-rose-200/60 dark:border-rose-900/40 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px] cursor-pointer hover:border-rose-400 transition-all group"
-                                        >
-                                            <div className="flex items-center justify-between w-full">
-                                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-rose-500 dark:text-rose-400 flex items-center gap-1">
-                                                    Gastos de caja <span className="text-[8px] opacity-75 group-hover:translate-x-0.5 transition-transform">➔</span>
-                                                </span>
-                                                <div className="w-7 h-7 sm:w-9 sm:h-9 bg-rose-50 dark:bg-rose-950/20 rounded-xl flex items-center justify-center text-rose-500 shrink-0">
-                                                    <TrendingUp size={16} className="rotate-180" />
-                                                </div>
-                                            </div>
-                                            <div className="mt-2.5 min-w-0">
-                                                <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-rose-600 dark:text-rose-400 tabular-nums block break-words leading-none">
-                                                    {activeShiftExpensesMetrics.totalUsd > 0 ? `-$${activeShiftExpensesMetrics.totalUsd.toFixed(2)}` : `-${formatBs(activeShiftExpensesMetrics.totalBs)} Bs`}
-                                                </span>
-                                                <span className="text-[9px] text-slate-400 block font-medium mt-1">
-                                                    {activeShiftExpensesMetrics.count} {activeShiftExpensesMetrics.count === 1 ? 'egreso' : 'egresos'}
-                                                    {activeShiftExpensesMetrics.totalUsd > 0 && activeShiftExpensesMetrics.totalBs > 0 ? ` (-${formatBs(activeShiftExpensesMetrics.totalBs)} Bs)` : ''}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Consumo Interno (Autoconsumo / Mercancía) */}
-                                    {showConsumoInterno && (
-                                        <div 
-                                            onClick={() => { triggerHaptic?.(); setViewTab('gastos'); }}
-                                            className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-purple-200/70 dark:border-purple-900/40 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px] cursor-pointer hover:border-purple-400 transition-all group"
-                                        >
-                                            <div className="flex items-center justify-between w-full">
-                                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-purple-500 dark:text-purple-400 flex items-center gap-1">
-                                                    Consumo interno <span className="text-[8px] opacity-75 group-hover:translate-x-0.5 transition-transform">➔</span>
-                                                </span>
-                                                <div className="w-7 h-7 sm:w-9 sm:h-9 bg-purple-50 dark:bg-purple-950/20 rounded-xl flex items-center justify-center text-purple-500 shrink-0">
-                                                    <ShoppingBag size={16} />
-                                                </div>
-                                            </div>
-                                            <div className="mt-2.5 min-w-0">
-                                                <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-purple-600 dark:text-purple-400 tabular-nums block break-words leading-none">
-                                                    {activeShiftAutoconsumoMetrics.totalUnits} {activeShiftAutoconsumoMetrics.totalUnits === 1 ? 'artículo' : 'artículos'}
-                                                </span>
-                                                <span className="text-[9px] text-slate-400 block font-medium mt-1">
-                                                    {activeShiftAutoconsumoMetrics.count} {activeShiftAutoconsumoMetrics.count === 1 ? 'retiro' : 'retiros'} de mercancía
-                                                </span>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Consumo de Empleados */}
-                                    {showConsumoEmpleados && (
-                                        <div 
-                                            onClick={() => { triggerHaptic?.(); setViewTab('nomina'); }}
-                                            className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-indigo-200/70 dark:border-indigo-900/40 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px] cursor-pointer hover:border-indigo-400 transition-all group"
-                                        >
-                                            <div className="flex items-center justify-between w-full">
-                                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-indigo-500 dark:text-indigo-400 flex items-center gap-1">
-                                                    Consumo empleados <span className="text-[8px] opacity-75 group-hover:translate-x-0.5 transition-transform">➔</span>
-                                                </span>
-                                                <div className="w-7 h-7 sm:w-9 sm:h-9 bg-indigo-50 dark:bg-indigo-950/20 rounded-xl flex items-center justify-center text-indigo-500 shrink-0">
-                                                    <Users size={16} />
-                                                </div>
-                                            </div>
-                                            <div className="mt-2.5 min-w-0">
-                                                <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-indigo-600 dark:text-indigo-400 tabular-nums block break-words leading-none">
-                                                    -${Number(payrollTotals.consumosTotalUsd || 0).toFixed(2)}
-                                                </span>
-                                                <span className="text-[9px] text-slate-400 block font-medium mt-1">
-                                                    {payrollEmployees.length} {payrollEmployees.length === 1 ? 'empleado' : 'empleados'} (Ver nómina)
-                                                </span>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Vueltos entregados */}
-                                    {showVueltosEntregados && (
-                                        <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-amber-200/70 dark:border-amber-900/40 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px]">
-                                            <div className="flex items-center justify-between w-full">
-                                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">Vueltos entregados</span>
-                                                <div className="w-7 h-7 sm:w-9 sm:h-9 bg-amber-50 dark:bg-amber-950/20 rounded-xl flex items-center justify-center text-amber-500 shrink-0">
-                                                    <RotateCcw size={16} />
-                                                </div>
-                                            </div>
-                                            <div className="mt-2.5 min-w-0">
-                                                <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-amber-600 dark:text-amber-400 tabular-nums block break-words leading-none">
-                                                    -${activeShiftChangeMetrics.totalUsd.toFixed(2)}
-                                                </span>
-                                                <span className="text-[9px] text-slate-400 block font-medium mt-1">
-                                                    {activeShiftChangeMetrics.count} {activeShiftChangeMetrics.count === 1 ? 'venta' : 'ventas'} (-{formatBs(activeShiftChangeMetrics.totalBs)} Bs)
-                                                </span>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Vueltos dejados en caja */}
-                                    {showVueltosCaja && (
-                                        <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-emerald-200/70 dark:border-emerald-900/40 shadow-sm flex flex-col justify-between min-h-[105px] sm:min-h-[125px]">
-                                            <div className="flex items-center justify-between w-full">
-                                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Vueltos dejados en caja</span>
-                                                <div className="w-7 h-7 sm:w-9 sm:h-9 bg-emerald-50 dark:bg-emerald-950/20 rounded-xl flex items-center justify-center text-emerald-500 shrink-0">
-                                                    <HandCoins size={16} />
-                                                </div>
-                                            </div>
-                                            <div className="mt-2.5 min-w-0">
-                                                <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums block break-words leading-none">
-                                                    ${activeShiftTipTotals.tipUsd.toFixed(2)}
-                                                </span>
-                                                <span className="text-[9px] text-slate-400 block font-medium mt-1">
-                                                    {formatBs(activeShiftTipTotals.tipBs)} Bs · {activeShiftTipTotals.tipCount} {activeShiftTipTotals.tipCount === 1 ? 'venta' : 'ventas'}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })()}
-
-                        {/* Si la caja no está activa */}
-                        {!isShiftActive ? (
-                            <div className="py-16 px-6 text-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm space-y-4 max-w-lg mx-auto flex flex-col items-center">
-                                <div className="p-4 bg-slate-50 dark:bg-slate-800/50 text-slate-450 rounded-full">
-                                    <Clock size={42} />
-                                </div>
-                                <div className="space-y-1">
-                                    <h4 className="text-sm font-black text-slate-800 dark:text-white">Caja Cerrada / Turno Inactivo</h4>
-                                    <p className="text-xs text-slate-400 leading-relaxed px-4">
-                                        No hay un turno de caja activo en este momento. Abre la caja en el dispositivo del punto de venta para comenzar a registrar movimientos en vivo.
-                                    </p>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="space-y-6">
-                                {/* Desglose Diario por Método de Pago */}
-                                <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm overflow-hidden">
-                                    <div className="p-5 sm:p-6 border-b border-slate-100 dark:border-slate-800/80">
-                                        <div className="flex items-center justify-between">
-                                            <h3 className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">
-                                                <Wallet size={18} className="text-violet-500" />
-                                                Ingresos del Turno Activo
-                                            </h3>
-                                            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 rounded-xl">
-                                                En Curso
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    <div className="p-5 sm:p-6">
-                                        {/* Apertura de caja */}
-                                        <div className="mb-5 p-4 bg-slate-50 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-800/50 rounded-2xl">
-                                            <div className="flex items-center gap-2 mb-3">
-                                                <div className="w-7 h-7 bg-amber-100 dark:bg-amber-950/30 rounded-lg flex items-center justify-center">
-                                                    <ArrowDownRight size={14} className="text-amber-600 dark:text-amber-400" />
-                                                </div>
-                                                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">Fondo de Apertura de Turno</span>
-                                            </div>
-                                            {activeShiftApertura ? (
-                                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
-                                                    <div className="space-y-0.5">
-                                                        <span className="text-[9px] font-bold text-slate-400 uppercase block">USD Inicial</span>
-                                                        <span className="font-outfit text-sm font-black text-slate-700 dark:text-slate-200 tabular-nums">${(activeShiftApertura.openingUsd || 0).toFixed(2)}</span>
-                                                    </div>
-                                                    <div className="space-y-0.5">
-                                                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Bs Inicial</span>
-                                                        <span className="font-outfit text-sm font-black text-slate-700 dark:text-slate-200 tabular-nums">{formatBs(activeShiftApertura.openingBs || 0)} Bs</span>
-                                                    </div>
-                                                    {activeShiftApertura.openingCop > 0 && (
-                                                        <div className="space-y-0.5">
-                                                            <span className="text-[9px] font-bold text-slate-400 uppercase block">COP Inicial</span>
-                                                            <span className="font-outfit text-sm font-black text-slate-700 dark:text-slate-200 tabular-nums">{(activeShiftApertura.openingCop || 0).toLocaleString()} COP</span>
-                                                        </div>
-                                                    )}
-                                                    <div className="space-y-0.5 col-span-2 sm:col-span-3">
-                                                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Hora de apertura</span>
-                                                        <span className="text-xs font-bold text-slate-500">{formatTime(activeShiftApertura.timestamp)}</span>
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <p className="text-xs text-slate-400 font-bold">Caja iniciada sin fondo declarado.</p>
-                                            )}
-                                        </div>
-
-                                        {/* Tabla desglose */}
-                                        {activeShiftPaymentBreakdown.length === 0 ? (
-                                            <div className="py-8 text-center text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
-                                                <Wallet size={28} className="mx-auto text-slate-300 mb-2" />
-                                                <p className="text-xs font-black">Sin transacciones registradas</p>
-                                                <p className="text-[10px] text-slate-450 mt-1">El desglose por método de pago aparecerá aquí.</p>
-                                            </div>
-                                        ) : (
-                                            <div className="space-y-2.5">
-                                                {activeShiftPaymentBreakdown.map(([methodId, data]) => {
-                                                    const IconComp = getMethodIcon(methodId);
-                                                    // El vuelto sale de la gaveta (se pinta en ámbar y con signo −).
-                                                    // La propina se queda en ella, así que conserva el estilo neutro.
-                                                    const isChangeRow = data.isChange;
-                                                    // Ninguno de los dos es un cobro: quedan fuera del reparto porcentual.
-                                                    const isOutOfPct = data.isChange || data.isTip;
-                                                    const pct = activeShiftGrossUsd > 0 && !isOutOfPct
-                                                        ? Math.round((data.totalUsd / activeShiftGrossUsd) * 100)
-                                                        : 0;
-
-                                                    return (
-                                                        <div 
-                                                            key={methodId} 
-                                                            className={`flex items-center gap-3 p-3.5 rounded-2xl border transition-colors ${
-                                                                isChangeRow 
-                                                                    ? 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200/70 dark:border-amber-800/40' 
-                                                                    : 'bg-slate-50/70 dark:bg-slate-800/20 border-slate-100 dark:border-slate-800/40 hover:bg-slate-50 dark:hover:bg-slate-800/30'
-                                                            }`}
-                                                        >
-                                                            <div className={`w-9 h-9 border rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
-                                                                isChangeRow 
-                                                                    ? 'bg-amber-100 dark:bg-amber-900/40 border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400' 
-                                                                    : 'bg-white dark:bg-slate-800 border-slate-200/60 dark:border-slate-700/60 text-slate-500 dark:text-slate-400'
-                                                            }`}>
-                                                                <IconComp size={16} />
-                                                            </div>
-                                                            <div className="flex-1 min-w-0">
-                                                                <div className="flex items-center justify-between gap-2">
-                                                                    <span className={`text-xs font-black truncate ${isChangeRow ? 'text-amber-800 dark:text-amber-300' : 'text-slate-700 dark:text-slate-200'}`}>
-                                                                        {data.label}
-                                                                    </span>
-                                                                    <span className={`font-outfit text-xs font-black tabular-nums shrink-0 ${isChangeRow ? 'text-amber-600 dark:text-amber-400' : 'text-slate-800 dark:text-white'}`}>
-                                                                        {isChangeRow
-                                                                            ? (() => {
-                                                                                const amount = [
-                                                                                    data.totalUsd > 0.009 ? `$${data.totalUsd.toFixed(2)}` : '',
-                                                                                    data.totalBs > 0.009 ? `Bs ${formatBs(data.totalBs)}` : '',
-                                                                                    data.totalCop > 0.009 ? `COP ${formatCop(data.totalCop)}` : '',
-                                                                                ].filter(Boolean).join(' · ');
-                                                                                return amount ? `− ${amount}` : '—';
-                                                                            })()
-                                                                            : `$${data.totalUsd.toFixed(2)}`}
-                                                                    </span>
-                                                                </div>
-                                                                <div className="flex items-center justify-between gap-2 mt-1">
-                                                                    <div className="flex items-center gap-2">
-                                                                        {data.count > 0 ? (
-                                                                            <span className="text-[9px] font-bold text-slate-400">{data.count} {data.count === 1 ? 'transacción' : 'transacciones'}</span>
-                                                                        ) : (
-                                                                            <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Vuelto Otorgado</span>
-                                                                        )}
-                                                                        {!isOutOfPct && <span className="text-[9px] font-black text-violet-500 bg-violet-50 dark:bg-violet-950/20 dark:text-violet-400 px-1.5 py-0.5 rounded-md">{pct}%</span>}
-                                                                    </div>
-                                                                    <span className={`font-outfit text-[10px] font-bold tabular-nums ${isChangeRow ? 'text-amber-600/80 dark:text-amber-400/80' : 'text-slate-400'}`}>
-                                                                        {isChangeRow
-                                                                            ? data.totalBs > 0.009
-                                                                                ? `− ${formatBs(data.totalBs)} Bs`
-                                                                            : data.totalUsd > 0.009
-                                                                                ? `− $${data.totalUsd.toFixed(2)}`
-                                                                                : data.totalCop > 0.009
-                                                                                    ? `− COP ${formatCop(data.totalCop)}`
-                                                                                    : '—'
-                                                                            : `${formatBs(data.totalBs)} Bs`}
-                                                                    </span>
-                                                                </div>
-                                                                {!isOutOfPct && (
-                                                                    <div className="mt-1.5 h-1 bg-slate-200/60 dark:bg-slate-800 rounded-full overflow-hidden">
-                                                                        <div
-                                                                            className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 rounded-full transition-all duration-500"
-                                                                            style={{ width: `${Math.max(2, Math.min(100, pct))}%` }}
-                                                                        />
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-
-                                                {/* Resumen total */}
-                                                <div className="mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-800 flex items-center justify-between px-1">
-                                                    <div className="flex items-center gap-2">
-                                                        <Hash size={14} className="text-slate-400" />
-                                                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                                                            Total Acumulado ({activeShiftMetrics.count} {activeShiftMetrics.count === 1 ? 'venta' : 'ventas'})
-                                                        </span>
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <span className="font-outfit text-sm font-black text-slate-850 dark:text-white tabular-nums">${activeShiftMetrics.totalUsd.toFixed(2)}</span>
-                                                        <span className="font-outfit text-[10px] font-bold text-slate-400 ml-2">{formatBs(activeShiftMetrics.totalBs)} Bs</span>
-                                                    </div>
-                                                </div>
-
-                                                {/* Ticket promedio */}
-                                                <div className="flex items-center justify-between px-1 mt-1">
-                                                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Ticket Promedio</span>
-                                                    <span className="font-outfit text-xs font-black text-blue-650 dark:text-blue-400 tabular-nums">${activeShiftAvgTicket.toFixed(2)}</span>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Dashboard de Columnas */}
-                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                                    {/* Columna Izquierda: Listado de Ventas en Vivo */}
-                                    <div className="lg:col-span-2 space-y-4">
-                                        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/60 dark:border-slate-800 p-6 shadow-sm">
-                                            <h3 className="text-sm font-black text-slate-800 dark:text-white mb-4 flex items-center gap-2">
-                                                <FileText size={18} className="text-slate-400" />
-                                                Ventas del Turno en Tiempo Real
-                                            </h3>
-                                            
-                                            {loadingData || syncLoading ? (
-                                                <div className="py-8 flex justify-center text-slate-400 gap-2 items-center">
-                                                    <RefreshCw className="animate-spin" size={18} />
-                                                    <span className="text-xs font-bold">Cargando transacciones...</span>
-                                                </div>
-                                            ) : activeShiftSales.length === 0 ? (
-                                                <div className="py-12 text-center text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
-                                                    <Clock size={36} className="mx-auto text-slate-350 dark:text-slate-700 mb-2" />
-                                                    <p className="text-xs font-black">No se han registrado ventas en este turno</p>
-                                                    <p className="text-[10px] text-slate-400 mt-1">Las ventas de la caja emparejada aparecerán aquí al instante.</p>
-                                                </div>
-                                            ) : (
-                                                <div className="space-y-3 max-h-[550px] overflow-y-auto pr-1">
-                                                    {activeShiftSales.map(sale => (
-                                                        <div 
-                                                            key={sale.id}
-                                                            onClick={() => { triggerHaptic?.(); setSelectedSaleDetail(sale); }}
-                                                            className="p-3.5 sm:p-4 border border-slate-100 dark:border-slate-800/80 hover:border-emerald-400/80 dark:hover:border-emerald-600/60 rounded-2xl bg-slate-50/50 dark:bg-slate-800/20 hover:bg-white dark:hover:bg-slate-800/50 flex flex-col sm:flex-row justify-between items-start gap-2.5 transition-all duration-200 cursor-pointer active:scale-[0.99] shadow-sm hover:shadow-md group"
-                                                        >
-                                                            <div className="space-y-1.5 min-w-0 flex-1 w-full">
-                                                                <div className="flex items-center justify-between sm:justify-start gap-2">
-                                                                    {sale.status === 'ANULADA' ? (
-                                                                        <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/60 flex items-center gap-1">
-                                                                            <AlertTriangle size={10} /> {getFormattedSaleCode(sale)} • ANULADA
-                                                                        </span>
-                                                                    ) : (
-                                                                        <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400">
-                                                                            {getFormattedSaleCode(sale)}
-                                                                        </span>
-                                                                    )}
-                                                                    <span className="text-[10px] text-slate-400 font-bold">{formatTime(sale.timestamp)}</span>
-                                                                    <div className="sm:hidden text-right">
-                                                                        <span className="font-outfit text-sm font-black text-slate-800 dark:text-white">${(sale.totalUsd || 0).toFixed(2)}</span>
-                                                                    </div>
-                                                                </div>
-                                                                <p className="text-xs font-black text-slate-800 dark:text-slate-100 leading-snug break-words pr-1">
-                                                                    {sale.items?.map(i => `${i.name} (x${i.qty})`).join(', ') || 'Venta de productos'}
-                                                                </p>
-                                                                <div className="flex items-center justify-between pt-1">
-                                                                    <div className="flex gap-2 items-center flex-wrap">
-                                                                        <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${getPaymentBadgeStyle(sale)}`}>
-                                                                            {getFormattedPaymentMethod(sale)}
-                                                                        </span>
-                                                                        {(() => {
-                                                                            const { changeUsd, changeBs, hasChange } = getSaleChangeDetails(sale);
-                                                                            if (!hasChange) return null;
-                                                                            return (
-                                                                                <span className="text-[9.5px] font-black uppercase px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1 shadow-xs">
-                                                                                    <RotateCcw size={10} />
-                                                                                    Vuelto: {changeUsd > 0 ? `$${changeUsd.toFixed(2)}` : `${formatBs(changeBs)} Bs`}
-                                                                                </span>
-                                                                            );
-                                                                        })()}
-                                                                        {sale.clientName && (
-                                                                            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">• {sale.clientName}</span>
-                                                                        )}
-                                                                    </div>
-                                                                    <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5 group-hover:translate-x-0.5 transition-transform">
-                                                                        Ver detalle <ChevronRight size={12} />
-                                                                    </span>
-                                                                </div>
-                                                            </div>
-                                                            <div className="hidden sm:block text-right space-y-0.5 shrink-0">
-                                                                <span className="font-outfit text-sm font-black text-slate-800 dark:text-white block">${(sale.totalUsd || 0).toFixed(2)}</span>
-                                                                <span className="font-outfit text-[10px] font-bold text-slate-400 block">{formatBs(getEffectiveSaleTotalBs(sale, products, effectiveRate, bcvRate))} Bs</span>
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Columna Derecha: Tarjeta Unificada de Alertas de Stock */}
-                                    <div className="space-y-6">
-                                        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/60 dark:border-slate-800 p-4 sm:p-5 shadow-sm space-y-4">
-                                            {/* Sub-pestañitas de Selección en la Cabecera */}
-                                            <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200/60 dark:border-slate-800">
-                                                <button
-                                                    onClick={() => { triggerHaptic?.(); setStockAlertTab('agotados'); }}
-                                                    className={`flex-1 py-2 px-2 rounded-xl text-[11px] sm:text-xs font-black transition-all flex items-center justify-center gap-1.5 whitespace-nowrap ${
-                                                        activeStockAlertTab === 'agotados'
-                                                            ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-xs'
-                                                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-                                                    }`}
-                                                >
-                                                    <Package size={14} className={activeStockAlertTab === 'agotados' ? "text-rose-500" : "text-slate-400"} />
-                                                    <span>Agotados</span>
-                                                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                                                        outOfStockProducts.length > 0
-                                                            ? 'bg-rose-500 text-white'
-                                                            : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-                                                    }`}>
-                                                        {outOfStockProducts.length}
-                                                    </span>
-                                                </button>
-
-                                                <button
-                                                    onClick={() => { triggerHaptic?.(); setStockAlertTab('critico'); }}
-                                                    className={`flex-1 py-2 px-2 rounded-xl text-[11px] sm:text-xs font-black transition-all flex items-center justify-center gap-1.5 whitespace-nowrap ${
-                                                        activeStockAlertTab === 'critico'
-                                                            ? 'bg-white dark:bg-slate-800 text-slate-850 dark:text-white shadow-xs'
-                                                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-                                                    }`}
-                                                >
-                                                    <AlertTriangle size={14} className={activeStockAlertTab === 'critico' ? "text-amber-500" : "text-slate-400"} />
-                                                    <span>Stock Crítico</span>
-                                                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                                                        lowStockProducts.length > 0
-                                                            ? 'bg-amber-500 text-white'
-                                                            : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-                                                    }`}>
-                                                        {lowStockProducts.length}
-                                                    </span>
-                                                </button>
-                                            </div>
-
-                                            {/* Contenido de la Sub-pestaña Seleccionada */}
-                                            {activeStockAlertTab === 'agotados' ? (
-                                                outOfStockProducts.length === 0 ? (
-                                                    <div className="py-6 text-center text-slate-400">
-                                                        <p className="text-xs font-black text-emerald-600">¡Sin productos agotados!</p>
-                                                        <p className="text-[10px] text-slate-400 mt-0.5">Todos los artículos tienen existencias.</p>
-                                                    </div>
-                                                ) : (
-                                                    <div className="space-y-2 max-h-60 overflow-y-auto scrollbar-hide pr-1">
-                                                        {outOfStockProducts.map(prod => (
-                                                            <div key={prod.id} className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800/80 last:border-0">
-                                                                <div className="min-w-0 pr-2">
-                                                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200 block truncate">{prod.name}</span>
-                                                                    <span className="font-outfit text-[10px] text-slate-400">Precio: ${(prod.priceUsd ?? prod.price ?? 0).toFixed(2)}</span>
-                                                                </div>
-                                                                <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 shrink-0">
-                                                                    Agotado
-                                                                </span>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                )
-                                            ) : (
-                                                lowStockProducts.length === 0 ? (
-                                                    <div className="py-6 text-center text-slate-400">
-                                                        <p className="text-xs font-black text-emerald-600">¡Niveles de stock óptimos!</p>
-                                                        <p className="text-[10px] text-slate-400 mt-0.5">No hay productos en nivel crítico.</p>
-                                                    </div>
-                                                ) : (
-                                                    <div className="space-y-2 max-h-60 overflow-y-auto scrollbar-hide pr-1">
-                                                        {lowStockProducts.map(prod => (
-                                                            <div key={prod.id} className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800/80 last:border-0">
-                                                                <div className="min-w-0 pr-2">
-                                                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200 block truncate">{prod.name}</span>
-                                                                    <span className="font-outfit text-[10px] text-slate-400">Precio: ${(prod.priceUsd ?? prod.price ?? 0).toFixed(2)}</span>
-                                                                </div>
-                                                                <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 shrink-0">
-                                                                    Quedan {prod.stock} uds.
-                                                                </span>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                )
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {/* ── SECCIÓN 2: CIERRES DE CAJA (HISTORIAL + DETALLE ARQUEO) ── */}
-                {viewTab === 'cierres' && (
-                    <div>
-                        {registerCloses.length === 0 ? (
-                            <div className="py-16 px-6 text-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm space-y-4 max-w-lg mx-auto flex flex-col items-center">
-                                <div className="p-4 bg-slate-50 dark:bg-slate-800/50 text-slate-450 rounded-full">
-                                    <ShieldCheck size={42} />
-                                </div>
-                                <div className="space-y-1">
-                                    <h4 className="text-sm font-black text-slate-800 dark:text-white">Sin cierres registrados</h4>
-                                    <p className="text-xs text-slate-400 leading-relaxed px-4">
-                                        Cuando el cajero complete un cierre de caja en el dispositivo principal, aparecerá el arqueo detallado, reporte contable y discrepancias aquí.
-                                    </p>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                                {/* Selector / Lista de Cierres */}
-                                <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 rounded-3xl p-5 shadow-sm h-fit space-y-4">
-                                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Historial de Cierres</span>
-                                    <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
-                                        {registerCloses.map(c => {
-                                            const dateObj = new Date(c.cierreId);
-                                            const isSelected = selectedCierreId === c.cierreId || (!selectedCierreId && registerCloses[0].cierreId === c.cierreId);
-                                            const isExportingThis = exportingCierreId === c.cierreId;
-                                            return (
-                                                <div
-                                                    key={c.cierreId}
-                                                    onClick={() => setSelectedCierreId(c.cierreId)}
-                                                    className={`w-full text-left p-3.5 rounded-2xl border transition-all flex items-center justify-between gap-3 cursor-pointer ${
-                                                        isSelected 
-                                                            ? 'bg-emerald-500/10 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-400' 
-                                                            : 'bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/40 dark:hover:bg-slate-800/80 border-slate-200/65 dark:border-slate-800/60 text-slate-600 dark:text-slate-300'
-                                                    }`}
-                                                >
-                                                    <div className="min-w-0 flex-1">
-                                                        <span className="text-xs font-black block truncate">
-                                                            Cierre #{c.cierreNumber || String(c.cierreId).slice(-4)}
-                                                        </span>
-                                                        <span className="text-[9px] text-slate-400 font-bold block mt-0.5">
-                                                            {dateObj.toLocaleDateString()} • {dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                        </span>
-                                                    </div>
-                                                    <div className="flex items-center gap-2 shrink-0">
-                                                        <span className="font-outfit text-xs font-black tabular-nums">${c.totalUsd.toFixed(2)}</span>
-                                                        <button
-                                                            onClick={(e) => handleDownloadCierrePDF(c, e)}
-                                                            disabled={isExportingThis}
-                                                            className="p-1.5 rounded-xl text-slate-400 hover:text-emerald-600 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/50 transition-colors disabled:opacity-50 active:scale-95"
-                                                            title="Descargar PDF de este Cierre"
-                                                        >
-                                                            <Download size={14} className={isExportingThis ? "animate-spin text-emerald-500" : ""} />
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-
-                                {/* Zona de Resumen del Cierre Seleccionado */}
-                                <div className="lg:col-span-2 space-y-6">
-                                    {(() => {
-                                        const activeC = registerCloses.find(c => c.cierreId === selectedCierreId) || registerCloses[0];
-                                        if (!activeC) return null;
-
-                                        const expectedUsd = activeC.reconData?.expectedUsd ?? activeC.totalUsd;
-                                        // Declarados
-                                        const declaredUsd = activeC.reconData?.cashUsd ?? null;
-                                        const declaredBs = activeC.reconData?.cashBs ?? null;
-                                        const declaredCop = activeC.reconData?.cashCop ?? null;
-                                        
-                                        const diffUsd = declaredUsd !== null ? declaredUsd - expectedUsd : null;
-                                        const isCuadrado = declaredUsd === null || Math.abs(diffUsd) <= 0.50;
-                                        const isExportingActive = exportingCierreId === activeC.cierreId;
-
-                                        return (
-                                            <div className="space-y-6 animate-fade-in">
-                                                {/* Header & Botón de Descarga PDF */}
-                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 p-4 rounded-3xl shadow-sm">
-                                                    <div>
-                                                        <h3 className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">
-                                                            <span>Cierre #{activeC.cierreNumber || String(activeC.cierreId).slice(-4)}</span>
-                                                            <span className="text-xs text-slate-400 font-medium">({new Date(activeC.timestamp).toLocaleDateString()} • {new Date(activeC.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})</span>
-                                                        </h3>
-                                                        <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Cajero: {activeC.cashier?.nombre || 'Cajero'}</p>
-                                                    </div>
-
-                                                    <button
-                                                        onClick={(e) => handleDownloadCierrePDF(activeC, e)}
-                                                        disabled={isExportingActive}
-                                                        className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-2xl shadow-sm transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer disabled:opacity-50"
-                                                    >
-                                                        <Download size={15} className={isExportingActive ? "animate-spin" : ""} />
-                                                        <span>{isExportingActive ? 'Generando PDF...' : 'Descargar PDF del Cierre'}</span>
-                                                    </button>
-                                                </div>
-
-                                                {/* Resumen Principal */}
-                                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                                                    <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/60 dark:border-slate-800 shadow-sm">
-                                                        <span className="text-[9px] font-black uppercase text-slate-400">Total USD</span>
-                                                        <strong className="font-outfit text-base sm:text-lg font-black text-slate-800 dark:text-white block mt-1">${activeC.totalUsd.toFixed(2)}</strong>
-                                                    </div>
-                                                    <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/60 dark:border-slate-800 shadow-sm">
-                                                        <span className="text-[9px] font-black uppercase text-slate-400">Total Bs</span>
-                                                        <strong className="font-outfit text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 block mt-1">{formatBs(activeC.totalBs)} Bs</strong>
-                                                    </div>
-                                                    <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/60 dark:border-slate-800 shadow-sm">
-                                                        <span className="text-[9px] font-black uppercase text-slate-400">Cajero</span>
-                                                        <strong className="text-xs font-black text-slate-700 dark:text-slate-200 block truncate mt-1">{activeC.cashier?.nombre || 'Cajero'}</strong>
-                                                    </div>
-                                                    <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/60 dark:border-slate-800 shadow-sm">
-                                                        <span className="text-[9px] font-black uppercase text-slate-400">Arqueo Físico</span>
-                                                        <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md inline-block mt-1 ${
-                                                            declaredUsd === null 
-                                                                ? 'bg-slate-100 dark:bg-slate-800 text-slate-500' 
-                                                                : isCuadrado 
-                                                                    ? 'bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400' 
-                                                                    : 'bg-amber-100 dark:bg-amber-955/30 text-amber-700 dark:text-amber-400 animate-pulse'
-                                                        }`}>
-                                                            {declaredUsd === null ? 'Sin Declarar' : isCuadrado ? 'Cuadrado' : 'Diferencia'}
-                                                        </span>
-                                                    </div>
-                                                </div>
-
-                                                {/* Botón de Acción Remota: Reabrir / Restaurar Turno (Solo visible si la caja está cerrada) */}
-                                                {!shiftStatusInfo.isOpen && (
-                                                    <div className="flex items-center justify-between bg-amber-50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 p-4 rounded-2xl">
-                                                        <div>
-                                                            <h4 className="text-xs font-black text-amber-900 dark:text-amber-400">¿Cierre accidental o error de turno?</h4>
-                                                            <p className="text-[10px] text-amber-700 dark:text-amber-500 font-medium">Reabre este turno en la caja para continuar registrando ventas en él.</p>
-                                                        </div>
-                                                        <button
-                                                            onClick={() => handleReopenRemoteShift(activeC.cierreId)}
-                                                            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
-                                                        >
-                                                            <Unlock size={14} />
-                                                            Reabrir Turno
-                                                        </button>
-                                                    </div>
-                                                )}
-
-                                                {/* Arqueo Detallado de Efectivo */}
-                                                <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/60 dark:border-slate-800 p-5 shadow-sm">
-                                                    <h3 className="text-xs font-black text-slate-800 dark:text-white mb-4 uppercase tracking-wider">Cuadre de Efectivo</h3>
-                                                    
-                                                    {declaredUsd === null ? (
-                                                        <div className="py-6 px-4 bg-amber-50/50 dark:bg-amber-950/10 border border-amber-100 dark:border-amber-900/30 rounded-2xl text-center">
-                                                            <AlertTriangle size={24} className="text-amber-500 mx-auto mb-1.5" />
-                                                            <p className="text-xs font-black text-amber-800 dark:text-amber-400">Cierre simplificado sin arqueo</p>
-                                                            <p className="text-[10px] text-slate-500 mt-0.5">El cajero completó el cierre de caja sin declarar el saldo físico.</p>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden text-xs">
-                                                            <div className="grid grid-cols-4 gap-2 px-4 py-2 bg-slate-50 dark:bg-slate-850/50 text-[10px] font-black text-slate-400 uppercase border-b border-slate-150 dark:border-slate-800">
-                                                                <span>Moneda</span>
-                                                                <span className="text-center">Esperado</span>
-                                                                <span className="text-center">Declarado</span>
-                                                                <span className="text-right">Diferencia</span>
-                                                            </div>
-
-                                                            {/* USD Row */}
-                                                            <div className="grid grid-cols-4 gap-2 px-4 py-3 border-b border-slate-100 dark:border-slate-800 items-center">
-                                                                <span className="font-bold text-slate-700 dark:text-slate-200">Dólares ($)</span>
-                                                                <span className="font-outfit font-mono text-slate-400 text-center">${expectedUsd.toFixed(2)}</span>
-                                                                <span className="font-outfit font-mono font-black text-slate-700 dark:text-white text-center">${declaredUsd.toFixed(2)}</span>
-                                                                <span className={`font-outfit font-mono font-black text-right ${
-                                                                    diffUsd === 0 ? 'text-slate-400' : diffUsd > 0 ? 'text-emerald-600' : 'text-rose-600'
-                                                                }`}>
-                                                                    {diffUsd > 0 ? '+' : ''}{diffUsd.toFixed(2)}
-                                                                </span>
-                                                            </div>
-
-                                                            {/* Bs Row */}
-                                                            <div className="grid grid-cols-4 gap-2 px-4 py-3 border-b border-slate-100 dark:border-slate-800 items-center">
-                                                                <span className="font-bold text-slate-700 dark:text-slate-200">Bolívares (Bs)</span>
-                                                                <span className="font-outfit font-mono text-slate-400 text-center">{formatBs(activeC.reconData?.expectedBs || 0)}</span>
-                                                                <span className="font-outfit font-mono font-black text-slate-700 dark:text-white text-center">{formatBs(declaredBs)}</span>
-                                                                <span className={`font-outfit font-mono font-black text-right ${
-                                                                    (declaredBs - (activeC.reconData?.expectedBs || 0)) === 0 
-                                                                        ? 'text-slate-400' 
-                                                                        : (declaredBs - (activeC.reconData?.expectedBs || 0)) > 0 
-                                                                            ? 'text-emerald-600' 
-                                                                            : 'text-rose-600'
-                                                                }`}>
-                                                                    {(declaredBs - (activeC.reconData?.expectedBs || 0)) > 0 ? '+' : ''}
-                                                                    {formatBs(declaredBs - (activeC.reconData?.expectedBs || 0))}
-                                                                </span>
-                                                            </div>
-
-                                                            {/* COP Row si aplica */}
-                                                            {activeC.reconData?.expectedCop > 0 && (
-                                                                <div className="grid grid-cols-4 gap-2 px-4 py-3 items-center">
-                                                                    <span className="font-bold text-slate-700 dark:text-slate-200">Pesos (COP)</span>
-                                                                    <span className="font-outfit font-mono text-slate-400 text-center">{(activeC.reconData.expectedCop).toLocaleString()}</span>
-                                                                    <span className="font-outfit font-mono font-black text-slate-700 dark:text-white text-center">{(declaredCop).toLocaleString()}</span>
-                                                                    <span className={`font-outfit font-mono font-black text-right ${
-                                                                        (declaredCop - activeC.reconData.expectedCop) === 0 
-                                                                            ? 'text-slate-400' 
-                                                                            : (declaredCop - activeC.reconData.expectedCop) > 0 
-                                                                                ? 'text-emerald-600' 
-                                                                                : 'text-rose-600'
-                                                                    }`}>
-                                                                        {(declaredCop - activeC.reconData.expectedCop) > 0 ? '+' : ''}
-                                                                        {(declaredCop - activeC.reconData.expectedCop).toLocaleString()}
-                                                                    </span>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                {/* Desglose de Métodos de Pago */}
-                                                <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/60 dark:border-slate-800 p-5 shadow-sm">
-                                                    <h3 className="text-xs font-black text-slate-800 dark:text-white mb-4 uppercase tracking-wider">Desglose de Ingresos</h3>
-                                                    <div className="space-y-2.5">
-                                                        {activeC.paymentBreakdown.map(([methodId, data]) => {
-                                                            const IconComp = getMethodIcon(methodId);
-                                                            const pct = activeC.totalUsd > 0 ? Math.round((data.totalUsd / activeC.totalUsd) * 100) : 0;
-                                                            return (
-                                                                <div key={methodId} className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-800 rounded-2xl">
-                                                                    <div className="w-8 h-8 bg-white dark:bg-slate-800 border border-slate-150 dark:border-slate-700 rounded-lg flex items-center justify-center text-slate-500 dark:text-slate-400 shrink-0">
-                                                                        <IconComp size={14} />
-                                                                    </div>
-                                                                    <div className="flex-1 min-w-0">
-                                                                        <div className="flex items-center justify-between text-xs">
-                                                                            <span className="font-black text-slate-700 dark:text-slate-200">{data.label}</span>
-                                                                            <span className="font-outfit font-black text-slate-800 dark:text-white">${data.totalUsd.toFixed(2)}</span>
-                                                                        </div>
-                                                                        <div className="flex items-center justify-between text-[10px] text-slate-400 mt-0.5">
-                                                                            <span>{data.count} tx • {pct}%</span>
-                                                                            <span className="font-outfit">{formatBs(data.totalBs)} Bs</span>
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </div>
-
-                                                {/* Ventas del Cierre */}
-                                                <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/60 dark:border-slate-800 p-6 shadow-sm">
-                                                    <h3 className="text-xs font-black text-slate-800 dark:text-white mb-4 uppercase tracking-wider">Ventas Cerradas en este Turno</h3>
-                                                    <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
-                                                        {activeC.sales.slice().sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).map(sale => {
-                                                            const isVoided = sale.status === 'ANULADA';
-                                                            return (
-                                                                <div 
-                                                                    key={sale.id}
-                                                                    onClick={() => { triggerHaptic?.(); setSelectedSaleDetail(sale); }}
-                                                                    className={`p-3.5 border rounded-2xl flex flex-col sm:flex-row justify-between items-start gap-2.5 transition-all duration-200 cursor-pointer active:scale-[0.99] shadow-sm hover:shadow-md group ${
-                                                                        isVoided 
-                                                                            ? 'border-rose-200/80 dark:border-rose-900/50 bg-rose-50/40 dark:bg-rose-950/20 opacity-80 hover:bg-rose-50/80 dark:hover:bg-rose-950/40' 
-                                                                            : 'border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20 hover:bg-white dark:hover:bg-slate-800/50'
-                                                                    }`}
-                                                                >
-                                                                    <div className="min-w-0 flex-1 w-full space-y-1">
-                                                                        <div className="flex items-center justify-between sm:justify-start gap-2">
-                                                                            {isVoided ? (
-                                                                                <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900/60 flex items-center gap-1">
-                                                                                    <AlertTriangle size={9} /> {getFormattedSaleCode(sale)} • ANULADA
-                                                                                </span>
-                                                                            ) : (
-                                                                                <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800/40">
-                                                                                    {getFormattedSaleCode(sale)}
-                                                                                </span>
-                                                                            )}
-                                                                            <span className="text-[9px] text-slate-400 font-bold">{formatTime(sale.timestamp)}</span>
-                                                                            <div className="sm:hidden text-right">
-                                                                                <span className={`font-outfit font-black ${isVoided ? 'text-rose-600 dark:text-rose-400 line-through' : 'text-slate-850 dark:text-white'}`}>
-                                                                                    ${(sale.totalUsd || 0).toFixed(2)}
-                                                                                </span>
-                                                                            </div>
-                                                                        </div>
-                                                                        <p className={`font-black leading-snug break-words pr-1 text-xs ${isVoided ? 'text-slate-600 dark:text-slate-400 line-through' : 'text-slate-850 dark:text-slate-100'}`}>
-                                                                            {sale.items?.map(i => `${i.name} (x${i.qty})`).join(', ') || 'Venta de productos'}
-                                                                        </p>
-                                                                        <div className="flex items-center justify-between pt-1">
-                                                                            <div className="flex gap-2 items-center flex-wrap">
-                                                                                <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md ${isVoided ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-200/60' : getPaymentBadgeStyle(sale)}`}>
-                                                                                    {isVoided ? 'ANULADA' : getFormattedPaymentMethod(sale)}
-                                                                                </span>
-                                                                                {!isVoided && (() => {
-                                                                                     const { changeUsd, changeBs, hasChange } = getSaleChangeDetails(sale);
-                                                                                     if (!hasChange) return null;
-                                                                                     return (
-                                                                                         <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1 shadow-xs">
-                                                                                             <RotateCcw size={9} />
-                                                                                             Vuelto: {changeUsd > 0 ? `$${changeUsd.toFixed(2)}` : `${formatBs(changeBs)} Bs`}
-                                                                                         </span>
-                                                                                     );
-                                                                                 })()}
-                                                                                {sale.clientName && (
-                                                                                    <span className="text-[9px] text-slate-500 dark:text-slate-400 font-bold">• {sale.clientName}</span>
-                                                                                )}
-                                                                            </div>
-                                                                            <span className={`text-[9px] font-black flex items-center gap-0.5 group-hover:translate-x-0.5 transition-transform ${isVoided ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                                                                                Ver detalle <ChevronRight size={11} />
-                                                                            </span>
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="hidden sm:block text-right shrink-0 space-y-0.5">
-                                                                        <span className={`font-outfit font-black block ${isVoided ? 'text-rose-600 dark:text-rose-400 line-through' : 'text-slate-850 dark:text-white'}`}>
-                                                                            ${(sale.totalUsd || 0).toFixed(2)}
-                                                                        </span>
-                                                                        <span className={`font-outfit text-[9px] block ${isVoided ? 'text-rose-400/80 line-through' : 'text-slate-400'}`}>
-                                                                            {formatBs(sale.totalBs || 0)} Bs
-                                                                        </span>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        );
-                                    })()}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {/* ── SECCIÓN 3: INVENTARIO EN TIEMPO REAL ── */}
-                {viewTab === 'inventario' && (
-                    <div className="space-y-6 animate-fade-in">
-                        {/* Fila de Resumen de Inventario */}
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                            {/* Total Productos */}
-                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800/80 shadow-sm flex flex-col justify-between min-h-[90px] sm:min-h-[110px]">
-                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">Total Artículos</span>
-                                <div className="flex items-end justify-between mt-1">
-                                    <span className="font-outfit text-xl sm:text-2xl font-black text-slate-800 dark:text-white tabular-nums leading-none">
-                                        {inventoryMetrics.count}
-                                    </span>
-                                    <span className="text-[10px] text-slate-400 font-bold">{inventoryMetrics.totalQty} unds</span>
-                                </div>
-                            </div>
-
-                            {/* Valorización Costo */}
-                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800/80 shadow-sm flex flex-col justify-between min-h-[90px] sm:min-h-[110px]">
-                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">Valor Inventario (Costo)</span>
-                                <div className="flex items-end justify-between mt-1">
-                                    <span className="font-outfit text-xl sm:text-2xl font-black text-slate-800 dark:text-white tabular-nums leading-none">
-                                        ${inventoryMetrics.totalCost.toFixed(2)}
-                                    </span>
-                                </div>
-                            </div>
-
-                            {/* Valorización Venta */}
-                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800/80 shadow-sm flex flex-col justify-between min-h-[90px] sm:min-h-[110px]">
-                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">Valor Estimado (Venta)</span>
-                                <div className="flex items-end justify-between mt-1">
-                                    <span className="font-outfit text-xl sm:text-2xl font-black text-slate-800 dark:text-white tabular-nums leading-none">
-                                        ${inventoryMetrics.totalRetail.toFixed(2)}
-                                    </span>
-                                </div>
-                            </div>
-
-                            {/* Ganancia Potencial */}
-                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800/80 shadow-sm flex flex-col justify-between min-h-[90px] sm:min-h-[110px]">
-                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">Ganancia en Stock</span>
-                                <div className="flex items-end justify-between mt-1">
-                                    <span className="font-outfit text-xl sm:text-2xl font-black text-blue-600 dark:text-blue-400 tabular-nums leading-none">
-                                        ${inventoryMetrics.expectedProfit.toFixed(2)}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Banner de Comandos Subidos Pendientes de Aplicar por la Caja */}
-                        {cloudPendingCmds.length > 0 && (
-                            <div className="bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-purple-500/10 border border-amber-300/70 dark:border-amber-700/60 p-3.5 sm:p-4 rounded-3xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-xs animate-fade-in">
-                                <div className="flex items-center gap-3 min-w-0">
-                                    <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center font-black shrink-0">
-                                        <Clock size={20} className="animate-pulse" />
-                                    </div>
-                                    <div className="min-w-0">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <h4 className="text-xs sm:text-sm font-black text-slate-800 dark:text-white">
-                                                {cloudPendingCmds.length} cambio{cloudPendingCmds.length !== 1 ? 's' : ''} subido{cloudPendingCmds.length !== 1 ? 's' : ''} a la nube
-                                            </h4>
-                                            <span className="text-[9.5px] font-black uppercase px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-200">
-                                                En espera de la caja
-                                            </span>
-                                        </div>
-                                        <p className="text-[10.5px] text-slate-500 dark:text-slate-400 font-medium mt-0.5 truncate">
-                                            Se aplicarán automáticamente apenas la caja principal se conecte. Puedes anularlos si lo deseas.
-                                        </p>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-2 shrink-0">
-                                    <button
-                                        onClick={() => { triggerHaptic?.(); setShowCloudPendingModal(true); }}
-                                        className="flex-1 sm:flex-none px-3.5 py-2.5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-black text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer"
-                                    >
-                                        Ver lista ({cloudPendingCmds.length})
-                                    </button>
-                                    <button
-                                        onClick={() => { triggerHaptic?.(); cancelAllCloudCmds(); }}
-                                        className="flex-1 sm:flex-none px-3.5 py-2.5 rounded-2xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-black uppercase tracking-wider shadow-md shadow-rose-500/25 transition-all active:scale-95 cursor-pointer"
-                                    >
-                                        Anular Todos 🚫
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Barra de Filtro y Búsqueda */}
-                        <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col md:flex-row gap-3 sm:gap-4 items-stretch md:items-center justify-between">
-                            {/* Top row on mobile: Botones de Acción (Producto / Combo) + Input de Búsqueda */}
-                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 flex-1">
-                                <div className="flex items-center gap-2 shrink-0">
-                                    <button
-                                        onClick={() => { triggerHaptic?.(); setRemoteEditingProduct(null); setShowRemoteForm(true); }}
-                                        className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-2xl bg-brand hover:bg-brand-dark text-white text-[10px] sm:text-xs font-black uppercase tracking-wider shadow-md shadow-brand/20 transition-all active:scale-95 cursor-pointer"
-                                        title="Crear un nuevo producto individual"
-                                    >
-                                        <Plus size={14} strokeWidth={3} /> Producto
-                                    </button>
-                                    <button
-                                        onClick={() => { triggerHaptic?.(); setEditingCombo(null); setShowComboModal(true); }}
-                                        className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-[10px] sm:text-xs font-black uppercase tracking-wider shadow-md shadow-purple-500/25 transition-all active:scale-95 cursor-pointer"
-                                        title="Crear un nuevo combo promocional o modular"
-                                    >
-                                        <Sparkles size={14} /> Combo
-                                    </button>
-                                </div>
-                                {/* Input de Búsqueda */}
-                                <div className="relative flex-1">
-                                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-450">
-                                        <Search size={14} />
-                                    </span>
-                                    <input
-                                        type="text"
-                                        placeholder="Buscar producto por nombre o código..."
-                                        value={searchTermInventario}
-                                        onChange={(e) => setSearchTermInventario(e.target.value)}
-                                        className="w-full pl-10 pr-8 py-2.5 text-xs rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500/70 transition-colors"
-                                    />
-                                    {searchTermInventario && (
-                                        <button 
-                                            onClick={() => setSearchTermInventario('')}
-                                            className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-650"
-                                        >
-                                            <X size={14} />
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Filtro de Segmentación de Stock - Scrollable horizontalmente en móvil */}
-                            <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200/60 dark:border-slate-850 overflow-x-auto w-full md:w-auto shrink-0 shadow-inner custom-scrollbar">
-                                <button
-                                    onClick={() => { triggerHaptic?.(); setFilterStockInventario('todos'); }}
-                                    className={`px-3 py-1.5 text-[10px] sm:text-xs font-black rounded-xl transition-all whitespace-nowrap ${
-                                        filterStockInventario === 'todos'
-                                            ? 'bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm'
-                                            : 'text-slate-450 hover:text-slate-650 dark:hover:text-slate-350'
-                                    }`}
-                                >
-                                    Todos ({inventoryMetrics.count})
-                                </button>
-                                <button
-                                    onClick={() => { triggerHaptic?.(); setFilterStockInventario('bajo'); }}
-                                    className={`px-3 py-1.5 text-[10px] sm:text-xs font-black rounded-xl transition-all flex items-center gap-1 whitespace-nowrap ${
-                                        filterStockInventario === 'bajo'
-                                            ? 'bg-amber-500 text-white shadow-sm'
-                                            : 'text-amber-600 dark:text-amber-400 hover:text-amber-700'
-                                    }`}
-                                >
-                                    Bajo Stock ({inventoryMetrics.lowStockCount})
-                                </button>
-                                <button
-                                    onClick={() => { triggerHaptic?.(); setFilterStockInventario('agotado'); }}
-                                    className={`px-3 py-1.5 text-[10px] sm:text-xs font-black rounded-xl transition-all flex items-center gap-1 whitespace-nowrap ${
-                                        filterStockInventario === 'agotado'
-                                            ? 'bg-rose-500 text-white shadow-sm'
-                                            : 'text-rose-600 dark:text-rose-400 hover:text-rose-700'
-                                    }`}
-                                >
-                                    Agotados ({inventoryMetrics.outOfStockCount})
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Listado de Productos (Fichas separadas e independientes con borde y margen claro) */}
-                        <div>
-                            {filteredProducts.length === 0 ? (
-                                <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/60 dark:border-slate-800 py-16 text-center text-slate-400 flex flex-col items-center justify-center space-y-3 shadow-sm">
-                                    <div className="p-4 bg-slate-50 dark:bg-slate-800/50 text-slate-300 dark:text-slate-600 rounded-full">
-                                        <Package size={36} />
-                                    </div>
-                                    <div className="space-y-0.5">
-                                        <p className="text-xs font-black text-slate-700 dark:text-slate-200">No se encontraron productos</p>
-                                        <p className="text-[10px] text-slate-450">Intenta buscando con otro término o cambiando los filtros.</p>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="space-y-3.5 sm:space-y-4">
-                                    {paginatedProducts.map((p) => {
-                                        const stock = p.stock || 0;
-                                        const minStock = p.minStock || 5;
-                                        const isAgotado = stock <= 0;
-                                        const isBajo = !isAgotado && stock <= minStock;
-                                        const itemCost = p._effectiveCost ?? (p.costUsd || p.costPrice || 0);
-                                        const profitUsd = Math.max(0, p.priceUsd - itemCost);
-                                        const profitPct = p.priceUsd > 0 ? Math.round((profitUsd / p.priceUsd) * 100) : 0;
-                                        const isComboProd = p.isCombo || p.type === 'combo' || p._isCombo;
-
-                                        return (
-                                            <div
-                                                key={p.id}
-                                                className="bg-white dark:bg-slate-900 rounded-3xl border-2 border-slate-200/90 dark:border-slate-800 p-4 sm:p-5 shadow-sm hover:shadow-md hover:border-brand/40 dark:hover:border-brand/40 transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative overflow-hidden group pl-5 sm:pl-6"
-                                            >
-                                                {/* Borde acentuado izquierdo para inicio de ficha claro */}
-                                                <div className={`absolute top-0 left-0 bottom-0 w-2 ${
-                                                    isAgotado
-                                                        ? 'bg-rose-500'
-                                                        : isBajo
-                                                            ? 'bg-amber-500'
-                                                            : 'bg-emerald-500'
-                                                }`} />
-
-                                                {/* Izquierda: Info de Producto */}
-                                                <div className="flex-1 min-w-0 space-y-1.5">
-                                                    <div className="flex items-center gap-2 flex-wrap">
-                                                        <h4 className="text-sm sm:text-base font-black text-slate-900 dark:text-white uppercase leading-snug tracking-tight">{p.name}</h4>
-                                                        <span className={`text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg shadow-2xs ${
-                                                            isAgotado
-                                                                ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
-                                                                : isBajo
-                                                                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
-                                                                    : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
-                                                        }`}>
-                                                            {isAgotado ? 'Agotado' : isBajo ? 'Bajo Stock' : 'Disponible'}
-                                                        </span>
-                                                        {p.sellByBox && (
-                                                            <span className="text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                                                                📦 Caja{p.boxUnits ? ` ×${p.boxUnits}` : ''}
-                                                            </span>
-                                                        )}
-                                                        {p.sellByHalfBox && (
-                                                            <span className="text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
-                                                                ½ Caja{p.halfBoxUnits ? ` ×${p.halfBoxUnits}` : ''}
-                                                            </span>
-                                                        )}
-                                                        {p._isRecentlyConfirmed && (
-                                                            <span className="inline-flex items-center gap-1 text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 animate-in fade-in zoom-in-95 duration-200 shadow-2xs">
-                                                                <span>✓ Confirmado</span>
-                                                            </span>
-                                                        )}
-                                                        {p._isInFlight && !p._isRecentlyConfirmed && (
-                                                            <span className="inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-200 border border-blue-300 dark:border-blue-700 animate-pulse transition-all shadow-2xs">
-                                                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0 animate-ping" />
-                                                                <span className="hidden sm:inline">⏳ Sincronizando con caja...</span>
-                                                                <span className="sm:hidden">⏳ Sincronizando</span>
-                                                            </span>
-                                                        )}
-                                                        {(p._isLocalPending || p._isQueuedNew || p._isQueuedEdit || hasPendingFor(p.id)) && !p._isInFlight && !p._isRecentlyConfirmed && (
-                                                            <span className="inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-amber-100/90 text-amber-800 dark:bg-amber-950/80 dark:text-amber-200 border border-amber-300/80 dark:border-amber-700 transition-all shadow-2xs">
-                                                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
-                                                                <span className="hidden sm:inline">⏳ En cola local (Sin subir)</span>
-                                                                <span className="sm:hidden">⏳ En cola local</span>
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                    <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 font-bold flex-wrap">
-                                                        {p.barcode && (
-                                                            <span className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md text-[11px]">
-                                                                <Hash size={12} className="text-slate-400" /> {p.barcode}
-                                                            </span>
-                                                        )}
-                                                        <span>Categoría: <strong className="text-slate-700 dark:text-slate-200">{
-                                                            (categories || []).find(c => c.id === p.category)?.label || toTitleCase(p.category || 'Varios')
-                                                        }</strong></span>
-                                                    </div>
-                                                </div>
-
-                                                {/* Derecha: Valores y Stock (Responsivo: apilado en móvil, horizontal en desktop) */}
-                                                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between lg:justify-end gap-3 sm:gap-5 pt-3 lg:pt-0 border-t border-slate-100 dark:border-slate-800 lg:border-t-0 shrink-0">
-                                                    {/* Costo, Venta, Margen */}
-                                                    <div className="grid grid-cols-3 gap-3 sm:gap-5 text-left sm:text-right bg-slate-50 dark:bg-slate-950/80 p-3 lg:p-2.5 rounded-2xl border border-slate-200/60 dark:border-slate-800">
-                                                        {/* Costo */}
-                                                        <div>
-                                                            <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-black tracking-wider block mb-0.5">Costo</span>
-                                                            <span className="font-outfit text-sm sm:text-base font-black text-slate-700 dark:text-slate-200 tabular-nums">${itemCost.toFixed(2)}</span>
-                                                        </div>
-                                                        {/* Venta */}
-                                                        <div>
-                                                            <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-black tracking-wider block mb-0.5">Venta (USD/Bs)</span>
-                                                            <span className="font-outfit text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 tabular-nums block">${p.priceUsd.toFixed(2)}</span>
-                                                            <span className="font-outfit text-xs font-bold text-slate-600 dark:text-slate-300 block tabular-nums leading-tight mt-0.5">
-                                                                {(() => {
-                                                                    const { unitPriceBs } = calculatePricing(p, effectiveRate, bcvRate);
-                                                                    return unitPriceBs > 0 ? `${formatBs(unitPriceBs)} Bs` : 'N/D';
-                                                                })()}
-                                                            </span>
-                                                        </div>
-                                                        {/* Ganancia */}
-                                                        <div>
-                                                            <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-black tracking-wider block mb-0.5">Ganancia</span>
-                                                            <span className="font-outfit text-sm sm:text-base font-black text-blue-600 dark:text-blue-400 tabular-nums block">${profitUsd.toFixed(2)}</span>
-                                                            <span className="text-[10px] text-blue-500 dark:text-blue-300 block font-extrabold leading-none mt-0.5">+{profitPct}%</span>
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Controles de Stock y Acciones */}
-                                                    <div className="flex items-center justify-between sm:justify-end gap-3">
-                                                        {/* Botones +/- y Badge de Stock */}
-                                                        {isComboProd ? (
-                                                            <div 
-                                                                title="El stock de los combos es dinámico y se calcula automáticamente en función del stock disponible de sus insumos componentes."
-                                                                className="relative px-3 py-2 rounded-2xl border border-purple-200/80 bg-purple-50/80 dark:bg-purple-950/50 dark:border-purple-900/60 text-purple-700 dark:text-purple-300 shadow-2xs flex items-center gap-2 cursor-help"
-                                                            >
-                                                                <div className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
-                                                                <div>
-                                                                    <span className="text-[9px] uppercase font-black block leading-none mb-0.5 opacity-90">
-                                                                        Combo • Auto
-                                                                    </span>
-                                                                    <span className="font-outfit text-sm font-black tabular-nums leading-none">
-                                                                        {stock} u <span className="text-[9px] font-bold opacity-75">(Dinámico)</span>
-                                                                    </span>
-                                                                </div>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="flex items-center gap-1.5">
-                                                                <button
-                                                                    onClick={() => { triggerHaptic?.(); queueInventoryChange('adjust_stock', p.id, { delta: -1 }); }}
-                                                                    title="Restar 1 unidad (en cola)"
-                                                                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-rose-600 hover:border-rose-300 dark:hover:text-rose-400 shadow-2xs transition-all active:scale-90 cursor-pointer"
-                                                                >
-                                                                    <MinusCircle size={16} />
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => { triggerHaptic?.(); setStockAdjustProduct(p); }}
-                                                                    title="Toca para ingresar stock (+40, -10) o fijar cantidad exacta"
-                                                                    className={`relative min-w-[85px] sm:min-w-[95px] text-center py-2 px-2.5 rounded-2xl border-2 transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-xs ${
-                                                                        isAgotado
-                                                                            ? 'bg-rose-50 border-rose-300 text-rose-700 dark:bg-rose-950/40 dark:border-rose-800 dark:text-rose-300 hover:border-rose-400'
-                                                                            : isBajo
-                                                                                ? 'bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300 hover:border-amber-400'
-                                                                                : 'bg-white border-slate-200 text-slate-800 dark:bg-slate-850 dark:border-slate-700 dark:text-slate-100 hover:border-emerald-400 hover:bg-emerald-50/30'
-                                                                    }`}
-                                                                >
-                                                                    <span className="text-[9px] uppercase font-black block leading-none mb-1 text-slate-500 dark:text-slate-400 flex items-center justify-center gap-0.5">
-                                                                        Stock <Pencil size={8} />
-                                                                    </span>
-                                                                    <span className="font-outfit text-sm font-black tabular-nums leading-none">
-                                                                        {p.isWeight ? `${stock.toFixed(3)} Kg` : `${stock} u`}
-                                                                    </span>
-                                                                    {p.sellByBox && p.boxUnits > 0 && !p.isWeight && (
-                                                                        <span className="text-[8px] font-bold block leading-none mt-1 text-slate-500 dark:text-slate-400 truncate">
-                                                                            ≈ {(stock / p.boxUnits).toFixed(1)} cj
-                                                                        </span>
-                                                                    )}
-                                                                    {pendingStockDelta(p.id) !== 0 && (
-                                                                        <span className={`absolute -top-2 -right-2 px-2 py-0.5 rounded-full text-[9px] font-black text-white shadow-md ${pendingStockDelta(p.id) > 0 ? 'bg-emerald-600' : 'bg-rose-600'}`}>
-                                                                            {pendingStockDelta(p.id) > 0 ? '+' : ''}{pendingStockDelta(p.id)}
-                                                                        </span>
-                                                                    )}
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => { triggerHaptic?.(); queueInventoryChange('adjust_stock', p.id, { delta: 1 }); }}
-                                                                    title="Sumar 1 unidad (en cola)"
-                                                                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-emerald-600 hover:border-emerald-300 dark:hover:text-emerald-400 shadow-2xs transition-all active:scale-90 cursor-pointer"
-                                                                >
-                                                                    <PlusCircle size={16} />
-                                                                </button>
-                                                            </div>
-                                                        )}
-
-                                                        {/* Botones Editar / Eliminar horizontales */}
-                                                        <div className="flex items-center gap-2 ml-1">
-                                                            {isComboProd ? (
-                                                                <button
-                                                                    onClick={() => { triggerHaptic?.(); setEditingCombo(p); setShowComboModal(true); }}
-                                                                    title="Editar combo (en cola)"
-                                                                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 flex items-center justify-center text-purple-600 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/60 shadow-2xs transition-all active:scale-90 cursor-pointer"
-                                                                >
-                                                                    <Pencil size={15} />
-                                                                </button>
-                                                            ) : (
-                                                                <button
-                                                                    onClick={() => { triggerHaptic?.(); setRemoteEditingProduct(p); setShowRemoteForm(true); }}
-                                                                    title="Editar producto (en cola)"
-                                                                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-brand hover:border-brand/40 shadow-2xs transition-all active:scale-90 cursor-pointer"
-                                                                >
-                                                                    <Pencil size={15} />
-                                                                </button>
-                                                            )}
-                                                            <button
-                                                                onClick={() => { triggerHaptic?.(); setRemoteDeleteTarget(p); }}
-                                                                title="Eliminar (en cola)"
-                                                                className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-rose-600 hover:border-rose-300 dark:hover:text-rose-400 shadow-2xs transition-all active:scale-90 cursor-pointer"
-                                                            >
-                                                                <Trash2 size={15} />
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Controles de Paginación */}
-                        {totalPagesInventario > 1 && (
-                            <div className="flex items-center justify-between bg-white dark:bg-slate-900 px-4 py-3 sm:px-6 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm mt-4">
-                                <button
-                                    onClick={() => {
-                                        if (currentPageInventario > 1) {
-                                            triggerHaptic?.();
-                                            setCurrentPageInventario(prev => prev - 1);
-                                        }
-                                    }}
-                                    disabled={currentPageInventario === 1}
-                                    className="p-2 rounded-xl text-slate-500 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-slate-800 dark:hover:text-emerald-450 border border-slate-200 dark:border-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors duration-150"
-                                >
-                                    <ChevronLeft size={16} />
-                                </button>
-
-                                <span className="text-xs font-black text-slate-500 dark:text-slate-400">
-                                    Página {currentPageInventario} de {totalPagesInventario}
-                                    <span className="text-[10px] text-slate-450 font-medium ml-2">
-                                        ({filteredProducts.length} productos)
-                                    </span>
-                                </span>
-
-                                <button
-                                    onClick={() => {
-                                        if (currentPageInventario < totalPagesInventario) {
-                                            triggerHaptic?.();
-                                            setCurrentPageInventario(prev => prev + 1);
-                                        }
-                                    }}
-                                    disabled={currentPageInventario === totalPagesInventario}
-                                    className="p-2 rounded-xl text-slate-500 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-slate-800 dark:hover:text-emerald-450 border border-slate-200 dark:border-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors duration-150"
-                                >
-                                    <ChevronRight size={16} />
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {/* ── SECCIÓN 4: KARDEX REMOTO BAJO DEMANDA ── */}
-                {viewTab === 'kardex' && (
-                    <RemoteKardexPanel
-                        deviceId={pairedDeviceId}
-                        triggerHaptic={triggerHaptic}
-                    />
-                )}
-
-                {/* ── SECCIÓN 5: HISTORIAL Y GESTIÓN DEDICADA DE CAMBIOS ── */}
-                {viewTab === 'cambios' && (
-                    <div className="space-y-6 animate-fade-in">
-                        {/* Tarjetas resumen de estado de cambios */}
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                            {/* Cola Local (Sin Subir) */}
-                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col justify-between min-h-[90px] sm:min-h-[110px]">
-                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">Cola Local (Sin Subir)</span>
-                                <div className="flex items-end justify-between mt-2">
-                                    <span className="font-outfit text-xl sm:text-2xl font-black text-blue-600 dark:text-blue-400 tabular-nums leading-none">
-                                        {pendingChanges.length}
-                                    </span>
-                                    <span className="text-[10px] text-slate-400 font-bold">En navegador</span>
-                                </div>
-                            </div>
-
-                            {/* Pendientes en Nube */}
-                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col justify-between min-h-[90px] sm:min-h-[110px]">
-                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">En Espera en Nube</span>
-                                <div className="flex items-end justify-between mt-2">
-                                    <span className="font-outfit text-xl sm:text-2xl font-black text-amber-500 tabular-nums leading-none">
-                                        {cloudPendingCmds.length}
-                                    </span>
-                                    <span className="text-[10px] text-slate-400 font-bold">Espera a la caja</span>
-                                </div>
-                            </div>
-
-                            {/* Aplicados en Caja */}
-                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col justify-between min-h-[90px] sm:min-h-[110px]">
-                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">Aplicados por la Caja</span>
-                                <div className="flex items-end justify-between mt-2">
-                                    <span className="font-outfit text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums leading-none">
-                                        {allCloudCmds.filter(c => c.status === 'applied').length}
-                                    </span>
-                                    <span className="text-[10px] text-slate-400 font-bold">Completados</span>
-                                </div>
-                            </div>
-
-                            {/* Anulados */}
-                            <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col justify-between min-h-[90px] sm:min-h-[110px]">
-                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">Anulados / Cancelados</span>
-                                <div className="flex items-end justify-between mt-2">
-                                    <span className="font-outfit text-xl sm:text-2xl font-black text-rose-500 tabular-nums leading-none">
-                                        {allCloudCmds.filter(c => c.status === 'cancelled').length}
-                                    </span>
-                                    <span className="text-[10px] text-slate-400 font-bold">Cancelados</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Barra de Filtros de Cambios y Acciones Masivas */}
-                        <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                            <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200/60 dark:border-slate-800 overflow-x-auto scrollbar-hide gap-1 max-w-full">
-                                <button
-                                    onClick={() => { setCmdTabFilter('todos'); setCurrentPageCambios(1); }}
-                                    className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-black transition-all shrink-0 min-h-[36px] ${
-                                        cmdTabFilter === 'todos' ? 'bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-xs' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
-                                    }`}
-                                >
-                                    Todos ({pendingChanges.length + allCloudCmds.length})
-                                </button>
-                                <button
-                                    onClick={() => { setCmdTabFilter('pending'); setCurrentPageCambios(1); }}
-                                    className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-black transition-all shrink-0 min-h-[36px] ${
-                                        cmdTabFilter === 'pending' ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
-                                    }`}
-                                >
-                                    Pendientes ({pendingChanges.length + cloudPendingCmds.length})
-                                </button>
-                                <button
-                                    onClick={() => { setCmdTabFilter('applied'); setCurrentPageCambios(1); }}
-                                    className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-black transition-all shrink-0 min-h-[36px] ${
-                                        cmdTabFilter === 'applied' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
-                                    }`}
-                                >
-                                    Aplicados ({allCloudCmds.filter(c => c.status === 'applied').length})
-                                </button>
-                                <button
-                                    onClick={() => { setCmdTabFilter('cancelled'); setCurrentPageCambios(1); }}
-                                    className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-black transition-all shrink-0 min-h-[36px] ${
-                                        cmdTabFilter === 'cancelled' ? 'bg-rose-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
-                                    }`}
-                                >
-                                    Anulados ({allCloudCmds.filter(c => c.status === 'cancelled').length})
-                                </button>
-                                <button
-                                    onClick={() => { setCmdTabFilter('failed'); setCurrentPageCambios(1); }}
-                                    className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-black transition-all shrink-0 min-h-[36px] ${
-                                        cmdTabFilter === 'failed' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
-                                    }`}
-                                >
-                                    Rechazados ({allCloudCmds.filter(c => c.status === 'failed').length})
-                                </button>
-                            </div>
-
-                            {/* Acciones globales */}
-                            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                                {pendingChanges.length > 0 && (
-                                    <>
-                                        <button
-                                            onClick={() => { triggerHaptic?.(); setShowDiscardQueueModal(true); }}
-                                            className="flex-1 sm:flex-none px-3.5 py-2 rounded-2xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 text-xs font-black uppercase tracking-wider shadow-xs transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                                        >
-                                            <Trash2 size={13} />
-                                            <span>Cancelar Cola ({pendingChanges.length})</span>
-                                        </button>
-                                        <button
-                                            onClick={uploadPendingChanges}
-                                            disabled={uploading || !isConnected}
-                                            className="flex-1 sm:flex-none px-4 py-2 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-black uppercase tracking-wider shadow-md shadow-emerald-500/25 transition-all cursor-pointer disabled:opacity-40"
-                                        >
-                                            Subir Cola Local ({pendingChanges.length})
-                                        </button>
-                                    </>
-                                )}
-                                {cloudPendingCmds.length > 0 && (
-                                    <button
-                                        onClick={cancelAllCloudCmds}
-                                        className="flex-1 sm:flex-none px-4 py-2 rounded-2xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-black uppercase tracking-wider shadow-md shadow-rose-500/25 transition-all cursor-pointer"
-                                    >
-                                        Anular Nube 🚫
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Construcción de Lista Paginada */}
-                        {(() => {
-                            const rawCmdList = [
-                                ...(cmdTabFilter === 'todos' || cmdTabFilter === 'pending' 
-                                    ? pendingChanges.map((c, i) => ({ isLocal: true, data: c, localIndex: i, key: `local-${i}` })) 
-                                    : []),
-                                ...allCloudCmds
-                                    .filter(cmd => {
-                                        if (cmdTabFilter === 'pending') return cmd.status === 'pending';
-                                        if (cmdTabFilter === 'applied') return cmd.status === 'applied';
-                                        if (cmdTabFilter === 'cancelled') return cmd.status === 'cancelled';
-                                        if (cmdTabFilter === 'failed') return cmd.status === 'failed';
-                                        return true;
-                                    })
-                                    .map(cmd => ({ isLocal: false, data: cmd, key: `cloud-${cmd.id}` }))
-                            ];
-
-                            const totalPagesCambios = Math.max(1, Math.ceil(rawCmdList.length / ITEMS_PER_PAGE_CAMBIOS));
-                            const safePage = Math.min(currentPageCambios, totalPagesCambios);
-                            const paginatedItems = rawCmdList.slice(
-                                (safePage - 1) * ITEMS_PER_PAGE_CAMBIOS,
-                                safePage * ITEMS_PER_PAGE_CAMBIOS
-                            );
-
-                            return (
-                                <div className="space-y-4">
-                                    <div className="space-y-3">
-                                        {paginatedItems.map(item => {
-                                            const info = getSupervisorCommandDetails(item, products);
-
-                                            if (item.isLocal) {
-                                                const change = item.data;
-                                                return (
-                                                    <div key={item.key} className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-blue-200 dark:border-blue-900/60 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                                                        <div className="min-w-0 space-y-1.5 flex-1">
-                                                            <div className="flex items-center gap-2 flex-wrap">
-                                                                <span className="text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                                                                    EN COLA LOCAL (Sin Subir)
-                                                                </span>
-                                                                <span className="text-[10px] text-slate-400 font-bold">
-                                                                    Encolado a las {new Date(change.queuedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                                </span>
-                                                            </div>
-                                                            <div className="flex items-center gap-2 flex-wrap">
-                                                                <h4 className="text-sm sm:text-base font-black text-slate-800 dark:text-white truncate">{info.title}</h4>
-                                                                <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${info.actionColor}`}>
-                                                                    {info.actionLabel}
-                                                                </span>
-                                                            </div>
-                                                            {info.details.length > 0 && (
-                                                                <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                                                                    {info.details.map((det, dIdx) => (
-                                                                        <span key={dIdx} className="text-[10.5px] font-bold px-2 py-0.5 rounded-lg bg-slate-100/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/50 dark:border-slate-700/50">
-                                                                            {det}
-                                                                        </span>
-                                                                    ))}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                        <div className="flex items-center gap-2 shrink-0">
-                                                            <button
-                                                                onClick={() => { triggerHaptic?.(); discardSinglePendingChange(item.localIndex); }}
-                                                                className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-rose-50 dark:bg-slate-800 dark:hover:bg-rose-950/40 text-slate-600 hover:text-rose-600 dark:text-slate-300 dark:hover:text-rose-400 border border-slate-200/80 dark:border-slate-700 hover:border-rose-200 dark:hover:border-rose-800 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
-                                                                title="Descartar este cambio de la cola local"
-                                                            >
-                                                                <Trash2 size={13} />
-                                                                <span>Descartar</span>
-                                                            </button>
-                                                            <button
-                                                                onClick={uploadPendingChanges}
-                                                                disabled={uploading || !isConnected}
-                                                                className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-black uppercase tracking-wider shadow-xs transition-colors cursor-pointer disabled:opacity-40"
-                                                            >
-                                                                Subir ahora ☁️
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            }
-
-                                            const cmd = item.data;
-                                            const payload = cmd.payload || {};
-                                            const createdTime = new Date(cmd.created_at || payload.issuedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                            const appliedTime = cmd.applied_at ? new Date(cmd.applied_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
-
-                                            let statusBadge = null;
-                                            if (cmd.status === 'pending') {
-                                                statusBadge = (
-                                                    <span className="text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-200 dark:border-amber-800 animate-pulse">
-                                                        EN ESPERA EN NUBE
-                                                    </span>
-                                                );
-                                            } else if (cmd.status === 'applied') {
-                                                statusBadge = (
-                                                    <span className="text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                                                        APLICADO EN CAJA EL {new Date(cmd.applied_at).toLocaleDateString()}
-                                                    </span>
-                                                );
-                                            } else if (cmd.status === 'cancelled') {
-                                                statusBadge = (
-                                                    <span className="text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
-                                                        ANULADO
-                                                    </span>
-                                                );
-                                            } else if (cmd.status === 'failed') {
-                                                statusBadge = (
-                                                    <span className="text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300 border border-orange-200 dark:border-orange-800">
-                                                        RECHAZADO POR LA CAJA
-                                                    </span>
-                                                );
-                                            }
-
-                                            return (
-                                                <div key={item.key} className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                                                    <div className="min-w-0 space-y-1.5 flex-1">
-                                                        <div className="flex items-center gap-2 flex-wrap">
-                                                            {statusBadge}
-                                                            <span className="text-[10px] text-slate-400 font-bold">Enviado: {createdTime}</span>
-                                                            {appliedTime && (
-                                                                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">· Aplicado a las {appliedTime}</span>
-                                                            )}
-                                                            {info.author && (
-                                                                <span className="text-[10px] text-slate-400 font-medium ml-auto">Por: {info.author}</span>
-                                                            )}
-                                                        </div>
-                                                        <div className="flex items-center gap-2 flex-wrap">
-                                                            <h4 className="text-sm sm:text-base font-black text-slate-800 dark:text-white truncate">{info.title}</h4>
-                                                            <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${info.actionColor}`}>
-                                                                {info.actionLabel}
-                                                            </span>
-                                                        </div>
-                                                        {info.details.length > 0 && (
-                                                            <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                                                                {info.details.map((det, dIdx) => (
-                                                                    <span key={dIdx} className="text-[10.5px] font-bold px-2 py-0.5 rounded-lg bg-slate-100/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/50 dark:border-slate-700/50">
-                                                                        {det}
-                                                                    </span>
-                                                                ))}
-                                                            </div>
-                                                        )}
-                                                        {cmd.status === 'failed' && cmd.error_reason && (
-                                                            <p className="text-[11px] font-bold text-orange-600 dark:text-orange-400 pt-1">⚠️ {cmd.error_reason}</p>
-                                                        )}
-                                                    </div>
-                                                    <div className="flex items-center gap-2 shrink-0">
-                                                        {cmd.status === 'pending' && (
-                                                            <button
-                                                                onClick={() => cancelSingleCloudCmd(cmd.id)}
-                                                                disabled={cancellingCmdId === cmd.id}
-                                                                className="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-xs font-black uppercase transition-colors shrink-0 disabled:opacity-40 cursor-pointer"
-                                                            >
-                                                                {cancellingCmdId === cmd.id ? 'Anulando...' : 'Anular 🚫'}
-                                                            </button>
-                                                        )}
-                                                        {cmd.status === 'failed' && cmd.command_type === 'inventory_update' && !isDuplicateProductIdFailure(cmd) && (
-                                                            <button
-                                                                onClick={() => {
-                                                                    const p = cmd.payload || {};
-                                                                    queueInventoryChange(p.action, p.productId, p.data);
-                                                                    showToast('Cambio devuelto a la cola local', 'info');
-                                                                }}
-                                                                className="px-3.5 py-2 rounded-xl bg-orange-50 hover:bg-orange-100 dark:bg-orange-950/40 text-orange-600 dark:text-orange-300 border border-orange-200 dark:border-orange-800 text-xs font-black uppercase transition-colors shrink-0 cursor-pointer"
-                                                            >
-                                                                Reintentar ↺
-                                                            </button>
-                                                        )}
-                                                        {cmd.status === 'failed' && cmd.command_type === 'inventory_update' && isDuplicateProductIdFailure(cmd) && (
-                                                            <button
-                                                                onClick={async () => {
-                                                                    showToast('El producto ya existe en la caja. Actualizando catálogo...', 'info');
-                                                                    await triggerRefresh();
-                                                                }}
-                                                                className="px-3.5 py-2 rounded-xl bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 text-xs font-black uppercase transition-colors shrink-0 cursor-pointer"
-                                                            >
-                                                                Actualizar catálogo
-                                                            </button>
-                                                        )}
-                                                        {cmd.status === 'applied' && (
-                                                            <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                                                                <ShieldCheck size={16} /> Aplicado por la caja
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-
-                                        {rawCmdList.length === 0 && (
-                                            <div className="py-12 text-center text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-3xl">
-                                                <Clock size={32} className="mx-auto text-slate-300 mb-2" />
-                                                <p className="text-xs font-black">Sin historial de cambios registrados</p>
-                                                <p className="text-[10px] text-slate-450 mt-1">Las modificaciones de inventario y precios aparecerán aquí.</p>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Controles de Paginación para Cambios */}
-                                    {totalPagesCambios > 1 && (
-                                        <div className="flex items-center justify-between bg-white dark:bg-slate-900 px-4 py-3 sm:px-6 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm mt-4">
-                                            <button
-                                                onClick={() => {
-                                                    if (safePage > 1) {
-                                                        triggerHaptic?.();
-                                                        setCurrentPageCambios(prev => Math.max(1, prev - 1));
-                                                    }
-                                                }}
-                                                disabled={safePage === 1}
-                                                className="p-2 rounded-xl text-slate-500 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-slate-800 dark:hover:text-emerald-450 border border-slate-200 dark:border-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors duration-150 cursor-pointer"
-                                            >
-                                                <ChevronLeft size={16} />
-                                            </button>
-
-                                            <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                                                Página <span className="font-black text-slate-800 dark:text-white">{safePage}</span> de <span className="font-black text-slate-800 dark:text-white">{totalPagesCambios}</span>
-                                                <span className="text-slate-400 text-[10px] ml-2 font-medium">({rawCmdList.length} registros)</span>
-                                            </span>
-
-                                            <button
-                                                onClick={() => {
-                                                    if (safePage < totalPagesCambios) {
-                                                        triggerHaptic?.();
-                                                        setCurrentPageCambios(prev => Math.min(totalPagesCambios, prev + 1));
-                                                    }
-                                                }}
-                                                disabled={safePage === totalPagesCambios}
-                                                className="p-2 rounded-xl text-slate-500 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-slate-800 dark:hover:text-emerald-450 border border-slate-200 dark:border-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors duration-150 cursor-pointer"
-                                            >
-                                                <ChevronRight size={16} />
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })()}
-                    </div>
-                )}
-
-                {viewTab === 'articulos' && (
-                    <ReportsArticleTab
-                        salesForStats={artSalesForStats}
-                        products={products}
-                        bcvRate={effectiveRate || bcvRate}
-                        triggerHaptic={triggerHaptic}
-                        from={artFrom}
-                        to={artTo}
-                        artRange={artRange}
-                        setArtRange={setArtRange}
-                        setArtFrom={setArtFrom}
-                        setArtTo={setArtTo}
-                    />
-                )}
-
-                {/* ── SECCIÓN: NÓMINA Y CONSUMOS ── */}
-                {viewTab === 'nomina' && (
-                    <div className="space-y-5 animate-in fade-in">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 rounded-3xl shadow-sm">
-                            <div>
-                                <h3 className="text-base sm:text-lg font-black text-slate-800 dark:text-white">Nómina &amp; Consumos</h3>
-                                <p className="text-xs text-slate-400 mt-1">Proyección resumida sincronizada desde la caja principal. El historial se consulta bajo demanda.</p>
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setEditingEmployee(null);
-                                        setShowCreateEmployeeModal(true);
-                                    }}
-                                    className="px-4 py-2.5 rounded-2xl bg-brand text-white text-xs font-black flex items-center gap-2 hover:bg-brand-dark transition-all active:scale-95 shadow-md shadow-brand/20 cursor-pointer shrink-0"
-                                >
-                                    <Plus size={16} />
-                                    <span>Crear Empleado</span>
-                                </button>
-                                <div className="text-right shrink-0 border-l border-slate-100 dark:border-slate-800 pl-3">
-                                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Período</span>
-                                    <span className="text-sm font-black text-slate-700 dark:text-slate-200">{payrollProjection?.periodo?.id || 'Sin datos'}</span>
-                                    <span className="text-[10px] font-bold text-slate-400 block">{payrollProjection?.periodo?.status || '—'}</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
-                                <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Nómina bruta</p>
-                                <p className="text-xl font-black text-slate-800 dark:text-white mt-1">{formatPayrollUsd(payrollTotals.nominaTotalUsd)}</p>
-                            </div>
-                            <div className="rounded-2xl border border-amber-200/80 dark:border-amber-900/50 bg-amber-50/60 dark:bg-amber-950/20 p-4">
-                                <p className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">Consumos</p>
-                                <p className="text-xl font-black text-amber-700 dark:text-amber-300 mt-1">{formatPayrollUsd(payrollTotals.consumosTotalUsd)}</p>
-                            </div>
-                            <div className="rounded-2xl border border-emerald-200/80 dark:border-emerald-900/50 bg-emerald-50/60 dark:bg-emerald-950/20 p-4">
-                                <p className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Neto proyectado</p>
-                                <p className="text-xl font-black text-emerald-700 dark:text-emerald-300 mt-1">{formatPayrollUsd(payrollTotals.netoTotalUsd)}</p>
-                            </div>
-                        </div>
-
-                        <div className="rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
-                            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
-                                <h4 className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-200">Resumen por empleado</h4>
-                                <span className="text-[10px] font-bold text-slate-400">{payrollEmployees.length} registro(s)</span>
-                            </div>
-                            {payrollEmployees.length === 0 ? (
-                                <div className="py-12 text-center text-xs font-bold text-slate-400">No hay proyección de nómina sincronizada.</div>
-                            ) : (
-                                <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                                    {payrollEmployees.map(employee => (
-                                        <div key={employee.employeeId} className="p-3.5 sm:p-4 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors space-y-2.5 lg:space-y-0 lg:flex lg:items-center lg:gap-4">
-                                            {/* Cabecera / Info del Empleado */}
-                                            <div className="flex items-center justify-between gap-2.5 flex-1 min-w-0">
-                                                <div className="flex items-center gap-2.5 min-w-0">
-                                                    <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-brand/10 dark:bg-brand/20 text-brand flex items-center justify-center font-black text-xs shrink-0">
-                                                        {String(employee.employeeNombre || '?').slice(0, 1).toUpperCase()}
-                                                    </div>
-                                                    <div className="min-w-0">
-                                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                                            <p className="text-xs sm:text-sm font-black text-slate-800 dark:text-white truncate">
-                                                                {employee.employeeNombre || 'Empleado'}
-                                                            </p>
-                                                            <span className={`text-[8.5px] font-black uppercase px-2 py-0.5 rounded-full shrink-0 ${employee.settled ? 'bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300' : 'bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300'}`}>
-                                                                {employee.settled ? 'Liquidado' : 'Pendiente'}
-                                                            </span>
-                                                        </div>
-                                                        <p className="text-[10.5px] text-slate-400 truncate mt-0.5">
-                                                            {employee.cargo || 'Sin cargo'} · <span className="font-semibold text-slate-500 dark:text-slate-300">{employee.porcentajeConsumido || 0}% consumido</span>
-                                                        </p>
-                                                    </div>
-                                                </div>
-
-                                                {/* Acciones compactas en móvil */}
-                                                <div className="flex lg:hidden items-center gap-1 shrink-0">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setEditingEmployee({
-                                                                id: employee.employeeId,
-                                                                nombre: employee.employeeNombre,
-                                                                cargo: employee.cargo,
-                                                                salarioSemanalUsd: employee.salarioSemanalUsd,
-                                                                limiteConsumoPorc: employee.limiteConsumoPorc,
-                                                            });
-                                                            setShowCreateEmployeeModal(true);
-                                                        }}
-                                                        className="w-8 h-8 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-brand hover:border-brand/40 flex items-center justify-center transition-colors cursor-pointer"
-                                                        title="Editar empleado"
-                                                    >
-                                                        <Pencil size={13} />
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleDeleteRemoteEmployee(employee)}
-                                                        className="w-8 h-8 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-rose-600 hover:border-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center justify-center transition-colors cursor-pointer"
-                                                        title="Eliminar empleado"
-                                                    >
-                                                        <Trash2 size={13} />
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handlePayrollDetail(employee)}
-                                                        className="h-8 px-2.5 rounded-lg bg-brand/10 hover:bg-brand text-brand hover:text-white text-[10px] font-black transition-all flex items-center gap-1 cursor-pointer"
-                                                    >
-                                                        <span>Detalle</span>
-                                                    </button>
-                                                </div>
-                                            </div>
-
-                                            {/* Métricas Financieras (Pill compacto 3 columnas) */}
-                                            <div className="grid grid-cols-3 gap-2 bg-slate-50/80 dark:bg-slate-800/40 px-3 py-2 rounded-xl border border-slate-100 dark:border-slate-800/80 text-center lg:text-right lg:min-w-[260px] shrink-0">
-                                                <div>
-                                                    <span className="text-[9px] font-bold uppercase text-slate-400 block">Salario</span>
-                                                    <strong className="text-xs font-black text-slate-700 dark:text-slate-200 font-outfit tabular-nums">{formatPayrollUsd(employee.salarioSemanalUsd)}</strong>
-                                                </div>
-                                                <div>
-                                                    <span className="text-[9px] font-bold uppercase text-amber-500 block">Consumos</span>
-                                                    <strong className="text-xs font-black text-amber-600 dark:text-amber-400 font-outfit tabular-nums">{formatPayrollUsd(employee.totalConsumosUsd)}</strong>
-                                                </div>
-                                                <div>
-                                                    <span className="text-[9px] font-black uppercase text-emerald-600 dark:text-emerald-400 block">Neto</span>
-                                                    <strong className="text-xs font-black text-emerald-600 dark:text-emerald-400 font-outfit tabular-nums">{formatPayrollUsd(employee.netoAPagarUsd)}</strong>
-                                                </div>
-                                            </div>
-
-                                            {/* Acciones en Desktop */}
-                                            <div className="hidden lg:flex items-center gap-1.5 shrink-0">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setEditingEmployee({
-                                                            id: employee.employeeId,
-                                                            nombre: employee.employeeNombre,
-                                                            cargo: employee.cargo,
-                                                            salarioSemanalUsd: employee.salarioSemanalUsd,
-                                                            limiteConsumoPorc: employee.limiteConsumoPorc,
-                                                        });
-                                                        setShowCreateEmployeeModal(true);
-                                                    }}
-                                                    className="h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-700 text-[10.5px] font-black text-slate-600 dark:text-slate-300 hover:border-brand/50 hover:text-brand transition-colors flex items-center gap-1.5 cursor-pointer"
-                                                    title="Editar empleado"
-                                                >
-                                                    <Pencil size={13} />
-                                                    <span>Editar</span>
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handlePayrollDetail(employee)}
-                                                    className="h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-700 text-[10.5px] font-black text-slate-600 dark:text-slate-300 hover:border-brand/50 hover:text-brand transition-colors cursor-pointer"
-                                                >
-                                                    Ver detalle
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleDeleteRemoteEmployee(employee)}
-                                                    className="h-9 w-9 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-rose-600 hover:border-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center justify-center transition-colors cursor-pointer"
-                                                    title="Eliminar empleado definitivamente"
-                                                >
-                                                    <Trash2 size={14} />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-
-                        {payrollDetailLoading && <p className="text-center text-xs font-bold text-slate-400">Cargando detalle seguro...</p>}
-                        {payrollDetailError && <p className="rounded-2xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 p-3 text-xs font-bold text-amber-700 dark:text-amber-300">{payrollDetailError}</p>}
-                        {payrollDetail && (() => {
-                            const activeConsumptionsList = (payrollDetail.consumptions || []).filter(c => c.status !== 'VOIDED');
-                            const dynamicTotalConsumosUsd = activeConsumptionsList.reduce((sum, c) => sum + Number(c.totalUsd || 0), 0);
-                            const dynamicSalarioBaseUsd = Number(payrollDetail.employee?.salarioSemanalUsd || 0);
-                            const dynamicNetoAPagarUsd = Math.max(0, dynamicSalarioBaseUsd - dynamicTotalConsumosUsd);
-
-                            return (
-                            <div className="rounded-3xl border border-brand/20 bg-brand-light/30 dark:bg-brand/5 p-4 sm:p-5 space-y-4">
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                    <div>
-                                        <h4 className="text-sm font-black text-slate-800 dark:text-white">
-                                            Detalle de {payrollDetail.employee?.employeeNombre || 'Empleado'} · Período {payrollDetail.periodoId}
-                                        </h4>
-                                        <p className="text-[11px] text-slate-400">
-                                            {payrollDetail.employee?.cargo || 'Personal'} · {activeConsumptionsList.length} consumo(s) activo(s) · {payrollDetail.settlements?.length || 0} liquidación(es)
-                                        </p>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={async () => {
-                                                try {
-                                                    await generateEmployeePayrollPDF({
-                                                        employee: {
-                                                            nombre: payrollDetail.employee?.employeeNombre || 'Empleado',
-                                                            cargo: payrollDetail.employee?.cargo || 'Personal',
-                                                            salarioSemanalUsd: dynamicSalarioBaseUsd,
-                                                            limiteConsumoPorc: payrollDetail.employee?.limiteConsumoPorc || 100
-                                                        },
-                                                        summary: {
-                                                            periodoId: payrollDetail.periodoId,
-                                                            salarioSemanalUsd: dynamicSalarioBaseUsd,
-                                                            totalConsumosUsd: dynamicTotalConsumosUsd,
-                                                            netoAPagarUsd: dynamicNetoAPagarUsd,
-                                                            netoAPagarBs: (effectiveRate || 0) * dynamicNetoAPagarUsd
-                                                        },
-                                                        consumptions: payrollDetail.consumptions,
-                                                        settlements: payrollDetail.settlements,
-                                                        bcvRate: effectiveRate
-                                                    });
-                                                    showToast('Reporte PDF descargado con éxito', 'success');
-                                                } catch (err) {
-                                                    console.error('Error generando PDF:', err);
-                                                    showToast('No se pudo generar el PDF', 'error');
-                                                }
-                                            }}
-                                            className="min-h-10 px-3.5 rounded-xl bg-brand text-white text-xs font-black flex items-center gap-1.5 active:scale-95 shadow-sm hover:bg-brand/90 transition-all"
-                                        >
-                                            <FileText size={15} />
-                                            <span>Descargar PDF</span>
-                                        </button>
-                                        <button type="button" onClick={() => setPayrollDetail(null)} className="p-2 rounded-xl text-slate-400 hover:bg-white/70 dark:hover:bg-slate-800" aria-label="Cerrar detalle"><X size={16} /></button>
-                                    </div>
-                                </div>
-
-                                {/* Resumen Financiero del Empleado */}
-                                <div className="grid grid-cols-3 gap-2 text-center rounded-2xl bg-white dark:bg-slate-900 p-3 border border-slate-100 dark:border-slate-800">
-                                    <div>
-                                        <p className="text-[10px] uppercase font-bold text-slate-400">Salario Base</p>
-                                        <strong className="text-xs sm:text-sm font-black text-slate-800 dark:text-white">{formatPayrollUsd(dynamicSalarioBaseUsd)}</strong>
-                                    </div>
-                                    <div>
-                                        <p className="text-[10px] uppercase font-bold text-amber-500">Consumido</p>
-                                        <strong className="text-xs sm:text-sm font-black text-amber-600">-{formatPayrollUsd(dynamicTotalConsumosUsd)}</strong>
-                                    </div>
-                                    <div>
-                                        <p className="text-[10px] uppercase font-bold text-emerald-500">Saldo Restante</p>
-                                        <strong className="text-xs sm:text-sm font-black text-emerald-600">{formatPayrollUsd(dynamicNetoAPagarUsd)}</strong>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-2">
-                                    {payrollDetail.consumptions.map(item => (
-                                        <div key={item.id} className="rounded-2xl bg-white/80 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-800 p-3">
-                                            <div className="flex items-center justify-between gap-2 text-xs">
-                                                <strong>{new Date(item.timestamp || item.createdAt).toLocaleString('es-VE')}</strong>
-                                                <strong className="text-slate-800 dark:text-white">{formatPayrollUsd(item.totalUsd)}</strong>
-                                            </div>
-                                            <p className="text-[11px] text-slate-500 mt-1">{(item.items || []).map(line => `${line.qty} × ${line.name}`).join(', ') || 'Sin líneas'}</p>
-                                            <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                                                <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${item.status === 'VOIDED' ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400' : (item.settlementId ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400' : 'bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400')}`}>
-                                                    {item.status === 'VOIDED' ? 'ANULADO' : (item.settlementId ? 'LIQUIDADO' : 'CONSUMIDO')}
-                                                </span>
-                                                {item.status !== 'VOIDED' && !item.settlementId && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleVoidConsumptionSupervisor(item)}
-                                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 transition-colors"
-                                                        title="Anular consumo y devolver stock en la caja"
-                                                    >
-                                                        <RotateCcw size={12} /> Anular
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))}
-                                    {payrollDetail.settlements.map(item => (
-                                        <div key={item.id} className="rounded-2xl bg-emerald-50/80 dark:bg-emerald-950/20 border border-emerald-200/70 dark:border-emerald-900/50 p-3 text-xs">
-                                            <div className="flex items-center justify-between gap-2">
-                                                <strong className="text-emerald-800 dark:text-emerald-300">Liquidación {item.status === 'PAID' ? 'PAGADA' : (item.status === 'VOIDED' ? 'ANULADA' : item.status)}</strong>
-                                                <strong className="text-emerald-700 dark:text-emerald-300">{formatPayrollUsd(item.netoAPagarUsd)}</strong>
-                                            </div>
-                                            <p className="text-[11px] text-slate-500 mt-1">{item.paidAt ? new Date(item.paidAt).toLocaleString('es-VE') : 'Pendiente de pago'}</p>
-                                        </div>
-                                    ))}
-                                    {payrollDetail.consumptions.length === 0 && payrollDetail.settlements.length === 0 && (
-                                        <p className="py-4 text-center text-xs font-medium text-slate-400">
-                                            Proyección calculada. Los tickets detallados se archivan al sincronizar caja.
-                                        </p>
-                                    )}
-                                </div>
-                            </div>
-                            );
-                        })()}
-                    </div>
-                )}
-
-                {/* ── SECCIÓN 6: DESGLOSE DE GASTOS Y CONSUMO INTERNO DEL DÍA / TURNO ── */}
-                {viewTab === 'gastos' && (
-                    <div className="space-y-6 animate-in fade-in">
-                        {/* ── SUBSECCIÓN 1: EGRESOS DE CAJA CHICA (DINERO) ── */}
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 rounded-3xl shadow-sm">
-                            <div>
-                                <h3 className="text-base sm:text-lg font-black text-slate-800 dark:text-white flex items-center gap-2 flex-wrap">
-                                    <span>Gastos de Caja Chica (Dinero)</span>
-                                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 font-bold border border-rose-200 dark:border-rose-900/50">
-                                        {activeShiftExpensesMetrics.count} {activeShiftExpensesMetrics.count === 1 ? 'egreso' : 'egresos'}
-                                    </span>
-                                </h3>
-                                <p className="text-xs text-slate-400 font-medium mt-0.5">
-                                    Dinero en efectivo o transferencia retirado de caja física durante el turno activo.
-                                </p>
-                            </div>
-
-                            {/* Tarjetas Totales Dinero */}
-                            <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
-                                <div className="flex-1 sm:flex-initial bg-rose-50 dark:bg-rose-950/30 border border-rose-200/80 dark:border-rose-900/40 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-2xl text-right">
-                                    <span className="text-[9px] font-black uppercase text-rose-500 tracking-wider block">Total USD</span>
-                                    <span className="text-base sm:text-xl font-black text-rose-600 dark:text-rose-400 font-outfit tabular-nums">
-                                        -${activeShiftExpensesMetrics.totalUsd.toFixed(2)}
-                                    </span>
-                                </div>
-                                <div className="flex-1 sm:flex-initial bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-2xl text-right">
-                                    <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider block">Total Bs</span>
-                                    <span className="text-base sm:text-xl font-black text-slate-700 dark:text-slate-200 font-outfit tabular-nums">
-                                        -{formatBs(activeShiftExpensesMetrics.totalBs)} Bs
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Lista de Transacciones de Gastos de Caja */}
-                        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 sm:p-6 shadow-sm">
-                            <div className="flex items-center justify-between mb-4">
-                                <h4 className="text-xs sm:text-sm font-black text-slate-800 dark:text-white uppercase tracking-wider">
-                                    Detalle de Egresos de Caja
-                                </h4>
-                                <span className="text-[11px] sm:text-xs text-slate-400 font-medium">
-                                    {activeShiftExpensesMetrics.gastosList.length} {activeShiftExpensesMetrics.gastosList.length === 1 ? 'egreso' : 'egresos'}
-                                </span>
-                            </div>
-
-                            {activeShiftExpensesMetrics.gastosList.length === 0 ? (
-                                <div className="py-8 text-center text-slate-400 space-y-2">
-                                    <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto text-xl">
-                                        <Receipt size={22} className="text-slate-400" />
-                                    </div>
-                                    <p className="text-xs font-bold">No hay egresos de caja registrados en el turno activo</p>
-                                </div>
-                            ) : (
-                                <>
-                                    {/* Vista Móvil */}
-                                    <div className="space-y-3 md:hidden">
-                                        {activeShiftExpensesMetrics.gastosList.map((gasto) => {
-                                            const catObj = [
-                                                { id: 'insumos', label: 'Insumos', icon: Box, color: 'text-amber-600 bg-amber-50 dark:bg-amber-950/40' },
-                                                { id: 'servicios', label: 'Servicios', icon: Lightbulb, color: 'text-yellow-600 bg-yellow-50 dark:bg-yellow-950/40' },
-                                                { id: 'transporte', label: 'Transporte', icon: Truck, color: 'text-blue-600 bg-blue-50 dark:bg-blue-950/40' },
-                                                { id: 'personal', label: 'Personal', icon: User, color: 'text-purple-600 bg-purple-50 dark:bg-purple-950/40' },
-                                                { id: 'mantenimiento', label: 'Mantenimiento', icon: Wrench, color: 'text-slate-700 bg-slate-100 dark:bg-slate-800' },
-                                                { id: 'otros', label: 'Otros', icon: Receipt, color: 'text-rose-600 bg-rose-50 dark:bg-rose-950/40' },
-                                            ].find(c => c.id === gasto.category) || { label: gasto.category || 'Otros', icon: Receipt, color: 'text-rose-600 bg-rose-50 dark:bg-rose-950/40' };
-
-                                            const IconCat = catObj.icon;
-                                            const date = gasto.timestamp ? new Date(gasto.timestamp) : new Date();
-                                            const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-                                            const payment = Array.isArray(gasto.payments) && gasto.payments[0] ? gasto.payments[0] : null;
-                                            const curr = gasto.currency || payment?.currency || (
-                                                (gasto.paymentMethod && (gasto.paymentMethod.includes('usd') || gasto.paymentMethod.includes('zelle') || gasto.paymentMethod.includes('binance') || gasto.paymentMethod === 'dolares')) ? 'USD' :
-                                                (gasto.paymentMethod && gasto.paymentMethod.includes('cop')) ? 'COP' : 'BS'
-                                            );
-                                            const isUsd = curr === 'USD';
-                                            const isCop = curr === 'COP';
-                                            const amountUsd = Math.abs(payment?.amountUsd ? payment.amountUsd : (gasto.totalUsd || 0));
-                                            const amountBs = Math.abs(payment?.amountBs ? payment.amountBs : (gasto.totalBs || 0));
-                                            const amountCop = Math.abs(payment?.amountCop ? payment.amountCop : (gasto.totalCop || 0));
-
-                                            return (
-                                                <div 
-                                                    key={gasto.id} 
-                                                    className="p-3.5 bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800 rounded-2xl space-y-2.5"
-                                                >
-                                                    <div className="flex items-center justify-between gap-2">
-                                                        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 px-2 py-0.5 rounded-lg border border-slate-200/60 dark:border-slate-700/60">
-                                                            <IconCat size={12} className={catObj.color.split(' ')[0]} />
-                                                            <span>{catObj.label}</span>
-                                                        </span>
-                                                        <span className="text-[10px] font-mono font-medium text-slate-400">
-                                                            {timeStr}
-                                                        </span>
-                                                    </div>
-
-                                                    <div className="flex items-start justify-between gap-3">
-                                                        <div className="min-w-0 flex-1">
-                                                            <h5 className="text-xs font-bold text-slate-800 dark:text-white leading-snug break-words">
-                                                                {gasto.description || 'Gasto Interno'}
-                                                            </h5>
-                                                            {gasto.note && (
-                                                                <p className="text-[10px] text-slate-400 font-normal italic mt-0.5 break-words">
-                                                                    "{gasto.note}"
-                                                                </p>
-                                                            )}
-                                                        </div>
-
-                                                        <div className="text-right shrink-0">
-                                                            {isUsd && (
-                                                                <span className="text-xs sm:text-sm font-black font-outfit text-rose-600 dark:text-rose-400 block leading-tight">
-                                                                    -${amountUsd.toFixed(2)}
-                                                                </span>
-                                                            )}
-                                                            {isCop && (
-                                                                <span className="text-xs sm:text-sm font-black font-outfit text-amber-600 dark:text-amber-400 block leading-tight">
-                                                                    -{formatCop(amountCop)} COP
-                                                                </span>
-                                                            )}
-                                                            {!isUsd && !isCop && (
-                                                                <span className="text-xs sm:text-sm font-black font-outfit text-slate-700 dark:text-slate-200 block leading-tight">
-                                                                    -{formatBs(amountBs)} Bs
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="pt-2 border-t border-slate-200/40 dark:border-slate-800/60 flex items-center justify-between text-[9.5px]">
-                                                        <span className="font-bold text-slate-400 uppercase">Método:</span>
-                                                        <span className="font-bold uppercase text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 px-2 py-0.5 rounded-md border border-slate-200/50 dark:border-slate-700/50">
-                                                            {getPaymentLabel(gasto.paymentMethod) || (gasto.paymentMethod || 'Efectivo').replace(/_/g, ' ')}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-
-                                    {/* Vista Escritorio */}
-                                    <div className="hidden md:block overflow-x-auto">
-                                        <table className="w-full text-left text-xs">
-                                            <thead>
-                                                <tr className="border-b border-slate-100 dark:border-slate-800 text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                                                    <th className="pb-3 px-2">Hora</th>
-                                                    <th className="pb-3 px-2">Categoría</th>
-                                                    <th className="pb-3 px-2">Descripción</th>
-                                                    <th className="pb-3 px-2">Método</th>
-                                                    <th className="pb-3 px-2 text-right">Monto (USD)</th>
-                                                    <th className="pb-3 px-2 text-right">Monto (Bs)</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
-                                                {activeShiftExpensesMetrics.gastosList.map((gasto) => {
-                                                    const catObj = [
-                                                        { id: 'insumos', label: 'Insumos', icon: Box, color: 'text-amber-600 bg-amber-50 dark:bg-amber-950/40' },
-                                                        { id: 'servicios', label: 'Servicios', icon: Lightbulb, color: 'text-yellow-600 bg-yellow-50 dark:bg-yellow-950/40' },
-                                                        { id: 'transporte', label: 'Transporte', icon: Truck, color: 'text-blue-600 bg-blue-50 dark:bg-blue-950/40' },
-                                                        { id: 'personal', label: 'Personal', icon: User, color: 'text-purple-600 bg-purple-50 dark:bg-purple-950/40' },
-                                                        { id: 'mantenimiento', label: 'Mantenimiento', icon: Wrench, color: 'text-slate-700 bg-slate-100 dark:bg-slate-800' },
-                                                        { id: 'otros', label: 'Otros', icon: Receipt, color: 'text-rose-600 bg-rose-50 dark:bg-rose-950/40' },
-                                                    ].find(c => c.id === gasto.category) || { label: gasto.category || 'Otros', icon: Receipt, color: 'text-rose-600 bg-rose-50 dark:bg-rose-950/40' };
-
-                                                    const IconCat = catObj.icon;
-                                                    const date = gasto.timestamp ? new Date(gasto.timestamp) : new Date();
-                                                    const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-                                                    const payment = Array.isArray(gasto.payments) && gasto.payments[0] ? gasto.payments[0] : null;
-                                                    const curr = gasto.currency || payment?.currency || (
-                                                        (gasto.paymentMethod && (gasto.paymentMethod.includes('usd') || gasto.paymentMethod.includes('zelle') || gasto.paymentMethod.includes('binance') || gasto.paymentMethod === 'dolares')) ? 'USD' :
-                                                        (gasto.paymentMethod && gasto.paymentMethod.includes('cop')) ? 'COP' : 'BS'
-                                                    );
-                                                    const isUsd = curr === 'USD';
-                                                    const isCop = curr === 'COP';
-                                                    const amountUsd = Math.abs(payment?.amountUsd ? payment.amountUsd : (gasto.totalUsd || 0));
-                                                    const amountBs = Math.abs(payment?.amountBs ? payment.amountBs : (gasto.totalBs || 0));
-                                                    const amountCop = Math.abs(payment?.amountCop ? payment.amountCop : (gasto.totalCop || 0));
-
-                                                    return (
-                                                        <tr key={gasto.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                                                            <td className="py-3 px-2 text-slate-400 font-mono text-[11px] whitespace-nowrap">
-                                                                {timeStr}
-                                                            </td>
-                                                            <td className="py-3 px-2 whitespace-nowrap">
-                                                                <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/90 border border-slate-200/60 dark:border-slate-700/60 px-2.5 py-1 rounded-xl">
-                                                                    <IconCat size={13} className={catObj.color.split(' ')[0]} />
-                                                                    <span>{catObj.label}</span>
-                                                                </span>
-                                                            </td>
-                                                            <td className="py-3 px-2">
-                                                                <div className="font-bold text-slate-800 dark:text-white">
-                                                                    {gasto.description || 'Gasto Interno'}
-                                                                </div>
-                                                                {gasto.note && (
-                                                                    <div className="text-[10px] text-slate-400 font-normal italic mt-0.5">
-                                                                        "{gasto.note}"
-                                                                    </div>
-                                                                )}
-                                                            </td>
-                                                            <td className="py-3 px-2 whitespace-nowrap">
-                                                                <span className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/80 px-2 py-0.5 rounded-md">
-                                                                    {getPaymentLabel(gasto.paymentMethod) || (gasto.paymentMethod || 'Efectivo').replace(/_/g, ' ')}
-                                                                </span>
-                                                            </td>
-                                                            <td className="py-3 px-2 text-right font-black font-outfit text-rose-600 dark:text-rose-400 tabular-nums">
-                                                                {isUsd ? `-$${amountUsd.toFixed(2)}` : '—'}
-                                                            </td>
-                                                            <td className="py-3 px-2 text-right font-bold text-slate-600 dark:text-slate-300 tabular-nums">
-                                                                {!isUsd && !isCop ? `-${formatBs(amountBs)} Bs` : (isCop ? `-${formatCop(amountCop)} COP` : '—')}
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                })}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </>
-                            )}
-                        </div>
-
-                        {/* ── SUBSECCIÓN 2: CONSUMO INTERNO / AUTOCONSUMO (MERCANCÍA / ARTÍCULOS) ── */}
-                        <div className="bg-white dark:bg-slate-900 border border-purple-200/80 dark:border-purple-900/40 rounded-3xl p-4 sm:p-6 shadow-sm space-y-4">
-                            {/* Cabecera Responsiva */}
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-purple-100 dark:border-purple-950/60">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-2xl bg-purple-100 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
-                                        <ShoppingBag size={20} />
-                                    </div>
-                                    <div>
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <h4 className="text-sm sm:text-base font-black text-slate-800 dark:text-white">
-                                                Consumo Interno (Retiro de Mercancía)
-                                            </h4>
-                                            <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
-                                                {activeShiftAutoconsumoMetrics.totalUnits} {activeShiftAutoconsumoMetrics.totalUnits === 1 ? 'artículo' : 'artículos'}
-                                            </span>
-                                        </div>
-                                        <p className="text-[11px] text-slate-400 font-medium mt-0.5">
-                                            Salidas físicas de inventario para uso de la tienda o dueño · No afecta caja
-                                        </p>
-                                    </div>
-                                </div>
-
-                                <div className="flex items-center justify-between sm:justify-end gap-2 bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200/70 dark:border-purple-900/40 px-3.5 py-2 rounded-2xl shrink-0">
-                                    <span className="text-[10px] font-black uppercase text-purple-600 dark:text-purple-400 tracking-wider">Total Retirado:</span>
-                                    <span className="text-sm sm:text-base font-black text-purple-700 dark:text-purple-300 font-outfit tabular-nums">
-                                        {activeShiftAutoconsumoMetrics.totalUnits} art.
-                                    </span>
-                                </div>
-                            </div>
-
-                            {activeShiftAutoconsumoMetrics.list.length === 0 ? (
-                                <div className="py-8 text-center text-slate-400 space-y-2">
-                                    <div className="w-12 h-12 rounded-full bg-purple-50 dark:bg-purple-950/30 flex items-center justify-center mx-auto text-xl">
-                                        <ShoppingBag size={22} className="text-purple-400" />
-                                    </div>
-                                    <p className="text-xs font-bold">No hay retiros de mercancía en el turno activo</p>
-                                </div>
-                            ) : (
-                                <div className="space-y-2.5">
-                                    {activeShiftAutoconsumoMetrics.list.map((auto) => {
-                                        const date = auto.timestamp ? new Date(auto.timestamp) : new Date();
-                                        const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                        const items = Array.isArray(auto.items) ? auto.items : [];
-                                        const totalUnits = items.reduce((s, it) => s + (Number(it.qty) || 0), 0) || 1;
-
-                                        return (
-                                            <div 
-                                                key={auto.id}
-                                                className="p-3 sm:p-4 bg-purple-50/20 dark:bg-purple-950/10 hover:bg-purple-50/40 dark:hover:bg-purple-950/20 border border-purple-100/80 dark:border-purple-900/30 rounded-2xl transition-all space-y-2"
-                                            >
-                                                {/* Fila 1: Descripción + Hora */}
-                                                <div className="flex items-start justify-between gap-2">
-                                                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                                                        <span className="w-7 h-7 rounded-lg bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-300 flex items-center justify-center shrink-0">
-                                                            <Package size={14} />
-                                                        </span>
-                                                        <span className="text-xs sm:text-sm font-black text-slate-800 dark:text-white truncate">
-                                                            {auto.description || (items.length > 0 ? items.map(i => `${i.qty}u ${i.name}`).join(', ') : 'Retiro de inventario')}
-                                                        </span>
-                                                    </div>
-                                                    <div className="flex items-center gap-1 text-[10px] font-mono font-bold text-slate-400 bg-white dark:bg-slate-800 px-2 py-0.5 rounded-lg border border-slate-200/60 dark:border-slate-700/60 shrink-0">
-                                                        <Clock size={11} className="text-slate-400" />
-                                                        <span>{timeStr}</span>
-                                                    </div>
-                                                </div>
-
-                                                {/* Fila 2: Usuario + Badge de artículos + Etiqueta de Stock */}
-                                                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-purple-100/50 dark:border-purple-950/40 text-[10.5px]">
-                                                    <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-semibold truncate">
-                                                        <User size={12} className="text-slate-400 shrink-0" />
-                                                        <span>{auto.usuarioNombre || auto.actor?.nombre || 'Administrador'}</span>
-                                                        <span className="text-slate-300 dark:text-slate-600">•</span>
-                                                        <span className="text-purple-600 dark:text-purple-400 font-bold">Salida de Stock (Sin impacto en caja)</span>
-                                                    </div>
-
-                                                    <span className="inline-flex items-center gap-1 text-[11px] font-black px-2.5 py-1 rounded-xl bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shrink-0">
-                                                        <Package size={13} className="text-purple-600 dark:text-purple-400" />
-                                                        <span>{totalUnits} {totalUnits === 1 ? 'artículo' : 'artículos'}</span>
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
-            </main>
-
-            {/* Modal de Confirmación de Desvinculación */}
-            {showDisconnectConfirm && (
-                <div className="fixed inset-0 z-[999] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
-                    <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 max-w-sm w-full shadow-2xl space-y-5 animate-scale-in">
-                        <div className="w-12 h-12 bg-rose-50 dark:bg-rose-950/20 rounded-2xl flex items-center justify-center text-rose-500 mx-auto">
-                            <LogOut size={22} />
-                        </div>
-                        <div className="space-y-1.5 text-center">
-                            <h4 className="text-base font-black text-slate-800 dark:text-white">Desvincular Supervisor</h4>
-                            <p className="text-xs font-semibold text-slate-500 leading-relaxed">
-                                ¿Estás seguro de que deseas desvincular este dispositivo? Se perderá el acceso en tiempo real a las transacciones de esta caja.
-                            </p>
-                        </div>
-                        <div className="flex gap-3">
-                            <button
-                                onClick={() => { triggerHaptic?.(); setShowDisconnectConfirm(false); }}
-                                className="flex-1 py-3 px-4 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-350 font-black text-xs rounded-2xl border border-slate-200 dark:border-slate-700 transition-colors"
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                onClick={() => { 
-                                    setShowDisconnectConfirm(false);
-                                    handleDisconnect();
-                                }}
-                                className="flex-1 py-3 px-4 bg-rose-500 hover:bg-rose-600 text-white font-black text-xs rounded-2xl shadow-lg shadow-rose-500/20 transition-colors"
-                            >
-                                Desvincular
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Modal de Confirmación para Cancelar Cola Local */}
-            {showDiscardQueueModal && (
-                <div className="fixed inset-0 z-[999] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
-                    <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 max-w-sm w-full shadow-2xl space-y-5 animate-scale-in">
-                        <div className="w-12 h-12 bg-rose-50 dark:bg-rose-950/20 rounded-2xl flex items-center justify-center text-rose-500 mx-auto">
-                            <Trash2 size={22} />
-                        </div>
-                        <div className="space-y-1.5 text-center">
-                            <h4 className="text-base font-black text-slate-800 dark:text-white">¿Cancelar Cola de Cambios?</h4>
-                            <p className="text-xs font-semibold text-slate-500 leading-relaxed">
-                                Se descartarán los <strong>{pendingChanges.length} cambio(s)</strong> pendientes en este navegador sin ser enviados a la caja principal.
-                            </p>
-                        </div>
-                        <div className="flex gap-3">
-                            <button
-                                onClick={() => { triggerHaptic?.(); setShowDiscardQueueModal(false); }}
-                                className="flex-1 py-3 px-4 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-350 font-black text-xs rounded-2xl border border-slate-200 dark:border-slate-700 transition-colors"
-                            >
-                                Volver
-                            </button>
-                            <button
-                                onClick={() => { 
-                                    triggerHaptic?.();
-                                    discardPendingChanges();
-                                    setShowDiscardQueueModal(false);
-                                }}
-                                className="flex-1 py-3 px-4 bg-rose-500 hover:bg-rose-600 text-white font-black text-xs rounded-2xl shadow-lg shadow-rose-500/20 transition-colors"
-                            >
-                                Sí, Cancelar Todo
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-            {/* Modal de Cambio de Tasa */}
-            <SupervisorRateModal
-                isOpen={showRateModal}
-                onClose={() => setShowRateModal(false)}
-                rates={rates}
-                primaryDeviceId={pairedDeviceId}
+            <MonitorHeader
+                mainTabs={MAIN_SUPERVISOR_TABS}
+                activeMainTabId={activeMainTabId}
+                currentMainTab={currentMainTab}
+                viewTab={viewTab}
+                setViewTab={setViewTab}
+                isConnected={isConnected}
+                lastSync={lastSync}
+                isPosOnline={isPosOnline}
+                posLastSeen={posLastSeen}
+                presenceError={presenceError}
+                syncLoading={syncLoading}
+                downloadingBackup={downloadingBackup}
+                totalControlChanges={totalControlChanges}
+                triggerRefresh={triggerRefresh}
                 triggerHaptic={triggerHaptic}
-                onOpenBsWizard={openBsCongeladoWizard}
+                showToast={showToast}
+                showMobileMenu={showMobileMenu}
+                setShowMobileMenu={setShowMobileMenu}
+                setShowRateModal={setShowRateModal}
+                setShowUsersModal={setShowUsersModal}
+                setShowPairingModal={setShowPairingModal}
+                setShowDisconnectConfirm={setShowDisconnectConfirm}
+                handleDownloadRemoteBackup={handleDownloadRemoteBackup}
+                handleAutoRepairPairing={handleAutoRepairPairing}
+            >
+                <MonitorTabs {...monitorCtx} />
+            </MonitorHeader>
+            <MonitorOverlays
+            AlertTriangle={AlertTriangle}
+            BsCongeladoAlertBanner={BsCongeladoAlertBanner}
+            BsCongeladoWizardModal={BsCongeladoWizardModal}
+            Clock={Clock}
+            ComboFormModal={ComboFormModal}
+            Lock={Lock}
+            RefreshCw={RefreshCw}
+            RemoteEmployeeModal={RemoteEmployeeModal}
+            RemoteProductFormModal={RemoteProductFormModal}
+            SaleDetailModal={SaleDetailModal}
+            StockAdjustModal={StockAdjustModal}
+            SupervisorPairingModal={SupervisorPairingModal}
+            SupervisorRateModal={SupervisorRateModal}
+            Trash2={Trash2}
+            UploadCloud={UploadCloud}
+            Users={Users}
+            UsersManager={UsersManager}
+            X={X}
+            activeShiftMetrics={activeShiftMetrics}
+            bcvRate={bcvRate}
+            bsCongeladoAlert={bsCongeladoAlert}
+            bsRoundingStep={bsRoundingStep}
+            cancelAllCloudCmds={cancelAllCloudCmds}
+            cancelSingleCloudCmd={cancelSingleCloudCmd}
+            cancellingCmdId={cancellingCmdId}
+            categories={categories}
+            closeBsCongeladoWizard={closeBsCongeladoWizard}
+            closingRemote={closingRemote}
+            cloudPendingCmds={cloudPendingCmds}
+            confirmVoidConsumptionTarget={confirmVoidConsumptionTarget}
+            copEnabled={copEnabled}
+            deleteEmployeeTarget={deleteEmployeeTarget}
+            triggerHaptic={triggerHaptic}
+            discardPendingChanges={discardPendingChanges}
+            editingCombo={editingCombo}
+            editingEmployee={editingEmployee}
+            effectiveRate={effectiveRate}
+            executeDeleteRemoteEmployee={executeDeleteRemoteEmployee}
+            executeVoidConsumptionSupervisor={executeVoidConsumptionSupervisor}
+            getSupervisorCommandDetails={getSupervisorCommandDetails}
+            handleDisconnect={handleDisconnect}
+            handleRemoteForceDailyClose={handleRemoteForceDailyClose}
+            handleSaveRemoteEmployee={handleSaveRemoteEmployee}
+            hasInventoryChanges={hasInventoryChanges}
+            inFlightChanges={inFlightChanges}
+            isBsWizardOpen={isBsWizardOpen}
+            isConnected={isConnected}
+            isPosOnline={isPosOnline}
+            openBsCongeladoWizard={openBsCongeladoWizard}
+            pairedDeviceId={pairedDeviceId}
+            payrollDetail={payrollDetail}
+            pendingChanges={pendingChanges}
+            pendingVoidSaleIds={pendingVoidSaleIds}
+            previousRate={previousRate}
+            products={products}
+            projectedProducts={projectedProducts}
+            queueInventoryChange={queueInventoryChange}
+            rates={rates}
+            remoteDeleteTarget={remoteDeleteTarget}
+            remoteEditingProduct={remoteEditingProduct}
+            selectedSaleDetail={selectedSaleDetail}
+            setConfirmVoidConsumptionTarget={setConfirmVoidConsumptionTarget}
+            setDeleteEmployeeTarget={setDeleteEmployeeTarget}
+            setEditingCombo={setEditingCombo}
+            setEditingEmployee={setEditingEmployee}
+            setPendingVoidCommands={setPendingVoidCommands}
+            setPendingVoidSaleIds={setPendingVoidSaleIds}
+            setRemoteDeleteTarget={setRemoteDeleteTarget}
+            setRemoteEditingProduct={setRemoteEditingProduct}
+            setSelectedSaleDetail={setSelectedSaleDetail}
+            setShowCloudPendingModal={setShowCloudPendingModal}
+            setShowComboModal={setShowComboModal}
+            setShowCreateEmployeeModal={setShowCreateEmployeeModal}
+            setShowDiscardQueueModal={setShowDiscardQueueModal}
+            setShowDisconnectConfirm={setShowDisconnectConfirm}
+            setShowPairingModal={setShowPairingModal}
+            setShowRateModal={setShowRateModal}
+            setShowRemoteCloseModal={setShowRemoteCloseModal}
+            setShowRemoteForm={setShowRemoteForm}
+            setShowUsersModal={setShowUsersModal}
+            setStockAdjustProduct={setStockAdjustProduct}
+            showCloudPendingModal={showCloudPendingModal}
+            showComboModal={showComboModal}
+            showCreateEmployeeModal={showCreateEmployeeModal}
+            showDiscardQueueModal={showDiscardQueueModal}
+            showDisconnectConfirm={showDisconnectConfirm}
+            showPairingModal={showPairingModal}
+            showRateModal={showRateModal}
+            showRemoteCloseModal={showRemoteCloseModal}
+            showRemoteForm={showRemoteForm}
+            showToast={showToast}
+            showUsersModal={showUsersModal}
+            stockAdjustProduct={stockAdjustProduct}
+            supervisorUser={supervisorUser}
+            tasaCop={tasaCop}
+            uploadPendingChanges={uploadPendingChanges}
+            uploading={uploading}
+            usuarios={usuarios}
+            viewTab={viewTab}
+            voidingConsumption={voidingConsumption}
             />
-
-            {/* Formulario remoto de producto (encola add/edit) */}
-            <RemoteProductFormModal
-                isOpen={showRemoteForm}
-                onClose={() => { setShowRemoteForm(false); setRemoteEditingProduct(null); }}
-                editingProduct={remoteEditingProduct}
-                onSubmit={(action, productId, data) => queueInventoryChange(action, productId, data)}
-                effectiveRate={effectiveRate}
-                bcvRate={bcvRate}
-            />
-
-            {/* Modal de Crear / Editar Empleado Remoto (Supervisor) */}
-            <RemoteEmployeeModal
-                isOpen={showCreateEmployeeModal}
-                onClose={() => {
-                    setShowCreateEmployeeModal(false);
-                    setEditingEmployee(null);
-                }}
-                onSubmit={handleSaveRemoteEmployee}
-                usuarios={usuarios}
-                editingEmployee={editingEmployee}
-            />
-
-            {/* Formulario/Wizard remoto de combos */}
-            <ComboFormModal
-                isOpen={showComboModal}
-                onClose={() => { setShowComboModal(false); setEditingCombo(null); }}
-                products={projectedProducts}
-                categories={categories}
-                effectiveRate={effectiveRate}
-                bcvRate={bcvRate}
-                copEnabled={copEnabled}
-                tasaCop={tasaCop}
-                onSave={(comboData) => {
-                    const finalData = editingCombo ? { ...comboData, baseUpdatedAt: editingCombo.updatedAt } : comboData;
-                    queueInventoryChange(editingCombo ? 'edit' : 'add', comboData.id, finalData);
-                    setShowComboModal(false);
-                    setEditingCombo(null);
-                    showToast(editingCombo ? 'Cambio de combo encolado' : 'Combo encolado para enviar a la caja', 'success');
-                }}
-                editingCombo={editingCombo}
-            />
-
-            {/* Confirmación de eliminación remota */}
-            {remoteDeleteTarget && (
-                <div className="fixed inset-0 z-[300] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 max-w-sm w-full shadow-2xl space-y-4 animate-in zoom-in-95 duration-200">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-rose-50 dark:bg-rose-950/30 rounded-2xl flex items-center justify-center shrink-0">
-                                <Trash2 size={18} className="text-rose-500" />
-                            </div>
-                            <div>
-                                <h3 className="font-black text-slate-800 dark:text-white text-sm">¿Eliminar producto?</h3>
-                                <p className="text-[10px] text-slate-400 font-bold">Se encolará para enviar a la caja</p>
-                            </div>
-                        </div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                            «<span className="font-black text-slate-700 dark:text-slate-200">{remoteDeleteTarget.name}</span>» será eliminado del inventario de la caja al subir los cambios.
-                        </p>
-                        <div className="flex gap-2">
-                            <button
-                                onClick={() => setRemoteDeleteTarget(null)}
-                                className="flex-1 py-2.5 rounded-2xl font-black text-xs uppercase text-slate-500 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                onClick={() => { triggerHaptic?.(); queueInventoryChange('delete', remoteDeleteTarget.id, null); setRemoteDeleteTarget(null); }}
-                                className="flex-1 py-2.5 rounded-2xl font-black text-xs uppercase text-white bg-rose-500 hover:bg-rose-600 shadow-lg shadow-rose-500/25 transition-colors"
-                            >
-                                Encolar
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Modal de Gestión / Anulación de Comandos Pendientes en la Nube */}
-            {showCloudPendingModal && (
-                <div className="fixed inset-0 z-[300] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowCloudPendingModal(false)}>
-                    <div className="bg-white dark:bg-slate-900 w-full sm:max-w-lg rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden max-h-[85vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-                        <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/70 dark:bg-slate-800/40">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-600 dark:text-amber-400 font-black shrink-0">
-                                    <Clock size={20} />
-                                </div>
-                                <div>
-                                    <h3 className="text-sm font-black text-slate-800 dark:text-white">Comandos en Espera ({cloudPendingCmds.length})</h3>
-                                    <p className="text-[10px] text-slate-400 font-medium mt-0.5">Subidos a la nube · Pendientes por aplicar en la caja</p>
-                                </div>
-                            </div>
-                            <button onClick={() => setShowCloudPendingModal(false)} className="p-2 rounded-2xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-                                <X size={18} />
-                            </button>
-                        </div>
-
-                        <div className="p-4 space-y-3 overflow-y-auto flex-1 custom-scrollbar">
-                            {cloudPendingCmds.length === 0 ? (
-                                <div className="py-8 text-center text-slate-400">
-                                    <CheckCircle size={32} className="mx-auto mb-2 text-emerald-500 opacity-60" />
-                                    <p className="text-xs font-bold">No hay cambios pendientes en la nube</p>
-                                </div>
-                            ) : (
-                                cloudPendingCmds.map(cmd => {
-                                    const info = getSupervisorCommandDetails(cmd, products);
-                                    const payload = cmd.payload || {};
-                                    const formattedTime = new Date(cmd.created_at || payload.issuedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-                                    return (
-                                        <div key={cmd.id} className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-3">
-                                            <div className="min-w-0 space-y-1 flex-1">
-                                                <div className="flex items-center gap-2 flex-wrap">
-                                                    <span className={`text-[9.5px] font-black uppercase px-2 py-0.5 rounded-md ${info.actionColor}`}>
-                                                        {info.actionLabel}
-                                                    </span>
-                                                    <span className="text-[10px] text-slate-400 font-bold">{formattedTime}</span>
-                                                    {info.author && (
-                                                        <span className="text-[10px] text-slate-400 font-medium ml-auto">Por: {info.author}</span>
-                                                    )}
-                                                </div>
-                                                <p className="text-xs font-black text-slate-800 dark:text-white truncate">
-                                                    {info.title}
-                                                </p>
-                                                {info.details.length > 0 && (
-                                                    <div className="flex items-center gap-1 flex-wrap pt-0.5">
-                                                        {info.details.map((det, dIdx) => (
-                                                            <span key={dIdx} className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                                                                {det}
-                                                            </span>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            <button
-                                                onClick={() => cancelSingleCloudCmd(cmd.id)}
-                                                disabled={cancellingCmdId === cmd.id}
-                                                className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 text-[10.5px] font-black uppercase transition-colors shrink-0 disabled:opacity-40"
-                                            >
-                                                {cancellingCmdId === cmd.id ? 'Anulando...' : 'Anular 🚫'}
-                                            </button>
-                                        </div>
-                                    );
-                                })
-                            )}
-                        </div>
-
-                        {cloudPendingCmds.length > 0 && (
-                            <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20 flex gap-2">
-                                <button onClick={() => setShowCloudPendingModal(false)} className="flex-1 py-2.5 rounded-2xl font-black text-xs uppercase text-slate-500 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
-                                    Cerrar
-                                </button>
-                                <button onClick={cancelAllCloudCmds} className="flex-1 py-2.5 rounded-2xl font-black text-xs uppercase text-white bg-rose-500 hover:bg-rose-600 shadow-md shadow-rose-500/20 transition-colors">
-                                    Anular Todos ({cloudPendingCmds.length})
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {/* Barra flotante «Subir al sistema» — ultra compacta y de 1 sola fila */}
-            {hasInventoryChanges && viewTab === 'inventario' && (
-                <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-[250] w-[94%] sm:w-full max-w-lg px-2 sm:px-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
-                    <div className="bg-[#193275] dark:bg-slate-900 border border-white/20 text-white rounded-2xl p-2.5 sm:p-3 shadow-2xl backdrop-blur-md flex items-center justify-between gap-2">
-                        {/* Texto descriptivo */}
-                        <div className="flex items-center gap-2 min-w-0 pl-1">
-                            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping shrink-0" />
-                            <div className="min-w-0">
-                                <p className="text-xs font-black leading-tight truncate">
-                                    {pendingChanges.length > 0
-                                        ? `${pendingChanges.length} cambio${pendingChanges.length !== 1 ? 's' : ''} en cola`
-                                        : `${inFlightChanges.length} cambio${inFlightChanges.length !== 1 ? 's' : ''} en confirmación`}
-                                </p>
-                                <p className="text-[9.5px] text-slate-300 font-medium leading-none mt-0.5 hidden sm:block truncate">
-                                    {pendingChanges.length > 0 ? 'Aún no se han enviado a la caja' : 'Esperando confirmación de la caja'}
-                                </p>
-                            </div>
-                        </div>
-
-                        {/* Botones de Acción */}
-                        <div className="flex items-center gap-1.5 shrink-0">
-                            <button
-                                onClick={() => { triggerHaptic?.(); discardPendingChanges(); }}
-                                disabled={uploading}
-                                title="Descartar cambios"
-                                className="px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase text-slate-300 hover:text-white bg-white/10 hover:bg-white/20 transition-colors disabled:opacity-40 cursor-pointer"
-                            >
-                                Descartar
-                            </button>
-                            {pendingChanges.length > 0 && (
-                                <button
-                                    onClick={() => { triggerHaptic?.(); uploadPendingChanges(); }}
-                                    disabled={uploading || !isConnected}
-                                    className="flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-[11px] font-black uppercase tracking-wider shadow-md shadow-emerald-500/30 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                                >
-                                    {uploading ? <RefreshCw size={13} className="animate-spin" /> : <UploadCloud size={13} />}
-                                    <span>{uploading ? 'Subiendo...' : 'Subir al sistema'}</span>
-                                </button>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-            {/* Modal de Ajuste Rápido de Stock (+40, -10, Entrada/Salida) */}
-            {stockAdjustProduct && (
-                <StockAdjustModal
-                    product={stockAdjustProduct}
-                    onClose={() => setStockAdjustProduct(null)}
-                    onConfirm={(productId, delta, extra) => queueInventoryChange('adjust_stock', productId, { delta, ...extra })}
-                    triggerHaptic={triggerHaptic}
-                />
-            )}
-
-            {/* Modal de Detalle Completo de Venta */}
-            {selectedSaleDetail && (
-                <SaleDetailModal
-                    sale={selectedSaleDetail}
-                    onClose={() => setSelectedSaleDetail(null)}
-                    bcvRate={bcvRate}
-                    effectiveRate={effectiveRate}
-                    products={products}
-                    pairedDeviceId={pairedDeviceId}
-                    actor={supervisorUser}
-                    pendingVoid={selectedSaleDetail?.id ? pendingVoidSaleIds.has(selectedSaleDetail.id) : false}
-                    onVoidSaleSuccess={(saleId, commandId) => {
-                        setPendingVoidSaleIds(previous => new Set(previous).add(saleId));
-                        if (commandId) {
-                            setPendingVoidCommands(previous => ({ ...previous, [saleId]: commandId }));
-                        }
-                    }}
-                />
-            )}
-
-            {/* Modal de Vinculación de Dispositivos */}
-            {showPairingModal && (
-                <SupervisorPairingModal
-                    onClose={() => setShowPairingModal(false)}
-                    pairedDeviceId={pairedDeviceId}
-                    triggerHaptic={triggerHaptic}
-                />
-            )}
-
-            {/* Modal de Confirmación de Cierre Remoto de Caja */}
-            {showRemoteCloseModal && (
-                <div className="fixed inset-0 z-[300] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in" onClick={() => !closingRemote && setShowRemoteCloseModal(false)}>
-                    <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-                        <div className="p-5 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between bg-amber-50/50 dark:bg-amber-950/20">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center font-black shrink-0 shadow-md shadow-amber-500/20">
-                                    <Lock size={20} />
-                                </div>
-                                <div>
-                                    <h3 className="text-base font-black text-slate-800 dark:text-white">Ejecutar Cierre Remoto</h3>
-                                    <p className="text-xs text-slate-400 font-medium mt-0.5">Caja ID: {pairedDeviceId?.slice(0, 16)}...</p>
-                                </div>
-                            </div>
-                            <button onClick={() => !closingRemote && setShowRemoteCloseModal(false)} className="p-2 rounded-2xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">
-                                <X size={18} />
-                            </button>
-                        </div>
-                        
-                        <div className="p-5 sm:p-6 space-y-4">
-                            <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 space-y-2">
-                                <div className="flex justify-between items-center text-xs">
-                                    <span className="text-slate-500 dark:text-slate-400 font-medium">Total Ventas (Turno Abierto):</span>
-                                    <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">${activeShiftMetrics.totalUsd.toFixed(2)} USD</span>
-                                </div>
-                                <div className="flex justify-between items-center text-xs">
-                                    <span className="text-slate-500 dark:text-slate-400 font-medium">Equivalente en Bolívares:</span>
-                                    <span className="font-bold text-slate-700 dark:text-slate-200">Bs {activeShiftMetrics.totalBs.toFixed(2)}</span>
-                                </div>
-                                <div className="flex justify-between items-center text-xs">
-                                    <span className="text-slate-500 dark:text-slate-400 font-medium">Ventas Acumuladas:</span>
-                                    <span className="font-bold text-slate-700 dark:text-slate-200">{activeShiftMetrics.count} transacciones</span>
-                                </div>
-                            </div>
-
-                            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-medium">
-                                Al confirmar, se consolidarán todas las ventas abiertas (incluyendo las realizadas ayer y hoy) en un documento oficial de <strong>Cierre de Caja</strong>. La caja remota actualizará su estado automáticamente.
-                            </p>
-
-                            <div className="grid grid-cols-2 gap-3 pt-2">
-                                <button
-                                    onClick={() => setShowRemoteCloseModal(false)}
-                                    disabled={closingRemote}
-                                    className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 rounded-2xl font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
-                                >
-                                    Cancelar
-                                </button>
-                                <button
-                                    onClick={handleRemoteForceDailyClose}
-                                    disabled={closingRemote}
-                                    className="py-3 px-4 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-black text-xs transition-all shadow-md hover:shadow-amber-500/30 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                                >
-                                    {closingRemote ? 'Procesando Cierre...' : '🔒 Confirmar Cierre'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Modal de Gestión de Usuarios y PINs */}
-            {showUsersModal && (
-                <div className="fixed inset-0 z-[300] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in" onClick={() => setShowUsersModal(false)}>
-                    <div className="bg-white dark:bg-slate-900 w-full sm:max-w-2xl rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-                        <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/70 dark:bg-slate-800/40">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200/60 dark:border-blue-800/60 flex items-center justify-center text-blue-600 dark:text-blue-400 font-black shrink-0">
-                                    <Users size={20} />
-                                </div>
-                                <div>
-                                    <h3 className="text-base font-black text-slate-800 dark:text-white">Usuarios, Roles y PINs</h3>
-                                    <p className="text-xs text-slate-400 font-medium mt-0.5">Consulta y gestiona los PINs de acceso de tu equipo</p>
-                                </div>
-                            </div>
-                            <button onClick={() => setShowUsersModal(false)} className="p-2 rounded-2xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">
-                                <X size={18} />
-                            </button>
-                        </div>
-                        <div className="p-4 sm:p-6 overflow-y-auto flex-1 custom-scrollbar space-y-4">
-                            {!isPosOnline && (
-                                <div className="p-3.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-900/40 rounded-2xl flex items-center gap-3 text-amber-800 dark:text-amber-300 text-xs font-semibold shadow-xs">
-                                    <AlertTriangle size={20} className="shrink-0 text-amber-600 dark:text-amber-400" />
-                                    <div>
-                                        <p className="font-black text-amber-900 dark:text-amber-200 leading-tight">Caja Principal Desconectada</p>
-                                        <p className="text-[11px] text-amber-700 dark:text-amber-400 font-medium mt-0.5">Mostrando catálogo de usuarios de la última sincronización. Los cambios se enviarán y aplicarán en la caja automáticamente apenas vuelva a estar en línea.</p>
-                                    </div>
-                                </div>
-                            )}
-                            <UsersManager triggerHaptic={triggerHaptic} onQueueChange={queueInventoryChange} />
-                        </div>
-
-                        {/* Footer con botón "Subir al Sistema" si hay cambios pendientes */}
-                        {pendingChanges.length > 0 && (
-                            <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-900 text-white flex items-center justify-between gap-3 animate-in slide-in-from-bottom-2 duration-200">
-                                <div className="flex items-center gap-2.5 min-w-0">
-                                    <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-black text-xs shrink-0 border border-amber-500/30">
-                                        {pendingChanges.length}
-                                    </div>
-                                    <p className="text-xs font-black truncate">
-                                        {pendingChanges.length} cambio{pendingChanges.length !== 1 ? 's' : ''} pendiente{pendingChanges.length !== 1 ? 's' : ''} por subir
-                                    </p>
-                                </div>
-                                <button
-                                    onClick={() => { triggerHaptic?.(); uploadPendingChanges(); }}
-                                    disabled={uploading || !isConnected}
-                                    className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-[11px] font-black uppercase tracking-wider shadow-md shadow-emerald-500/30 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shrink-0"
-                                >
-                                    {uploading ? <RefreshCw size={13} className="animate-spin" /> : <UploadCloud size={13} />}
-                                    <span>{uploading ? 'Subiendo...' : 'Subir al sistema'}</span>
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-            {/* Banner y Wizard para productos en Bs Congelado en Modo Supervisor */}
-            <BsCongeladoAlertBanner />
-            <BsCongeladoWizardModal
-                isOpen={isBsWizardOpen}
-                onClose={closeBsCongeladoWizard}
-                prevRate={bsCongeladoAlert?.prevRate || previousRate || 0}
-                newRate={effectiveRate}
-                products={products}
-                onSaveProducts={async (updatedList) => {
-                    if (!updatedList || updatedList.length === 0) return;
-
-                    const batchItems = updatedList.map(p => {
-                        const changes = {
-                            name: p.name,
-                            priceUsd: p.priceUsd,
-                            pricingMode: p.pricingMode || 'bs_fijo',
-                            forceBcv: false,
-                        };
-                        if (p.priceBsManual !== undefined) changes.priceBsManual = p.priceBsManual;
-                        if (p.boxPriceBsManual !== undefined) {
-                            changes.boxPriceBsManual = p.boxPriceBsManual;
-                            changes.boxPricingMode = p.boxPricingMode || 'bs_fijo';
-                        }
-                        if (p.halfBoxPriceBsManual !== undefined) {
-                            changes.halfBoxPriceBsManual = p.halfBoxPriceBsManual;
-                            changes.halfBoxPricingMode = p.halfBoxPricingMode || 'bs_fijo';
-                        }
-
-                        return {
-                            productId: p.id,
-                            data: changes
-                        };
-                    });
-
-                    const batchCommand = {
-                        action: 'batch_edit',
-                        productId: 'batch_update',
-                        data: { items: batchItems },
-                        queuedAt: new Date().toISOString()
-                    };
-
-                    await uploadPendingChanges([batchCommand]);
-                }}
-                triggerHaptic={triggerHaptic}
-                bsRoundingStep={bsRoundingStep}
-            />
-
-            {/* Modal Profesional de Confirmación para Anular Consumo de Empleado */}
-            {confirmVoidConsumptionTarget && (
-                <div
-                    className="fixed inset-0 z-[120] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
-                    onClick={() => !voidingConsumption && setConfirmVoidConsumptionTarget(null)}
-                >
-                    <div
-                        className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6 max-w-sm w-full space-y-4 animate-zoom-in"
-                        onClick={e => e.stopPropagation()}
-                    >
-                        <div className="w-14 h-14 rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-500 flex items-center justify-center mx-auto">
-                            <Trash2 size={26} />
-                        </div>
-                        <div className="text-center">
-                            <h4 className="text-base font-black text-slate-800 dark:text-white">
-                                ¿Anular consumo de empleado?
-                            </h4>
-                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
-                                Se anulará el consumo de <strong className="text-slate-700 dark:text-slate-200">${Number(confirmVoidConsumptionTarget.totalUsd || 0).toFixed(2)}</strong> de <strong className="text-slate-700 dark:text-slate-200">{payrollDetail?.employee?.employeeNombre || 'este empleado'}</strong>.
-                            </p>
-                            <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold mt-2 bg-emerald-50 dark:bg-emerald-950/30 py-1.5 px-3 rounded-xl">
-                                ↺ Las unidades serán devueltas al inventario de la caja principal
-                            </p>
-                        </div>
-                        <div className="flex gap-2 pt-2">
-                            <button
-                                type="button"
-                                disabled={voidingConsumption}
-                                onClick={() => setConfirmVoidConsumptionTarget(null)}
-                                className="flex-1 py-3 px-4 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 transition-colors disabled:opacity-50"
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                type="button"
-                                disabled={voidingConsumption}
-                                onClick={() => executeVoidConsumptionSupervisor(confirmVoidConsumptionTarget)}
-                                className="flex-1 py-3 px-4 rounded-xl bg-rose-500 hover:bg-rose-600 active:scale-95 text-white text-xs font-black transition-all shadow-md shadow-rose-500/20 disabled:opacity-50"
-                            >
-                                {voidingConsumption ? 'Enviando...' : 'Sí, Anular'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-}
-
-// ── SUBCOMPONENTE: Modal de Ajuste Rápido de Stock (Entradas de mercancía / Salidas) ──
-function StockAdjustModal({ product, onClose, onConfirm, triggerHaptic }) {
-    const [mode, setMode] = useState('add'); // 'add', 'subtract', 'set'
-    const [quantity, setQuantity] = useState('');
-
-    if (!product) return null;
-
-    const currentStock = Number(product.stock) || 0;
-    const qtyNum = parseFloat(quantity) || 0;
-
-    let targetStock = currentStock;
-    let delta = 0;
-
-    if (mode === 'add') {
-        targetStock = currentStock + qtyNum;
-        delta = qtyNum;
-    } else if (mode === 'subtract') {
-        targetStock = Math.max(0, currentStock - qtyNum);
-        // La salida es relativa. La caja debe recibir todas las unidades
-        // solicitadas y encargarse de limitar el resultado a cero usando su
-        // stock real, que puede ser distinto al del monitor.
-        delta = -qtyNum;
-    } else if (mode === 'set') {
-        targetStock = Math.max(0, qtyNum);
-        delta = targetStock - currentStock;
-    }
-
-    const handleQuickAdd = (val) => {
-        triggerHaptic?.();
-        setQuantity(val.toString());
-    };
-
-    const handleSave = (e) => {
-        e.preventDefault();
-        if (delta === 0) {
-            onClose();
-            return;
-        }
-        triggerHaptic?.();
-        onConfirm(product.id, delta, mode === 'set' ? { targetStock } : undefined);
-        onClose();
-    };
-
-    return (
-        <div className="fixed inset-0 z-[300] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200 space-y-4">
-                {/* Header */}
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5 min-w-0 pr-2">
-                        <div className="w-10 h-10 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 rounded-2xl flex items-center justify-center shrink-0">
-                            <PlusCircle size={20} />
-                        </div>
-                        <div className="min-w-0">
-                            <h3 className="font-black text-slate-800 dark:text-white text-sm truncate uppercase">
-                                {product.name}
-                            </h3>
-                            <p className="text-[10px] text-slate-400 font-bold">
-                                Stock Actual: <span className="text-slate-700 dark:text-slate-200 font-black">{currentStock} u</span>
-                            </p>
-                        </div>
-                    </div>
-                    <button
-                        onClick={onClose}
-                        className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                    >
-                        <X size={16} />
-                    </button>
-                </div>
-
-                {/* Selección de Tipo de Ajuste */}
-                <div className="grid grid-cols-3 gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl">
-                    <button
-                        type="button"
-                        onClick={() => { triggerHaptic?.(); setMode('add'); }}
-                        className={`py-2 px-1 text-[10px] font-black uppercase rounded-xl transition-all ${
-                            mode === 'add'
-                                ? 'bg-emerald-500 text-white shadow-sm'
-                                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                        }`}
-                    >
-                        ➕ Entrada
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => { triggerHaptic?.(); setMode('subtract'); }}
-                        className={`py-2 px-1 text-[10px] font-black uppercase rounded-xl transition-all ${
-                            mode === 'subtract'
-                                ? 'bg-rose-500 text-white shadow-sm'
-                                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                        }`}
-                    >
-                        ➖ Salida
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => { triggerHaptic?.(); setMode('set'); }}
-                        className={`py-2 px-1 text-[10px] font-black uppercase rounded-xl transition-all ${
-                            mode === 'set'
-                                ? 'bg-blue-600 text-white shadow-sm'
-                                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                        }`}
-                    >
-                        ✏️ Fijar Exacto
-                    </button>
-                </div>
-
-                {/* Input de Cantidad */}
-                <form onSubmit={handleSave} className="space-y-3">
-                    <div>
-                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">
-                            {mode === 'add' ? '¿Cuántas unidades llegaron?' : mode === 'subtract' ? '¿Cuántas unidades salen?' : 'Nuevo Stock total exacto:'}
-                        </label>
-                        <input
-                            type="number"
-                            inputMode="decimal"
-                            step="any"
-                            autoFocus
-                            value={quantity}
-                            onChange={(e) => setQuantity(e.target.value)}
-                            onFocus={(e) => e.target.select()}
-                            placeholder={mode === 'add' ? 'Ej: 40' : mode === 'subtract' ? 'Ej: 5' : `${currentStock}`}
-                            className="w-full px-4 py-3 text-lg font-outfit font-black rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500 text-center"
-                        />
-                    </div>
-
-                    {/* Botones de Acceso Rápido */}
-                    <div className="space-y-1">
-                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">Sugeridos rápidos:</span>
-                        <div className="flex flex-wrap gap-1.5">
-                            {[5, 10, 20, 40, 50, 100].map((num) => (
-                                <button
-                                    key={num}
-                                    type="button"
-                                    onClick={() => handleQuickAdd(num)}
-                                    className="px-2.5 py-1 text-xs font-outfit font-black rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-slate-700 transition-colors"
-                                >
-                                    {mode === 'subtract' ? `-${num}` : mode === 'add' ? `+${num}` : num}
-                                </button>
-                            ))}
-                            {product.sellByBox && product.boxUnits > 0 && (
-                                <button
-                                    type="button"
-                                    onClick={() => handleQuickAdd(product.boxUnits)}
-                                    className="px-2.5 py-1 text-xs font-outfit font-black rounded-xl bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 hover:bg-blue-100 transition-colors"
-                                >
-                                    {mode === 'subtract' ? '-' : mode === 'add' ? '+' : ''}1 Caja ({product.boxUnits}u)
-                                </button>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Proyección / Vista Previa */}
-                    <div className="bg-slate-50 dark:bg-slate-950/60 p-3 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase">Stock resultante:</span>
-                        <span className="font-outfit font-black text-sm tabular-nums text-slate-800 dark:text-white">
-                            {targetStock} u
-                            {delta !== 0 && (
-                                <span className={`ml-1.5 text-xs ${delta > 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                    ({delta > 0 ? '+' : ''}{delta})
-                                </span>
-                            )}
-                        </span>
-                    </div>
-
-                    {/* Botones de acción del Modal */}
-                    <div className="flex gap-2 pt-1">
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="flex-1 py-2.5 rounded-2xl font-black text-xs uppercase text-slate-500 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-                        >
-                            Cancelar
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={!quantity || qtyNum <= 0}
-                            className="flex-1 py-2.5 rounded-2xl font-black text-xs uppercase text-white bg-emerald-500 hover:bg-emerald-400 shadow-lg shadow-emerald-500/25 transition-all active:scale-95 disabled:opacity-40"
-                        >
-                            Encolar Ajuste
-                        </button>
-                    </div>
-                </form>
-            </div>
         </div>
     );
 }

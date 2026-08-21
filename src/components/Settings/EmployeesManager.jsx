@@ -37,7 +37,42 @@ const formatUsd = value => new Intl.NumberFormat('en-US', {
 
 export default function EmployeesManager({ triggerHaptic, effectiveRate = 0, bcvRate = 0 }) {
     const usuarioActivo = useAuthStore(state => state.usuarioActivo);
-    const usuarios = useAuthStore(state => state.usuarios) || [];
+    const storeUsuarios = useAuthStore(state => state.usuarios) || [];
+    const [syncedUsers, setSyncedUsers] = useState(() => {
+        try {
+            const raw = localStorage.getItem('bodega_users_catalog_v1');
+            const arr = raw ? JSON.parse(raw) : null;
+            if (Array.isArray(arr) && arr.length > 0) return arr;
+        } catch {}
+        return null;
+    });
+
+    useEffect(() => {
+        const handleSync = () => {
+            try {
+                const raw = localStorage.getItem('bodega_users_catalog_v1');
+                const arr = raw ? JSON.parse(raw) : null;
+                if (Array.isArray(arr) && arr.length > 0) setSyncedUsers(arr);
+            } catch {}
+        };
+        window.addEventListener('app_storage_update', handleSync);
+        window.addEventListener('storage', handleSync);
+        return () => {
+            window.removeEventListener('app_storage_update', handleSync);
+            window.removeEventListener('storage', handleSync);
+        };
+    }, []);
+
+    const usuarios = useMemo(() => {
+        const list = (storeUsuarios && storeUsuarios.length > 0 && storeUsuarios.some(u => u.nombre !== 'Administrador' && u.nombre !== 'Cajero'))
+            ? storeUsuarios 
+            : ((syncedUsers && syncedUsers.length > 0) ? syncedUsers : storeUsuarios);
+        return (list || []).map(u => ({
+            ...u,
+            rol: u.rol || (u.id === 1 ? 'ADMIN' : 'CAJERO'),
+        }));
+    }, [syncedUsers, storeUsuarios]);
+
     const requireLogin = useAuthStore(state => state.requireLogin);
     const isAdmin = usuarioActivo?.rol === 'ADMIN' || requireLogin === false;
     const [employees, setEmployees] = useState([]);
