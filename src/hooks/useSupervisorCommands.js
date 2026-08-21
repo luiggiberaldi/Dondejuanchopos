@@ -517,6 +517,46 @@ export function useSupervisorCommands(deviceId) {
                     console.error('[SupervisorCommands] Error al aplicar user_update:', err);
                     await updateCommandStatus(command.id, 'failed', err?.message);
                 }
+            } else if (command.command_type === 'customer_update' || (command.command_type === 'inventory_update' && (command.payload?.action === 'save_customer' || command.payload?.action === 'update_customer_balance'))) {
+                try {
+                    const { customerId, customerCode, deuda, favor, customer } = command.payload || {};
+                    const { storageService } = await import('../utils/storageService');
+                    const { pushCloudSync } = await import('./useCloudSync');
+
+                    const customers = await storageService.getItem('bodega_customers_v1', []) || [];
+                    let updated = false;
+                    const newCustomers = customers.map(c => {
+                        const isMatch = (customerId && (c.id === customerId || c._id === customerId)) ||
+                                        (customerCode && (c.code === customerCode || c.id === customerCode));
+                        if (isMatch) {
+                            updated = true;
+                            return {
+                                ...c,
+                                ...(customer || {}),
+                                deuda: deuda !== undefined ? Number(deuda) : (customer?.deuda !== undefined ? Number(customer.deuda) : c.deuda),
+                                favor: favor !== undefined ? Number(favor) : (customer?.favor !== undefined ? Number(customer.favor) : c.favor),
+                                updatedAt: new Date().toISOString()
+                            };
+                        }
+                        return c;
+                    });
+
+                    if (updated) {
+                        await storageService.setItem('bodega_customers_v1', newCustomers);
+                        appliedIds.add(command.id);
+                        markApplied(command.id);
+                        await updateCommandStatus(command.id, 'applied');
+                        window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_customers_v1' } }));
+                        await pushCloudSync('bodega_customers_v1', newCustomers, true);
+                    } else {
+                        await updateCommandStatus(command.id, 'failed', 'Cliente no encontrado en la caja');
+                    }
+                } catch (err) {
+                    appliedIds.delete(command.id);
+                    unmarkApplied(command.id);
+                    console.error('[SupervisorCommands] Error al actualizar cliente remoto:', err);
+                    await updateCommandStatus(command.id, 'failed', err?.message);
+                }
             } else if (command.command_type === 'void_sale') {
                 try {
                     const { saleId } = command.payload || {};
