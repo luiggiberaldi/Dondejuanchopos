@@ -327,10 +327,13 @@ export default function MonitorActivoTab({ AlertTriangle, ArrowDownRight, Chevro
                                             </div>
                                             <div className="mt-2.5 min-w-0">
                                                 <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-amber-600 dark:text-amber-400 tabular-nums block break-words leading-none">
-                                                    -${activeShiftChangeMetrics.totalUsd.toFixed(2)}
+                                                    {activeShiftChangeMetrics.totalUsd > 0 
+                                                        ? `-$${activeShiftChangeMetrics.totalUsd.toFixed(2)}` 
+                                                        : `-${formatBs(activeShiftChangeMetrics.totalBs)} Bs`}
                                                 </span>
                                                 <span className="text-[9px] text-slate-400 block font-medium mt-1">
-                                                    {activeShiftChangeMetrics.count} {activeShiftChangeMetrics.count === 1 ? 'venta' : 'ventas'} (-{formatBs(activeShiftChangeMetrics.totalBs)} Bs)
+                                                    {activeShiftChangeMetrics.count} {activeShiftChangeMetrics.count === 1 ? 'venta' : 'ventas'}
+                                                    {activeShiftChangeMetrics.totalUsd > 0 && activeShiftChangeMetrics.totalBs > 0 ? ` (-${formatBs(activeShiftChangeMetrics.totalBs)} Bs)` : ''}
                                                 </span>
                                             </div>
                                         </div>
@@ -347,10 +350,13 @@ export default function MonitorActivoTab({ AlertTriangle, ArrowDownRight, Chevro
                                             </div>
                                             <div className="mt-2.5 min-w-0">
                                                 <span className="font-outfit text-base sm:text-xl lg:text-2xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums block break-words leading-none">
-                                                    ${activeShiftTipTotals.tipUsd.toFixed(2)}
+                                                    {activeShiftTipTotals.tipUsd > 0 
+                                                        ? `$${activeShiftTipTotals.tipUsd.toFixed(2)}` 
+                                                        : `${formatBs(activeShiftTipTotals.tipBs)} Bs`}
                                                 </span>
                                                 <span className="text-[9px] text-slate-400 block font-medium mt-1">
-                                                    {formatBs(activeShiftTipTotals.tipBs)} Bs · {activeShiftTipTotals.tipCount} {activeShiftTipTotals.tipCount === 1 ? 'venta' : 'ventas'}
+                                                    {activeShiftTipTotals.tipCount} {activeShiftTipTotals.tipCount === 1 ? 'venta' : 'ventas'}
+                                                    {activeShiftTipTotals.tipUsd > 0 && activeShiftTipTotals.tipBs > 0 ? ` (+${formatBs(activeShiftTipTotals.tipBs)} Bs)` : ''}
                                                 </span>
                                             </div>
                                         </div>
