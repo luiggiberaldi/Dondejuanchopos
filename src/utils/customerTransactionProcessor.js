@@ -23,7 +23,8 @@ export async function processCustomerTransaction({
     bcvRate,
     tasaCop,
     copEnabled,
-    activePaymentMethods = []
+    activePaymentMethods = [],
+    isFullPayment = false
 }) {
     if (!customer?.id) return { error: 'Cliente inválido' };
     if (!['ABONO', 'CREDITO'].includes(type)) return { error: 'Tipo de operación inválido' };
@@ -59,6 +60,11 @@ export async function processCustomerTransaction({
     let transaccionOpts = {};
     let vueltoParaMonedero = 0; // FIN-012: para persistir en el sale record.
     if (type === 'ABONO') {
+        const currentDeuda = Number(customer?.deuda) || 0;
+        // Si el usuario indicó pago total o el monto cubre la deuda dentro de una tolerancia de 2 céntimos (redondeo de tasa)
+        if (currentDeuda > 0 && (isFullPayment || Math.abs(amountUsd - currentDeuda) <= 0.02)) {
+            amountUsd = currentDeuda;
+        }
         transaccionOpts = { costoTotal: 0, pagoReal: amountUsd, vueltoParaMonedero: amountUsd };
         vueltoParaMonedero = amountUsd;
     } else if (type === 'CREDITO') {

@@ -68,13 +68,15 @@ export function procesarImpactoCliente(clienteInicial, transaccion) {
             // PRIORITY: DEBT FIRST
             if (deudaActual >= vueltoParaMonedero) {
                 // Paga parte de la deuda
-                cliente.deuda = subR(deudaActual, vueltoParaMonedero);
+                const restante = subR(deudaActual, vueltoParaMonedero);
+                // Si el restante es <= 0.015 (diferencia de redondeo por tasa/céntimo), saldar a 0
+                cliente.deuda = restante <= 0.015 ? 0 : restante;
                 // Nada al favor real, todo se consumió en deuda
             } else {
                 // Paga toda la deuda y sobra
                 const sobra = subR(vueltoParaMonedero, deudaActual);
                 cliente.deuda = 0;
-                cliente.favor = sumR(cliente.favor || 0, sobra); // Q3
+                cliente.favor = sumR(cliente.favor || 0, sobra <= 0.015 ? 0 : sobra); // Q3
             }
         } else {
             // No deuda, todo a favor
@@ -89,8 +91,9 @@ export function procesarImpactoCliente(clienteInicial, transaccion) {
         cliente.favor = round2(saldoNeto);
         cliente.deuda = 0;
     } else {
+        const debtVal = round2(Math.abs(saldoNeto));
         cliente.favor = 0;
-        cliente.deuda = round2(Math.abs(saldoNeto));
+        cliente.deuda = debtVal <= 0.015 ? 0 : debtVal;
     }
 
     return cliente;

@@ -22,6 +22,8 @@ export default function TransactionModal({
 }) {
     if (!transactionModal.isOpen || !transactionModal.customer) return null;
 
+    const [isFullPayment, setIsFullPayment] = React.useState(false);
+
     // Calcular preview del saldo resultante en tiempo real
     const rawAmt = parseFloat(transactionAmount) || 0;
     let amtUsd = rawAmt;
@@ -31,9 +33,16 @@ export default function TransactionModal({
 
     let previewCustomer = null;
     if (rawAmt > 0) {
+        let appliedUsd = amtUsd;
+        if (transactionModal.type === 'ABONO') {
+            const currentDeuda = Number(currentCustomer.deuda) || 0;
+            if (currentDeuda > 0 && (isFullPayment || Math.abs(amtUsd - currentDeuda) <= 0.02)) {
+                appliedUsd = currentDeuda;
+            }
+        }
         const opts = transactionModal.type === 'ABONO'
-            ? { costoTotal: 0, pagoReal: amtUsd, vueltoParaMonedero: amtUsd }
-            : { esCredito: true, deudaGenerada: amtUsd };
+            ? { costoTotal: 0, pagoReal: appliedUsd, vueltoParaMonedero: appliedUsd }
+            : { esCredito: true, deudaGenerada: appliedUsd };
         previewCustomer = procesarImpactoCliente(currentCustomer, opts);
     }
 
@@ -124,7 +133,10 @@ export default function TransactionModal({
                             <input
                                 type="number"
                                 value={transactionAmount}
-                                onChange={(e) => setTransactionAmount(e.target.value)}
+                                onChange={(e) => {
+                                    setTransactionAmount(e.target.value);
+                                    setIsFullPayment(false);
+                                }}
                                 placeholder="0.00"
                                 className={`w-full form-input bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-4 ${currencyMode === 'BS' ? 'pl-12' : 'pl-10'} text-2xl font-black text-slate-800 dark:text-white focus:ring-2 focus:ring-brand/50 transition-all`}
                                 autoFocus
@@ -135,6 +147,7 @@ export default function TransactionModal({
                             <button
                                 type="button"
                                 onClick={() => {
+                                    setIsFullPayment(true);
                                     const deudaUsd = currentCustomer.deuda;
                                     if (currencyMode === 'BS' && bcvRate > 0) {
                                         const debtBsToUse = (transactionModal.debtCurrentBs && transactionModal.debtCurrentBs > 0)
@@ -247,7 +260,7 @@ export default function TransactionModal({
 
                 <div className="p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
                     <button
-                        onClick={handleTransaction}
+                        onClick={() => handleTransaction(isFullPayment)}
                         disabled={!transactionAmount || parseFloat(transactionAmount) <= 0}
                         className={`w-full py-3.5 text-white font-bold rounded-xl active:scale-95 transition-all text-sm flex justify-center items-center gap-2 ${transactionModal.type === 'ABONO'
                             ? 'bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-500/50'

@@ -210,7 +210,7 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
         auditLog('CLIENTE', 'SALDAR_CASHEA', `Deuda Cashea saldada para ${customer.name}`);
     };
 
-    const handleTransaction = async () => {
+    const handleTransaction = async (isFullPayment = false) => {
         if (!transactionAmount || isNaN(transactionAmount) || parseFloat(transactionAmount) <= 0) return;
         triggerHaptic();
 
@@ -237,6 +237,7 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
             tasaCop,
             copEnabled,
             activePaymentMethods,
+            isFullPayment,
         });
 
         if (transactionResult?.error) {
