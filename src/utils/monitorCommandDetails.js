@@ -73,6 +73,33 @@ export function getSupervisorCommandDetails(item, products = []) {
             };
         }
 
+        if (action === 'save_employee') {
+            const emp = data.employee || data;
+            const details = [];
+            if (emp.cargo) details.push(`💼 ${emp.cargo}`);
+            if (emp.salarioSemanalUsd !== undefined) details.push(`💵 $${formatUsdAmount(emp.salarioSemanalUsd)}/sem`);
+            if (emp.limiteConsumoPorc !== undefined) details.push(`📊 Límite: ${emp.limiteConsumoPorc}%`);
+            const isEdit = Boolean(emp.id && !emp._isNew);
+            return {
+                title: `Empleado: "${emp.nombre || 'Personal'}"`,
+                actionLabel: isEdit ? 'Edición de Empleado' : 'Alta de Empleado',
+                actionColor: isEdit ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300',
+                details,
+                author: 'Tú (Monitor)',
+            };
+        }
+
+        if (action === 'delete_employee') {
+            const empName = data.employeeNombre || data.nombre || 'Personal';
+            return {
+                title: `Empleado: "${empName}"`,
+                actionLabel: 'Eliminación de Empleado',
+                actionColor: 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300',
+                details: ['🗑️ Eliminado del registro de personal'],
+                author: 'Tú (Monitor)',
+            };
+        }
+
         const title = data.name || targetProd?.name || 'Artículo / Configuración';
         return { title, ...buildInventoryActionDetails(action, data), author: 'Tú (Monitor)' };
     }
@@ -94,6 +121,33 @@ export function getSupervisorCommandDetails(item, products = []) {
             actionLabel: 'Anulación de Consumo',
             actionColor: 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300',
             details,
+            author: getCommandAuthor(payload, cmd),
+        };
+    }
+
+    if (action === 'save_employee' || cmd.command_type === 'save_employee') {
+        const emp = payload.employee || payload.data || payload;
+        const details = [];
+        if (emp.cargo) details.push(`💼 ${emp.cargo}`);
+        if (emp.salarioSemanalUsd !== undefined) details.push(`💵 $${formatUsdAmount(emp.salarioSemanalUsd)}/sem`);
+        if (emp.limiteConsumoPorc !== undefined) details.push(`📊 Límite: ${emp.limiteConsumoPorc}%`);
+        const isEdit = Boolean(emp.id && !emp._isNew);
+        return {
+            title: `Empleado: "${emp.nombre || 'Personal'}"`,
+            actionLabel: isEdit ? 'Edición de Empleado' : 'Alta de Empleado',
+            actionColor: isEdit ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300',
+            details,
+            author: getCommandAuthor(payload, cmd),
+        };
+    }
+
+    if (action === 'delete_employee' || cmd.command_type === 'delete_employee') {
+        const empName = payload.employeeNombre || payload.nombre || (payload.employeeId ? `#${payload.employeeId}` : 'Personal');
+        return {
+            title: `Empleado: "${empName}"`,
+            actionLabel: 'Eliminación de Empleado',
+            actionColor: 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300',
+            details: ['🗑️ Eliminado del registro de personal'],
             author: getCommandAuthor(payload, cmd),
         };
     }

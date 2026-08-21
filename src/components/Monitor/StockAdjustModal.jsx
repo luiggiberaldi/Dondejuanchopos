@@ -23,13 +23,10 @@ export default function StockAdjustModal({ product, onClose, onConfirm, triggerH
         targetStock = currentStock + qtyNum;
         delta = qtyNum;
     } else if (mode === 'subtract') {
-        targetStock = Math.max(0, currentStock - qtyNum);
-        // La salida es relativa. La caja debe recibir todas las unidades
-        // solicitadas y encargarse de limitar el resultado a cero usando su
-        // stock real, que puede ser distinto al del monitor.
+        targetStock = currentStock - qtyNum;
         delta = -qtyNum;
     } else if (mode === 'set') {
-        targetStock = Math.max(0, qtyNum);
+        targetStock = qtyNum;
         delta = targetStock - currentStock;
     }
 
@@ -49,13 +46,19 @@ export default function StockAdjustModal({ product, onClose, onConfirm, triggerH
         onClose();
     };
 
+    const isNegative = currentStock < 0;
+
     return (
         <div className="fixed inset-0 z-[300] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200 space-y-4">
                 {/* Header */}
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5 min-w-0 pr-2">
-                        <div className="w-10 h-10 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 rounded-2xl flex items-center justify-center shrink-0">
+                        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
+                            isNegative 
+                                ? 'bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400' 
+                                : 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400'
+                        }`}>
                             <PlusCircle size={20} />
                         </div>
                         <div className="min-w-0">
@@ -63,7 +66,10 @@ export default function StockAdjustModal({ product, onClose, onConfirm, triggerH
                                 {product.name}
                             </h3>
                             <p className="text-[10px] text-slate-400 font-bold">
-                                Stock Actual: <span className="text-slate-700 dark:text-slate-200 font-black">{currentStock} u</span>
+                                Stock Actual:{' '}
+                                <span className={`font-black ${isNegative ? 'text-rose-600 dark:text-rose-400' : 'text-slate-700 dark:text-slate-200'}`}>
+                                    {currentStock} u {isNegative ? `(Déficit de ${Math.abs(currentStock)} u)` : ''}
+                                </span>
                             </p>
                         </div>
                     </div>
@@ -74,6 +80,25 @@ export default function StockAdjustModal({ product, onClose, onConfirm, triggerH
                         <X size={16} />
                     </button>
                 </div>
+
+                {/* Banner de Saldo Negativo */}
+                {isNegative && (
+                    <div className="p-2.5 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/60 flex items-center justify-between gap-2 text-xs text-rose-800 dark:text-rose-300">
+                        <span className="text-[11px] font-bold">
+                            ⚠️ Este producto tiene sobreventa de <strong>{Math.abs(currentStock)} unidades</strong>.
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setMode('add');
+                                handleQuickAdd(Math.abs(currentStock));
+                            }}
+                            className="px-2 py-1 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black uppercase whitespace-nowrap shadow-xs cursor-pointer active:scale-95 transition-all"
+                        >
+                            Nivelar a 0
+                        </button>
+                    </div>
+                )}
 
                 {/* Selección de Tipo de Ajuste */}
                 <div className="grid grid-cols-3 gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl">

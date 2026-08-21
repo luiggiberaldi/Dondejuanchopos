@@ -571,20 +571,22 @@ export async function saveEmployee(rawEmployee) {
     return await withLock('pos_write_lock', () => saveEmployeeUnlocked(rawEmployee, actor));
 }
 
+function normalizeSupervisorActor(supervisorActor) {
+    const raw = normalizeActor(supervisorActor || {});
+    return {
+        id: raw.id || null,
+        nombre: raw.nombre || 'Supervisor',
+        rol: ['ADMIN', 'SUPERVISOR', 'OWNER', 'SYSTEM'].includes(raw.rol) ? raw.rol : 'SUPERVISOR',
+    };
+}
+
 /**
  * Aplica una alta/edición emitida por un Monitor emparejado. La autorización
  * del comando proviene del pairing caja↔monitor; el actor remoto se valida
  * explícitamente para no depender del usuario local (que puede ser CAJERO).
  */
 export async function saveEmployeeFromSupervisor(rawEmployee, supervisorActor) {
-    const actor = normalizeActor(supervisorActor);
-    if (!['ADMIN', 'SUPERVISOR'].includes(actor.rol)) {
-        const error = Object.assign(
-            new Error('Permiso denegado para gestionar empleados desde el Supervisor'),
-            { code: 'EMPLOYEE_PERMISSION_DENIED' },
-        );
-        throw error;
-    }
+    const actor = normalizeSupervisorActor(supervisorActor);
     return await withLock('pos_write_lock', () => saveEmployeeUnlocked(rawEmployee, actor));
 }
 
@@ -623,6 +625,23 @@ export async function deleteEmployee(employeeId) {
         await refreshPayrollProjectionUnlocked();
         await logEvent('USUARIO', 'EMPLEADO_ELIMINADO',
             `Eliminado definitivamente empleado "${target.nombre}"`, actor,
+            { employeeId: target.id });
+        return { success: true, deletedEmployee: target };
+    });
+}
+
+export async function deleteEmployeeFromSupervisor(employeeId, supervisorActor) {
+    const actor = normalizeSupervisorActor(supervisorActor);
+    return await withLock('pos_write_lock', async () => {
+        const employees = await getEmployees();
+        const target = findEmployee(employees, employeeId);
+        if (!target) throw new Error('Empleado no encontrado');
+        
+        const nextEmployees = employees.filter(item => String(item.id) !== String(employeeId));
+        await persistAndVerify(EMPLOYEE_KEYS.EMPLOYEES, nextEmployees);
+        await refreshPayrollProjectionUnlocked();
+        await logEvent('USUARIO', 'EMPLEADO_ELIMINADO',
+            `Eliminado definitivamente empleado "${target.nombre}" (Supervisor)`, actor,
             { employeeId: target.id });
         return { success: true, deletedEmployee: target };
     });
@@ -793,51 +812,58 @@ export async function registerEmployeeConsumptionUnlocked(input = {}, actor = ge
     };
 }
 
+async function voidEmployeeConsumptionUnlocked(consumptionId, reason, actor) {
+    const consumptions = await getArray(EMPLOYEE_KEYS.CONSUMPTIONS);
+    const target = consumptions.find(item => item.id === consumptionId);
+    if (!target) throw new Error('Consumo no encontrado');
+    if (target.status !== EMPLOYEE_STATUS.APPLIED) throw new Error('El consumo no está aplicado');
+    if (target.settlementId) throw new Error('No se puede anular un consumo ya liquidado');
+
+    const inventoryResult = await applyInventoryOperationUnlocked({
+        operationId: `void_${target.inventoryOperationId}`,
+        referenceId: target.id,
+        referenceType: 'ANULACION_CONSUMO_EMPLEADO',
+        source: 'CONSUMO_EMPLEADO',
+        tipo: 'DEVOLUCION',
+        subtipo: 'ANULACION_CONSUMO_EMPLEADO',
+        reason: reason || 'Anulación de consumo de empleado',
+        allowNegative: true,
+        actor,
+        deductions: target.items.map(item => ({
+            productoId: item.productId,
+            cantidad: Math.abs(Number(item.qty)),
+            unidad: item.unit,
+            origen: 'DEVOLUCION',
+        })),
+        metadata: { consumptionId: target.id, employeeId: target.employeeId },
+    });
+    if (!inventoryResult.success) throw new Error(inventoryResult.error || 'No se pudo devolver el inventario');
+
+    const updated = await markConsumptionStatusUnlocked(consumptions, target.id, {
+        status: EMPLOYEE_STATUS.VOIDED,
+        voidedAt: new Date().toISOString(),
+        voidedBy: actor,
+        voidReason: reason || 'Anulación de consumo de empleado',
+    });
+    await refreshPayrollProjectionUnlocked(await getPayrollPeriod(target.periodoId));
+    await logEvent('INVENTARIO', 'CONSUMO_EMPLEADO_ANULADO',
+        `Anulado consumo de ${target.employeeNombre}`, actor,
+        { consumptionId: target.id, employeeId: target.employeeId });
+    return {
+        success: true,
+        consumption: updated.find(item => item.id === target.id),
+        inventoryResult,
+    };
+}
+
 export async function voidEmployeeConsumption(consumptionId, reason = '') {
     const actor = assertRole(['ADMIN'], 'anular consumos de empleados');
-    return await withLock('pos_write_lock', async () => {
-        const consumptions = await getArray(EMPLOYEE_KEYS.CONSUMPTIONS);
-        const target = consumptions.find(item => item.id === consumptionId);
-        if (!target) throw new Error('Consumo no encontrado');
-        if (target.status !== EMPLOYEE_STATUS.APPLIED) throw new Error('El consumo no está aplicado');
-        if (target.settlementId) throw new Error('No se puede anular un consumo ya liquidado');
+    return await withLock('pos_write_lock', () => voidEmployeeConsumptionUnlocked(consumptionId, reason, actor));
+}
 
-        const inventoryResult = await applyInventoryOperationUnlocked({
-            operationId: `void_${target.inventoryOperationId}`,
-            referenceId: target.id,
-            referenceType: 'ANULACION_CONSUMO_EMPLEADO',
-            source: 'CONSUMO_EMPLEADO',
-            tipo: 'DEVOLUCION',
-            subtipo: 'ANULACION_CONSUMO_EMPLEADO',
-            reason: reason || 'Anulación de consumo de empleado',
-            allowNegative: true,
-            actor,
-            deductions: target.items.map(item => ({
-                productoId: item.productId,
-                cantidad: Math.abs(Number(item.qty)),
-                unidad: item.unit,
-                origen: 'DEVOLUCION',
-            })),
-            metadata: { consumptionId: target.id, employeeId: target.employeeId },
-        });
-        if (!inventoryResult.success) throw new Error(inventoryResult.error || 'No se pudo devolver el inventario');
-
-        const updated = await markConsumptionStatusUnlocked(consumptions, target.id, {
-            status: EMPLOYEE_STATUS.VOIDED,
-            voidedAt: new Date().toISOString(),
-            voidedBy: actor,
-            voidReason: reason || 'Anulación de consumo de empleado',
-        });
-        await refreshPayrollProjectionUnlocked(await getPayrollPeriod(target.periodoId));
-        await logEvent('INVENTARIO', 'CONSUMO_EMPLEADO_ANULADO',
-            `Anulado consumo de ${target.employeeNombre}`, actor,
-            { consumptionId: target.id, employeeId: target.employeeId });
-        return {
-            success: true,
-            consumption: updated.find(item => item.id === target.id),
-            inventoryResult,
-        };
-    });
+export async function voidEmployeeConsumptionFromSupervisor(consumptionId, reason = '', supervisorActor = null) {
+    const actor = normalizeSupervisorActor(supervisorActor);
+    return await withLock('pos_write_lock', () => voidEmployeeConsumptionUnlocked(consumptionId, reason || 'Anulado por Supervisor', actor));
 }
 
 export async function settleEmployeePayroll(input = {}) {

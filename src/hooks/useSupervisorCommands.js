@@ -276,11 +276,15 @@ export function useSupervisorCommands(deviceId) {
                 if (command.payload?.action === 'void_employee_consumption') {
                     try {
                         const { consumptionId, reason } = command.payload || {};
-                        const { voidEmployeeConsumption } = await import('../services/employeeService');
+                        const { voidEmployeeConsumptionFromSupervisor } = await import('../services/employeeService');
                         const { pushCloudSync } = await import('./useCloudSync');
                         const { storageService } = await import('../utils/storageService');
 
-                        await voidEmployeeConsumption(consumptionId, reason || 'Anulado por Supervisor');
+                        await voidEmployeeConsumptionFromSupervisor(consumptionId, reason || 'Anulado por Supervisor', {
+                            id: command.payload?.supervisorId || null,
+                            nombre: command.payload?.supervisorName || command.payload?.supervisorNombre || 'Supervisor',
+                            rol: command.payload?.supervisorRole || command.payload?.supervisorRol || 'SUPERVISOR',
+                        });
                         appliedIds.add(command.id);
                         markApplied(command.id);
                         await updateCommandStatus(command.id, 'applied');
@@ -336,6 +340,41 @@ export function useSupervisorCommands(deviceId) {
                         appliedIds.delete(command.id);
                         unmarkApplied(command.id);
                         console.error('[SupervisorCommands] Error al guardar empleado:', err);
+                        await updateCommandStatus(command.id, 'failed', err?.message);
+                    }
+                    return;
+                }
+                if (command.payload?.action === 'delete_employee') {
+                    try {
+                        const { employeeId } = command.payload || {};
+                        const { deleteEmployeeFromSupervisor } = await import('../services/employeeService');
+                        const { pushCloudSync } = await import('./useCloudSync');
+                        const { storageService } = await import('../utils/storageService');
+
+                        if (employeeId) {
+                            await deleteEmployeeFromSupervisor(employeeId, {
+                                id: command.payload?.supervisorId || null,
+                                nombre: command.payload?.supervisorName || command.payload?.supervisorNombre || 'Supervisor',
+                                rol: command.payload?.supervisorRole || command.payload?.supervisorRol || 'SUPERVISOR',
+                            });
+                            appliedIds.add(command.id);
+                            markApplied(command.id);
+                            await updateCommandStatus(command.id, 'applied');
+
+                            window.dispatchEvent(new CustomEvent('employee-data-updated'));
+                            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_employees_v1' } }));
+
+                            try {
+                                const freshEmployees = await storageService.getItem('bodega_employees_v1', []);
+                                const freshProjection = await storageService.getItem('bodega_employee_payroll_projection_v1', null);
+                                if (freshEmployees) await pushCloudSync('bodega_employees_v1', freshEmployees, true);
+                                if (freshProjection) await pushCloudSync('bodega_employee_payroll_projection_v1', freshProjection, true);
+                            } catch (_) {}
+                        }
+                    } catch (err) {
+                        appliedIds.delete(command.id);
+                        unmarkApplied(command.id);
+                        console.error('[SupervisorCommands] Error al eliminar empleado:', err);
                         await updateCommandStatus(command.id, 'failed', err?.message);
                     }
                     return;
@@ -562,12 +601,16 @@ export function useSupervisorCommands(deviceId) {
             } else if (command.command_type === 'delete_employee' || (command.command_type === 'inventory_update' && command.payload?.action === 'delete_employee')) {
                 try {
                     const { employeeId } = command.payload || {};
-                    const { deleteEmployee } = await import('../services/employeeService');
+                    const { deleteEmployeeFromSupervisor } = await import('../services/employeeService');
                     const { pushCloudSync } = await import('./useCloudSync');
                     const { storageService } = await import('../utils/storageService');
 
                     if (employeeId) {
-                        await deleteEmployee(employeeId);
+                        await deleteEmployeeFromSupervisor(employeeId, {
+                            id: command.payload?.supervisorId || null,
+                            nombre: command.payload?.supervisorName || command.payload?.supervisorNombre || 'Supervisor',
+                            rol: command.payload?.supervisorRole || command.payload?.supervisorRol || 'SUPERVISOR',
+                        });
                         appliedIds.add(command.id);
                         markApplied(command.id);
                         await updateCommandStatus(command.id, 'applied');

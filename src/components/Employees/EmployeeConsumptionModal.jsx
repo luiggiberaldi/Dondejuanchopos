@@ -473,13 +473,13 @@ export default function EmployeeConsumptionModal({
                                     autoFocus
                                 />
                             </div>
-                            <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
+                            <div className="max-h-72 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
                                 {filteredProducts.map(product => {
                                     const productId = getProductId(product);
                                     const quantity = Number(selectedItems[productId] || 0);
                                     const stock = Number(product.stock) || 0;
                                     return (
-                                        <div key={productId} className={`flex items-center gap-3 rounded-2xl border p-3 ${quantity > 0 ? 'border-brand/40 bg-brand-light/30 dark:bg-brand/10' : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900'}`}>
+                                        <div key={productId} className={`flex items-center gap-3 rounded-2xl border p-3 transition-all ${quantity > 0 ? 'border-brand/40 bg-brand-light/30 dark:bg-brand/10 shadow-xs' : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900'}`}>
                                             <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0 overflow-hidden">
                                                 {product.image ? <img src={product.image} alt="" className="w-full h-full object-contain" /> : <ShoppingBag size={18} className="text-slate-400" />}
                                             </div>
@@ -488,7 +488,7 @@ export default function EmployeeConsumptionModal({
                                                 <p className="text-[11px] text-slate-400">{formatUsd(product.priceUsd)} · Stock {stock}</p>
                                             </div>
                                             <div className="flex items-center gap-1 rounded-xl bg-slate-100 dark:bg-slate-800 p-1">
-                                                <button type="button" aria-label={`Quitar ${product.name}`} onClick={() => updateQuantity(product, -1)} disabled={quantity <= 0} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 disabled:opacity-30"><Minus size={14} /></button>
+                                                <button type="button" aria-label={`Quitar ${product.name}`} onClick={() => updateQuantity(product, -1)} disabled={quantity <= 0} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors disabled:opacity-30 cursor-pointer"><Minus size={14} /></button>
                                                 <input
                                                     value={quantity || ''}
                                                     placeholder="0"
@@ -496,7 +496,7 @@ export default function EmployeeConsumptionModal({
                                                     className="w-9 bg-transparent text-center text-xs font-black outline-none"
                                                     inputMode="decimal"
                                                 />
-                                                <button type="button" aria-label={`Agregar ${product.name}`} onClick={() => updateQuantity(product, 1)} disabled={quantity >= stock} className="w-7 h-7 rounded-lg flex items-center justify-center text-brand disabled:opacity-30"><Plus size={14} /></button>
+                                                <button type="button" aria-label={`Agregar ${product.name}`} onClick={() => updateQuantity(product, 1)} disabled={quantity >= stock} className="w-7 h-7 rounded-lg flex items-center justify-center text-brand hover:text-brand-dark transition-colors disabled:opacity-30 cursor-pointer"><Plus size={14} /></button>
                                             </div>
                                         </div>
                                     );
@@ -506,46 +506,82 @@ export default function EmployeeConsumptionModal({
                         </section>
                     </div>
 
-                    <section className="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-                        <div className="flex items-center justify-between gap-3 px-4 py-3 bg-slate-50 dark:bg-slate-800/60">
-                            <div>
-                                <p className="text-xs font-black uppercase tracking-wider">Resumen del consumo</p>
-                                <p className="text-[11px] text-slate-400">{draftItems.length} producto(s) seleccionado(s)</p>
+                    {/* Resumen Compacto y Barra de Acciones Optimizada */}
+                    <div className="rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 p-3 sm:p-3.5 space-y-2.5">
+                        {/* Fila 1: Resumen de Artículos y Total */}
+                        <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-xs font-black transition-colors ${
+                                    draftItems.length > 0
+                                        ? 'bg-brand text-white shadow-xs'
+                                        : 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+                                }`}>
+                                    <ShoppingBag size={15} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="text-xs font-black text-slate-850 dark:text-white uppercase tracking-wider">
+                                            Resumen
+                                        </span>
+                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                            draftItems.length > 0 
+                                                ? 'bg-brand-light dark:bg-brand/20 text-brand' 
+                                                : 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+                                        }`}>
+                                            {draftItems.length === 0
+                                                ? '0 seleccionados'
+                                                : `${draftItems.reduce((acc, i) => acc + i.qty, 0)} unid. (${draftItems.length} prod.)`}
+                                        </span>
+                                    </div>
+                                    {draftItems.length > 0 && (
+                                        <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                                            {draftItems.map(i => `${i.qty}× ${i.product.name}`).join(' · ')}
+                                        </p>
+                                    )}
+                                </div>
                             </div>
-                            <div className="text-right">
-                                <p className="text-xl font-black text-brand">{formatUsd(draftTotalUsd)}</p>
+
+                            <div className="text-right shrink-0">
+                                <span className="text-lg sm:text-xl font-black text-brand leading-tight block">
+                                    {formatUsd(draftTotalUsd)}
+                                </span>
                                 {effectiveRate > 0 && draftTotalBs > 0 && (
-                                    <p className="text-[11px] font-bold text-slate-400">Bs. {formatBs(draftTotalBs)}</p>
+                                    <span className="text-[10px] font-bold text-slate-400 block">
+                                        Bs. {formatBs(draftTotalBs)}
+                                    </span>
                                 )}
                             </div>
                         </div>
-                        <div className="px-4 py-3 space-y-3">
-                            {draftItems.length > 0 && (
-                                <div className="space-y-1">
-                                    {draftItems.map(item => (
-                                        <div key={getProductId(item.product)} className="flex justify-between gap-3 text-xs">
-                                            <span className="font-bold truncate">{item.qty} × {item.product.name}</span>
-                                            <span className="font-black">{formatUsd(mulR(item.product.priceUsd, item.qty))}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                            <textarea value={nota} onChange={event => setNota(event.target.value)} placeholder="Nota opcional..." rows={2} className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs outline-none resize-none" />
-                        </div>
-                    </section>
 
-                    <div className="flex gap-3 pt-1">
-                        <button type="button" onClick={onClose} disabled={isSubmitting} className="flex-1 min-h-12 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-sm font-black cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
-                            <X size={16} className="inline mr-1" /> Cancelar
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleOpenConfirm}
-                            disabled={!employeeId || draftItems.length === 0 || isSubmitting || (exceedsLimit && !overrideLimit)}
-                            className="flex-[1.5] min-h-12 rounded-xl bg-brand text-white text-sm font-black shadow-lg shadow-brand/20 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-brand-dark transition-all cursor-pointer"
-                        >
-                            <CheckCircle2 size={17} className="inline mr-1" /> Confirmar Consumo
-                        </button>
+                        {/* Fila 2: Nota Opcional + Botones de Acción en una sola línea compacta */}
+                        <div className="flex flex-col sm:flex-row items-center gap-2 pt-2 border-t border-slate-200/80 dark:border-slate-700/80">
+                            <input
+                                type="text"
+                                value={nota}
+                                onChange={event => setNota(event.target.value)}
+                                placeholder="Nota opcional..."
+                                className="w-full sm:flex-1 h-10 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 text-xs text-slate-800 dark:text-slate-100 placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-brand/30 transition-all"
+                            />
+                            <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                                <button
+                                    type="button"
+                                    onClick={onClose}
+                                    disabled={isSubmitting}
+                                    className="flex-1 sm:flex-none h-10 px-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold transition-all cursor-pointer active:scale-95"
+                                >
+                                    <X size={14} className="inline mr-1" /> Cancelar
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleOpenConfirm}
+                                    disabled={!employeeId || draftItems.length === 0 || isSubmitting || (exceedsLimit && !overrideLimit)}
+                                    className="flex-[1.5] sm:flex-none h-10 px-5 rounded-xl bg-brand text-white text-xs font-black shadow-md shadow-brand/20 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-brand-dark transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-95"
+                                >
+                                    <CheckCircle2 size={15} />
+                                    <span>Confirmar Consumo</span>
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </Modal>

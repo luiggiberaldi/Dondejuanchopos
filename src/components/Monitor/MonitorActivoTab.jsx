@@ -641,17 +641,25 @@ export default function MonitorActivoTab({ AlertTriangle, ArrowDownRight, Chevro
                                                     </div>
                                                 ) : (
                                                     <div className="space-y-2 max-h-60 overflow-y-auto scrollbar-hide pr-1">
-                                                        {outOfStockProducts.map(prod => (
-                                                            <div key={prod.id} className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800/80 last:border-0">
-                                                                <div className="min-w-0 pr-2">
-                                                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200 block truncate">{prod.name}</span>
-                                                                    <span className="font-outfit text-[10px] text-slate-400">Precio: ${(prod.priceUsd ?? prod.price ?? 0).toFixed(2)}</span>
+                                                        {outOfStockProducts.map(prod => {
+                                                            const stock = Number(prod.stock) || 0;
+                                                            const isNegative = stock < 0;
+                                                            return (
+                                                                <div key={prod.id} className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800/80 last:border-0">
+                                                                    <div className="min-w-0 pr-2">
+                                                                        <span className="text-xs font-bold text-slate-700 dark:text-slate-200 block truncate">{prod.name}</span>
+                                                                        <span className="font-outfit text-[10px] text-slate-400">Precio: ${(prod.priceUsd ?? prod.price ?? 0).toFixed(2)}</span>
+                                                                    </div>
+                                                                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg shrink-0 ${
+                                                                        isNegative
+                                                                            ? 'bg-rose-600 text-white shadow-xs animate-pulse'
+                                                                            : 'bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400'
+                                                                    }`}>
+                                                                        {isNegative ? `Negativo (${stock} u)` : 'Agotado (0 u)'}
+                                                                    </span>
                                                                 </div>
-                                                                <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 shrink-0">
-                                                                    Agotado
-                                                                </span>
-                                                            </div>
-                                                        ))}
+                                                            );
+                                                        })}
                                                     </div>
                                                 )
                                             ) : (

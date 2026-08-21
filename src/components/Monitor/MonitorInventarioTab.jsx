@@ -140,6 +140,18 @@ export default function MonitorInventarioTab({ ChevronLeft, ChevronRight, Clock,
                                 >
                                     Todos ({inventoryMetrics.count})
                                 </button>
+                                {inventoryMetrics.negativeStockCount > 0 && (
+                                    <button
+                                        onClick={() => { triggerHaptic?.(); setFilterStockInventario('negativo'); }}
+                                        className={`px-3 py-1.5 text-[10px] sm:text-xs font-black rounded-xl transition-all flex items-center gap-1 whitespace-nowrap ${
+                                            filterStockInventario === 'negativo'
+                                                ? 'bg-rose-600 text-white shadow-sm'
+                                                : 'text-rose-600 dark:text-rose-400 hover:text-rose-700'
+                                        }`}
+                                    >
+                                        Negativos ({inventoryMetrics.negativeStockCount})
+                                    </button>
+                                )}
                                 <button
                                     onClick={() => { triggerHaptic?.(); setFilterStockInventario('bajo'); }}
                                     className={`px-3 py-1.5 text-[10px] sm:text-xs font-black rounded-xl transition-all flex items-center gap-1 whitespace-nowrap ${
@@ -178,10 +190,11 @@ export default function MonitorInventarioTab({ ChevronLeft, ChevronRight, Clock,
                             ) : (
                                 <div className="space-y-3.5 sm:space-y-4">
                                     {paginatedProducts.map((p) => {
-                                        const stock = p.stock || 0;
-                                        const minStock = p.minStock || 5;
-                                        const isAgotado = stock <= 0;
-                                        const isBajo = !isAgotado && stock <= minStock;
+                                        const stock = Number(p.stock) || 0;
+                                        const minStock = Number(p.minStock || 5);
+                                        const isNegative = stock < 0;
+                                        const isAgotado = stock === 0;
+                                        const isBajo = stock > 0 && stock <= minStock;
                                         const itemCost = p._effectiveCost ?? (p.costUsd || p.costPrice || 0);
                                         const profitUsd = Math.max(0, p.priceUsd - itemCost);
                                         const profitPct = p.priceUsd > 0 ? Math.round((profitUsd / p.priceUsd) * 100) : 0;
@@ -194,11 +207,13 @@ export default function MonitorInventarioTab({ ChevronLeft, ChevronRight, Clock,
                                             >
                                                 {/* Borde acentuado izquierdo para inicio de ficha claro */}
                                                 <div className={`absolute top-0 left-0 bottom-0 w-2 ${
-                                                    isAgotado
-                                                        ? 'bg-rose-500'
-                                                        : isBajo
-                                                            ? 'bg-amber-500'
-                                                            : 'bg-emerald-500'
+                                                    isNegative
+                                                        ? 'bg-rose-600'
+                                                        : isAgotado
+                                                            ? 'bg-rose-400'
+                                                            : isBajo
+                                                                ? 'bg-amber-500'
+                                                                : 'bg-emerald-500'
                                                 }`} />
 
                                                 {/* Izquierda: Info de Producto */}
@@ -206,13 +221,15 @@ export default function MonitorInventarioTab({ ChevronLeft, ChevronRight, Clock,
                                                     <div className="flex items-center gap-2 flex-wrap">
                                                         <h4 className="text-sm sm:text-base font-black text-slate-900 dark:text-white uppercase leading-snug tracking-tight">{p.name}</h4>
                                                         <span className={`text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg shadow-2xs ${
-                                                            isAgotado
-                                                                ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
-                                                                : isBajo
-                                                                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
-                                                                    : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                                                            isNegative
+                                                                ? 'bg-rose-600 text-white border border-rose-700 shadow-rose-500/20'
+                                                                : isAgotado
+                                                                    ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                                                                    : isBajo
+                                                                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                                                                        : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
                                                         }`}>
-                                                            {isAgotado ? 'Agotado' : isBajo ? 'Bajo Stock' : 'Disponible'}
+                                                            {isNegative ? `⚠️ Saldo Negativo (${stock} u)` : isAgotado ? 'Agotado (0 u)' : isBajo ? 'Bajo Stock' : 'Disponible'}
                                                         </span>
                                                         {p.sellByBox && (
                                                             <span className="text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
@@ -313,19 +330,21 @@ export default function MonitorInventarioTab({ ChevronLeft, ChevronRight, Clock,
                                                                 </button>
                                                                 <button
                                                                     onClick={() => { triggerHaptic?.(); setStockAdjustProduct(p); }}
-                                                                    title="Toca para ingresar stock (+40, -10) o fijar cantidad exacta"
+                                                                    title={isNegative ? `Saldo en negativo: faltan ${Math.abs(stock)} unidades para nivelar a 0` : "Toca para ingresar stock (+40, -10) o fijar cantidad exacta"}
                                                                     className={`relative min-w-[85px] sm:min-w-[95px] text-center py-2 px-2.5 rounded-2xl border-2 transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-xs ${
-                                                                        isAgotado
-                                                                            ? 'bg-rose-50 border-rose-300 text-rose-700 dark:bg-rose-950/40 dark:border-rose-800 dark:text-rose-300 hover:border-rose-400'
-                                                                            : isBajo
-                                                                                ? 'bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300 hover:border-amber-400'
-                                                                                : 'bg-white border-slate-200 text-slate-800 dark:bg-slate-850 dark:border-slate-700 dark:text-slate-100 hover:border-emerald-400 hover:bg-emerald-50/30'
+                                                                        isNegative
+                                                                            ? 'bg-rose-100/90 border-rose-400 text-rose-800 dark:bg-rose-950/80 dark:border-rose-600 dark:text-rose-100 hover:border-rose-500 ring-1 ring-rose-400/30'
+                                                                            : isAgotado
+                                                                                ? 'bg-rose-50 border-rose-300 text-rose-700 dark:bg-rose-950/40 dark:border-rose-800 dark:text-rose-300 hover:border-rose-400'
+                                                                                : isBajo
+                                                                                    ? 'bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300 hover:border-amber-400'
+                                                                                    : 'bg-white border-slate-200 text-slate-800 dark:bg-slate-850 dark:border-slate-700 dark:text-slate-100 hover:border-emerald-400 hover:bg-emerald-50/30'
                                                                     }`}
                                                                 >
                                                                     <span className="text-[9px] uppercase font-black block leading-none mb-1 text-slate-500 dark:text-slate-400 flex items-center justify-center gap-0.5">
-                                                                        Stock <Pencil size={8} />
+                                                                        {isNegative ? 'Saldo Neg.' : 'Stock'} <Pencil size={8} />
                                                                     </span>
-                                                                    <span className="font-outfit text-sm font-black tabular-nums leading-none">
+                                                                    <span className={`font-outfit text-sm font-black tabular-nums leading-none ${isNegative ? 'text-rose-700 dark:text-rose-300 font-extrabold' : ''}`}>
                                                                         {p.isWeight ? `${stock.toFixed(3)} Kg` : `${stock} u`}
                                                                     </span>
                                                                     {p.sellByBox && p.boxUnits > 0 && !p.isWeight && (

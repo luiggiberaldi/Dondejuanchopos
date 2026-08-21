@@ -106,11 +106,15 @@ export function useMonitorInventory({ products, pendingChanges, inFlightChanges,
 
             if (!matchesSearch) return false;
 
+            const stock = Number(p.stock) || 0;
+            if (filterStockInventario === 'negativo') {
+                return stock < 0;
+            }
             if (filterStockInventario === 'bajo') {
-                return p.stock > 0 && p.stock <= (p.minStock || 5);
+                return stock > 0 && stock <= (p.minStock || 5);
             }
             if (filterStockInventario === 'agotado') {
-                return p.stock <= 0;
+                return stock <= 0;
             }
             return true;
         });
@@ -129,25 +133,31 @@ export function useMonitorInventory({ products, pendingChanges, inFlightChanges,
 
     const inventoryMetrics = useMemo(() => {
         if (!projectedProducts) {
-            return { totalCost: 0, totalRetail: 0, totalQty: 0, lowStockCount: 0, outOfStockCount: 0, expectedProfit: 0, count: 0 };
+            return { totalCost: 0, totalRetail: 0, totalQty: 0, lowStockCount: 0, outOfStockCount: 0, negativeStockCount: 0, expectedProfit: 0, count: 0 };
         }
         let totalCost = 0;
         let totalRetail = 0;
         let totalQty = 0;
         let lowStockCount = 0;
         let outOfStockCount = 0;
+        let negativeStockCount = 0;
 
         projectedProducts.forEach(p => {
-            const stock = p.stock || 0;
+            const stock = Number(p.stock) || 0;
             const cost = p._effectiveCost ?? (p.costUsd || p.costPrice || 0);
             const retail = p.priceUsd || 0;
             const minStock = p.minStock || 5;
 
-            totalCost += cost * stock;
-            totalRetail += retail * stock;
-            totalQty += stock;
+            if (stock > 0) {
+                totalCost += cost * stock;
+                totalRetail += retail * stock;
+                totalQty += stock;
+            }
 
-            if (stock <= 0) {
+            if (stock < 0) {
+                negativeStockCount++;
+                outOfStockCount++;
+            } else if (stock === 0) {
                 outOfStockCount++;
             } else if (stock <= minStock) {
                 lowStockCount++;
@@ -162,14 +172,15 @@ export function useMonitorInventory({ products, pendingChanges, inFlightChanges,
             totalQty,
             lowStockCount,
             outOfStockCount,
+            negativeStockCount,
             expectedProfit,
             count: projectedProducts.length
         };
     }, [projectedProducts]);
 
-    // 🚫 Productos Agotados (Stock <= 0)
+    // 🚫 Productos Agotados o en Negativo (Stock <= 0)
     const outOfStockProducts = useMemo(() => {
-        return products.filter(p => (p.stock || 0) <= 0);
+        return products.filter(p => (Number(p.stock) || 0) <= 0);
     }, [products]);
 
     // ⚠️ Stock Crítico (Stock > 0 && Stock <= minStock)

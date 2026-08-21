@@ -46,7 +46,10 @@ export default function ProductCard({
     const effectiveUsd = getUsd(p, tasaCop);
     const { unitPriceBs: valBs } = calculatePricing(p, effectiveRate, bcvRate);
     const valCop = getCop(p, tasaCop);
-    const isLowStock = !p.isCombo && (p.stock ?? 0) <= (p.lowStockAlert ?? 5);
+    const stock = p.stock ?? 0;
+    const isNegativeStock = !p.isCombo && stock < 0;
+    const isOutOfStock = !p.isCombo && stock === 0;
+    const isLowStock = !p.isCombo && stock > 0 && stock <= (p.lowStockAlert ?? 5);
     const margin = p.costBs > 0 ? ((valBs - p.costBs) / p.costBs * 100) : null;
     const catInfo = categories.find(c => c.id === p.category);
     const unitInfo = UNITS.find(u => u.id === p.unit);
@@ -215,7 +218,15 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
     };
 
     return (
-        <div className={`bg-white dark:bg-slate-900 rounded-2xl shadow-sm border flex flex-col overflow-hidden group ${isLowStock ? 'border-amber-300 dark:border-amber-700' : 'border-slate-100 dark:border-slate-800'} ${isSelected ? 'ring-2 ring-brand border-brand shadow-brand/20 bg-brand/5 dark:bg-brand/10' : ''}`}>
+        <div className={`bg-white dark:bg-slate-900 rounded-2xl shadow-sm border flex flex-col overflow-hidden group ${
+            isNegativeStock
+                ? 'border-rose-400 dark:border-rose-700 bg-rose-500/5'
+                : isOutOfStock
+                    ? 'border-slate-200 dark:border-slate-800'
+                    : isLowStock
+                        ? 'border-amber-300 dark:border-amber-700'
+                        : 'border-slate-100 dark:border-slate-800'
+        } ${isSelected ? 'ring-2 ring-brand border-brand shadow-brand/20 bg-brand/5 dark:bg-brand/10' : ''}`}>
             {/* Image */}
             <div className="w-full h-24 lg:h-20 bg-white dark:bg-slate-900 relative shrink-0">
                 {/* Select Checkbox */}
@@ -306,7 +317,17 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
                         </div>
                     )
                 )}
-                {/* Low stock alert */}
+                {/* Stock status badge */}
+                {isNegativeStock && (
+                    <div className="absolute top-1 right-1 bg-rose-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded shadow-xs flex items-center gap-0.5 animate-pulse" title={`Déficit: ${stock} unidades`}>
+                        <AlertTriangle size={9} /> Negativo
+                    </div>
+                )}
+                {isOutOfStock && (
+                    <div className="absolute top-1 right-1 bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-[9px] font-black px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                        Agotado
+                    </div>
+                )}
                 {isLowStock && (
                     <div className="absolute top-1 right-1 bg-amber-500/90 backdrop-blur-sm text-white text-[9px] font-black px-1.5 py-0.5 rounded flex items-center gap-0.5">
                         <AlertTriangle size={9} /> Bajo
@@ -446,12 +467,24 @@ ${showSecondary ? `[PRECIO SECUNDARIO]
 
                             return (
                                 <div className="flex flex-col items-center justify-center px-2 text-center min-w-[50px]">
-                                    <span className={`text-base font-black leading-none mb-0.5 ${isLowStock ? 'text-amber-500' : 'text-slate-700 dark:text-slate-200'}`}>
-                                        {p.stock ?? 0}
+                                    <span className={`text-base font-black leading-none mb-0.5 tabular-nums ${
+                                        isNegativeStock 
+                                            ? 'text-rose-600 dark:text-rose-400 font-extrabold' 
+                                            : isOutOfStock
+                                                ? 'text-slate-400 dark:text-slate-500'
+                                                : isLowStock 
+                                                    ? 'text-amber-500' 
+                                                    : 'text-slate-700 dark:text-slate-200'
+                                    }`}>
+                                        {stock}
                                     </span>
-                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none">{(p.unit === 'kg' || p.unit === 'litro') ? unitInfo?.short : 'UND'}</span>
-                                    {p.unit === 'paquete' && p.unitsPerPackage > 0 && Math.floor((p.stock ?? 0) / p.unitsPerPackage) > 0 && (
-                                        <span className="text-[8px] text-slate-400 leading-none">= {Math.floor((p.stock ?? 0) / p.unitsPerPackage)} bultos</span>
+                                    <span className={`text-[9px] font-bold uppercase tracking-wider leading-none ${
+                                        isNegativeStock ? 'text-rose-600/90 dark:text-rose-400/90 font-black' : 'text-slate-400'
+                                    }`}>
+                                        {isNegativeStock ? 'DÉFICIT' : (p.unit === 'kg' || p.unit === 'litro') ? unitInfo?.short : 'UND'}
+                                    </span>
+                                    {p.unit === 'paquete' && p.unitsPerPackage > 0 && Math.floor(stock / p.unitsPerPackage) > 0 && (
+                                        <span className="text-[8px] text-slate-400 leading-none">= {Math.floor(stock / p.unitsPerPackage)} bultos</span>
                                     )}
                                     {p.sellByBox && (p.stock ?? 0) > 0 && (
                                         <span className="text-[8px] text-slate-400 dark:text-slate-500 leading-none mt-0.5 font-bold">
