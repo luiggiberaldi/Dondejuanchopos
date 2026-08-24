@@ -1,9 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import {
     BookOpen, Search, User, Phone, MessageCircle, ChevronDown, ChevronUp,
-    CheckCircle2, Wallet, ArrowUpRight, ArrowDownRight, X
+    CheckCircle2, Wallet, ArrowUpRight, ArrowDownRight, X, RotateCcw
 } from 'lucide-react';
 import { formatUsd, formatBs, formatCop } from '../../utils/calculatorUtils';
+import { supabaseCloud } from '../../config/supabaseCloud';
+import { showToast as defaultShowToast } from '../Toast';
+import { createSupervisorCommandId } from '../../utils/supervisorCommandModel';
 
 export default function MonitorDeudasTab({
     customers = [],
@@ -13,7 +16,10 @@ export default function MonitorDeudasTab({
     tasaCop = 0,
     copEnabled = false,
     copPrimary = false,
-    triggerHaptic = () => {}
+    triggerHaptic = () => {},
+    pairedDeviceId = null,
+    supervisorUser = null,
+    showToast: propShowToast = null
 }) {
     // Tasa de cambio activa seleccionada en el sistema
     const activeRate = Number(effectiveRate) > 0 ? Number(effectiveRate) : (Number(bcvRate) || 0);
@@ -22,6 +28,8 @@ export default function MonitorDeudasTab({
     const [filterType, setFilterType] = useState('deuda'); // 'all' | 'deuda' | 'favor'
     const [expandedCustomerId, setExpandedCustomerId] = useState(null);
     const [selectedCustomerForHistory, setSelectedCustomerForHistory] = useState(null);
+    const [resetModalCustomer, setResetModalCustomer] = useState(null);
+    const [isResetting, setIsResetting] = useState(false);
 
     // Métricas globales de Clientes
     const metrics = useMemo(() => {
@@ -95,6 +103,103 @@ export default function MonitorDeudasTab({
         const bsText = activeRate > 0 ? ` (${formatBs(deudaUsd * activeRate)} Bs)` : '';
         const msg = encodeURIComponent(`Hola ${customerName}, te saludamos de Comercializadora Donde Juancho. Te recordamos tu saldo pendiente por pagar de $${formatUsd(deudaUsd)} USD${bsText}. ¡Gracias por tu preferencia!`);
         return `https://wa.me/${clean}?text=${msg}`;
+    };
+
+    // Reiniciar saldo a $0 desde el Monitor de Supervisión
+    const handleConfirmResetBalance = async () => {
+        const customer = resetModalCustomer;
+        if (!customer) return;
+        triggerHaptic && triggerHaptic();
+        setIsResetting(true);
+
+        const toast = propShowToast || defaultShowToast;
+        const targetPrimary = pairedDeviceId || (typeof localStorage !== 'undefined' ? localStorage.getItem('dj_paired_device_id') : null);
+        const myDeviceId = (typeof localStorage !== 'undefined' ? localStorage.getItem('dj_device_id') : null) || 'mon_supervisor_admin';
+
+        if (!targetPrimary) {
+            toast && toast('No hay una caja emparejada para aplicar el comando.', 'error');
+            setIsResetting(false);
+            return;
+        }
+
+        try {
+            const commandId = typeof createSupervisorCommandId === 'function' ? createSupervisorCommandId() : crypto.randomUUID();
+
+            // 1. Encolar comando supervisor en Supabase
+            if (supabaseCloud) {
+                const { error: cmdErr } = await supabaseCloud
+                    .from('supervisor_commands')
+                    .insert({
+                        id: commandId,
+                        primary_device_id: targetPrimary,
+                        monitor_device_id: myDeviceId,
+                        command_type: 'inventory_update',
+                        status: 'pending',
+                        payload: {
+                            action: 'update_customer_balance',
+                            commandId,
+                            customerId: customer.id,
+                            customerCode: customer.code,
+                            deuda: 0,
+                            favor: 0,
+                            customer: {
+                                id: customer.id,
+                                code: customer.code,
+                                deuda: 0,
+                                favor: 0,
+                                casheaDeuda: 0
+                            },
+                            supervisorId: supervisorUser?.id || null,
+                            supervisorName: supervisorUser?.nombre || 'Supervisor',
+                            supervisorRole: supervisorUser?.rol || 'SUPERVISOR',
+                            reason: `Reinicio de saldo a $0.00 desde Monitor para ${customer.name || customer.code}`
+                        }
+                    });
+
+                if (cmdErr) {
+                    console.error('[MonitorDeudasTab] Error al encolar comando en Supabase:', cmdErr);
+                }
+            }
+
+            // 2. Actualizar optimistamente en el almacenamiento del monitor
+            const updatedCustomer = { ...customer, deuda: 0, favor: 0, casheaDeuda: 0, updatedAt: new Date().toISOString() };
+            const nextCustomers = customers.map(c => 
+                (c.id === customer.id || (customer.code && c.code === customer.code)) ? updatedCustomer : c
+            );
+
+            const { storageService } = await import('../../utils/storageService');
+            await storageService.setItem('bodega_customers_v1', nextCustomers);
+
+            // 3. Actualizar directamente sync_documents en la nube
+            if (supabaseCloud) {
+                try {
+                    await supabaseCloud
+                        .from('sync_documents')
+                        .update({
+                            data: { payload: nextCustomers },
+                            payload: { payload: nextCustomers },
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('device_id', targetPrimary)
+                        .eq('doc_id', 'bodega_customers_v1');
+                } catch (syncErr) {
+                    console.warn('[MonitorDeudasTab] No se pudo actualizar sync_documents directamente:', syncErr);
+                }
+            }
+
+            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_customers_v1' } }));
+
+            toast && toast(`Saldo reiniciado a $0.00 para ${customer.name || customer.code}`, 'success');
+            setResetModalCustomer(null);
+            if (selectedCustomerForHistory && selectedCustomerForHistory.id === customer.id) {
+                setSelectedCustomerForHistory(updatedCustomer);
+            }
+        } catch (err) {
+            console.error('[MonitorDeudasTab] Error al reiniciar saldo:', err);
+            toast && toast('Error al reiniciar saldo del cliente', 'error');
+        } finally {
+            setIsResetting(false);
+        }
     };
 
     return (
@@ -343,21 +448,36 @@ export default function MonitorDeudasTab({
                                         </div>
 
                                         {/* Acciones de la Tarjeta Móvil */}
-                                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/60">
-                                            {/* WhatsApp directo */}
-                                            {waUrl ? (
-                                                <a
-                                                    href={waUrl}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold flex items-center gap-1.5 hover:bg-emerald-100 transition-colors"
+                                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/60 flex-wrap">
+                                            <div className="flex items-center gap-1.5">
+                                                {/* WhatsApp directo */}
+                                                {waUrl ? (
+                                                    <a
+                                                        href={waUrl}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold flex items-center gap-1.5 hover:bg-emerald-100 transition-colors"
+                                                    >
+                                                        <MessageCircle size={12} className="text-emerald-600" />
+                                                        <span>WhatsApp</span>
+                                                    </a>
+                                                ) : (
+                                                    <span className="text-[10px] text-slate-400 italic">Sin WhatsApp</span>
+                                                )}
+
+                                                {/* Botón Reiniciar a $0 Supervisor */}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        triggerHaptic();
+                                                        setResetModalCustomer(c);
+                                                    }}
+                                                    className="px-2.5 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 text-[11px] font-bold flex items-center gap-1 hover:bg-amber-100 transition-colors cursor-pointer"
                                                 >
-                                                    <MessageCircle size={12} className="text-emerald-600" />
-                                                    <span>Cobrar WhatsApp</span>
-                                                </a>
-                                            ) : (
-                                                <span className="text-[10px] text-slate-400 italic">Sin WhatsApp</span>
-                                            )}
+                                                    <RotateCcw size={12} className="text-amber-600 dark:text-amber-400" />
+                                                    <span>Reiniciar $0</span>
+                                                </button>
+                                            </div>
 
                                             {/* Botón Acordeón de Historial */}
                                             <button
@@ -368,7 +488,7 @@ export default function MonitorDeudasTab({
                                                 }}
                                                 className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-bold flex items-center gap-1 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
                                             >
-                                                <span>{isExpanded ? 'Ocultar Detalle' : 'Ver Compras/Abonos'}</span>
+                                                <span>{isExpanded ? 'Ocultar' : 'Detalle'}</span>
                                                 {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                                             </button>
                                         </div>
@@ -519,6 +639,18 @@ export default function MonitorDeudasTab({
                                                         >
                                                             Historial
                                                         </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                triggerHaptic();
+                                                                setResetModalCustomer(c);
+                                                            }}
+                                                            title="Reiniciar saldo a $0 (Modo Supervisor)"
+                                                            className="px-2.5 py-1 rounded-xl bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-[11px] font-bold text-amber-700 dark:text-amber-300 flex items-center gap-1 transition-colors cursor-pointer"
+                                                        >
+                                                            <RotateCcw size={12} className="text-amber-600 dark:text-amber-400" />
+                                                            <span>Ajustar $0</span>
+                                                        </button>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -544,12 +676,25 @@ export default function MonitorDeudasTab({
                                     Deuda: ${formatUsd(selectedCustomerForHistory.deuda || 0)} · Saldo: ${formatUsd(selectedCustomerForHistory.favor || 0)}
                                 </p>
                             </div>
-                            <button
-                                onClick={() => setSelectedCustomerForHistory(null)}
-                                className="p-2 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors cursor-pointer"
-                            >
-                                <X size={18} />
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        triggerHaptic();
+                                        setResetModalCustomer(selectedCustomerForHistory);
+                                    }}
+                                    className="px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold flex items-center gap-1 shadow-sm shadow-amber-500/20 transition-all cursor-pointer"
+                                >
+                                    <RotateCcw size={12} />
+                                    <span>Reiniciar $0</span>
+                                </button>
+                                <button
+                                    onClick={() => setSelectedCustomerForHistory(null)}
+                                    className="p-2 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors cursor-pointer"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
                         </div>
 
                         <div className="p-4 sm:p-5 overflow-y-auto space-y-3 flex-1">
@@ -608,6 +753,79 @@ export default function MonitorDeudasTab({
                                 className="px-4 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-800 dark:text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
                             >
                                 Cerrar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal de Confirmación: Reiniciar Saldo a $0 (Modo Supervisor) */}
+            {resetModalCustomer && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden p-5 sm:p-6 space-y-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-2xl bg-amber-100 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                                <RotateCcw size={20} />
+                            </div>
+                            <div>
+                                <h4 className="text-base font-black text-slate-800 dark:text-white">
+                                    Reiniciar Saldo a $0.00
+                                </h4>
+                                <p className="text-xs text-slate-400">
+                                    Comando remoto de Supervisor
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700/60 space-y-2 text-xs">
+                            <div className="flex justify-between items-center">
+                                <span className="text-slate-500">Cliente:</span>
+                                <span className="font-black text-slate-800 dark:text-white capitalize">
+                                    {resetModalCustomer.name} ({resetModalCustomer.code || 'S/C'})
+                                </span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                                <span className="text-slate-500">Saldo actual:</span>
+                                <span className={`font-black font-outfit ${Number(resetModalCustomer.deuda) > 0 ? 'text-red-600' : Number(resetModalCustomer.favor) > 0 ? 'text-emerald-600' : 'text-slate-700'}`}>
+                                    {Number(resetModalCustomer.deuda) > 0 ? `Deuda -$${formatUsd(resetModalCustomer.deuda)}` : Number(resetModalCustomer.favor) > 0 ? `A Favor +$${formatUsd(resetModalCustomer.favor)}` : '$0.00'}
+                                </span>
+                            </div>
+                            <div className="flex justify-between items-center pt-1 border-t border-slate-200 dark:border-slate-700">
+                                <span className="text-slate-500 font-bold">Nuevo saldo resultante:</span>
+                                <span className="font-black font-outfit text-emerald-600 text-sm">$0.00 USD</span>
+                            </div>
+                        </div>
+
+                        <p className="text-[11px] text-slate-400 leading-relaxed">
+                            Se enviará un comando supervisor a la caja principal para actualizar permanentemente la memoria de la PDA y la nube.
+                        </p>
+
+                        <div className="flex items-center justify-end gap-2.5 pt-2">
+                            <button
+                                type="button"
+                                disabled={isResetting}
+                                onClick={() => setResetModalCustomer(null)}
+                                className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                disabled={isResetting}
+                                onClick={handleConfirmResetBalance}
+                                className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm shadow-amber-500/20 transition-all cursor-pointer disabled:opacity-50"
+                            >
+                                {isResetting ? (
+                                    <>
+                                        <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                        <span>Enviando comando...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <RotateCcw size={14} />
+                                        <span>Confirmar Reinicio a $0</span>
+                                    </>
+                                )}
                             </button>
                         </div>
                     </div>
