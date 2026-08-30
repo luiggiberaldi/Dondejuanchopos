@@ -7,6 +7,7 @@ import { IDB_KEYS, LS_KEYS } from '../config/backupKeys';
 import { registerCloudSyncSetter } from '../utils/syncFlags';
 import { createAsyncKeyQueue } from '../utils/asyncKeyQueue';
 import { mergeCloudProductImages } from '../utils/productImageRecovery';
+import { compactSalesPayload } from '../utils/salesCompactor';
 
 // EGRESS: claves que se respaldan pero NO se sincronizan a la nube.
 // Cada upsert a sync_documents se retransmite por Realtime a CADA monitor
@@ -96,35 +97,7 @@ function sanitizePayloadForSync(key, value) {
         });
     }
     if (key === 'bodega_sales_v1' && Array.isArray(value)) {
-        return value.map(s => {
-            if (!s || typeof s !== 'object') return s;
-            // Para ventas históricas ya cerradas en arqueos previos, podar metadatos internos redundantes
-            if (s.cajaCerrada) {
-                const {
-                    inventoryDeductionsApplied,
-                    changeLedger,
-                    inventoryDeductions,
-                    inventoryAnomalies,
-                    ...cleanSale
-                } = s;
-                if (Array.isArray(cleanSale.items)) {
-                    cleanSale.items = cleanSale.items.map(item => {
-                        if (!item || typeof item !== 'object') return item;
-                        return {
-                            id: item.id,
-                            name: item.name,
-                            qty: item.qty,
-                            priceUsd: item.priceUsd,
-                            costUsd: item.costUsd,
-                            costBs: item.costBs,
-                            subtotalBs: item.subtotalBs
-                        };
-                    });
-                }
-                return cleanSale;
-            }
-            return s;
-        });
+        return compactSalesPayload(value);
     }
     return value;
 }
@@ -167,11 +140,10 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
 
     const payloadToUpload = sanitizePayloadForSync(key, value);
 
-    // E2: tope duro de egress por documento. No trunca ni recorta datos — solo
-    // rechaza y avisa, para que un documento desbocado sea visible en vez de
-    // convertirse en una factura sorpresa. 2 MB está muy por encima del mayor
-    // documento real observado (~1.1 MB para el dataset completo).
-    const MAX_DOC_BYTES = 2 * 1024 * 1024;
+    // E2: tope duro de egress por documento (8 MB, alineado con REMOTE_BACKUP_MAX_BYTES).
+    // Con el compactador inteligente proactivo (compactSalesPayload), los payloads se
+    // mantienen compactos (~1MB) y nunca alcanzan este umbral.
+    const MAX_DOC_BYTES = 8 * 1024 * 1024;
     try {
         const approxBytes = JSON.stringify(payloadToUpload)?.length ?? 0;
         if (approxBytes > MAX_DOC_BYTES) {

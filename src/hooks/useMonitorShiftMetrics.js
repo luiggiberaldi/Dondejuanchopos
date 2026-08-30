@@ -444,13 +444,27 @@ export function useMonitorShiftMetrics({
 
     // Reconstruir cierres agrupados por cierreId
     const registerCloses = useMemo(() => {
-        const explicitCloses = sales.filter(s => s.tipo === 'REGISTRO_CIERRE');
+        const explicitCloses = sales.filter(s => {
+            if (s.tipo !== 'REGISTRO_CIERRE') return false;
+            // Purgar cierres provisionales de prueba generados en la tarde
+            const cNum = Number(s.cierreNumber);
+            const cTs = s.timestamp || '';
+            if (cNum > 32 && cTs.startsWith('2026-08-30') && cTs < '2026-08-30T17:50:00.000Z') {
+                return false;
+            }
+            return true;
+        });
 
         // Agrupar transacciones cerradas por cierreId
         const groups = {};
         sales.forEach(s => {
             if (s.cierreId && s.tipo !== 'REGISTRO_CIERRE') {
                 const cId = s.cierreId;
+                const cIdStr = String(cId);
+                // Omitir IDs de prueba de la tarde si existieran en caché local
+                if (cIdStr.startsWith('1788109') || cIdStr.startsWith('1788110') || cIdStr.startsWith('1788111')) {
+                    return;
+                }
                 if (!groups[cId]) {
                     groups[cId] = {
                         cierreId: cId,
@@ -477,10 +491,24 @@ export function useMonitorShiftMetrics({
 
         // Formatear cada grupo combinando datos explícitos de arqueo si existen
         return Object.values(groups).filter(g => {
-            const explicit = explicitCloses.find(ec => ec.cierreId === g.cierreId || ec.timestamp === g.timestamp);
+            const explicit = explicitCloses.find(ec => {
+                if (!ec) return false;
+                const ecId = String(ec.cierreId || ec.id || '').replace('cierre_', '');
+                const gId = String(g.cierreId || '').replace('cierre_', '');
+                if (ecId && gId && ecId === gId) return true;
+                if (ec.timestamp && g.timestamp && ec.timestamp === g.timestamp) return true;
+                return false;
+            });
             return explicit || g.sales.some(s => s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA');
         }).map(g => {
-            const explicit = explicitCloses.find(ec => ec.cierreId === g.cierreId || ec.timestamp === g.timestamp);
+            const explicit = explicitCloses.find(ec => {
+                if (!ec) return false;
+                const ecId = String(ec.cierreId || ec.id || '').replace('cierre_', '');
+                const gId = String(g.cierreId || '').replace('cierre_', '');
+                if (ecId && gId && ecId === gId) return true;
+                if (ec.timestamp && g.timestamp && ec.timestamp === g.timestamp) return true;
+                return false;
+            });
 
             // Filtrar para métricas generales y de caja
             const salesForStats = g.sales.filter(s => s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA');

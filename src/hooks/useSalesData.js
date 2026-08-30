@@ -65,6 +65,22 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
             return sale;
         });
 
+        // Purgar cierres fantasma duplicados de pruebas (ej: #33, #34 creados durante pruebas de la tarde)
+        const initialLen = salesList.length;
+        salesList = salesList.filter(s => {
+            if (s.tipo === 'REGISTRO_CIERRE') {
+                const cNum = Number(s.cierreNumber);
+                const cTs = s.timestamp || '';
+                if (cNum > 32 && cTs.startsWith('2026-08-30') && cTs < '2026-08-30T17:50:00.000Z') {
+                    return false;
+                }
+            }
+            return true;
+        });
+        if (salesList.length !== initialLen) {
+            healed = true;
+        }
+
         const knownIds = new Set(salesList.map(s => s.id).filter(Boolean));
 
         try {

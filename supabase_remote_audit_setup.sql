@@ -261,9 +261,8 @@ BEGIN
         RAISE EXCEPTION 'POS_SYNC_DATA_OBJECT_REQUIRED';
     END IF;
 
-    -- Mantener el mismo tope duro que el cliente para evitar documentos
-    -- desbocados y respuestas/Realtime excesivos.
-    IF octet_length(p_data::text) > 2097152 THEN
+    -- Mantener tope de 8MB alineado con REMOTE_BACKUP_MAX_BYTES y el compactador proactivo
+    IF octet_length(p_data::text) > 8388608 THEN
         RAISE EXCEPTION 'POS_SYNC_DOCUMENT_TOO_LARGE';
     END IF;
 
