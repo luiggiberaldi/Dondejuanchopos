@@ -235,17 +235,28 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
 
     const recentSales = useMemo(() => getRecentSales(selectedChartDate), [getRecentSales, selectedChartDate]);
 
-    // Estado del turno: si no hay apertura activa ni movimientos pendientes, la caja está cerrada
+    // Estado del turno: si hay apertura activa o movimientos pendientes, la caja está abierta
     const hasOpenShift = useMemo(() => {
         return Boolean(
             shiftApertura || 
-            todayApertura || 
             (shiftCashFlow && shiftCashFlow.length > 0) || 
-            (todayCashFlow && todayCashFlow.length > 0) || 
-            (shiftSales && shiftSales.length > 0) || 
-            (todaySales && todaySales.length > 0)
+            (shiftSales && shiftSales.length > 0)
         );
-    }, [shiftApertura, todayApertura, shiftCashFlow, todayCashFlow, shiftSales, todaySales]);
+    }, [shiftApertura, shiftCashFlow, shiftSales]);
+
+    const shiftStartDateLabel = useMemo(() => {
+        const ap = shiftApertura || todayApertura;
+        if (!ap?.timestamp) return null;
+        try {
+            const dt = new Date(ap.timestamp);
+            const now = new Date();
+            const isDifferentDay = dt.toDateString() !== now.toDateString();
+            if (isDifferentDay) {
+                return `Iniciado ${dt.toLocaleDateString('es-VE', { weekday: 'short', day: 'numeric', month: 'short' })} · ${dt.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
+            }
+        } catch {}
+        return null;
+    }, [shiftApertura, todayApertura]);
 
     // Limpiar filtro de fecha al salir de la pestaña de Inicio
     useEffect(() => {
@@ -740,7 +751,12 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                                         </div>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    {shiftStartDateLabel && (
+                                        <span className="text-[9.5px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-950/80 px-2 py-0.5 rounded-lg border border-amber-500/30">
+                                            {shiftStartDateLabel}
+                                        </span>
+                                    )}
                                     <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/80 px-2.5 py-1 rounded-lg border border-emerald-500/20">
                                         TURNO ACTIVO
                                     </span>

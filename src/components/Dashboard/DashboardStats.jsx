@@ -30,6 +30,19 @@ export default function DashboardStats({
     const openingUsd = activeApertura?.openingUsd || activeApertura?.montoUsd || 0;
     const openingCop = activeApertura?.openingCop || activeApertura?.montoCop || 0;
 
+    const shiftStartDateLabel = useMemo(() => {
+        if (!activeApertura?.timestamp) return null;
+        try {
+            const dt = new Date(activeApertura.timestamp);
+            const now = new Date();
+            const isDifferentDay = dt.toDateString() !== now.toDateString();
+            if (isDifferentDay) {
+                return `Iniciado ${dt.toLocaleDateString('es-VE', { weekday: 'short', day: 'numeric', month: 'short' })} · ${dt.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
+            }
+        } catch {}
+        return null;
+    }, [activeApertura]);
+
     const drawerTotals = useMemo(() => {
         try {
             const breakdown = FinancialEngine.calculatePaymentBreakdown(todayCashFlow || []);
@@ -87,21 +100,28 @@ export default function DashboardStats({
                                 </div>
                             </div>
                         </div>
-                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/80 px-2.5 py-1 rounded-lg border border-emerald-500/20">
-                            TURNO ACTIVO
-                        </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            {shiftStartDateLabel && (
+                                <span className="text-[9.5px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-950/80 px-2 py-0.5 rounded-lg border border-amber-500/30">
+                                    {shiftStartDateLabel}
+                                </span>
+                            )}
+                            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/80 px-2.5 py-1 rounded-lg border border-emerald-500/20">
+                                TURNO ACTIVO
+                            </span>
+                        </div>
                     </div>
                 </div>
             )}
 
-            {/* Ventas Hoy */}
+            {/* Ventas Turno */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 shadow-sm relative overflow-hidden">
                 <div className={`absolute -right-4 -top-4 w-16 h-16 ${copEnabled && copPrimary ? 'bg-amber-50 dark:bg-amber-900/10' : 'bg-emerald-50 dark:bg-emerald-900/10'} rounded-full blur-2xl`}></div>
                 <div className="flex items-center justify-between mb-3 relative z-10">
                     <div className={`w-10 h-10 ${copEnabled && copPrimary ? 'bg-amber-100 dark:bg-amber-900/30' : 'bg-emerald-100 dark:bg-emerald-900/30'} rounded-xl flex items-center justify-center shadow-inner`}>
                         <span className={`${copEnabled && copPrimary ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'} font-black text-xl`}>{copEnabled && copPrimary ? 'C' : '$'}</span>
                     </div>
-                    <span className={`text-[10px] font-bold ${copEnabled && copPrimary ? 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30' : 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30'} px-2 py-1 rounded-lg tracking-wider`}>HOY</span>
+                    <span className={`text-[10px] font-bold ${copEnabled && copPrimary ? 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30' : 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30'} px-2 py-1 rounded-lg tracking-wider`}>TURNO</span>
                 </div>
                 <div className="relative z-10">
                     {copEnabled && copPrimary && tasaCop > 0 ? (

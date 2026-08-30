@@ -70,63 +70,28 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
         });
     }, [sales, today]);
 
-    const todaySales = useMemo(() =>
-        salesWithLocalDate.filter(s => {
-            if (s.status === 'ANULADA') return false;
-            if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'VENTA_CASHEA') return false;
-            if (s.cajaCerrada === true) return false;
-            return s.localDate === today;
-        }),
-        [salesWithLocalDate, today]
-    );
-
-    // Movimientos reales de caja para el cuadre (Ventas + Abonos + Egresos + Apertura)
-    const todayCashFlow = useMemo(() =>
-        salesWithLocalDate.filter(s => {
-            if (s.status === 'ANULADA') return false;
-            if (s.tipo !== 'VENTA' && s.tipo !== 'VENTA_FIADA' && s.tipo !== 'VENTA_CASHEA' && s.tipo !== 'COBRO_DEUDA' && s.tipo !== 'PAGO_PROVEEDOR' && s.tipo !== 'APERTURA_CAJA') return false;
-            if (s.cajaCerrada === true) return false;
-            return s.localDate === today;
-        }),
-        [salesWithLocalDate, today]
-    );
-
-    // Detect if apertura is active for current unclosed shift
-    const todayApertura = useMemo(() => {
-        return salesWithLocalDate.find(s => s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada);
-    }, [salesWithLocalDate]);
-
-    const todayTotalBs = useMemo(() => sumR(todaySales.map(s => s.totalBs || 0)), [todaySales]);
-    const todayTotalUsd = useMemo(() => sumR(todaySales.map(s => s.totalUsd || 0)), [todaySales]);
-    const todayTotalCop = useMemo(() => sumR(todaySales.map(s => s.totalCop || 0)), [todaySales]);
-    const todayItemsSold = useMemo(() => todaySales.reduce((sum, s) => sum + (s.items ? s.items.reduce((is, i) => is + i.qty, 0) : 0), 0), [todaySales]);
-
-    // Egresos del día (pagos a proveedores)
-    const todayExpenses = useMemo(() => {
-        return salesWithLocalDate.filter(s => {
-            if (s.tipo !== 'PAGO_PROVEEDOR') return false;
-            if (s.cajaCerrada === true) return false;
-            return s.localDate === today;
-        });
-    }, [salesWithLocalDate, today]);
-    const todayExpensesUsd = useMemo(() => sumR(todayExpenses.map(s => Math.abs(s.totalUsd || 0))), [todayExpenses]);
-
-    const todayProfit = useMemo(() =>
-        FinancialEngine.calculateAggregateProfit(todaySales, bcvRate, products),
-        [todaySales, bcvRate, products]
-    );
+    // Unificación Shift-First (Turno Activo):
+    // Si la caja tiene un turno abierto (con o sin apertura explícita), las métricas
+    // principales del Dashboard representan el TURNO ACTIVO real para que NUNCA se resetee
+    // a $0.00 al cruzar la medianoche sin que un usuario o supervisor haga el cierre formal.
+    const todaySales = shiftSales;
+    const todayCashFlow = shiftCashFlow;
+    const todayApertura = shiftApertura;
+    const todayTotalBs = shiftTotalBs;
+    const todayTotalUsd = shiftTotalUsd;
+    const todayTotalCop = shiftTotalCop;
+    const todayItemsSold = shiftItemsSold;
+    const todayExpenses = shiftExpenses;
+    const todayExpensesUsd = shiftExpensesUsd;
+    const todayProfit = shiftProfit;
 
     const allShiftSales = useMemo(() => {
         const list = sales || [];
         const apertura = shiftApertura;
-        // Si no hay apertura activa (caja cerrada), el turno actual no tiene ventas
-        if (!apertura) {
-            return [];
-        }
         const from = apertura?.timestamp ? new Date(apertura.timestamp).getTime() : null;
         return list.filter(s => {
             if (s.cajaCerrada === true) return false;
-            if (!['VENTA', 'VENTA_FIADA', 'VENTA_CASHEA'].includes(s.tipo || 'VENTA')) return false;
+            if (!['VENTA', 'VENTA_FIADA', 'VENTA_CASHEA', 'COBRO_DEUDA', 'GASTO_INTERNO', 'PAGO_PROVEEDOR'].includes(s.tipo || 'VENTA')) return false;
             const ts = s.timestamp ? new Date(s.timestamp).getTime() : null;
             if (from !== null && ts !== null && ts < from) return false;
             return true;
@@ -136,7 +101,7 @@ export function useDashboardMetrics(sales, customers, products, bcvRate) {
     // Últimas ventas (incluye las ventas ANULADAS del turno para la lista del inicio)
     const getRecentSales = useCallback((selectedChartDate) => {
         if (selectedChartDate) {
-            const filteredSales = salesWithLocalDate.filter(s => (s.tipo === 'VENTA' || s.tipo === 'VENTA_FIADA' || s.tipo === 'VENTA_CASHEA') && s.localDate === selectedChartDate);
+            const filteredSales = salesWithLocalDate.filter(s => ['VENTA', 'VENTA_FIADA', 'VENTA_CASHEA', 'COBRO_DEUDA', 'GASTO_INTERNO', 'PAGO_PROVEEDOR'].includes(s.tipo || 'VENTA') && s.localDate === selectedChartDate);
             return [...filteredSales].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         }
         return [...allShiftSales].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
