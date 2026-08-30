@@ -95,6 +95,37 @@ function sanitizePayloadForSync(key, value) {
             return p;
         });
     }
+    if (key === 'bodega_sales_v1' && Array.isArray(value)) {
+        return value.map(s => {
+            if (!s || typeof s !== 'object') return s;
+            // Para ventas históricas ya cerradas en arqueos previos, podar metadatos internos redundantes
+            if (s.cajaCerrada) {
+                const {
+                    inventoryDeductionsApplied,
+                    changeLedger,
+                    inventoryDeductions,
+                    inventoryAnomalies,
+                    ...cleanSale
+                } = s;
+                if (Array.isArray(cleanSale.items)) {
+                    cleanSale.items = cleanSale.items.map(item => {
+                        if (!item || typeof item !== 'object') return item;
+                        return {
+                            id: item.id,
+                            name: item.name,
+                            qty: item.qty,
+                            priceUsd: item.priceUsd,
+                            costUsd: item.costUsd,
+                            costBs: item.costBs,
+                            subtotalBs: item.subtotalBs
+                        };
+                    });
+                }
+                return cleanSale;
+            }
+            return s;
+        });
+    }
     return value;
 }
 
