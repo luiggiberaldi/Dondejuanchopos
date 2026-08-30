@@ -441,6 +441,7 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                 const freshShiftScope = getOpenShiftMovements(freshSales);
                 const closingIds = new Set([
                     ...(freshShiftScope.movements || []).map(s => s.id),
+                    ...(freshShiftScope.orphans || []).map(s => s.id),
                     ...(freshShiftScope.voided || []).map(s => s.id),
                     ...(freshShiftScope.apertura ? [freshShiftScope.apertura.id] : [])
                 ]);

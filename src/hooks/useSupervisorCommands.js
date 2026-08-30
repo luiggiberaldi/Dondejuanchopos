@@ -731,12 +731,13 @@ export function useSupervisorCommands(deviceId) {
                         }
 
                         const { movements, orphans, voided, apertura } = getOpenShiftMovements(sales);
-                        if (movements.length === 0 && (!voided || voided.length === 0) && !apertura) {
+                        if (movements.length === 0 && (orphans || []).length === 0 && (!voided || voided.length === 0) && !apertura) {
                             return { empty: true };
                         }
 
                         const closingIds = new Set([
                             ...movements.map(s => s.id),
+                            ...(orphans || []).map(s => s.id),
                             ...(voided || []).map(s => s.id),
                             ...(apertura ? [apertura.id] : [])
                         ]);
@@ -746,6 +747,11 @@ export function useSupervisorCommands(deviceId) {
 
                         const existingCloses = sales.filter(s => s.tipo === 'REGISTRO_CIERRE');
                         const cierreNumber = command.payload?.cierreNumber || (existingCloses.reduce((mx, s) => Math.max(mx, s.cierreNumber || 0), 0) + 1);
+
+                        const allShiftSales = [...movements, ...(orphans || [])].filter(s => ['VENTA', 'VENTA_FIADA', 'VENTA_CASHEA'].includes(s.tipo || 'VENTA'));
+                        const totalUsd = allShiftSales.reduce((sum, s) => sum + (s.totalUsd || 0), 0);
+                        const totalBs = allShiftSales.reduce((sum, s) => sum + (s.totalBs || 0), 0);
+                        const itemsSold = allShiftSales.reduce((sum, s) => sum + (s.items ? s.items.reduce((is, i) => is + i.qty, 0) : 0), 0);
 
                         const registroCierre = {
                             id: `cierre_${targetCierreId}`,
@@ -757,6 +763,9 @@ export function useSupervisorCommands(deviceId) {
                             remoteTriggered: true,
                             summary: {
                                 ...(command.payload || {}),
+                                todayTotalUsd: totalUsd,
+                                todayTotalBs: totalBs,
+                                todayItemsSold: itemsSold,
                                 reconData: null,
                                 sinCuadreFisico: true,
                                 orphanCount: orphans.length
