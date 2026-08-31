@@ -25,7 +25,7 @@ export default function MonitorDeudasTab({
     const activeRate = Number(effectiveRate) > 0 ? Number(effectiveRate) : (Number(bcvRate) || 0);
 
     const [searchTerm, setSearchTerm] = useState('');
-    const [filterType, setFilterType] = useState('deuda'); // 'all' | 'deuda' | 'favor'
+    const [filterType, setFilterType] = useState('all'); // 'all' | 'deuda' | 'favor' | 'aldia'
     const [expandedCustomerId, setExpandedCustomerId] = useState(null);
     const [selectedCustomerForHistory, setSelectedCustomerForHistory] = useState(null);
     const [resetModalCustomer, setResetModalCustomer] = useState(null);
@@ -39,6 +39,7 @@ export default function MonitorDeudasTab({
         let totalFavorUsd = 0;
         let debtorsCount = 0;
         let favorCount = 0;
+        let zeroBalanceCount = 0;
 
         validCustomers.forEach(c => {
             const deuda = Number(c.deuda) || 0;
@@ -46,10 +47,11 @@ export default function MonitorDeudasTab({
             if (deuda > 0.01) {
                 totalFiadoUsd += deuda;
                 debtorsCount++;
-            }
-            if (favor > 0.01) {
+            } else if (favor > 0.01) {
                 totalFavorUsd += favor;
                 favorCount++;
+            } else {
+                zeroBalanceCount++;
             }
         });
 
@@ -59,7 +61,8 @@ export default function MonitorDeudasTab({
             netBalanceUsd: totalFiadoUsd - totalFavorUsd,
             debtorsCount,
             favorCount,
-            totalCustomersWithBalance: debtorsCount + favorCount
+            zeroBalanceCount,
+            totalCustomers: validCustomers.length
         };
     }, [customers]);
 
@@ -67,9 +70,9 @@ export default function MonitorDeudasTab({
     const filteredCustomers = useMemo(() => {
         const validCustomers = Array.isArray(customers) ? customers : [];
         return validCustomers.filter(c => {
-            const name = String(c.name || '').toLowerCase();
-            const phone = String(c.phone || '');
-            const code = String(c.code || '').toLowerCase();
+            const name = String(c.name || c.nombre || '').toLowerCase();
+            const phone = String(c.phone || c.telefono || '');
+            const code = String(c.code || c.codigo || c.cedula || '').toLowerCase();
             const term = searchTerm.toLowerCase().trim();
 
             const matchesSearch = !term || name.includes(term) || phone.includes(term) || code.includes(term);
@@ -80,18 +83,32 @@ export default function MonitorDeudasTab({
 
             if (filterType === 'deuda') return deuda > 0.01;
             if (filterType === 'favor') return favor > 0.01;
-            if (filterType === 'all') return deuda > 0.01 || favor > 0.01;
-            return false;
+            if (filterType === 'aldia') return deuda <= 0.01 && favor <= 0.01;
+            if (filterType === 'all') return true; // Mostrar todos los clientes
+            return true;
         });
     }, [customers, searchTerm, filterType]);
 
-    // Obtener historial de ventas/abonos de un cliente
-    const getCustomerSalesHistory = (customerId) => {
-        if (!customerId || !Array.isArray(sales)) return [];
-        return sales.filter(s =>
-            (s.customerId === customerId || s.clienteId === customerId) &&
-            s.status !== 'ANULADA'
-        ).sort((a, b) => new Date(b.timestamp || b.date) - new Date(a.timestamp || a.date));
+    // Obtener historial completo de ventas, fiados y abonos de un cliente
+    const getCustomerSalesHistory = (customer) => {
+        if (!customer || !Array.isArray(sales)) return [];
+        const customerId = typeof customer === 'object' ? (customer.id || customer._id) : customer;
+        const customerName = typeof customer === 'object' ? String(customer.name || customer.nombre || '').toLowerCase().trim() : '';
+        const customerPhone = typeof customer === 'object' ? String(customer.phone || customer.telefono || '').replace(/[^\d]/g, '') : '';
+
+        return sales.filter(s => {
+            if (s.status === 'ANULADA') return false;
+            if (customerId && (s.customerId === customerId || s.clienteId === customerId || s.cliente === customerId)) return true;
+            if (customerName) {
+                const sClient = String(s.clientName || s.customerName || s.cliente || '').toLowerCase().trim();
+                if (sClient && (sClient === customerName || sClient.includes(customerName) || customerName.includes(sClient))) return true;
+            }
+            if (customerPhone && customerPhone.length >= 7) {
+                const sPhone = String(s.clientPhone || s.customerPhone || s.phone || '').replace(/[^\d]/g, '');
+                if (sPhone && sPhone.includes(customerPhone)) return true;
+            }
+            return false;
+        }).sort((a, b) => new Date(b.timestamp || b.date) - new Date(a.timestamp || a.date));
     };
 
     // Formatear enlace de WhatsApp
@@ -311,44 +328,57 @@ export default function MonitorDeudasTab({
                         )}
                     </div>
 
-                    {/* Selector de Filtros Pills (Grid 3 columnas en Móvil - Cero Scroll Horizontal) */}
-                    <div className="grid grid-cols-3 gap-1.5 w-full sm:w-auto shrink-0">
+                    {/* Selector de Filtros Pills (Grid 4 columnas responsivo) */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 w-full sm:w-auto shrink-0">
+                        <button
+                            type="button"
+                            onClick={() => { setFilterType('all'); triggerHaptic(); }}
+                            className={`px-2 sm:px-3 py-2 rounded-xl text-[10.5px] sm:text-xs font-black transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer text-center truncate ${
+                                filterType === 'all'
+                                    ? 'bg-brand text-white shadow-sm shadow-brand/20'
+                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                            }`}
+                        >
+                            <span className="truncate">Todos ({metrics.totalCustomers})</span>
+                        </button>
+
                         <button
                             type="button"
                             onClick={() => { setFilterType('deuda'); triggerHaptic(); }}
-                            className={`px-2 sm:px-3.5 py-2 rounded-xl text-[10.5px] sm:text-xs font-black transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer text-center truncate ${
+                            className={`px-2 sm:px-3 py-2 rounded-xl text-[10.5px] sm:text-xs font-black transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer text-center truncate ${
                                 filterType === 'deuda'
                                     ? 'bg-red-500 text-white shadow-sm shadow-red-500/20'
                                     : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
                             }`}
                         >
-                            <span className="w-1.5 h-1.5 rounded-full bg-white shrink-0"></span>
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0"></span>
                             <span className="truncate">Deudores ({metrics.debtorsCount})</span>
                         </button>
 
                         <button
                             type="button"
                             onClick={() => { setFilterType('favor'); triggerHaptic(); }}
-                            className={`px-2 sm:px-3.5 py-2 rounded-xl text-[10.5px] sm:text-xs font-black transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer text-center truncate ${
+                            className={`px-2 sm:px-3 py-2 rounded-xl text-[10.5px] sm:text-xs font-black transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer text-center truncate ${
                                 filterType === 'favor'
                                     ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-600/20'
                                     : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
                             }`}
                         >
-                            <span className="w-1.5 h-1.5 rounded-full bg-white shrink-0"></span>
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"></span>
                             <span className="truncate">A Favor ({metrics.favorCount})</span>
                         </button>
 
                         <button
                             type="button"
-                            onClick={() => { setFilterType('all'); triggerHaptic(); }}
-                            className={`px-2 sm:px-3.5 py-2 rounded-xl text-[10.5px] sm:text-xs font-black transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer text-center truncate ${
-                                filterType === 'all'
-                                    ? 'bg-brand text-white shadow-sm shadow-brand/20'
+                            onClick={() => { setFilterType('aldia'); triggerHaptic(); }}
+                            className={`px-2 sm:px-3 py-2 rounded-xl text-[10.5px] sm:text-xs font-black transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer text-center truncate ${
+                                filterType === 'aldia'
+                                    ? 'bg-slate-700 dark:bg-slate-600 text-white shadow-sm'
                                     : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
                             }`}
                         >
-                            <span className="truncate">Todos ({metrics.totalCustomersWithBalance})</span>
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-400 shrink-0"></span>
+                            <span className="truncate">Al Día ({metrics.zeroBalanceCount})</span>
                         </button>
                     </div>
                 </div>
@@ -358,7 +388,7 @@ export default function MonitorDeudasTab({
             <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
                 <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
                     <h4 className="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-700 dark:text-slate-200">
-                        {filterType === 'deuda' ? 'Clientes con Deuda Activa (Fiados)' : filterType === 'favor' ? 'Clientes con Saldo a Favor' : 'Todos los Clientes con Balance'}
+                        {filterType === 'deuda' ? 'Clientes con Deuda Activa (Fiados)' : filterType === 'favor' ? 'Clientes con Saldo a Favor' : filterType === 'aldia' ? 'Clientes al Día (Saldo $0)' : 'Todos los Clientes Registrados'}
                     </h4>
                     <span className="text-[11px] font-bold text-slate-400">{filteredCustomers.length} cliente(s)</span>
                 </div>
@@ -366,7 +396,7 @@ export default function MonitorDeudasTab({
                 {filteredCustomers.length === 0 ? (
                     <div className="p-12 text-center text-slate-400 space-y-2">
                         <CheckCircle2 size={32} className="mx-auto text-emerald-500 opacity-60" />
-                        <p className="text-xs font-bold">No hay clientes con saldos pendientes para este filtro.</p>
+                        <p className="text-xs font-bold">No hay clientes que coincidan con la búsqueda o filtro.</p>
                     </div>
                 ) : (
                     <>
@@ -378,7 +408,7 @@ export default function MonitorDeudasTab({
                                 const isDeudor = deuda > 0.01;
                                 const isFavor = favor > 0.01;
                                 const isExpanded = expandedCustomerId === c.id;
-                                const customerSales = isExpanded ? getCustomerSalesHistory(c.id) : [];
+                                const customerSales = isExpanded ? getCustomerSalesHistory(c) : [];
                                 const waUrl = getWhatsAppUrl(c.phone, c.name, deuda);
 
                                 return (

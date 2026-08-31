@@ -88,7 +88,7 @@ const MAIN_SUPERVISOR_TABS = [
         defaultSubTab: 'articulos',
         subTabs: [
             { id: 'articulos', label: 'Reportes por Artículo', shortLabel: 'Reportes', icon: BarChart3 },
-            { id: 'deudas', label: 'Cuentas por Cobrar (Deudas)', shortLabel: 'Deudas', icon: BookOpen },
+            { id: 'deudas', label: 'Clientes y Cuentas por Cobrar', shortLabel: 'Clientes', icon: Users },
             { id: 'gastos', label: 'Gastos Internos', shortLabel: 'Gastos', icon: Receipt },
             { id: 'nomina', label: 'Nómina de Personal', shortLabel: 'Nómina', icon: Users },
         ]
