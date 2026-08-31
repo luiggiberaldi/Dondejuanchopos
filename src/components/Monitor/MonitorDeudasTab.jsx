@@ -72,27 +72,48 @@ export default function MonitorDeudasTab({
         };
     }, [customers]);
 
-    // Filtrar clientes
+    // Filtrar y ordenar clientes (Prioridad: Mayor Deuda primero, luego Saldo a Favor, luego Alfabético)
     const filteredCustomers = useMemo(() => {
         const validCustomers = Array.isArray(customers) ? customers : [];
-        return validCustomers.filter(c => {
-            const name = String(c.name || c.nombre || '').toLowerCase();
-            const phone = String(c.phone || c.telefono || '');
-            const code = String(c.code || c.codigo || c.cedula || '').toLowerCase();
-            const term = searchTerm.toLowerCase().trim();
+        return validCustomers
+            .filter(c => {
+                const name = String(c.name || c.nombre || '').toLowerCase();
+                const phone = String(c.phone || c.telefono || '');
+                const code = String(c.code || c.codigo || c.cedula || '').toLowerCase();
+                const term = searchTerm.toLowerCase().trim();
 
-            const matchesSearch = !term || name.includes(term) || phone.includes(term) || code.includes(term);
-            if (!matchesSearch) return false;
+                const matchesSearch = !term || name.includes(term) || phone.includes(term) || code.includes(term);
+                if (!matchesSearch) return false;
 
-            const deuda = Number(c.deuda) || 0;
-            const favor = Number(c.favor) || 0;
+                const deuda = Number(c.deuda) || 0;
+                const favor = Number(c.favor) || 0;
 
-            if (filterType === 'deuda') return deuda > 0.01;
-            if (filterType === 'favor') return favor > 0.01;
-            if (filterType === 'aldia') return deuda <= 0.01 && favor <= 0.01;
-            if (filterType === 'all') return true; // Mostrar todos los clientes
-            return true;
-        });
+                if (filterType === 'deuda') return deuda > 0.01;
+                if (filterType === 'favor') return favor > 0.01;
+                if (filterType === 'aldia') return deuda <= 0.01 && favor <= 0.01;
+                if (filterType === 'all') return true; // Mostrar todos los clientes
+                return true;
+            })
+            .sort((a, b) => {
+                const deudaA = Number(a.deuda) || 0;
+                const deudaB = Number(b.deuda) || 0;
+                // 1. Mayor Deuda primero
+                if (deudaB > 0.01 || deudaA > 0.01) {
+                    if (Math.abs(deudaB - deudaA) > 0.001) return deudaB - deudaA;
+                }
+
+                // 2. Mayor Saldo a Favor después
+                const favorA = Number(a.favor) || 0;
+                const favorB = Number(b.favor) || 0;
+                if (favorB > 0.01 || favorA > 0.01) {
+                    if (Math.abs(favorB - favorA) > 0.001) return favorB - favorA;
+                }
+
+                // 3. Alfabético por nombre
+                const nameA = String(a.name || a.nombre || '').toLowerCase();
+                const nameB = String(b.name || b.nombre || '').toLowerCase();
+                return nameA.localeCompare(nameB);
+            });
     }, [customers, searchTerm, filterType]);
 
     // ── Reseteo de Página al Filtrar o Buscar ──
