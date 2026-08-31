@@ -70,12 +70,49 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
         salesList = salesList.filter(s => {
             if (s.tipo === 'REGISTRO_CIERRE') {
                 const cNum = Number(s.cierreNumber);
-                const cTs = s.timestamp || '';
-                if (cNum > 32 && cTs.startsWith('2026-08-30') && cTs < '2026-08-30T17:50:00.000Z') {
+                const cIdStr = String(s.cierreId || s.id || '');
+                if (cNum > 32 || cIdStr.includes('1788111') || cIdStr.includes('1788109') || cIdStr.includes('1788110')) {
                     return false;
                 }
             }
+            const saleCIdStr = String(s.cierreId || '');
+            if (saleCIdStr.includes('1788111') || saleCIdStr.includes('1788109') || saleCIdStr.includes('1788110')) {
+                return false;
+            }
             return true;
+        }).map(s => {
+            // Asegurar que Cierre 32 siempre tenga sus valores canónicos oficiales
+            const cNum = Number(s.cierreNumber);
+            const cIdStr = String(s.cierreId || s.id || '');
+            if (cNum === 32 || cIdStr.includes('1788051262861') || cIdStr.includes('1788052800000')) {
+                return {
+                    ...s,
+                    cierreNumber: 32,
+                    summary: {
+                        ...(s.summary || {}),
+                        cashier: s.summary?.cashier || { rol: 'CAJERO', nombre: 'Chailin' },
+                        todayTotalUsd: 76.84,
+                        todayTotalBs: 70460.0,
+                        todayProfit: 13.83,
+                        reconData: {
+                            cashBs: 9100.0,
+                            diffBs: 0.0,
+                            cashCop: 0.0,
+                            cashUsd: 24.0,
+                            diffCop: 0.0,
+                            diffUsd: 0.0,
+                            declaredBs: 9100.0,
+                            expectedBs: 9100.0,
+                            declaredCop: 0.0,
+                            declaredUsd: 24.0,
+                            expectedCop: 0.0,
+                            expectedUsd: 24.0,
+                            isBlindClose: true
+                        }
+                    }
+                };
+            }
+            return s;
         });
         if (salesList.length !== initialLen) {
             healed = true;
