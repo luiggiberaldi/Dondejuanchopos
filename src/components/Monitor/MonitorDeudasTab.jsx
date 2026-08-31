@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
     BookOpen, Search, User, Phone, MessageCircle, ChevronDown, ChevronUp,
-    CheckCircle2, Wallet, ArrowUpRight, ArrowDownRight, X, RotateCcw
+    CheckCircle2, Wallet, ArrowUpRight, ArrowDownRight, X, RotateCcw,
+    ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Users
 } from 'lucide-react';
 import { formatUsd, formatBs, formatCop } from '../../utils/calculatorUtils';
 import { supabaseCloud } from '../../config/supabaseCloud';
@@ -30,6 +31,11 @@ export default function MonitorDeudasTab({
     const [selectedCustomerForHistory, setSelectedCustomerForHistory] = useState(null);
     const [resetModalCustomer, setResetModalCustomer] = useState(null);
     const [isResetting, setIsResetting] = useState(false);
+
+    // ── Paginación Inteligente ──
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(15);
+    const tableTopRef = useRef(null);
 
     // Métricas globales de Clientes
     const metrics = useMemo(() => {
@@ -88,6 +94,45 @@ export default function MonitorDeudasTab({
             return true;
         });
     }, [customers, searchTerm, filterType]);
+
+    // ── Reseteo de Página al Filtrar o Buscar ──
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchTerm, filterType, itemsPerPage]);
+
+    // ── Cálculo de Paginación Inteligente ──
+    const effectiveItemsPerPage = itemsPerPage === 'all' ? (filteredCustomers.length || 1) : Number(itemsPerPage);
+    const totalPages = Math.max(1, Math.ceil(filteredCustomers.length / effectiveItemsPerPage));
+    const validCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+    const paginatedCustomers = useMemo(() => {
+        if (itemsPerPage === 'all') return filteredCustomers;
+        const startIdx = (validCurrentPage - 1) * effectiveItemsPerPage;
+        return filteredCustomers.slice(startIdx, startIdx + effectiveItemsPerPage);
+    }, [filteredCustomers, validCurrentPage, effectiveItemsPerPage, itemsPerPage]);
+
+    const handlePageChange = (newPage) => {
+        if (newPage >= 1 && newPage <= totalPages) {
+            triggerHaptic?.();
+            setCurrentPage(newPage);
+            if (tableTopRef.current) {
+                tableTopRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+    };
+
+    const getPageNumbers = (current, total) => {
+        if (total <= 5) {
+            return Array.from({ length: total }, (_, i) => i + 1);
+        }
+        if (current <= 3) {
+            return [1, 2, 3, 4, '...', total];
+        }
+        if (current >= total - 2) {
+            return [1, '...', total - 3, total - 2, total - 1, total];
+        }
+        return [1, '...', current - 1, current, current + 1, '...', total];
+    };
 
     // Obtener historial completo de ventas, fiados y abonos de un cliente
     const getCustomerSalesHistory = (customer) => {
@@ -385,12 +430,42 @@ export default function MonitorDeudasTab({
             </div>
 
             {/* SECCIÓN CLIENTES (MOBILE CARDS + DESKTOP TABLE) */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
-                <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                    <h4 className="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-700 dark:text-slate-200">
-                        {filterType === 'deuda' ? 'Clientes con Deuda Activa (Fiados)' : filterType === 'favor' ? 'Clientes con Saldo a Favor' : filterType === 'aldia' ? 'Clientes al Día (Saldo $0)' : 'Todos los Clientes Registrados'}
-                    </h4>
-                    <span className="text-[11px] font-bold text-slate-400">{filteredCustomers.length} cliente(s)</span>
+            <div ref={tableTopRef} className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
+                <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                        <h4 className="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-700 dark:text-slate-200">
+                            {filterType === 'deuda' ? 'Clientes con Deuda Activa (Fiados)' : filterType === 'favor' ? 'Clientes con Saldo a Favor' : filterType === 'aldia' ? 'Clientes al Día (Saldo $0)' : 'Todos los Clientes Registrados'}
+                        </h4>
+                        <span className="text-[11px] font-bold text-slate-400">
+                            {filteredCustomers.length === 0 ? '0 clientes' : (
+                                itemsPerPage === 'all' 
+                                    ? `${filteredCustomers.length} cliente(s)`
+                                    : `Mostrando ${(validCurrentPage - 1) * effectiveItemsPerPage + 1}–${Math.min(validCurrentPage * effectiveItemsPerPage, filteredCustomers.length)} de ${filteredCustomers.length} cliente(s)`
+                            )}
+                        </span>
+                    </div>
+
+                    {/* Selector de Items por Página */}
+                    <div className="flex items-center gap-1.5 self-end sm:self-auto bg-slate-50 dark:bg-slate-800/60 p-1 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                        <span className="text-[10px] font-bold text-slate-400 px-1.5">Ver:</span>
+                        {[15, 30, 50, 'all'].map((size) => (
+                            <button
+                                key={size}
+                                type="button"
+                                onClick={() => {
+                                    triggerHaptic?.();
+                                    setItemsPerPage(size);
+                                }}
+                                className={`px-2 py-1 rounded-lg text-[10.5px] font-black transition-all cursor-pointer ${
+                                    itemsPerPage === size
+                                        ? 'bg-white dark:bg-slate-900 text-slate-800 dark:text-white shadow-2xs'
+                                        : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                                }`}
+                            >
+                                {size === 'all' ? 'Todos' : size}
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
                 {filteredCustomers.length === 0 ? (
@@ -402,7 +477,7 @@ export default function MonitorDeudasTab({
                     <>
                         {/* VISTA MÓVIL (< 768px): Tarjetas Touch Anti-Colapso */}
                         <div className="divide-y divide-slate-100 dark:divide-slate-800 md:hidden">
-                            {filteredCustomers.map(c => {
+                            {paginatedCustomers.map(c => {
                                 const deuda = Number(c.deuda) || 0;
                                 const favor = Number(c.favor) || 0;
                                 const isDeudor = deuda > 0.01;
@@ -426,7 +501,7 @@ export default function MonitorDeudasTab({
                                                 <div className="min-w-0 flex-1">
                                                     <div className="flex items-center gap-1.5 flex-wrap">
                                                         <h5 className="text-xs sm:text-sm font-black text-slate-800 dark:text-white capitalize truncate">
-                                                            {c.name}
+                                                             {c.name}
                                                         </h5>
                                                         {c.code && (
                                                             <span className="text-[9px] font-mono font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded-md shrink-0">
@@ -457,11 +532,6 @@ export default function MonitorDeudasTab({
                                                                 -{formatBs(deuda * activeRate)} Bs
                                                             </span>
                                                         )}
-                                                        {copEnabled && tasaCop > 0 && (
-                                                            <span className="text-[9.5px] font-bold text-amber-600 dark:text-amber-400 block">
-                                                                -{formatCop(deuda * tasaCop)} COP
-                                                            </span>
-                                                        )}
                                                     </>
                                                 )}
                                                 {isFavor && (
@@ -474,59 +544,57 @@ export default function MonitorDeudasTab({
                                                         </span>
                                                     </>
                                                 )}
+                                                {!isDeudor && !isFavor && (
+                                                    <span className="inline-block px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-[10.5px] font-bold text-slate-500">
+                                                        Al Día
+                                                    </span>
+                                                )}
                                             </div>
                                         </div>
 
                                         {/* Acciones de la Tarjeta Móvil */}
-                                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/60 flex-wrap">
+                                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/60">
                                             <div className="flex items-center gap-1.5">
-                                                {/* WhatsApp directo */}
-                                                {waUrl ? (
+                                                {waUrl && (
                                                     <a
                                                         href={waUrl}
                                                         target="_blank"
                                                         rel="noopener noreferrer"
-                                                        className="px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold flex items-center gap-1.5 hover:bg-emerald-100 transition-colors"
+                                                        className="px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 text-[11px] font-bold flex items-center gap-1 transition-all"
                                                     >
-                                                        <MessageCircle size={12} className="text-emerald-600" />
-                                                        <span>WhatsApp</span>
+                                                        <MessageCircle size={13} />
+                                                        <span>Cobrar WhatsApp</span>
                                                     </a>
-                                                ) : (
-                                                    <span className="text-[10px] text-slate-400 italic">Sin WhatsApp</span>
                                                 )}
-
-                                                {/* Botón Reiniciar a $0 Supervisor */}
                                                 <button
                                                     type="button"
                                                     onClick={() => {
                                                         triggerHaptic();
-                                                        setResetModalCustomer(c);
+                                                        setSelectedCustomerForHistory(c);
                                                     }}
-                                                    className="px-2.5 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 text-[11px] font-bold flex items-center gap-1 hover:bg-amber-100 transition-colors cursor-pointer"
+                                                    className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer"
                                                 >
-                                                    <RotateCcw size={12} className="text-amber-600 dark:text-amber-400" />
-                                                    <span>Reiniciar $0</span>
+                                                    <BookOpen size={12} />
+                                                    <span>Historial</span>
                                                 </button>
                                             </div>
 
-                                            {/* Botón Acordeón de Historial */}
                                             <button
                                                 type="button"
                                                 onClick={() => {
                                                     triggerHaptic();
                                                     setExpandedCustomerId(isExpanded ? null : c.id);
                                                 }}
-                                                className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-bold flex items-center gap-1 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                                                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
                                             >
-                                                <span>{isExpanded ? 'Ocultar' : 'Detalle'}</span>
-                                                {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                                                {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                                             </button>
                                         </div>
 
-                                        {/* Historial Desplegable en Móvil */}
+                                        {/* Historial Desplegable Rápido en Móvil */}
                                         {isExpanded && (
-                                            <div className="p-3 bg-slate-50/80 dark:bg-slate-800/40 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 space-y-2.5 animate-in fade-in">
-                                                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+                                            <div className="p-3 bg-slate-50 dark:bg-slate-850 rounded-2xl border border-slate-200/60 dark:border-slate-800 space-y-2 animate-in fade-in">
+                                                <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider block">
                                                     Historial de Movimientos:
                                                 </span>
 
@@ -596,7 +664,7 @@ export default function MonitorDeudasTab({
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
-                                    {filteredCustomers.map(c => {
+                                    {paginatedCustomers.map(c => {
                                         const deuda = Number(c.deuda) || 0;
                                         const favor = Number(c.favor) || 0;
                                         const isDeudor = deuda > 0.01;
@@ -608,7 +676,7 @@ export default function MonitorDeudasTab({
                                                 <td className="py-3 px-4 whitespace-nowrap">
                                                     <div className="flex items-center gap-2.5">
                                                         <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs shrink-0 ${
-                                                            isDeudor ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600'
+                                                            isDeudor ? 'bg-red-100 text-red-600' : isFavor ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
                                                         }`}>
                                                             {String(c.name || '?').slice(0, 1).toUpperCase()}
                                                         </div>
@@ -689,6 +757,83 @@ export default function MonitorDeudasTab({
                                 </tbody>
                             </table>
                         </div>
+
+                        {/* Controles de Paginación Inteligente */}
+                        {totalPages > 1 && itemsPerPage !== 'all' && (
+                            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-4 bg-slate-50/50 dark:bg-slate-850/50 border-t border-slate-100 dark:border-slate-800">
+                                {/* Indicador de Página */}
+                                <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                                    Página <span className="font-black text-slate-800 dark:text-white">{validCurrentPage}</span> de <span className="font-black text-slate-800 dark:text-white">{totalPages}</span>
+                                </div>
+
+                                {/* Botones de Navegación */}
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => handlePageChange(1)}
+                                        disabled={validCurrentPage === 1}
+                                        title="Primera Página"
+                                        className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
+                                    >
+                                        <ChevronsLeft size={16} />
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => handlePageChange(validCurrentPage - 1)}
+                                        disabled={validCurrentPage === 1}
+                                        title="Página Anterior"
+                                        className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
+                                    >
+                                        <ChevronLeft size={16} />
+                                    </button>
+
+                                    {/* Botones Numéricos de Página */}
+                                    <div className="hidden sm:flex items-center gap-1 mx-1">
+                                        {getPageNumbers(validCurrentPage, totalPages).map((p, idx) => {
+                                            if (p === '...') {
+                                                return <span key={`ellipsis-${idx}`} className="px-1 text-slate-400 font-bold">…</span>;
+                                            }
+                                            const isCurrent = p === validCurrentPage;
+                                            return (
+                                                <button
+                                                    key={`page-${p}`}
+                                                    type="button"
+                                                    onClick={() => handlePageChange(p)}
+                                                    className={`min-w-[32px] h-8 px-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                                                        isCurrent
+                                                            ? 'bg-brand text-white shadow-sm shadow-brand/20'
+                                                            : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                                    }`}
+                                                >
+                                                    {p}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => handlePageChange(validCurrentPage + 1)}
+                                        disabled={validCurrentPage === totalPages}
+                                        title="Página Siguiente"
+                                        className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
+                                    >
+                                        <ChevronRight size={16} />
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => handlePageChange(totalPages)}
+                                        disabled={validCurrentPage === totalPages}
+                                        title="Última Página"
+                                        className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
+                                    >
+                                        <ChevronsRight size={16} />
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </>
                 )}
             </div>
