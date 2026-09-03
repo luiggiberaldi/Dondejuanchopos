@@ -84,8 +84,10 @@ const SearchBar = forwardRef(function SearchBar({
             {searchResults.length > 0 && (
                 <div className="absolute top-full mt-2 left-0 right-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-20 overflow-hidden">
                     {searchResults.map((p, index) => {
-                        const isLowStock = (p.stock ?? 0) <= (p.lowStockAlert ?? 5) && (p.stock ?? 0) >= 0;
-                        const isOutOfStock = (p.stock ?? 0) === 0;
+                        const stockVal = p.stock ?? 0;
+                        const isNegativeStock = stockVal < 0;
+                        const isOutOfStock = stockVal <= 0;
+                        const isLowStock = stockVal > 0 && stockVal <= (p.lowStockAlert ?? 5);
                         const catInfo = BODEGA_CATEGORIES.find(c => c.id === p.category);
                         const catColor = catInfo ? CATEGORY_COLORS[catInfo.color] : null;
                         const CatIcon = catInfo ? CATEGORY_ICONS[catInfo.id] : null;
@@ -121,9 +123,9 @@ const SearchBar = forwardRef(function SearchBar({
                                             </span>
                                         )}
                                         <span className={`text-[10px] font-medium flex items-center gap-1
-                                            ${isOutOfStock ? 'text-red-500' : isLowStock ? 'text-amber-500' : 'text-slate-400'}`}>
-                                            {isLowStock && !isOutOfStock && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />}
-                                            {isOutOfStock ? 'Sin stock' : `Stock: ${p.stock ?? 0}`}
+                                            ${isNegativeStock ? 'text-rose-600 dark:text-rose-400 font-bold' : isOutOfStock ? 'text-red-500' : isLowStock ? 'text-amber-500' : 'text-slate-400'}`}>
+                                            {isLowStock && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />}
+                                            {isNegativeStock ? `Déficit (${stockVal})` : isOutOfStock ? 'Sin stock' : `Stock: ${stockVal}`}
                                         </span>
                                     </div>
                                     {(p.barcode || (p.sellByBox && p.boxBarcode) || (p.sellByHalfBox && p.halfBoxBarcode)) && (

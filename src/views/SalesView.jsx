@@ -571,7 +571,8 @@ export default function SalesView({ triggerHaptic, isActive }) {
             if (stockNeeded + otherStockUsed > currentStock) {
                 playError();
                 if (currentStock <= 0) {
-                    showToast(`⚠️ ${product.name} está sin stock (0 ud). Activa "Ventas sin stock" en Configuración o ingresa inventario.`, 'warning');
+                    const deficitLabel = currentStock < 0 ? `está en déficit (${currentStock} ud)` : 'está sin stock (0 ud)';
+                    showToast(`⚠️ ${product.name} ${deficitLabel}. Activa "Ventas sin stock" en Configuración o ingresa inventario.`, 'warning');
                 } else {
                     showToast(`⚠️ ${product.name}: solo quedan ${currentStock} ud disponibles`, 'warning');
                 }
@@ -652,16 +653,21 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 if (productData) {
                     const availableStock = CurrencyService.safeParse(productData.stock) || 0;
                     const newQty = Math.round((cartItem.qty + delta) * 1000) / 1000;
+                    const getItemMultiplier = (item) => {
+                        if (item._mode === 'box') return item.boxUnits || productData.boxUnits || 1;
+                        if (item._mode === 'halfBox') return item.halfBoxUnits || productData.halfBoxUnits || 1;
+                        if (item._mode === 'unit' && item._unitsPerPackage) return 1 / item._unitsPerPackage;
+                        return 1;
+                    };
                     const totalUsed = currentCart.reduce((sum, item) => {
                         if ((item._originalId || item.id) !== originalId) return sum;
                         if (item.id === id) return sum;
-                        if (item._mode === 'unit') return sum + (item.qty / (item._unitsPerPackage || 1));
-                        return sum + item.qty;
+                        return sum + (item.qty * getItemMultiplier(item));
                     }, 0);
-                    const thisItemStock = cartItem._mode === 'unit' ? newQty / (cartItem._unitsPerPackage || 1) : newQty;
+                    const thisItemStock = newQty * getItemMultiplier(cartItem);
                     if (totalUsed + thisItemStock > availableStock) {
                         playError();
-                        showToast(`${cartItem.name}: stock maximo alcanzado`, 'warning');
+                        showToast(`${cartItem.name}: stock máximo alcanzado (${availableStock} disponibles)`, 'warning');
                         return;
                     }
                 }

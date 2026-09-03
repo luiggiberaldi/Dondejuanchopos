@@ -15,6 +15,7 @@ export default function ModularComboPickerModal({
     const [deferredCustomerRef, setDeferredCustomerRef] = useState('');
     // selections: { [groupId]: { [productId]: qty } }
     const [selections, setSelections] = useState({});
+    const allowNegativeStock = typeof localStorage !== 'undefined' && localStorage.getItem('allow_negative_stock') === 'true';
 
     // Reset or populate when modal opens for a combo
     React.useEffect(() => {
@@ -60,7 +61,7 @@ export default function ModularComboPickerModal({
         const remainingForGroup = reqQty - (currentGroupTotal - currentQty);
         if (remainingForGroup <= 0) return;
 
-        const qtyToAssign = Math.min(remainingForGroup, availableStock);
+        const qtyToAssign = allowNegativeStock ? remainingForGroup : Math.min(remainingForGroup, availableStock);
         if (qtyToAssign <= 0) return;
 
         setSelections(prev => {
@@ -104,7 +105,7 @@ export default function ModularComboPickerModal({
             // Check quota limit
             if (currentGroupTotal >= group.requiredQty) return;
             // Check stock limit
-            if (currentQty >= availableStock) return;
+            if (!allowNegativeStock && currentQty >= availableStock) return;
         }
 
         const newQty = Math.max(0, currentQty + delta);
@@ -146,7 +147,7 @@ export default function ModularComboPickerModal({
 
         const otherQty = currentGroupTotal - currentQty;
         const maxForGroup = (group.requiredQty || 1) - otherQty;
-        const allowedMax = Math.max(0, Math.min(availableStock, maxForGroup));
+        const allowedMax = allowNegativeStock ? Math.max(0, maxForGroup) : Math.max(0, Math.min(availableStock, maxForGroup));
 
         const finalQty = Math.min(parsed, allowedMax);
 
@@ -341,7 +342,8 @@ export default function ModularComboPickerModal({
                                         if (!prod) return null;
                                         const qtySelected = selections[group.id]?.[pid] || 0;
                                         const stock = prod.stock ?? 0;
-                                        const canAdd = currentTotal < reqQty && qtySelected < stock;
+                                        const isNegative = stock < 0;
+                                        const canAdd = currentTotal < reqQty && (allowNegativeStock || qtySelected < stock);
 
                                         return (
                                             <div key={pid} className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
@@ -355,6 +357,10 @@ export default function ModularComboPickerModal({
                                                         {stock > 0 ? (
                                                             <span className="text-[10px] font-bold text-slate-400">
                                                                 Disponibles: {stock}
+                                                            </span>
+                                                        ) : isNegative ? (
+                                                            <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400">
+                                                                Déficit ({stock})
                                                             </span>
                                                         ) : (
                                                             <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400">
@@ -379,15 +385,15 @@ export default function ModularComboPickerModal({
                                                     )}
 
                                                     {/* Botón rápido Llenar Todo/Restante */}
-                                                    {stock > 0 && currentTotal < reqQty && (
+                                                    {(allowNegativeStock || stock > 0) && currentTotal < reqQty && (
                                                         <button
                                                             type="button"
                                                             onClick={() => handleFillRemaining(group.id, pid)}
-                                                            title={`Asignar ${Math.min(reqQty - (currentTotal - qtySelected), stock)} unidades con 1 solo clic`}
+                                                            title={`Asignar ${allowNegativeStock ? reqQty - (currentTotal - qtySelected) : Math.min(reqQty - (currentTotal - qtySelected), stock)} unidades con 1 solo clic`}
                                                             className="px-2 py-1 rounded-lg text-[10px] font-black bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 hover:bg-purple-600 hover:text-white dark:hover:bg-purple-600 border border-purple-200 dark:border-purple-800/80 transition-all active:scale-95 flex items-center gap-1 shadow-xs cursor-pointer"
                                                         >
                                                             <Zap size={10} className="fill-current" />
-                                                            <span>+{Math.min(reqQty - (currentTotal - qtySelected), stock)}</span>
+                                                            <span>+{allowNegativeStock ? reqQty - (currentTotal - qtySelected) : Math.min(reqQty - (currentTotal - qtySelected), stock)}</span>
                                                         </button>
                                                     )}
 
@@ -404,7 +410,7 @@ export default function ModularComboPickerModal({
                                                         <input
                                                             type="number"
                                                             min={0}
-                                                            max={stock}
+                                                            max={allowNegativeStock ? reqQty : stock}
                                                             value={qtySelected === 0 ? '' : qtySelected}
                                                             placeholder="0"
                                                             onChange={(e) => handleDirectQtyChange(group.id, pid, e.target.value)}

@@ -438,20 +438,23 @@ export default function StockBatchModal({
 
             // Persistir permanentemente los tamanos de empaque editados inline
             const pkgEntries = Object.entries(tempPackageSizes).filter(([, size]) => size > 1);
-            if (pkgEntries.length > 0 && setProducts) {
-                setProducts(prev =>
-                    prev.map(p => {
-                        const newSize = tempPackageSizes[p.id];
-                        if (newSize && newSize > 1) {
-                            return {
-                                ...p,
-                                unitsPerPackage: newSize,
-                                ...(p.sellByBox ? { boxUnits: newSize } : {})
-                            };
-                        }
-                        return p;
-                    })
-                );
+            if (pkgEntries.length > 0) {
+                const liveProducts = await storageService.getItem('bodega_products_v1', products) || [];
+                const updatedProducts = liveProducts.map(p => {
+                    const newSize = tempPackageSizes[p.id];
+                    if (newSize && newSize > 1) {
+                        return {
+                            ...p,
+                            unitsPerPackage: newSize,
+                            ...(p.sellByBox ? { boxUnits: newSize } : {})
+                        };
+                    }
+                    return p;
+                });
+                await storageService.setItem('bodega_products_v1', updatedProducts);
+                if (setProducts) {
+                    setProducts(updatedProducts);
+                }
             }
 
             const actionLabel = direction === 'ingreso' ? 'Ingreso' : 'Egreso';

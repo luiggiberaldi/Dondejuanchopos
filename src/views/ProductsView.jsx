@@ -95,18 +95,22 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
 
         const cleanCombo = { ...comboProduct, image: finalImage };
 
-        let updatedProducts;
-        if (editingCombo) {
-            updatedProducts = products.map(p =>
-                p.id === editingCombo.id ? cleanCombo : p
-            );
-            auditLog('INVENTARIO', 'COMBO_EDITADO', `Combo "${comboProduct.name}" editado`);
-        } else {
-            updatedProducts = [cleanCombo, ...products];
-            auditLog('INVENTARIO', 'COMBO_CREADO', `Combo "${comboProduct.name}" creado`);
-        }
+        const updatedProducts = await withLock('pos_write_lock', async () => {
+            const liveProducts = await storageService.getItem('bodega_products_v1', products) || [];
+            let nextProducts;
+            if (editingCombo) {
+                nextProducts = liveProducts.map(p =>
+                    p.id === editingCombo.id ? cleanCombo : p
+                );
+                auditLog('INVENTARIO', 'COMBO_EDITADO', `Combo "${comboProduct.name}" editado`);
+            } else {
+                nextProducts = [cleanCombo, ...liveProducts.filter(p => p.id !== cleanCombo.id)];
+                auditLog('INVENTARIO', 'COMBO_CREADO', `Combo "${comboProduct.name}" creado`);
+            }
+            await storageService.setItem('bodega_products_v1', nextProducts);
+            return nextProducts;
+        });
 
-        storageService.setItem('bodega_products_v1', updatedProducts);
         setProducts(updatedProducts);
         setIsComboModalOpen(false);
         setEditingCombo(null);
@@ -282,6 +286,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
         costBs, setCostBs,
         stock, setStock,
         category, setCategory,
+        unit, setUnit,
         lowStockAlert, setLowStockAlert,
         image, setImage,
         isFormShaking, setIsFormShaking,
@@ -353,6 +358,10 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
     const handleImageUpload = (e) => {
         const file = e.target.files[0];
         if (!file) return;
+        if (file.size > 8 * 1024 * 1024) {
+            showToast('La imagen es demasiado grande (máx 8 MB).', 'warning');
+            return;
+        }
         const reader = new FileReader();
         reader.readAsDataURL(file);
         reader.onload = (event) => {
@@ -402,10 +411,47 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
 
     const handleSave = () => {
         triggerHaptic && triggerHaptic();
-        if (!name || !priceUsd) {
+        if (!name || !name.trim() || name.trim().length < 2) {
             setIsFormShaking(true);
             setTimeout(() => setIsFormShaking(false), 500);
-            return showToast('Nombre y precio en USD son requeridos', 'warning');
+            return showToast('El nombre debe tener al menos 2 caracteres', 'warning');
+        }
+
+        const parsedPriceUsd = parseFloat(priceUsd);
+        if (isNaN(parsedPriceUsd) || parsedPriceUsd <= 0) {
+            setIsFormShaking(true);
+            setTimeout(() => setIsFormShaking(false), 500);
+            return showToast('El precio en USD debe ser mayor a 0', 'warning');
+        }
+
+        if (sellByBox) {
+            const parsedBoxUnits = parseInt(boxUnits, 10);
+            const parsedBoxPrice = parseFloat(boxPriceUsd);
+            if (isNaN(parsedBoxUnits) || parsedBoxUnits < 2) {
+                setIsFormShaking(true);
+                setTimeout(() => setIsFormShaking(false), 500);
+                return showToast('La venta por caja requiere al menos 2 unidades por caja', 'warning');
+            }
+            if (isNaN(parsedBoxPrice) || parsedBoxPrice <= 0) {
+                setIsFormShaking(true);
+                setTimeout(() => setIsFormShaking(false), 500);
+                return showToast('El precio en USD para la venta por caja debe ser mayor a 0', 'warning');
+            }
+        }
+
+        if (sellByHalfBox) {
+            const parsedBoxUnits = parseInt(boxUnits, 10);
+            const parsedHalfUnits = parseInt(halfBoxUnits, 10);
+            if (isNaN(parsedHalfUnits) || parsedHalfUnits < 1) {
+                setIsFormShaking(true);
+                setTimeout(() => setIsFormShaking(false), 500);
+                return showToast('La media caja requiere al menos 1 unidad', 'warning');
+            }
+            if (parsedBoxUnits && parsedHalfUnits >= parsedBoxUnits) {
+                setIsFormShaking(true);
+                setTimeout(() => setIsFormShaking(false), 500);
+                return showToast('Las unidades de ½ caja deben ser menores a las de la caja completa', 'warning');
+            }
         }
 
         // Validación de unicidad de los 3 barcodes (Unidad, Caja, Media Caja)
@@ -444,7 +490,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
 
         const productData = buildProductPayload({
             name, barcode, priceUsd, priceBsManual, priceBsUsdRef, costUsd, costBs, stock,
-            category, lowStockAlert,
+            category, unit, lowStockAlert,
             sellByBox, boxUnits, boxBarcode, boxPriceUsd, boxPriceBs, boxPriceBsUsdRef,
             sellByHalfBox, halfBoxUnits, halfBoxBarcode, halfBoxPriceUsd, halfBoxPriceBs, halfBoxPriceBsUsdRef,
             purchaseByBoxCost, purchaseBoxUnits, purchaseBoxBcv,
@@ -489,7 +535,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                     ? { ...p, ...productData, stock: oldStock, image: finalImage !== undefined ? finalImage : p.image, updatedAt: nowIso }
                     : p
             );
-            pendingStockOperation = { productId: editingId, delta: diff, oldStock, newStock };
+            pendingStockOperation = diff !== 0 ? { productId: editingId, delta: diff, oldStock, newStock } : null;
 
 
         } else {
@@ -527,13 +573,14 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                         updatedAt: nowIso
                     }
                     : p);
-                pendingStockOperation = {
+                const stockDiff = liveRequestedStock - liveOldStock;
+                pendingStockOperation = stockDiff !== 0 ? {
                     productId: editingId,
-                    delta: liveRequestedStock - liveOldStock,
+                    delta: stockDiff,
                     oldStock: liveOldStock,
                     newStock: liveRequestedStock,
                     initial: false
-                };
+                } : null;
             } else {
                 updatedProducts = [
                     { ...updatedProducts[0] },
@@ -542,7 +589,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
             }
 
             await storageService.setItem('bodega_products_v1', updatedProducts);
-            if (!pendingStockOperation) return updatedProducts;
+            if (!pendingStockOperation || pendingStockOperation.delta === 0) return updatedProducts;
 
             const inventoryResult = await applyInventoryOperationUnlocked({
                 operationId: pendingStockOperation.initial
@@ -1034,6 +1081,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 name={name} setName={setName}
                 barcode={barcode} setBarcode={setBarcode}
                 category={category} setCategory={setCategory}
+                unit={unit} setUnit={setUnit}
                 priceUsd={priceUsd} handlePriceUsdChange={handlePriceUsdChange}
                 priceBsManual={priceBsManual} setPriceBsManual={setPriceBsManual}
                 priceBsUsdRef={priceBsUsdRef} setPriceBsUsdRef={setPriceBsUsdRef}

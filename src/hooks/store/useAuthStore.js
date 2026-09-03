@@ -472,18 +472,22 @@ export const useAuthStore = create(
              * @param {string} nombre
              * @param {string} rol
              * @param {string} pin - en claro
+             * @param {boolean} [bypassPin]
+             * @param {{ pinHash?: string }} [opts] - S5: hash PBKDF2 ya calculado (ruta remota).
              * @returns {{ ok: boolean, done?: Promise<void>, error?: string }}
              */
-            agregarUsuario: (nombre, rol, pin, bypassPin = false) => {
-                if (!bypassPin) {
+            agregarUsuario: (nombre, rol, pin, bypassPin = false, { pinHash } = {}) => {
+                const useHash = !bypassPin && typeof pinHash === 'string' && pinHash.startsWith('pbkdf2$');
+                if (!bypassPin && !useHash) {
                     const err = validatePin(String(pin ?? ''));
                     if (err) return { ok: false, error: err };
                 }
 
                 const done = (async () => {
                     try {
-                        const hashedPin = bypassPin ? '' : await hashPin(String(pin));
-                        const cleanPlain = bypassPin ? '' : String(pin);
+                        const hashedPin = bypassPin ? '' : (useHash ? pinHash : await hashPin(String(pin)));
+                        // Con ruta hash, la caja NO conoce el PIN en claro (coherente con setPinHash).
+                        const cleanPlain = bypassPin ? '' : (useHash ? undefined : String(pin));
                         set((state) => {
                             const maxId = state.usuarios.reduce((max, u) => Math.max(max, u.id), 0);
                             return {

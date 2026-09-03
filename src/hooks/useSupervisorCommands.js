@@ -500,11 +500,20 @@ export function useSupervisorCommands(deviceId) {
                             applied = true;
                         }
                     } else if (action === 'add' && nombre) {
-                        if (!bypassPin && newPin && store.usuarios.some(u => u.plainPin === newPin || u.pin === newPin)) {
+                        if (!bypassPin && !newPinHash && !newPin) {
+                            failReason = `Comando inválido: falta el PIN del nuevo usuario`;
+                        } else if (!bypassPin && newPin && store.usuarios.some(u => u.plainPin === newPin || u.pin === newPin)) {
                             failReason = `El PIN ya está asignado a otro usuario en la caja`;
                         } else {
-                            res = store.agregarUsuario(nombre, rol || 'CAJERO', newPin || '000000', bypassPin);
-                            applied = true;
+                            res = store.agregarUsuario(
+                                nombre, rol || 'CAJERO', newPin || '', bypassPin,
+                                newPinHash ? { pinHash: newPinHash } : undefined
+                            );
+                            if (!res?.ok && res?.error) {
+                                failReason = res.error;
+                            } else {
+                                applied = true;
+                            }
                         }
                     } else if (action === 'edit' && userId) {
                         const target = store.usuarios.find(u => u.id === userId);

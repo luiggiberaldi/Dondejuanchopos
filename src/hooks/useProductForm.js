@@ -37,6 +37,7 @@ const INITIAL_STATE = {
     costBs: '',
     stock: '',
     category: 'otros',
+    unit: 'unidad',
     lowStockAlert: '5',
     image: undefined,
     isFormShaking: false,
@@ -96,6 +97,7 @@ export function useProductForm() {
     const setCostBs = useCallback((v) => dispatch({ type: 'SET', field: 'costBs', value: v }), []);
     const setStock = useCallback((v) => dispatch({ type: 'SET', field: 'stock', value: v }), []);
     const setCategory = useCallback((v) => dispatch({ type: 'SET', field: 'category', value: v }), []);
+    const setUnit = useCallback((v) => dispatch({ type: 'SET', field: 'unit', value: v }), []);
     const setLowStockAlert = useCallback((v) => dispatch({ type: 'SET', field: 'lowStockAlert', value: v }), []);
     const setImage = useCallback((v) => dispatch({ type: 'SET', field: 'image', value: v }), []);
     const setIsFormShaking = useCallback((v) => dispatch({ type: 'SET', field: 'isFormShaking', value: v }), []);
@@ -136,10 +138,9 @@ export function useProductForm() {
         const currentCostUsd = product.costUsd || (product.costBs ? product.costBs / effectiveRate : 0);
         const currentCostBs = product.costBs || (product.costUsd ? product.costUsd * effectiveRate : 0);
 
-        const isAlreadyUnitCost = product.purchaseByBoxCost && product.purchaseBoxUnits;
-        const costMultiplier = (product.sellByBox && product.boxUnits && !isAlreadyUnitCost) ? (parseInt(product.boxUnits, 10) || 1) : 1;
-        const formCostUsd = currentCostUsd * costMultiplier;
-        const formCostBs = currentCostBs * costMultiplier;
+        // Costo unitario canónico: sin multiplicadores artificiales para evitar inflación destructiva
+        const formCostUsd = currentCostUsd;
+        const formCostBs = currentCostBs;
 
         const patch = {
             editingId: product.id,
@@ -148,10 +149,11 @@ export function useProductForm() {
             priceUsd: currentPriceUsd > 0 ? currentPriceUsd.toString() : '',
             priceBsManual: product.priceBsManual ? product.priceBsManual.toString() : '',
             priceBsUsdRef: product.priceBsUsdRef ? product.priceBsUsdRef.toString() : '',
-            costUsd: formCostUsd > 0 ? formCostUsd.toFixed(2) : '',
+            costUsd: formCostUsd > 0 ? (formCostUsd >= 0.01 ? formCostUsd.toFixed(2) : formCostUsd.toFixed(4)) : '',
             costBs: formCostBs > 0 ? formCostBs.toFixed(2) : '',
             stock: product.stock ?? '',
             category: product.category || 'otros',
+            unit: product.unit || 'unidad',
             lowStockAlert: product.lowStockAlert ?? 5,
             image: product.image,
 
@@ -197,6 +199,7 @@ export function useProductForm() {
         costBs: state.costBs, setCostBs,
         stock: state.stock, setStock,
         category: state.category, setCategory,
+        unit: state.unit, setUnit,
         lowStockAlert: state.lowStockAlert, setLowStockAlert,
         image: state.image, setImage,
         isFormShaking: state.isFormShaking, setIsFormShaking,

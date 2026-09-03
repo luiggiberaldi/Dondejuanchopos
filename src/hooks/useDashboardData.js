@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { storageService } from '../utils/storageService';
+import { withLock } from '../utils/withLock';
 
 const SALES_KEY = 'bodega_sales_v1';
 
@@ -35,10 +36,24 @@ export function useDashboardData(isActive, requestPermission) {
         });
 
         if (healed) {
-            await storageService.setItem(SALES_KEY, salesList);
-            try {
-                await storageService.setItem('bodega_sales_mirror_v1', salesList);
-            } catch (e) {}
+            await withLock('pos_write_lock', async () => {
+                const freshSales = await storageService.getItem(SALES_KEY, []) || [];
+                const freshMap = new Map(freshSales.map(s => [s.id, s]));
+                for (const h of salesList) {
+                    if (freshMap.has(h.id)) {
+                        freshMap.set(h.id, { ...freshMap.get(h.id), ...h });
+                    } else {
+                        freshMap.set(h.id, h);
+                    }
+                }
+                const merged = Array.from(freshMap.values());
+                merged.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+                await storageService.setItem(SALES_KEY, merged);
+                try {
+                    await storageService.setItem('bodega_sales_mirror_v1', merged);
+                } catch (e) {}
+                salesList = merged;
+            });
         }
 
         setSales(salesList);

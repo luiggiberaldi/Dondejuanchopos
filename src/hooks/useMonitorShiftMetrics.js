@@ -446,10 +446,9 @@ export function useMonitorShiftMetrics({
     const registerCloses = useMemo(() => {
         const explicitCloses = sales.filter(s => {
             if (s.tipo !== 'REGISTRO_CIERRE') return false;
-            // Purgar cierres provisionales de prueba generados en la tarde
-            const cNum = Number(s.cierreNumber);
+            // Purgar cierres provisionales de prueba generados en la tarde (IDs específicos)
             const cIdStr = String(s.cierreId || s.id || '');
-            if (cNum > 32 || cIdStr.includes('1788111') || cIdStr.includes('1788109') || cIdStr.includes('1788110')) {
+            if (cIdStr.includes('1788111') || cIdStr.includes('1788109') || cIdStr.includes('1788110')) {
                 return false;
             }
             return true;

@@ -345,9 +345,18 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
             customerName: newCustomer.name,
             customerPhone: newCustomer.phone,
         };
-        const updatedSales = sales.map(s => s.id === updatedSale.id ? updatedSale : s);
-        setSales(updatedSales);
-        await storageService.setItem(SALES_KEY, updatedSales);
+
+        await withLock('pos_write_lock', async () => {
+            const freshSales = await storageService.getItem(SALES_KEY, []) || [];
+            const updatedSales = freshSales.map(s => s.id === updatedSale.id ? updatedSale : s);
+            setSales(updatedSales);
+            await storageService.setItem(SALES_KEY, updatedSales);
+            try {
+                const mirrorSales = await storageService.getItem('bodega_sales_mirror_v1', []) || [];
+                const updatedMirror = mirrorSales.map(s => s.id === updatedSale.id ? updatedSale : s);
+                await storageService.setItem('bodega_sales_mirror_v1', updatedMirror);
+            } catch (mErr) {}
+        });
 
         setTicketPendingSale(null);
         setTicketClientName('');

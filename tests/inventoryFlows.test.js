@@ -399,4 +399,67 @@ describe('E2E inventario físico + Kardex', () => {
         expect((await getAllSessions())[0].status).toBe('CANCELLED');
         expect(state.store.get(KARDEX_KEY)).toHaveLength(4);
     });
+
+    it('permite venta de combo modular con componente en stock 0 cuando allow_negative_stock=true y lo revierte a 0', async () => {
+        localStorage.setItem('allow_negative_stock', 'true');
+        const zeroStockProducts = products.map(product => (
+            product.id === 'ice' ? { ...product, stock: 0 } : product
+        ));
+        await storageService.setItem(PRODUCTS_KEY, zeroStockProducts);
+
+        const cartItem = {
+            id: 'combo-modular-neg-1',
+            _originalId: 'combo',
+            name: 'Tobo Fiesta',
+            priceUsd: 12,
+            qty: 1,
+            isModular: true,
+            modularSelections: [
+                { groupId: 'beers', productId: 'polar', qty: 6, productName: 'Polar Pilsen' },
+                { groupId: 'beers', productId: 'ice', qty: 4, productName: 'Polar Ice' }
+            ]
+        };
+
+        const saleResult = await processSaleTransaction({
+            cart: [cartItem],
+            cartTotalUsd: 12,
+            cartTotalBs: 480,
+            cartSubtotalUsd: 12,
+            payments: [{ methodId: 'efectivo_usd', amountUsd: 12, currency: 'USD' }],
+            changeBreakdown: { changeUsdGiven: 0, changeBsGiven: 0 },
+            selectedCustomerId: null,
+            customers: [],
+            products: zeroStockProducts,
+            effectiveRate: 40,
+            tasaCop: 0,
+            copEnabled: false,
+            discountData: null,
+            useAutoRate: false,
+            bcvRate: 40
+        });
+
+        expect(saleResult.success).toBe(true);
+        // polar tenía 20, bajó a 14
+        expect(saleResult.updatedProducts.find(p => p.id === 'polar').stock).toBe(14);
+        // ice tenía 0, bajó a -4
+        expect(saleResult.updatedProducts.find(p => p.id === 'ice').stock).toBe(-4);
+        // tobo (componente fijo del combo) tenía 5, bajó a 4
+        expect(saleResult.updatedProducts.find(p => p.id === 'tobo').stock).toBe(4);
+
+        // Movimientos de Kardex para ice
+        const iceMovements = state.store.get(KARDEX_KEY).filter(m => m.producto_id === 'ice');
+        expect(iceMovements).toHaveLength(1);
+        expect(iceMovements[0]).toEqual(expect.objectContaining({
+            tipo: 'VENTA',
+            cantidad: -4,
+            stock_antes: 0,
+            stock_despues: -4
+        }));
+
+        // Anulación revierte ice a 0 exactamente
+        const voidResult = await processVoidSale(saleResult.sale, [saleResult.sale], saleResult.updatedProducts);
+        expect(voidResult.updatedProducts.find(p => p.id === 'ice').stock).toBe(0);
+        expect(voidResult.updatedProducts.find(p => p.id === 'polar').stock).toBe(20);
+        expect(voidResult.updatedProducts.find(p => p.id === 'tobo').stock).toBe(5);
+    });
 });

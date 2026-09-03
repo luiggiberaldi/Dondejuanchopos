@@ -11,6 +11,7 @@ export default function ProductFormWizard({
     name, setName,
     barcode, setBarcode,
     category, setCategory,
+    unit, setUnit,
     priceUsd, handlePriceUsdChange,
     priceBsManual, setPriceBsManual,
     priceBsUsdRef, setPriceBsUsdRef,
@@ -111,8 +112,7 @@ export default function ProductFormWizard({
     }, [boxUnits, sellByHalfBox]);
 
     const parsedPrice = Number(priceUsd) || 0;
-    const boxUnitsCount = (sellByBox && parseInt(boxUnits, 10) > 0) ? parseInt(boxUnits, 10) : 1;
-    const parsedCost = sellByBox ? ((Number(costUsd) || 0) / boxUnitsCount) : (Number(costUsd) || 0);
+    const parsedCost = Number(costUsd) || 0;
 
     // Margin calculations
     const mainMarginPct = parsedCost > 0 ? ((parsedPrice - parsedCost) / parsedCost * 100) : null;
@@ -170,9 +170,28 @@ export default function ProductFormWizard({
                                 />
                             </div>
 
-                            {/* Categoría */}
+                            {/* Categoría y Unidad de Medida */}
                             <div>
-                                <label className="text-xs font-bold text-slate-400 ml-1 mb-1 block uppercase">Categoría</label>
+                                <div className="flex justify-between items-center mb-1">
+                                    <label className="text-xs font-bold text-slate-400 ml-1 block uppercase">Categoría</label>
+                                    <div className="flex items-center gap-1">
+                                        <span className="text-[9px] font-bold text-slate-400 uppercase">Medida:</span>
+                                        {['unidad', 'kg', 'litro', 'paquete'].map(u => (
+                                            <button
+                                                key={u}
+                                                type="button"
+                                                onClick={() => setUnit && setUnit(u)}
+                                                className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase transition-colors ${
+                                                    (unit || 'unidad') === u
+                                                        ? 'bg-emerald-500 text-white shadow-xs'
+                                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                                                }`}
+                                            >
+                                                {u === 'unidad' ? 'Ud' : u === 'paquete' ? 'Paq' : u}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
                                 <div className="flex gap-2">
                                     <div className="flex-1">
                                         <CustomSelect

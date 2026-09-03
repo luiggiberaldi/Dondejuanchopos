@@ -101,7 +101,7 @@ export function useGastosInternos({ bcvRate, tasaCop, copEnabled, triggerHaptic,
         setIsAddGastoOpen(false);
         return true;
         } finally {
-            setTimeout(() => { isProcessingRef.current = false; }, 800);
+            setTimeout(() => { isGastoProcessing = false; }, 800);
         }
     }, [setSales, bcvRate, tasaCop, copEnabled, triggerHaptic, auditLog]);
 
@@ -254,23 +254,32 @@ export function useGastosInternos({ bcvRate, tasaCop, copEnabled, triggerHaptic,
             });
         }
 
-        const updatedSales = sales.map(s => {
-            if (s.id === gastoId) {
-                const voidedAt = new Date().toISOString();
-                return {
-                    ...s,
-                    status: 'ANULADA',
-                    updatedAt: voidedAt,
-                    voidedAt,
-                    voidedById: voidActor?.id || null,
-                    voidedByName: voidActor?.nombre || voidActor?.usuario || 'Sistema',
-                    voidedByRole: voidActor?.rol || 'SYSTEM',
-                };
-            }
-            return s;
+        const updatedSales = await withLock('pos_write_lock', async () => {
+            const freshSales = await storageService.getItem(SALES_KEY, []) || [];
+            const voidedAt = new Date().toISOString();
+            const freshUpdated = freshSales.map(s => {
+                if (s.id === gastoId) {
+                    return {
+                        ...s,
+                        status: 'ANULADA',
+                        updatedAt: voidedAt,
+                        voidedAt,
+                        voidedById: voidActor?.id || null,
+                        voidedByName: voidActor?.nombre || voidActor?.usuario || 'Sistema',
+                        voidedByRole: voidActor?.rol || 'SYSTEM',
+                    };
+                }
+                return s;
+            });
+            await storageService.setItem(SALES_KEY, freshUpdated);
+            try {
+                const mirrorSales = await storageService.getItem('bodega_sales_mirror_v1', []) || [];
+                const updatedMirror = mirrorSales.map(s => s.id === gastoId ? freshUpdated.find(i => i.id === gastoId) || s : s);
+                await storageService.setItem('bodega_sales_mirror_v1', updatedMirror);
+            } catch (mErr) {}
+            return freshUpdated;
         });
 
-        await storageService.setItem(SALES_KEY, updatedSales);
         if (typeof setSales === 'function') setSales(updatedSales);
 
         const label = targetGasto.isAutoconsumo ? 'Autoconsumo anulado y stock devuelto' : 'Gasto anulado con éxito';

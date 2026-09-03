@@ -403,20 +403,6 @@ export async function processSaleTransaction({
             inventoryAnomalies: expanded.anomalies
         });
 
-        let updatedSales = [finalPersistedSale, ...existingSales];
-        await storageService.setItem(SALES_KEY, updatedSales);
-
-        // ── BLINDAJE ANTI-PÉRDIDA DE DATOS: Espejo Inmutable de Ventas ──
-        try {
-            const MIRROR_KEY = 'bodega_sales_mirror_v1';
-            const mirrorSales = await storageService.getItem(MIRROR_KEY, []);
-            if (!mirrorSales.some(s => s.id === finalPersistedSale.id)) {
-                await storageService.setItem(MIRROR_KEY, [finalPersistedSale, ...mirrorSales]);
-            }
-        } catch (mirrorErr) {
-            console.warn('[checkoutProcessor] Error al actualizar espejo de ventas:', mirrorErr);
-        }
-
         // Audit log
         const user = useAuthStore.getState().usuarioActivo;
         const tipo = casheaUsd > 0 ? 'VENTA_CASHEA' : (fiadoAmountUsd > 0 ? 'VENTA_FIADA' : 'VENTA_COMPLETADA');
@@ -501,12 +487,10 @@ export async function processSaleTransaction({
             updatedProducts = inventoryOperation.updatedProducts || freshProducts;
         }
 
-        // Guardar la cantidad realmente aplicada, no solo la solicitada. Si el
-        // stock fue limitado por clamp, la anulación debe devolver únicamente
-        // las unidades que salieron físicamente.
-        let saleForResult = finalPersistedSale;
+        // ── Consolidar deducciones aplicadas y persistir la venta de forma atómica ──
+        let appliedInventoryDeductions = [];
         if (physicalDeductions.length > 0 && inventoryOperation.success) {
-            const appliedInventoryDeductions = (inventoryOperation.transitions || [])
+            appliedInventoryDeductions = (inventoryOperation.transitions || [])
                 .filter(transition => Number(transition.cantidad) !== 0)
                 .map(transition => ({
                     productoId: transition.productoId,
@@ -516,23 +500,26 @@ export async function processSaleTransaction({
                     origen: transition.origen,
                     metadata: transition.metadata
                 }));
-            saleForResult = deepFreeze({
-                ...finalPersistedSale,
-                inventoryDeductionsApplied: appliedInventoryDeductions
-            });
-            updatedSales = updatedSales.map(item => item.id === saleForResult.id ? saleForResult : item);
-            await storageService.setItem(SALES_KEY, updatedSales);
+        }
 
-            try {
-                const MIRROR_KEY = 'bodega_sales_mirror_v1';
-                const mirrorSales = await storageService.getItem(MIRROR_KEY, []);
-                const updatedMirror = mirrorSales.some(item => item.id === saleForResult.id)
-                    ? mirrorSales.map(item => item.id === saleForResult.id ? saleForResult : item)
-                    : [saleForResult, ...mirrorSales];
-                await storageService.setItem(MIRROR_KEY, updatedMirror);
-            } catch (mirrorErr) {
-                console.warn('[checkoutProcessor] Error al actualizar composición aplicada en espejo:', mirrorErr);
-            }
+        const saleForResult = deepFreeze({
+            ...finalPersistedSale,
+            inventoryDeductionsApplied: appliedInventoryDeductions,
+            inventoryOperationId: inventoryOperation.operationId || null
+        });
+
+        // Releer lista fresca dentro del lock para evitar pisar cualquier operación concurrente
+        const freshSalesList = await storageService.getItem(SALES_KEY, existingSales) || existingSales;
+        const updatedSales = [saleForResult, ...freshSalesList.filter(item => item.id !== saleForResult.id)];
+        await storageService.setItem(SALES_KEY, updatedSales);
+
+        try {
+            const MIRROR_KEY = 'bodega_sales_mirror_v1';
+            const mirrorSales = await storageService.getItem(MIRROR_KEY, []) || [];
+            const updatedMirror = [saleForResult, ...mirrorSales.filter(item => item.id !== saleForResult.id)];
+            await storageService.setItem(MIRROR_KEY, updatedMirror);
+        } catch (mirrorErr) {
+            console.warn('[checkoutProcessor] Error al actualizar composición aplicada en espejo:', mirrorErr);
         }
 
         // FIN-014: auditar uso de stock negativo y cantidades limitadas por clamp.

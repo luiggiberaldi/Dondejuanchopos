@@ -4,8 +4,8 @@ import { Modal } from '../Modal';
 import ConfirmModal from '../ConfirmModal';
 import { calculateComboStock } from '../../utils/productProcessor';
 import PricingModeSelector from './PricingModeSelector';
-import { derivePricingMode } from '../../hooks/useProductForm';
-import { calcUsdFromBs } from '../../utils/calculatorUtils';
+import { calcUsdFromBs, compareBarcodes } from '../../utils/calculatorUtils';
+import { showToast } from '../Toast';
 import { matchProductSearch } from '../../utils/searchUtils';
 
 export default function ComboFormModal({
@@ -367,6 +367,26 @@ export default function ComboFormModal({
             return;
         }
 
+        const trimmedBarcode = (barcode || '').trim();
+        if (trimmedBarcode && Array.isArray(products)) {
+            const currentBarcodes = trimmedBarcode.split(',').map(s => s.trim()).filter(Boolean);
+            for (const p of products) {
+                if (editingCombo && p.id === editingCombo.id) continue;
+                const otherBarcodes = [p.barcode, p.boxBarcode, p.halfBoxBarcode]
+                    .map(b => b ? String(b).split(',').map(s => s.trim()) : [])
+                    .flat()
+                    .filter(Boolean);
+                for (const bc of currentBarcodes) {
+                    if (otherBarcodes.some(obc => compareBarcodes(obc, bc))) {
+                        setIsFormShaking(true);
+                        setTimeout(() => setIsFormShaking(false), 500);
+                        showToast(`El código de barras "${bc}" ya está asignado al producto "${p.name}" o a uno de sus formatos`, 'warning');
+                        return;
+                    }
+                }
+            }
+        }
+
         const formattedName = name.replace(/(^\w{1})|(\s+\w{1})/g, l => l.toUpperCase());
         const cleanItems = comboItems.map(ci => ({ productId: ci.productId, qty: ci.qty }));
         const activeBcvRate = bcvRate || effectiveRate;
@@ -376,8 +396,9 @@ export default function ComboFormModal({
             name: formattedName,
             image,
             category,
-            barcode: barcode.trim() || null,
+            barcode: trimmedBarcode || null,
             priceUsd: parsedPrice,
+            priceUsdt: parsedPrice,
             pricingMode,
             forceBcv: pricingMode === 'bcv',
             priceBsManual: pricingMode === 'bs_fijo' && parsedPriceBs > 0 ? parsedPriceBs : null,
@@ -402,6 +423,7 @@ export default function ComboFormModal({
             })) : [],
             lowStockAlert: 0,
             createdAt: editingCombo?.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
         };
 
         onSave(comboProduct);

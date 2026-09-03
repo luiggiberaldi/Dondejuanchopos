@@ -289,6 +289,9 @@ function appendMissingMovements(kardex, movements) {
 
 async function persistSaleInventoryTrace(operation, transitions) {
     if (operation.referenceType !== 'VENTA' || !operation.referenceId) return;
+    // Si la operación fue disparada desde POS_CHECKOUT, checkoutProcessor consolida
+    // la venta final con sus transiciones de inventario en una única escritura atómica bajo pos_write_lock.
+    if (operation.source === 'POS_CHECKOUT') return;
 
     const sales = await storageService.getItem(SALES_KEY, []) || [];
     const sale = sales.find(item => item?.id === operation.referenceId);

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { storageService } from '../utils/storageService';
+import { withLock } from '../utils/withLock';
 import { getActivePaymentMethods } from '../config/paymentMethods';
 import { getLocalISODate } from '../utils/dateHelpers';
 
@@ -65,13 +66,12 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
             return sale;
         });
 
-        // Purgar cierres fantasma duplicados de pruebas (ej: #33, #34 creados durante pruebas de la tarde)
+        // Purgar cierres fantasma duplicados de pruebas de la tarde (IDs específicos)
         const initialLen = salesList.length;
         salesList = salesList.filter(s => {
             if (s.tipo === 'REGISTRO_CIERRE') {
-                const cNum = Number(s.cierreNumber);
                 const cIdStr = String(s.cierreId || s.id || '');
-                if (cNum > 32 || cIdStr.includes('1788111') || cIdStr.includes('1788109') || cIdStr.includes('1788110')) {
+                if (cIdStr.includes('1788111') || cIdStr.includes('1788109') || cIdStr.includes('1788110')) {
                     return false;
                 }
             }
@@ -149,11 +149,24 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
         }
 
         if (healed) {
-            salesList.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
-            await storageService.setItem(SALES_KEY, salesList);
-            try {
-                await storageService.setItem('bodega_sales_mirror_v1', salesList);
-            } catch (e) {}
+            await withLock('pos_write_lock', async () => {
+                const fresh = await storageService.getItem(SALES_KEY, []) || [];
+                const freshMap = new Map(fresh.map(s => [s.id, s]));
+                for (const s of salesList) {
+                    if (!freshMap.has(s.id)) {
+                        freshMap.set(s.id, s);
+                    } else {
+                        freshMap.set(s.id, { ...freshMap.get(s.id), ...s });
+                    }
+                }
+                const merged = Array.from(freshMap.values());
+                merged.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+                await storageService.setItem(SALES_KEY, merged);
+                try {
+                    await storageService.setItem('bodega_sales_mirror_v1', merged);
+                } catch (e) {}
+                salesList = merged;
+            });
         }
         return salesList;
     };

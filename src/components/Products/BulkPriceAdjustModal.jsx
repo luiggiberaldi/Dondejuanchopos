@@ -2,6 +2,8 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { X, TrendingUp, TrendingDown, Percent, Check, AlertTriangle } from 'lucide-react';
 import { logEvent } from '../../services/auditService';
 import { useAuthStore } from '../../hooks/store/useAuthStore';
+import { storageService } from '../../utils/storageService';
+import { withLock } from '../../utils/withLock';
 import CustomSelect from '../CustomSelect';
 
 export default function BulkPriceAdjustModal({
@@ -54,11 +56,14 @@ export default function BulkPriceAdjustModal({
     // Preview samples (up to 3 random products)
     const previewSamples = useMemo(() => {
         const shuffled = [...affectedProducts].sort(() => 0.5 - Math.random());
-        return shuffled.slice(0, 3).map(p => ({
-            name: p.name,
-            oldPrice: p.priceUsdt || 0,
-            newPrice: Math.max(0.01, (p.priceUsdt || 0) * multiplier),
-        }));
+        return shuffled.slice(0, 3).map(p => {
+            const cur = Number(p.priceUsd) || Number(p.priceUsdt) || 0;
+            return {
+                name: p.name,
+                oldPrice: cur,
+                newPrice: Math.max(0.01, cur * multiplier),
+            };
+        });
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [affectedProducts.length, multiplier, selectedCategory]);
 
@@ -70,36 +75,61 @@ export default function BulkPriceAdjustModal({
         setIsApplying(true);
 
         // Small delay for UX feel
-        timeoutRefs.current.push(setTimeout(() => {
-            setProducts(prev =>
-                prev.map(p => {
-                    const isTarget = selectedCategory === 'todos' || p.category === selectedCategory;
-                    if (!isTarget) return p;
+        timeoutRefs.current.push(setTimeout(async () => {
+            try {
+                const updatedProducts = await withLock('pos_write_lock', async () => {
+                    const liveProducts = await storageService.getItem('bodega_products_v1', products) || [];
+                    const nextProducts = liveProducts.map(p => {
+                        const isTarget = selectedCategory === 'todos' || p.category === selectedCategory;
+                        if (!isTarget) return p;
 
-                    const newPrice = Math.max(0.01, (p.priceUsdt || 0) * multiplier);
-                    const updated = { ...p, priceUsdt: parseFloat(newPrice.toFixed(4)) };
+                        const currentPrice = Number(p.priceUsd) || Number(p.priceUsdt) || 0;
+                        const newPrice = Math.max(0.01, parseFloat((currentPrice * multiplier).toFixed(4)));
+                        const updated = {
+                            ...p,
+                            priceUsd: newPrice,
+                            priceUsdt: newPrice,
+                            updatedAt: new Date().toISOString()
+                        };
 
-                    // Also adjust unitPriceUsd if it exists
-                    if (p.unitPriceUsd && p.unitPriceUsd > 0) {
-                        updated.unitPriceUsd = parseFloat((p.unitPriceUsd * multiplier).toFixed(4));
-                    }
+                        if (p.unitPriceUsd && Number(p.unitPriceUsd) > 0) {
+                            updated.unitPriceUsd = Math.max(0.01, parseFloat((Number(p.unitPriceUsd) * multiplier).toFixed(4)));
+                        }
+                        if (p.sellByBox && p.boxPriceUsd && Number(p.boxPriceUsd) > 0) {
+                            updated.boxPriceUsd = Math.max(0.01, parseFloat((Number(p.boxPriceUsd) * multiplier).toFixed(4)));
+                        }
+                        if (p.sellByHalfBox && p.halfBoxPriceUsd && Number(p.halfBoxPriceUsd) > 0) {
+                            updated.halfBoxPriceUsd = Math.max(0.01, parseFloat((Number(p.halfBoxPriceUsd) * multiplier).toFixed(4)));
+                        }
 
-                    return updated;
-                })
-            );
+                        return updated;
+                    });
 
-            setIsApplying(false);
-            setShowSuccess(true);
+                    await storageService.setItem('bodega_products_v1', nextProducts);
+                    return nextProducts;
+                });
 
-            const label = direction === 'up' ? `+${percent}%` : `-${percent}%`;
-            showToast && showToast(`Precios ajustados ${label} en ${affectedProducts.length} productos`, 'success');
-            const user = useAuthStore.getState().usuarioActivo;
-            logEvent('INVENTARIO', 'AJUSTE_MASIVO_PRECIOS', `Ajuste masivo ${label} en ${affectedProducts.length} productos (cat: ${selectedCategory})`, user);
+                if (setProducts) {
+                    setProducts(updatedProducts);
+                }
 
-            timeoutRefs.current.push(setTimeout(() => {
-                setShowSuccess(false);
-                handleClose();
-            }, 1200));
+                setIsApplying(false);
+                setShowSuccess(true);
+
+                const label = direction === 'up' ? `+${percent}%` : `-${percent}%`;
+                showToast && showToast(`Precios ajustados ${label} en ${affectedProducts.length} productos`, 'success');
+                const user = useAuthStore.getState().usuarioActivo;
+                logEvent('INVENTARIO', 'AJUSTE_MASIVO_PRECIOS', `Ajuste masivo ${label} en ${affectedProducts.length} productos (cat: ${selectedCategory})`, user);
+
+                timeoutRefs.current.push(setTimeout(() => {
+                    setShowSuccess(false);
+                    handleClose();
+                }, 1200));
+            } catch (err) {
+                console.error('[BulkPriceAdjustModal] Error aplicando ajuste masivo:', err);
+                setIsApplying(false);
+                showToast && showToast('Error al guardar el ajuste de precios: ' + err.message, 'error');
+            }
         }, 400));
     };
 
