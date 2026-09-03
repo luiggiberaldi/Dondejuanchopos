@@ -573,10 +573,13 @@ export async function saveEmployee(rawEmployee) {
 
 function normalizeSupervisorActor(supervisorActor) {
     const raw = normalizeActor(supervisorActor || {});
+    if (!['ADMIN', 'SUPERVISOR', 'OWNER', 'SYSTEM'].includes(raw.rol)) {
+        throw new Error('Permiso denegado: solo el supervisor o administrador puede gestionar empleados');
+    }
     return {
         id: raw.id || null,
         nombre: raw.nombre || 'Supervisor',
-        rol: ['ADMIN', 'SUPERVISOR', 'OWNER', 'SYSTEM'].includes(raw.rol) ? raw.rol : 'SUPERVISOR',
+        rol: raw.rol,
     };
 }
 
