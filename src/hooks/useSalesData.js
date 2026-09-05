@@ -377,7 +377,7 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
                 tasaCop: 4150,
                 copEnabled: false,
                 totalUsd: 1.67,
-                totalBs: 1553,
+                totalBs: 1560,
                 cartSubtotalUsd: 1.67,
                 totalCop: 0,
                 fiadoUsd: 0,
@@ -388,7 +388,7 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
                         name: 'Cerveza Polar Negrita',
                         qty: 2,
                         priceUsd: 0.835,
-                        subtotalBs: 1553,
+                        subtotalBs: 1560,
                         costUsd: 0,
                         costBs: 0
                     }
@@ -396,14 +396,14 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
                 payments: [
                     {
                         id: 'pay_b09a4bd5',
-                        methodId: 'efectivo_usd',
-                        methodLabel: 'Efectivo $',
-                        currency: 'USD',
-                        amountInput: 1.67,
-                        amountInputCurrency: 'USD',
-                        amountBs: 1553,
+                        methodId: 'punto_venta',
+                        methodLabel: 'Punto de Venta',
+                        currency: 'BS',
+                        amountInput: 1560,
+                        amountInputCurrency: 'BS',
+                        amountBs: 1560,
                         amountUsd: 1.67,
-                        isCash: true
+                        isCash: false
                     }
                 ],
                 changeUsd: 0,
@@ -411,7 +411,7 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
                 changeRealUsd: 0,
                 changeRealBs: 0,
                 changeGiven: { usd: 0, bs: 0 },
-                changeCurrency: 'USD',
+                changeCurrency: 'BS',
                 cajaCerrada: true,
                 checkoutOperationId: '1a7e4a18-f478-4a49-ad7a-0f77c8a44b08',
                 inventoryOperationId: 'sale_b09a4bd5-2c02-4d6f-aefb-a7741c7c4fc8',
@@ -427,7 +427,7 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
             close36.summary = {
                 ...close36.summary,
                 todayTotalUsd: 83.40,
-                todayTotalBs: 77443,
+                todayTotalBs: 77450,
                 todayItemsSold: 60
             };
             healed = true;
