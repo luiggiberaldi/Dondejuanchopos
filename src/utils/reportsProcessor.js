@@ -112,6 +112,11 @@ export function groupSalesByCierreId(allSales, from = null, to = null) {
         }
         if (entity.tipo === 'APERTURA_CAJA') {
             cMap[cId].apertura = entity;
+        } else if (entity.tipo === 'REGISTRO_CIERRE') {
+            cMap[cId].registroCierre = entity;
+            cMap[cId].reconData = entity.summary?.reconData || null;
+            cMap[cId].cierreNumber = entity.cierreNumber || null;
+            cMap[cId].cashier = entity.summary?.cashier || null;
         } else {
             cMap[cId].sales.push(entity);
         }
@@ -119,7 +124,7 @@ export function groupSalesByCierreId(allSales, from = null, to = null) {
 
     // 3. Calcular resumen y ordenar desc
     const result = Object.values(cMap)
-        .filter(c => c.sales.length > 0)
+        .filter(c => c.sales.length > 0 || c.registroCierre)
         .map(c => {
             const dateObj = new Date(c.cierreId);
 
@@ -145,6 +150,9 @@ export function groupSalesByCierreId(allSales, from = null, to = null) {
                 totalCop,
                 totalItems,
                 paymentBreakdown,
+                reconData: c.reconData || c.registroCierre?.summary?.reconData || null,
+                cierreNumber: c.cierreNumber || c.registroCierre?.cierreNumber || null,
+                cashier: c.cashier || c.registroCierre?.summary?.cashier || null,
             };
         })
         .sort((a, b) => String(b.cierreId).localeCompare(String(a.cierreId)));

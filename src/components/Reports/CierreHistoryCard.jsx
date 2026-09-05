@@ -64,7 +64,7 @@ export default function CierreHistoryCard({ cierre, correlativo, bcvRate, produc
             todayTotalBs: cierre.totalBs,
             todayProfit: 0,
             todayItemsSold: cierre.totalItems,
-            reconData: null,
+            reconData: cierre.reconData || null,
             apertura: cierre.apertura,
             isReprint: true,
             copEnabled,
@@ -178,6 +178,34 @@ export default function CierreHistoryCard({ cierre, correlativo, bcvRate, produc
                                 {(changeSummary.donatedDisplayUsd > 0.009 || changeSummary.donatedDisplayBs > 0.009 || changeSummary.donatedDisplayCop > 0.009) && <div className="flex justify-between text-emerald-700 dark:text-emerald-300"><span>Cedido/donado</span><span>{formatChangeSummaryAmount(changeSummary.donatedDisplayUsd, changeSummary.donatedDisplayBs, changeSummary.donatedDisplayCop)}</span></div>}
                                 {changeSummary.unresolvedUsd > 0.009 && <div className="flex justify-between font-black text-red-700"><span>Sin resolver</span><span>${changeSummary.unresolvedUsd.toFixed(2)}</span></div>}
                                 {changeSummary.unbalancedCount > 0 && <p className="pt-1 text-[10px] font-bold text-red-700">Partición desbalanceada en {changeSummary.unbalancedCount} venta(s).</p>}
+                            </div>
+                        </div>
+                    )}
+                    {cierre.reconData && (
+                        <div className="py-3 border-t border-slate-100 dark:border-slate-800">
+                            <div className="flex items-center justify-between mb-2">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">Cuadre de Efectivo Físico</p>
+                                <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${
+                                    Math.abs(cierre.reconData.diffUsd || 0) <= 0.50 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+                                }`}>
+                                    {Math.abs(cierre.reconData.diffUsd || 0) <= 0.50 ? 'Cuadrado' : 'Diferencia'}
+                                </span>
+                            </div>
+                            <div className="space-y-1 text-xs">
+                                <div className="flex justify-between text-slate-700 dark:text-slate-200">
+                                    <span>Dólares ($)</span>
+                                    <span className="font-mono font-bold">
+                                        Declarado: ${(cierre.reconData.declaredUsd ?? cierre.reconData.cashUsd ?? 0).toFixed(2)}
+                                        <span className="text-slate-400 font-normal ml-1">(Esp: ${(cierre.reconData.expectedUsd ?? 0).toFixed(2)})</span>
+                                    </span>
+                                </div>
+                                <div className="flex justify-between text-slate-700 dark:text-slate-200">
+                                    <span>Bolívares (Bs)</span>
+                                    <span className="font-mono font-bold">
+                                        Declarado: {formatBs(cierre.reconData.declaredBs ?? cierre.reconData.cashBs ?? 0)} Bs
+                                        <span className="text-slate-400 font-normal ml-1">(Esp: {formatBs(cierre.reconData.expectedBs ?? 0)})</span>
+                                    </span>
+                                </div>
                             </div>
                         </div>
                     )}

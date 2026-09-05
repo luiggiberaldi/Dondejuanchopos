@@ -7,6 +7,7 @@ import PricingModeSelector from './PricingModeSelector';
 import { calcUsdFromBs, compareBarcodes } from '../../utils/calculatorUtils';
 import { showToast } from '../Toast';
 import { matchProductSearch } from '../../utils/searchUtils';
+import { derivePricingMode } from '../../hooks/useProductForm';
 
 export default function ComboFormModal({
     isOpen,
