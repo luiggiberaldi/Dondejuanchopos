@@ -4,6 +4,7 @@ import { runWithoutEco } from '../utils/syncFlags';
 import localforage from 'localforage';
 import { shouldApplySyncVersion } from '../utils/syncVersionGuard';
 import { mergeCloudProductImages } from '../utils/productImageRecovery';
+import { mergeSalesArrays } from '../utils/salesMerge';
 import { fetchRemoteDocuments, REMOTE_MONITOR_DOC_IDS } from '../services/remoteAuditService';
 import { SUPERVISOR_RATE_PENDING_KEY } from '../utils/supervisorCommandModel';
 
@@ -221,6 +222,9 @@ export function useMonitorSync(pairedDeviceId) {
                     if (docId === 'bodega_products_v1' && Array.isArray(payload)) {
                         const localProducts = await localforage.getItem(docId);
                         payloadToApply = mergeCloudProductImages(payload, localProducts);
+                    } else if (docId === 'bodega_sales_v1' && Array.isArray(payload)) {
+                        const localSales = await localforage.getItem(docId) || [];
+                        payloadToApply = mergeSalesArrays(payload, localSales);
                     }
                     await localforage.setItem(docId, payloadToApply);
                     window.dispatchEvent(new CustomEvent('app_storage_update', {

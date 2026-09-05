@@ -16,6 +16,7 @@ import { applyInventoryOperationUnlocked } from '../services/inventoryOperationS
 const SALES_KEY = 'bodega_sales_v1';
 const PRODUCTS_KEY = 'bodega_products_v1';
 const CUSTOMERS_KEY = 'bodega_customers_v1';
+const SALES_JOURNAL_KEY = 'bodega_sales_journal_v1';
 
 export async function processSaleTransaction({
     cart,
@@ -459,6 +460,28 @@ export async function processSaleTransaction({
             );
         }
 
+        // ── GUARDARRAÍL WAL: Write-Ahead Log de Venta antes de mutaciones de inventario ──
+        try {
+            const journal = await storageService.getItem(SALES_JOURNAL_KEY, []) || [];
+            const journalEntry = {
+                journalId: `wal_${finalPersistedSale.id}`,
+                saleId: finalPersistedSale.id,
+                saleNumber,
+                timestamp: saleTimestamp,
+                checkoutOperationId: checkoutOperationId || null,
+                totalUsd: cartTotalUsd,
+                totalBs: cartTotalBs,
+                tipo: tipoVenta,
+                cajero: cajeroNombre,
+                saleSnapshot: finalPersistedSale,
+                status: 'COMMITTED_INTENT'
+            };
+            const updatedJournal = [journalEntry, ...journal.filter(j => j.saleId !== finalPersistedSale.id)].slice(0, 500);
+            await storageService.setItem(SALES_JOURNAL_KEY, updatedJournal);
+        } catch (walErr) {
+            console.warn('[checkoutProcessor] Error al escribir en Sales WAL Journal:', walErr);
+        }
+
         let updatedProducts = productsAfterDeferred;
         let inventoryOperation = { success: true, pending: false, transitions: [], movements: [] };
         if (physicalDeductions.length > 0) {
@@ -520,6 +543,18 @@ export async function processSaleTransaction({
             await storageService.setItem(MIRROR_KEY, updatedMirror);
         } catch (mirrorErr) {
             console.warn('[checkoutProcessor] Error al actualizar composición aplicada en espejo:', mirrorErr);
+        }
+
+        // Sellar estado COMPLETED en WAL Journal
+        try {
+            const journal = await storageService.getItem(SALES_JOURNAL_KEY, []) || [];
+            const entryIndex = journal.findIndex(j => j.saleId === finalPersistedSale.id);
+            if (entryIndex !== -1) {
+                journal[entryIndex] = { ...journal[entryIndex], status: 'COMPLETED', completedAt: new Date().toISOString() };
+                await storageService.setItem(SALES_JOURNAL_KEY, journal);
+            }
+        } catch (walCompleteErr) {
+            console.warn('[checkoutProcessor] Error al marcar COMPLETED en Sales WAL Journal:', walCompleteErr);
         }
 
         // FIN-014: auditar uso de stock negativo y cantidades limitadas por clamp.

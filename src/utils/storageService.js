@@ -1,5 +1,6 @@
 import localforage from 'localforage';
 import { queueCloudSync } from '../hooks/useCloudSync';
+import { mergeSalesArrays } from './salesMerge';
 localforage.config({
     name: 'BodegaApp',
     storeName: 'bodega_app_data',
@@ -156,6 +157,34 @@ export const storageService = {
                         throw guardErr;
                     }
                     console.warn('[StorageGuard] Advertencia al verificar shadow snapshot:', guardErr);
+                }
+            }
+
+            // ── PROTECCIÓN DE VENTAS: Anti-Shrink Circuit Breaker & Auto-Merge & Shadow Snapshot ──
+            if (key === 'bodega_sales_v1' && Array.isArray(value)) {
+                try {
+                    const existing = await localforage.getItem('bodega_sales_v1');
+                    if (Array.isArray(existing) && existing.length > 0) {
+                        // 1. Shadow Snapshot periódico
+                        const SHADOW_SALES_INTERVAL_MS = 15 * 60 * 1000;
+                        const lastSalesShadowTs = Date.parse(localStorage.getItem('bodega_sales_shadow_backup_ts') || '') || 0;
+                        if (value.length >= existing.length && Date.now() - lastSalesShadowTs > SHADOW_SALES_INTERVAL_MS) {
+                            await localforage.setItem('bodega_sales_shadow_backup_v1', existing);
+                            localStorage.setItem('bodega_sales_shadow_backup_ts', new Date().toISOString());
+                        }
+
+                        // 2. Circuit Breaker Anti-Encogimiento:
+                        // Si se intenta guardar un array que tiene menos ventas que el existente, auto-fusionar para no perder registros
+                        if (value.length < existing.length) {
+                            const allowSalesShrink = localStorage.getItem('confirm_sales_purge_flag') === 'true';
+                            if (!allowSalesShrink) {
+                                console.warn(`[CIRCUIT BREAKER VENTAS] Intento de encogimiento detectado: de ${existing.length} a ${value.length} ventas. Auto-fusionando registros para proteger integridad.`);
+                                value = mergeSalesArrays(value, existing);
+                            }
+                        }
+                    }
+                } catch (salesGuardErr) {
+                    console.warn('[StorageGuard] Advertencia al verificar protección de ventas:', salesGuardErr);
                 }
             }
 

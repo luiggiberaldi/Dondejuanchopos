@@ -98,4 +98,47 @@ describe('Circuit Breaker & Shadow Snapshot unit tests', () => {
         const shadow2 = await localforage.getItem('bodega_products_shadow_backup_v1');
         expect(shadow2).toHaveLength(10); // Mantiene el respaldo de los 10 originales sin sobrescribir
     });
+
+    test('Sales Circuit Breaker prevents dropping sales by auto-merging', async () => {
+        const existingSales = [
+            { id: 'sale-1', totalUsd: 10, timestamp: '2026-09-05T01:00:00Z' },
+            { id: 'sale-2', totalUsd: 20, timestamp: '2026-09-05T01:10:00Z' },
+            { id: 'sale-3', totalUsd: 30, timestamp: '2026-09-05T01:20:00Z' },
+        ];
+        await localforage.setItem('bodega_sales_v1', existingSales);
+
+        // Attempt to save a truncated sales array (missing sale-2 and sale-3)
+        const truncatedSales = [
+            { id: 'sale-1', totalUsd: 10, timestamp: '2026-09-05T01:00:00Z' }
+        ];
+
+        await storageService.setItem('bodega_sales_v1', truncatedSales);
+
+        // Check that sales were NOT dropped: they were auto-merged!
+        const saved = await localforage.getItem('bodega_sales_v1');
+        expect(saved).toHaveLength(3);
+        const ids = saved.map(s => s.id);
+        expect(ids).toContain('sale-1');
+        expect(ids).toContain('sale-2');
+        expect(ids).toContain('sale-3');
+    });
+
+    test('Sales Circuit Breaker creates shadow backup when sales grow', async () => {
+        const existingSales = [
+            { id: 'sale-1', totalUsd: 10, timestamp: '2026-09-05T01:00:00Z' }
+        ];
+        await localforage.setItem('bodega_sales_v1', existingSales);
+
+        const moreSales = [
+            { id: 'sale-2', totalUsd: 20, timestamp: '2026-09-05T01:10:00Z' },
+            { id: 'sale-1', totalUsd: 10, timestamp: '2026-09-05T01:00:00Z' }
+        ];
+
+        await storageService.setItem('bodega_sales_v1', moreSales);
+
+        const shadow = await localforage.getItem('bodega_sales_shadow_backup_v1');
+        expect(shadow).toHaveLength(1);
+        expect(shadow[0].id).toBe('sale-1');
+    });
 });
+
