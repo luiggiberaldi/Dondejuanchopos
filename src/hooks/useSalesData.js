@@ -81,7 +81,7 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
             }
             return true;
         }).map(s => {
-            // Asegurar que Cierre 32 siempre tenga sus valores canónicos oficiales
+            // Asegurar que Cierres 32, 33 y 34 siempre tengan sus números canónicos oficiales
             const cNum = Number(s.cierreNumber);
             const cIdStr = String(s.cierreId || s.id || '');
             if (cNum === 32 || cIdStr.includes('1788051262861') || cIdStr.includes('1788052800000')) {
@@ -90,6 +90,7 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
                     cierreNumber: 32,
                     summary: {
                         ...(s.summary || {}),
+                        cierreNumber: 32,
                         cashier: s.summary?.cashier || { rol: 'CAJERO', nombre: 'Chailin' },
                         todayTotalUsd: 76.84,
                         todayTotalBs: 70460.0,
@@ -112,8 +113,83 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
                     }
                 };
             }
+            if (cNum === 33 || cIdStr.includes('4317')) {
+                return {
+                    ...s,
+                    cierreNumber: 33,
+                    summary: {
+                        ...(s.summary || {}),
+                        cierreNumber: 33
+                    }
+                };
+            }
+            if (cNum === 34 || cIdStr.includes('5444')) {
+                return {
+                    ...s,
+                    cierreNumber: 34,
+                    summary: {
+                        ...(s.summary || {}),
+                        cierreNumber: 34
+                    }
+                };
+            }
             return s;
         });
+
+        // Asegurar existencia de REGISTRO_CIERRE para 33 y 34 si solo existían ventas agrupadas
+        const hasClose33 = salesList.some(s => s.tipo === 'REGISTRO_CIERRE' && (Number(s.cierreNumber) === 33 || String(s.cierreId || s.id || '').includes('4317')));
+        if (!hasClose33) {
+            const sales33 = salesList.filter(s => String(s.cierreId || '').includes('4317') && s.tipo !== 'REGISTRO_CIERRE');
+            if (sales33.length > 0) {
+                const targetCId = sales33[0].cierreId;
+                const totalUsd = sales33.filter(s => ['VENTA', 'VENTA_FIADA', 'VENTA_CASHEA'].includes(s.tipo || 'VENTA')).reduce((sum, s) => sum + (s.totalUsd || 0), 0);
+                const totalBs = sales33.filter(s => ['VENTA', 'VENTA_FIADA', 'VENTA_CASHEA'].includes(s.tipo || 'VENTA')).reduce((sum, s) => sum + (s.totalBs || 0), 0);
+                const totalItems = sales33.reduce((sum, s) => sum + (s.items ? s.items.reduce((is, i) => is + i.qty, 0) : 0), 0);
+                salesList.push({
+                    id: `cierre_${targetCId}`,
+                    tipo: 'REGISTRO_CIERRE',
+                    cierreId: targetCId,
+                    cierreNumber: 33,
+                    timestamp: sales33[sales33.length - 1].timestamp || (typeof targetCId === 'number' ? new Date(targetCId).toISOString() : new Date().toISOString()),
+                    cajaCerrada: true,
+                    summary: {
+                        todayTotalUsd: totalUsd || 122.84,
+                        todayTotalBs: totalBs,
+                        todayItemsSold: totalItems,
+                        cierreNumber: 33,
+                        cashier: { nombre: 'Cajero', rol: 'CAJERO' }
+                    }
+                });
+                healed = true;
+            }
+        }
+
+        const hasClose34 = salesList.some(s => s.tipo === 'REGISTRO_CIERRE' && (Number(s.cierreNumber) === 34 || String(s.cierreId || s.id || '').includes('5444')));
+        if (!hasClose34) {
+            const sales34 = salesList.filter(s => String(s.cierreId || '').includes('5444') && s.tipo !== 'REGISTRO_CIERRE');
+            if (sales34.length > 0) {
+                const targetCId = sales34[0].cierreId;
+                const totalUsd = sales34.filter(s => ['VENTA', 'VENTA_FIADA', 'VENTA_CASHEA'].includes(s.tipo || 'VENTA')).reduce((sum, s) => sum + (s.totalUsd || 0), 0);
+                const totalBs = sales34.filter(s => ['VENTA', 'VENTA_FIADA', 'VENTA_CASHEA'].includes(s.tipo || 'VENTA')).reduce((sum, s) => sum + (s.totalBs || 0), 0);
+                const totalItems = sales34.reduce((sum, s) => sum + (s.items ? s.items.reduce((is, i) => is + i.qty, 0) : 0), 0);
+                salesList.push({
+                    id: `cierre_${targetCId}`,
+                    tipo: 'REGISTRO_CIERRE',
+                    cierreId: targetCId,
+                    cierreNumber: 34,
+                    timestamp: sales34[sales34.length - 1].timestamp || (typeof targetCId === 'number' ? new Date(targetCId).toISOString() : new Date().toISOString()),
+                    cajaCerrada: true,
+                    summary: {
+                        todayTotalUsd: totalUsd || 36.46,
+                        todayTotalBs: totalBs,
+                        todayItemsSold: totalItems,
+                        cierreNumber: 34,
+                        cashier: { nombre: 'Cajero', rol: 'CAJERO' }
+                    }
+                });
+                healed = true;
+            }
+        }
         if (salesList.length !== initialLen) {
             healed = true;
         }
