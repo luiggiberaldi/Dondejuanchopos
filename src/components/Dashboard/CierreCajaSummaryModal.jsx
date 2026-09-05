@@ -28,13 +28,13 @@ export default function CierreCajaSummaryModal({
     const expectedBs = reconData.expectedBs || 0;
     const expectedCop = reconData.expectedCop || 0;
 
-    const declaredUsd = reconData.cashUsd || 0;
-    const declaredBs = reconData.cashBs || 0;
-    const declaredCop = reconData.cashCop || 0;
+    const declaredUsd = reconData.declaredUsd ?? reconData.cashUsd ?? 0;
+    const declaredBs = reconData.declaredBs ?? reconData.cashBs ?? 0;
+    const declaredCop = reconData.declaredCop ?? reconData.cashCop ?? 0;
 
-    const diffUsd = declaredUsd - expectedUsd;
-    const diffBs = declaredBs - expectedBs;
-    const diffCop = declaredCop - expectedCop;
+    const diffUsd = reconData.diffUsd ?? (declaredUsd - expectedUsd);
+    const diffBs = reconData.diffBs ?? (declaredBs - expectedBs);
+    const diffCop = reconData.diffCop ?? (declaredCop - expectedCop);
 
     const hasCop = copEnabled && (expectedCop > 0 || declaredCop > 0);
     const fmtCop = (v) => formatCop(v);

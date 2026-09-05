@@ -22,7 +22,8 @@ export default function MonitorCierresTab({ AlertTriangle, ChevronRight, Downloa
                                     <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Historial de Cierres</span>
                                     <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
                                         {registerCloses.map(c => {
-                                            const dateObj = new Date(c.cierreId);
+                                            const dateObj = new Date(c.timestamp || c.cierreId);
+                                            const isValidDate = !isNaN(dateObj.getTime());
                                             const isSelected = selectedCierreId === c.cierreId || (!selectedCierreId && registerCloses[0].cierreId === c.cierreId);
                                             const isExportingThis = exportingCierreId === c.cierreId;
                                             return (
@@ -40,7 +41,7 @@ export default function MonitorCierresTab({ AlertTriangle, ChevronRight, Downloa
                                                             Cierre #{c.cierreNumber || String(c.cierreId).slice(-4)}
                                                         </span>
                                                         <span className="text-[9px] text-slate-400 font-bold block mt-0.5">
-                                                            {dateObj.toLocaleDateString()} • {dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                            {isValidDate ? `${dateObj.toLocaleDateString()} • ${dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Fecha no disponible'}
                                                         </span>
                                                     </div>
                                                     <div className="flex items-center gap-2 shrink-0">
@@ -66,15 +67,27 @@ export default function MonitorCierresTab({ AlertTriangle, ChevronRight, Downloa
                                         const activeC = registerCloses.find(c => c.cierreId === selectedCierreId) || registerCloses[0];
                                         if (!activeC) return null;
 
-                                        const expectedUsd = activeC.reconData?.expectedUsd ?? activeC.totalUsd;
-                                        // Declarados
-                                        const declaredUsd = activeC.reconData?.cashUsd ?? null;
-                                        const declaredBs = activeC.reconData?.cashBs ?? null;
-                                        const declaredCop = activeC.reconData?.cashCop ?? null;
-                                        
-                                        const diffUsd = declaredUsd !== null ? declaredUsd - expectedUsd : null;
-                                        const isCuadrado = declaredUsd === null || Math.abs(diffUsd) <= 0.50;
+                                        const expectedUsd = activeC.reconData?.expectedUsd ?? activeC.reconData?.expectedCashUsd ?? activeC.totalUsd ?? 0;
+                                        const expectedBs = activeC.reconData?.expectedBs ?? activeC.reconData?.expectedCashBs ?? 0;
+                                        const expectedCop = activeC.reconData?.expectedCop ?? 0;
+
+                                        // Declarados (compatibilidad total con declared* y cash*)
+                                        const declaredUsd = activeC.reconData?.declaredUsd ?? activeC.reconData?.cashUsd ?? null;
+                                        const declaredBs = activeC.reconData?.declaredBs ?? activeC.reconData?.cashBs ?? null;
+                                        const declaredCop = activeC.reconData?.declaredCop ?? activeC.reconData?.cashCop ?? null;
+
+                                        const diffUsd = activeC.reconData?.diffUsd ?? (declaredUsd !== null ? declaredUsd - expectedUsd : null);
+                                        const diffBs = activeC.reconData?.diffBs ?? (declaredBs !== null ? declaredBs - expectedBs : null);
+                                        const diffCop = activeC.reconData?.diffCop ?? (declaredCop !== null ? declaredCop - expectedCop : null);
+
+                                        const isCuadrado = declaredUsd === null || (
+                                            Math.abs(diffUsd ?? 0) <= 0.50 &&
+                                            Math.abs(diffBs ?? 0) <= Math.max(expectedBs * 0.02, 5) &&
+                                            (expectedCop === 0 || Math.abs(diffCop ?? 0) <= Math.max(expectedCop * 0.02, 500))
+                                        );
                                         const isExportingActive = exportingCierreId === activeC.cierreId;
+                                        const activeCloseDate = new Date(activeC.timestamp || activeC.cierreId);
+                                        const isValidActiveDate = !isNaN(activeCloseDate.getTime());
 
                                         return (
                                             <div className="space-y-6 animate-fade-in">
@@ -83,7 +96,9 @@ export default function MonitorCierresTab({ AlertTriangle, ChevronRight, Downloa
                                                     <div>
                                                         <h3 className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">
                                                             <span>Cierre #{activeC.cierreNumber || String(activeC.cierreId).slice(-4)}</span>
-                                                            <span className="text-xs text-slate-400 font-medium">({new Date(activeC.timestamp).toLocaleDateString()} • {new Date(activeC.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})</span>
+                                                            <span className="text-xs text-slate-400 font-medium">
+                                                                ({isValidActiveDate ? `${activeCloseDate.toLocaleDateString()} • ${activeCloseDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Fecha no disponible'})
+                                                            </span>
                                                         </h3>
                                                         <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Cajero: {activeC.cashier?.nombre || 'Cajero'}</p>
                                                     </div>
@@ -150,8 +165,8 @@ export default function MonitorCierresTab({ AlertTriangle, ChevronRight, Downloa
                                                     {declaredUsd === null ? (
                                                         <div className="py-6 px-4 bg-amber-50/50 dark:bg-amber-950/10 border border-amber-100 dark:border-amber-900/30 rounded-2xl text-center">
                                                             <AlertTriangle size={24} className="text-amber-500 mx-auto mb-1.5" />
-                                                            <p className="text-xs font-black text-amber-800 dark:text-amber-400">Cierre simplificado sin arqueo</p>
-                                                            <p className="text-[10px] text-slate-500 mt-0.5">El cajero completó el cierre de caja sin declarar el saldo físico.</p>
+                                                            <p className="text-xs font-black text-amber-800 dark:text-amber-400">Cierre sin arqueo físico registrado</p>
+                                                            <p className="text-[10px] text-slate-500 mt-0.5">El cierre se completó sin declaración física de efectivo en gaveta.</p>
                                                         </div>
                                                     ) : (
                                                         <div className="border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden text-xs">
@@ -166,46 +181,46 @@ export default function MonitorCierresTab({ AlertTriangle, ChevronRight, Downloa
                                                             <div className="grid grid-cols-4 gap-2 px-4 py-3 border-b border-slate-100 dark:border-slate-800 items-center">
                                                                 <span className="font-bold text-slate-700 dark:text-slate-200">Dólares ($)</span>
                                                                 <span className="font-outfit font-mono text-slate-400 text-center">${expectedUsd.toFixed(2)}</span>
-                                                                <span className="font-outfit font-mono font-black text-slate-700 dark:text-white text-center">${declaredUsd.toFixed(2)}</span>
+                                                                <span className="font-outfit font-mono font-black text-slate-700 dark:text-white text-center">${(declaredUsd || 0).toFixed(2)}</span>
                                                                 <span className={`font-outfit font-mono font-black text-right ${
-                                                                    diffUsd === 0 ? 'text-slate-400' : diffUsd > 0 ? 'text-emerald-600' : 'text-rose-600'
+                                                                    Math.abs(diffUsd ?? 0) <= 0.01 ? 'text-slate-400' : (diffUsd ?? 0) > 0 ? 'text-emerald-600' : 'text-rose-600'
                                                                 }`}>
-                                                                    {diffUsd > 0 ? '+' : ''}{diffUsd.toFixed(2)}
+                                                                    {(diffUsd ?? 0) > 0.009 ? '+' : ''}{(diffUsd ?? 0) < -0.009 ? '-' : ''}${Math.abs(diffUsd ?? 0).toFixed(2)}
                                                                 </span>
                                                             </div>
 
                                                             {/* Bs Row */}
                                                             <div className="grid grid-cols-4 gap-2 px-4 py-3 border-b border-slate-100 dark:border-slate-800 items-center">
                                                                 <span className="font-bold text-slate-700 dark:text-slate-200">Bolívares (Bs)</span>
-                                                                <span className="font-outfit font-mono text-slate-400 text-center">{formatBs(activeC.reconData?.expectedBs || 0)}</span>
-                                                                <span className="font-outfit font-mono font-black text-slate-700 dark:text-white text-center">{formatBs(declaredBs)}</span>
+                                                                <span className="font-outfit font-mono text-slate-400 text-center">{formatBs(expectedBs)} Bs</span>
+                                                                <span className="font-outfit font-mono font-black text-slate-700 dark:text-white text-center">{formatBs(declaredBs || 0)} Bs</span>
                                                                 <span className={`font-outfit font-mono font-black text-right ${
-                                                                    (declaredBs - (activeC.reconData?.expectedBs || 0)) === 0 
+                                                                    Math.abs(diffBs ?? 0) <= 0.05 
                                                                         ? 'text-slate-400' 
-                                                                        : (declaredBs - (activeC.reconData?.expectedBs || 0)) > 0 
+                                                                        : (diffBs ?? 0) > 0 
                                                                             ? 'text-emerald-600' 
                                                                             : 'text-rose-600'
                                                                 }`}>
-                                                                    {(declaredBs - (activeC.reconData?.expectedBs || 0)) > 0 ? '+' : ''}
-                                                                    {formatBs(declaredBs - (activeC.reconData?.expectedBs || 0))}
+                                                                    {(diffBs ?? 0) > 0.05 ? '+' : ''}
+                                                                    {formatBs(diffBs ?? 0)} Bs
                                                                 </span>
                                                             </div>
 
                                                             {/* COP Row si aplica */}
-                                                            {activeC.reconData?.expectedCop > 0 && (
+                                                            {(expectedCop > 0 || (declaredCop !== null && declaredCop > 0)) && (
                                                                 <div className="grid grid-cols-4 gap-2 px-4 py-3 items-center">
                                                                     <span className="font-bold text-slate-700 dark:text-slate-200">Pesos (COP)</span>
-                                                                    <span className="font-outfit font-mono text-slate-400 text-center">{(activeC.reconData.expectedCop).toLocaleString()}</span>
-                                                                    <span className="font-outfit font-mono font-black text-slate-700 dark:text-white text-center">{(declaredCop).toLocaleString()}</span>
+                                                                    <span className="font-outfit font-mono text-slate-400 text-center">{Math.round(expectedCop).toLocaleString('es-CO')} COP</span>
+                                                                    <span className="font-outfit font-mono font-black text-slate-700 dark:text-white text-center">{Math.round(declaredCop || 0).toLocaleString('es-CO')} COP</span>
                                                                     <span className={`font-outfit font-mono font-black text-right ${
-                                                                        (declaredCop - activeC.reconData.expectedCop) === 0 
+                                                                        Math.abs(diffCop ?? 0) <= 50 
                                                                             ? 'text-slate-400' 
-                                                                            : (declaredCop - activeC.reconData.expectedCop) > 0 
+                                                                            : (diffCop ?? 0) > 0 
                                                                                 ? 'text-emerald-600' 
                                                                                 : 'text-rose-600'
                                                                     }`}>
-                                                                        {(declaredCop - activeC.reconData.expectedCop) > 0 ? '+' : ''}
-                                                                        {(declaredCop - activeC.reconData.expectedCop).toLocaleString()}
+                                                                        {(diffCop ?? 0) > 50 ? '+' : ''}
+                                                                        {Math.round(diffCop ?? 0).toLocaleString('es-CO')} COP
                                                                     </span>
                                                                 </div>
                                                             )}

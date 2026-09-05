@@ -627,8 +627,8 @@ export function useMonitorShiftMetrics({
                 totalItems,
                 paymentBreakdown: sortedBreakdown,
                 apertura,
-                reconData: explicit?.summary?.reconData || null,
-                cashier: explicit?.summary?.cashier || { nombre: 'Cajero', rol: 'CAJERO' }
+                reconData: explicit?.summary?.reconData || explicit?.reconData || null,
+                cashier: explicit?.summary?.cashier || explicit?.cashier || { nombre: 'Cajero', rol: 'CAJERO' }
             };
         }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     }, [sales]);

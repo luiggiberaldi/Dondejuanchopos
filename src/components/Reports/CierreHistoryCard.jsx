@@ -186,9 +186,11 @@ export default function CierreHistoryCard({ cierre, correlativo, bcvRate, produc
                             <div className="flex items-center justify-between mb-2">
                                 <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">Cuadre de Efectivo Físico</p>
                                 <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${
-                                    Math.abs(cierre.reconData.diffUsd || 0) <= 0.50 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+                                    (Math.abs(cierre.reconData.diffUsd || 0) <= 0.50 && Math.abs(cierre.reconData.diffBs || 0) <= Math.max((cierre.reconData.expectedBs || 0) * 0.02, 5)) 
+                                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' 
+                                        : 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
                                 }`}>
-                                    {Math.abs(cierre.reconData.diffUsd || 0) <= 0.50 ? 'Cuadrado' : 'Diferencia'}
+                                    {(Math.abs(cierre.reconData.diffUsd || 0) <= 0.50 && Math.abs(cierre.reconData.diffBs || 0) <= Math.max((cierre.reconData.expectedBs || 0) * 0.02, 5)) ? 'Cuadrado' : 'Diferencia'}
                                 </span>
                             </div>
                             <div className="space-y-1 text-xs">
@@ -206,6 +208,15 @@ export default function CierreHistoryCard({ cierre, correlativo, bcvRate, produc
                                         <span className="text-slate-400 font-normal ml-1">(Esp: {formatBs(cierre.reconData.expectedBs ?? 0)})</span>
                                     </span>
                                 </div>
+                                {(cierre.reconData.expectedCop > 0 || (cierre.reconData.declaredCop ?? cierre.reconData.cashCop ?? 0) > 0) && (
+                                    <div className="flex justify-between text-slate-700 dark:text-slate-200">
+                                        <span>Pesos (COP)</span>
+                                        <span className="font-mono font-bold">
+                                            Declarado: {Math.round(cierre.reconData.declaredCop ?? cierre.reconData.cashCop ?? 0).toLocaleString('es-CO')} COP
+                                            <span className="text-slate-400 font-normal ml-1">(Esp: {Math.round(cierre.reconData.expectedCop ?? 0).toLocaleString('es-CO')} COP)</span>
+                                        </span>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
