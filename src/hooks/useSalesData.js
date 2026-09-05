@@ -351,74 +351,79 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
             healed = true;
         }
 
-        // Opción A: Restaurar Venta b09a4bd5 (2 Polar Negrita)
-        const hasNegritasSale = salesList.some(s => s.id === 'b09a4bd5-2c02-4d6f-aefb-a7741c7c4fc8');
-        if (!hasNegritasSale) {
-            salesList.push({
-                id: 'b09a4bd5-2c02-4d6f-aefb-a7741c7c4fc8',
-                saleNumber: 756,
-                tipo: 'VENTA',
-                status: 'COMPLETADA',
-                timestamp: '2026-09-05T01:33:38.774Z',
-                createdAt: '2026-09-05T01:33:38.774Z',
-                updatedAt: '2026-09-05T01:33:38.774Z',
-                cierreId: 1788579914217,
-                deviceId: 'PDA-V2-ED46F23C375734BF8DF4CC7DC4A4D39F',
-                cajero: 'Chailin',
-                cajeroId: 2,
-                cajeroRol: 'CAJERO',
-                usuarioId: 2,
-                usuarioNombre: 'Chailin',
-                usuarioRol: 'CAJERO',
-                actor: { id: 2, rol: 'CAJERO', nombre: 'Chailin' },
-                customerName: 'Consumidor Final',
-                rate: 930,
-                bcvRate: 813.74,
-                tasaCop: 4150,
-                copEnabled: false,
-                totalUsd: 1.67,
-                totalBs: 1560,
-                cartSubtotalUsd: 1.67,
-                totalCop: 0,
-                fiadoUsd: 0,
-                casheaUsd: 0,
-                items: [
-                    {
-                        id: 'prod_juancho_1783994743_3',
-                        name: 'Cerveza Polar Negrita',
-                        qty: 2,
-                        priceUsd: 0.835,
-                        subtotalBs: 1560,
-                        costUsd: 0,
-                        costBs: 0
-                    }
-                ],
-                payments: [
-                    {
-                        id: 'pay_b09a4bd5',
-                        methodId: 'punto_venta',
-                        methodLabel: 'Punto de Venta',
-                        currency: 'BS',
-                        amountInput: 1560,
-                        amountInputCurrency: 'BS',
-                        amountBs: 1560,
-                        amountUsd: 1.67,
-                        isCash: false
-                    }
-                ],
-                changeUsd: 0,
-                changeBs: 0,
-                changeRealUsd: 0,
-                changeRealBs: 0,
-                changeGiven: { usd: 0, bs: 0 },
-                changeCurrency: 'BS',
-                cajaCerrada: true,
-                checkoutOperationId: '1a7e4a18-f478-4a49-ad7a-0f77c8a44b08',
-                inventoryOperationId: 'sale_b09a4bd5-2c02-4d6f-aefb-a7741c7c4fc8',
-                inventoryDeductionsApplied: [
-                    { productoId: 'prod_juancho_1783994743_3', cantidad: -2, unidad: 'unidad', origen: 'VENTA' }
-                ]
-            });
+        // Opción A: Restaurar/Actualizar Venta b09a4bd5 (2 Polar Negrita) como Punto de Venta
+        const negritasIndex = salesList.findIndex(s => s.id === 'b09a4bd5-2c02-4d6f-aefb-a7741c7c4fc8');
+        const negritasSaleObj = {
+            id: 'b09a4bd5-2c02-4d6f-aefb-a7741c7c4fc8',
+            saleNumber: 756,
+            tipo: 'VENTA',
+            status: 'COMPLETADA',
+            timestamp: '2026-09-05T01:33:38.774Z',
+            createdAt: '2026-09-05T01:33:38.774Z',
+            updatedAt: '2026-09-05T01:33:38.774Z',
+            cierreId: 1788579914217,
+            deviceId: 'PDA-V2-ED46F23C375734BF8DF4CC7DC4A4D39F',
+            cajero: 'Chailin',
+            cajeroId: 2,
+            cajeroRol: 'CAJERO',
+            usuarioId: 2,
+            usuarioNombre: 'Chailin',
+            usuarioRol: 'CAJERO',
+            actor: { id: 2, rol: 'CAJERO', nombre: 'Chailin' },
+            customerName: 'Consumidor Final',
+            rate: 930,
+            bcvRate: 813.74,
+            tasaCop: 4150,
+            copEnabled: false,
+            totalUsd: 1.67,
+            totalBs: 1560,
+            cartSubtotalUsd: 1.67,
+            totalCop: 0,
+            fiadoUsd: 0,
+            casheaUsd: 0,
+            items: [
+                {
+                    id: 'prod_juancho_1783994743_3',
+                    name: 'Cerveza Polar Negrita',
+                    qty: 2,
+                    priceUsd: 0.835,
+                    subtotalBs: 1560,
+                    costUsd: 0,
+                    costBs: 0
+                }
+            ],
+            payments: [
+                {
+                    id: 'pay_b09a4bd5',
+                    methodId: 'punto_venta',
+                    methodLabel: 'Punto de Venta',
+                    currency: 'BS',
+                    amountInput: 1560,
+                    amountInputCurrency: 'BS',
+                    amountBs: 1560,
+                    amountUsd: 1.67,
+                    isCash: false
+                }
+            ],
+            changeUsd: 0,
+            changeBs: 0,
+            changeRealUsd: 0,
+            changeRealBs: 0,
+            changeGiven: { usd: 0, bs: 0 },
+            changeCurrency: 'BS',
+            cajaCerrada: true,
+            checkoutOperationId: '1a7e4a18-f478-4a49-ad7a-0f77c8a44b08',
+            inventoryOperationId: 'sale_b09a4bd5-2c02-4d6f-aefb-a7741c7c4fc8',
+            inventoryDeductionsApplied: [
+                { productoId: 'prod_juancho_1783994743_3', cantidad: -2, unidad: 'unidad', origen: 'VENTA' }
+            ]
+        };
+
+        if (negritasIndex === -1) {
+            salesList.push(negritasSaleObj);
+            healed = true;
+        } else if (salesList[negritasIndex].payments?.[0]?.methodId !== 'punto_venta' || salesList[negritasIndex].totalBs !== 1560) {
+            salesList[negritasIndex] = { ...salesList[negritasIndex], ...negritasSaleObj };
             healed = true;
         }
 
