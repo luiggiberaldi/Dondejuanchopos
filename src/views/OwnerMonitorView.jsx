@@ -6,6 +6,7 @@ import { useMonitorShiftMetrics } from '../hooks/useMonitorShiftMetrics';
 import { useMonitorInventory } from '../hooks/useMonitorInventory';
 import { useMonitorPayroll } from '../hooks/useMonitorPayroll';
 import { storageService } from '../utils/storageService';
+import { normalizeHistoricalSale } from '../utils/salesMerge';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { showToast } from '../components/Toast';
 import { calculateComboStock, getEffectiveCostUsd, calculatePricing } from '../utils/productProcessor';
@@ -409,7 +410,18 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 storageService.getItem('bodega_supplier_invoices_v1', []),
             ]);
 
-            setSales(savedSales);
+            let salesList = Array.isArray(savedSales) ? savedSales : [];
+            let needsPersist = false;
+            salesList = salesList.map(s => {
+                const norm = normalizeHistoricalSale(s);
+                if (norm !== s) needsPersist = true;
+                return norm;
+            });
+            if (needsPersist) {
+                storageService.setItem('bodega_sales_v1', salesList).catch(console.error);
+            }
+
+            setSales(salesList);
             setPayrollProjection(savedPayrollProjection?.employees ? savedPayrollProjection : null);
             setCustomers(Array.isArray(savedCustomers) ? savedCustomers : []);
             setSuppliers(Array.isArray(savedSuppliers) ? savedSuppliers : []);

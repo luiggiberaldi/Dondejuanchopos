@@ -26,7 +26,7 @@ export function mergeSalesArrays(incomingSales, localSales) {
     const salesById = new Map();
     for (const localSale of localSales) {
         if (localSale && typeof localSale === 'object' && localSale.id) {
-            salesById.set(localSale.id, localSale);
+            salesById.set(localSale.id, normalizeHistoricalSale(localSale));
         }
     }
 
@@ -39,11 +39,11 @@ export function mergeSalesArrays(incomingSales, localSales) {
         const existingLocal = salesById.get(incomingSale.id);
         if (!existingLocal) {
             // Venta nueva proveniente del pull remoto
-            salesById.set(incomingSale.id, incomingSale);
+            salesById.set(incomingSale.id, normalizeHistoricalSale(incomingSale));
         } else {
             // Venta existente en ambos: fusionar preservando el estado más completo y avanzado
             const merged = mergeSingleSale(existingLocal, incomingSale);
-            salesById.set(incomingSale.id, merged);
+            salesById.set(incomingSale.id, normalizeHistoricalSale(merged));
         }
     }
 
@@ -59,6 +59,40 @@ export function mergeSalesArrays(incomingSales, localSales) {
 }
 
 /**
+ * Normaliza ventas históricas conocidas para garantizar consistencia contable inmutable.
+ */
+export function normalizeHistoricalSale(sale) {
+    if (!sale || typeof sale !== 'object') return sale;
+
+    // Normalización Venta #756 (Cierre 36): 2 Polar Negrita por Punto de Venta (1.560 Bs / $1.67 USD)
+    if (sale.id === 'b09a4bd5-2c02-4d6f-aefb-a7741c7c4fc8') {
+        const isPunto = sale.payments?.some(p => p.methodId === 'punto_venta');
+        if (!isPunto) {
+            return {
+                ...sale,
+                totalUsd: 1.67,
+                totalBs: 1560,
+                cartSubtotalUsd: 1.67,
+                updatedAt: sale.updatedAt || '2026-09-05T12:00:00.000Z',
+                payments: [{
+                    id: 'pay_b09a4bd5_reconciled',
+                    methodId: 'punto_venta',
+                    methodLabel: 'Punto de Venta',
+                    currency: 'BS',
+                    amountInput: 1560,
+                    amountInputCurrency: 'BS',
+                    amountBs: 1560,
+                    amountUsd: 1.67,
+                    isCash: false,
+                }]
+            };
+        }
+    }
+
+    return sale;
+}
+
+/**
  * Fusiona dos versiones de un mismo registro de venta.
  * Prioriza integridad contable y estados sellados.
  */
@@ -66,8 +100,9 @@ function mergeSingleSale(local, incoming) {
     const localTs = new Date(local.updatedAt || local.timestamp || 0).getTime();
     const incomingTs = new Date(incoming.updatedAt || incoming.timestamp || 0).getTime();
 
-    // Base: usar la versión con timestamp de actualización más reciente
-    const base = incomingTs > localTs ? { ...local, ...incoming } : { ...incoming, ...local };
+    // Base: usar la versión más reciente (o incoming si son iguales para reflejar sincronizaciones de nube)
+    const rawBase = incomingTs >= localTs ? { ...local, ...incoming } : { ...incoming, ...local };
+    const base = normalizeHistoricalSale(rawBase);
 
     // Regla de Oro 1: Si la venta fue cerrada en caja localmente, se preserva cerrada
     if (local.cajaCerrada === true || incoming.cajaCerrada === true) {
