@@ -89,6 +89,17 @@ export function normalizeHistoricalSale(sale) {
         }
     }
 
+    // Normalización Apertura 9 de Septiembre (ID: apertura_1788971899047): 8.380 Bs de fondo inicial
+    if (sale.id === 'apertura_1788971899047' || (sale.tipo === 'APERTURA_CAJA' && sale.timestamp?.startsWith('2026-09-09') && !sale.cajaCerrada)) {
+        if (sale.openingBs !== 8380) {
+            return {
+                ...sale,
+                openingBs: 8380,
+                updatedAt: sale.updatedAt || '2026-09-09T22:25:00.000Z'
+            };
+        }
+    }
+
     return sale;
 }
 
