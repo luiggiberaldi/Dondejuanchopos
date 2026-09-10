@@ -155,6 +155,24 @@ export function useCheckoutFlow({
                 const existingSales = await storageService.getItem(SALES_KEY, []);
                 const updatedSales = [...existingSales, aperturaRecord];
                 await storageService.setItem(SALES_KEY, updatedSales);
+
+                // Arnés 1: Guardar también en el espejo de seguridad de ventas (paridad con checkoutProcessor)
+                try {
+                    const mirrorSales = await storageService.getItem('bodega_sales_mirror_v1', []) || [];
+                    const updatedMirror = [...mirrorSales, aperturaRecord];
+                    await storageService.setItem('bodega_sales_mirror_v1', updatedMirror);
+                } catch (mirrorErr) {
+                    console.warn('[handleSaveApertura] Error actualizando espejo:', mirrorErr);
+                }
+
+                // Arnés 2: Sellar en ancla persistente dedicada (LocalStorage y almacenamiento de turno)
+                try {
+                    localStorage.setItem('bodega_active_shift_anchor', JSON.stringify(aperturaRecord));
+                    await storageService.setItem('bodega_active_shift_v1', aperturaRecord);
+                } catch (anchorErr) {
+                    console.warn('[handleSaveApertura] Error guardando ancla de turno:', anchorErr);
+                }
+
                 setTodayAperturaData(aperturaRecord);
             });
 

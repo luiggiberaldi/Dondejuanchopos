@@ -48,8 +48,40 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
 
         salesList = salesList.map(normalizeSale224);
 
+        // ── GUARDA-RAIL: Auto-reparación del Turno Activo desde Ancla Persistente ──
+        let activeApertura = salesList.find(s => s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada);
+        if (!activeApertura) {
+            try {
+                let anchorRecord = null;
+                const rawAnchor = localStorage.getItem('bodega_active_shift_anchor');
+                if (rawAnchor) {
+                    anchorRecord = JSON.parse(rawAnchor);
+                }
+                if (!anchorRecord) {
+                    anchorRecord = await storageService.getItem('bodega_active_shift_v1', null);
+                }
+
+                if (anchorRecord && anchorRecord.tipo === 'APERTURA_CAJA' && !anchorRecord.cajaCerrada) {
+                    // Verificar que no exista un REGISTRO_CIERRE posterior a esta apertura
+                    const apTs = new Date(anchorRecord.timestamp || anchorRecord.createdAt || 0).getTime();
+                    const hasLaterClose = salesList.some(s =>
+                        s.tipo === 'REGISTRO_CIERRE' &&
+                        new Date(s.timestamp || s.createdAt || 0).getTime() >= apTs
+                    );
+
+                    if (!hasLaterClose) {
+                        console.info('[useSalesData] Guarda-rail de Turno: Restaurando apertura activa desde ancla persistente:', anchorRecord.id);
+                        salesList.push(anchorRecord);
+                        activeApertura = anchorRecord;
+                        healed = true;
+                    }
+                }
+            } catch (anchorReadErr) {
+                console.warn('[useSalesData] Advertencia al leer ancla de turno:', anchorReadErr);
+            }
+        }
+
         // Sanear ventas anuladas históricas que quedaron sin cajaCerrada: true
-        const activeApertura = salesList.find(s => s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada);
         const activeFrom = activeApertura?.timestamp ? new Date(activeApertura.timestamp).getTime() : null;
 
         salesList = salesList.map(sale => {
@@ -598,7 +630,18 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
                 }
 
                 // Check Apertura (busca la apertura del turno activo que no haya sido cerrada)
-                const apertura = savedSales.find(s => s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada);
+                let apertura = savedSales.find(s => s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada);
+                if (!apertura) {
+                    try {
+                        const rawAnchor = localStorage.getItem('bodega_active_shift_anchor');
+                        if (rawAnchor) {
+                            const parsed = JSON.parse(rawAnchor);
+                            if (parsed?.tipo === 'APERTURA_CAJA' && !parsed.cajaCerrada) {
+                                apertura = parsed;
+                            }
+                        }
+                    } catch {}
+                }
                 setTodayAperturaData(apertura || null);
 
                 setIsLoadingLocal(false);
@@ -625,7 +668,18 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
             setSalesData(savedSales);
 
             // Recalculate Apertura (busca la apertura del turno activo que no haya sido cerrada)
-            const apertura = savedSales.find(s => s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada);
+            let apertura = savedSales.find(s => s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada);
+            if (!apertura) {
+                try {
+                    const rawAnchor = localStorage.getItem('bodega_active_shift_anchor');
+                    if (rawAnchor) {
+                        const parsed = JSON.parse(rawAnchor);
+                        if (parsed?.tipo === 'APERTURA_CAJA' && !parsed.cajaCerrada) {
+                            apertura = parsed;
+                        }
+                    }
+                } catch {}
+            }
             setTodayAperturaData(apertura || null);
         }).catch(err => console.error('[useSalesData] Error al recargar datos:', err));
     }, [isActive, setProducts]);

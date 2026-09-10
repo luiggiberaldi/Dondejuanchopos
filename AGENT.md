@@ -6,6 +6,14 @@
 
 > **Alcance operativo vigente:** una caja principal + un supervisor autorizado. El multisupervisor queda fuera de esta fase.
 
+> [!IMPORTANT]
+> ### 📱 DISPOSITIVO CENTRAL AUTORITATIVO (REGLA MANDATORIA DE AUDITORÍA)
+> * **Identificador de Dispositivo (`device_id`):** `PDA-V2-ED46F23C375734BF8DF4CC7DC4A4D39F`
+> * **Tipo / Modelo:** Terminal portátil táctil Sunmi V2 / PDA de Caja Principal.
+> * **Operador habitual:** Chailin (Rol: `CAJERO`).
+> * **DIRECTIVA OBLIGATORIA PARA AGENTES E IA:**  
+>   Siempre que el usuario solicite investigar, auditar, contrastar, revisar o corregir datos de ventas, inventario, Kardex, cierres de caja, arqueos o clientes, **ES MANDATORIO HACERLO EXCLUSIVAMENTE PARA ESTE DISPOSITIVO (`PDA-V2-ED46F23C375734BF8DF4CC7DC4A4D39F`)**, consultando sus documentos en Supabase (`sync_documents?device_id=eq.PDA-V2-ED46F23C375734BF8DF4CC7DC4A4D39F`) o sus comandos encolados, a menos que el usuario especifique explícitamente otro ID.
+
 ---
 
 ## Tabla de contenidos
@@ -532,6 +540,11 @@ Si IndexedDB y localStorage están llenos:
 
 ### Claves sincronizadas
 Definidas en `src/config/backupKeys.js` (`IDB_KEYS`, `LS_KEYS`, `LOCAL_KEYS`). **`abasto-auth-storage` NO está en `LOCAL_KEYS`** (SEC-002 — los hashes de PIN no viajan a la nube).
+
+### Dispositivo Central de Producción (Caja Primaria)
+El `device_id` autoritativo en `sync_documents` y `supervisor_commands` es:
+`PDA-V2-ED46F23C375734BF8DF4CC7DC4A4D39F`
+Toda auditoría de ventas, inventario, Kardex, cierres de caja y clientes debe consultar y operar contra este device_id.
 
 ---
 

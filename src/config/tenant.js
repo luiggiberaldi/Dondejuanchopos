@@ -13,6 +13,12 @@ export const TENANTS = {
 // -------------------------------------------------------------
 export const ACTIVE_TENANT = TENANTS.BODEGA;
 
+/**
+ * Dispositivo Central y Autoritativo de Producción (PDA V2 / Sunmi V2).
+ * Toda auditoría de ventas, inventario, cierres o datos es por defecto para este ID.
+ */
+export const PRIMARY_POS_DEVICE_ID = 'PDA-V2-ED46F23C375734BF8DF4CC7DC4A4D39F';
+
 // Configuración de metadatos globales de la UI dependiendo del MVP
 export const getTenantTheme = () => {
     switch (ACTIVE_TENANT) {

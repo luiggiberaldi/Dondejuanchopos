@@ -482,6 +482,11 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                 }
 
                 await storageService.setItem(SALES_KEY, freshUpdated);
+                try {
+                    await storageService.setItem('bodega_sales_mirror_v1', freshUpdated);
+                    localStorage.removeItem('bodega_active_shift_anchor');
+                    await storageService.removeItem('bodega_active_shift_v1');
+                } catch (_) {}
                 return freshUpdated;
             });
 

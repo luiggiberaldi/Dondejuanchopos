@@ -780,6 +780,11 @@ export function useSupervisorCommands(deviceId) {
 
                         updatedSales.push(registroCierre);
                         await storageService.setItem('bodega_sales_v1', updatedSales);
+                        try {
+                            await storageService.setItem('bodega_sales_mirror_v1', updatedSales);
+                            localStorage.removeItem('bodega_active_shift_anchor');
+                            await storageService.removeItem('bodega_active_shift_v1');
+                        } catch (_) {}
                         return { updatedSales, orphanCount: orphans.length };
                     });
 
@@ -794,6 +799,7 @@ export function useSupervisorCommands(deviceId) {
                     }
 
                     await pushCloudSync('bodega_sales_v1', result.updatedSales);
+                    await pushCloudSync('bodega_sales_mirror_v1', result.updatedSales, true).catch(() => {});
                     await updateCommandStatus(command.id, 'applied');
                     window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_sales_v1' } }));
                 } catch (err) {
@@ -838,6 +844,11 @@ export function useSupervisorCommands(deviceId) {
                         try {
                             const MIRROR_KEY = 'bodega_sales_mirror_v1';
                             await storageService.setItem(MIRROR_KEY, reopenedSales);
+                            const activeApertura = reopenedSales.find(s => s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada);
+                            if (activeApertura) {
+                                localStorage.setItem('bodega_active_shift_anchor', JSON.stringify(activeApertura));
+                                await storageService.setItem('bodega_active_shift_v1', activeApertura);
+                            }
                         } catch (e) {}
 
                         return { reopenedSales, cierreId: cierreIdToReopen };

@@ -177,7 +177,8 @@ export const storageService = {
                         // Si se intenta guardar un array que tiene menos ventas que el existente, auto-fusionar para no perder registros
                         if (value.length < existing.length) {
                             const allowSalesShrink = localStorage.getItem('confirm_sales_purge_flag') === 'true';
-                            if (!allowSalesShrink) {
+                            const isMonitor = localStorage.getItem('dj_pairing_mode') === 'monitor';
+                            if (!allowSalesShrink && !isMonitor) {
                                 console.warn(`[CIRCUIT BREAKER VENTAS] Intento de encogimiento detectado: de ${existing.length} a ${value.length} ventas. Auto-fusionando registros para proteger integridad.`);
                                 value = mergeSalesArrays(value, existing);
                             }

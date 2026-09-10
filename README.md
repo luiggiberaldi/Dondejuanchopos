@@ -20,6 +20,13 @@ Este módulo forma parte de la suite corporativa integrada y está preparado par
 
 ---
 
+## 📱 Dispositivo Central de Producción
+* **Dispositivo Primario / Caja (`device_id`):** `PDA-V2-ED46F23C375734BF8DF4CC7DC4A4D39F` (Terminal física Sunmi V2).
+* **Rol Operativo:** Caja Principal autorizada para cobros, tickets térmicos, inventario y control de arqueo.
+* **Regla de Auditoría:** Toda investigación o comprobación de datos de ventas, Kardex o cierres es por defecto para este dispositivo.
+
+---
+
 ## 🛠️ Stack Tecnológico
 
 - **Core Frontend**: React 19 + Vite
