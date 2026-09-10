@@ -1,6 +1,6 @@
 // v1.2.0: Rebrand al design system "Precios al Día" — shadow-tone-sm en cards, font-display en totales, text-accent para Bs (BCV-derived), reveal-on-scroll.
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { processVoidSale } from '../utils/voidSaleProcessor';
+import { processVoidSale, isRecyclableSale } from '../utils/voidSaleProcessor';
 import { storageService } from '../utils/storageService';
 import { withLock } from '../utils/withLock';
 import { showToast } from '../components/Toast';
@@ -296,7 +296,9 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
             setProducts(updatedProducts);
             setCustomers(updatedCustomers);
             showToast('Venta anulada con éxito', 'success');
-            setRecycleOffer(sale);
+            if (isRecyclableSale(sale)) {
+                setRecycleOffer(sale);
+            }
             
             // Notificar a toda la app para refrescar métricas
             window.dispatchEvent(new CustomEvent('sales-updated'));
@@ -959,6 +961,10 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                 }}
                 onRecycleSale={(sale) => {
                     triggerHaptic && triggerHaptic();
+                    if (!isRecyclableSale(sale)) {
+                        showToast('Este registro no contiene productos válidos para reciclar.', 'warning');
+                        return;
+                    }
                     loadCart(sale.items);
                     if (onNavigate) onNavigate('ventas');
                 }}

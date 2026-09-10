@@ -9,6 +9,7 @@ import { showToast } from '../Toast';
 import CasheaIcon from '../CasheaIcon';
 import { usePagination } from '../../hooks/usePagination';
 import PaginationBar from '../PaginationBar';
+import { isRecyclableSale } from '../../utils/voidSaleProcessor';
 
 export default function SalesHistory({
     recentSales,
@@ -382,11 +383,14 @@ export default function SalesHistory({
                                                 <LockIcon size={12} /> Cerrada
                                             </div>
                                         )}
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); onRecycleSale(s); }}
-                                            className="py-2 px-3 bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand hover:bg-brand-light hover:dark:bg-surface-800/50 font-bold rounded-lg transition-colors flex justify-center items-center gap-1.5 text-xs shadow-sm active:scale-95">
-                                            <Recycle size={14} />
-                                        </button>
+                                        {onRecycleSale && isRecyclableSale(s) && (
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); onRecycleSale(s); }}
+                                                title="Reciclar productos a la caja"
+                                                className="py-2 px-3 bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand hover:bg-brand-light hover:dark:bg-surface-800/50 font-bold rounded-lg transition-colors flex justify-center items-center gap-1.5 text-xs shadow-sm active:scale-95">
+                                                <Recycle size={14} />
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             )}

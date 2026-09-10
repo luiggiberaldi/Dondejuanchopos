@@ -23,7 +23,7 @@ export const MessageService = {
     buildPaymentMessage: ({ amountTop, amountBot, from, to, selectedAccount, showReference = true, rates, currencies, tone = 'casual', clientName = '', mainCurrency = 'auto' }) => {
 
         // Helper Safe Parse
-        const safeParse = (val) => (!val || val === '.') ? 0 : parseFloat(val.toString().replace(/,/g, '.'));
+        const safeParse = (val) => (!val || val === '.') ? 0 : parseFloat(String(val).replace(/,/g, '.'));
 
         const valTop = safeParse(amountTop);
         const valBot = safeParse(amountBot);

@@ -5,7 +5,7 @@ export default function CalculatorInput({ label, amount, currency, currencies, o
 
   // LÓGICA DE FUENTE AGRESIVA (Escalado rápido para móviles)
   const getFontSize = (val) => {
-    const len = val ? val.toString().length : 0;
+    const len = val != null ? String(val).length : 0;
 
     // Si tiene más de 9 caracteres
     if (len > 9) return 'text-lg';

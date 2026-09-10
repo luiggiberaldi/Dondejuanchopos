@@ -9,7 +9,7 @@ import { useCart } from '../context/CartContext';
 import ConfirmModal from '../components/ConfirmModal';
 import { getLocalISODate, getDateRange } from '../utils/dateHelpers';
 import { calculateReportsData, groupSalesByCierreId } from '../utils/reportsProcessor';
-import { processVoidSale } from '../utils/voidSaleProcessor';
+import { processVoidSale, isRecyclableSale } from '../utils/voidSaleProcessor';
 import { useReportExport } from '../hooks/useReportExport';
 import ReportsMetricsTab from '../components/Reports/ReportsMetricsTab';
 import ReportsHistoryTab from '../components/Reports/ReportsHistoryTab';
@@ -63,7 +63,9 @@ export default function ReportsView({ rates, triggerHaptic, onNavigate, isActive
             const { updatedSales, updatedProducts } = await processVoidSale(sale, allSales, products);
             setProducts(updatedProducts);
             setAllSales(updatedSales);
-            setRecycleOffer(sale);
+            if (isRecyclableSale(sale)) {
+                setRecycleOffer(sale);
+            }
         } catch (error) {
             console.error('Error anulando venta:', error);
         }
@@ -395,7 +397,7 @@ export default function ReportsView({ rates, triggerHaptic, onNavigate, isActive
             )}
 
             {/* Recycle Offer Modal */}
-            {recycleOffer && (
+            {recycleOffer && isRecyclableSale(recycleOffer) && (
                 // v1.2.0: surface tokens + accent en botón Reciclar (text-accent / bg-accent).
                 <div className="fixed inset-0 z-[100] bg-surface-950/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200"
                     onClick={() => setRecycleOffer(null)}>

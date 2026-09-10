@@ -21,10 +21,10 @@ export const CurrencyService = {
      * @returns {number}
      */
     safeParse: (val) => {
-        if (!val || val === '.') return 0;
-        if (typeof val === 'number') return val;
+        if (val == null || val === '' || val === '.') return 0;
+        if (typeof val === 'number') return isNaN(val) ? 0 : val;
 
-        let s = val.toString().trim();
+        let s = String(val).trim();
         if (!s) return 0;
 
         // Quitar todo lo que no sea dígito, coma o punto.
@@ -81,9 +81,9 @@ export const CurrencyService = {
      * @returns {string}
      */
     applyRoundingRule: (value, currencyId) => {
-        if (currencyId === 'VES') return Math.ceil(value).toString();
+        if (currencyId === 'VES') return String(Math.ceil(value || 0));
         // Ensure we handle cases where toFixed might be needed even for small numbers
-        return value.toFixed(2);
+        return (value || 0).toFixed(2);
     },
 
     /**

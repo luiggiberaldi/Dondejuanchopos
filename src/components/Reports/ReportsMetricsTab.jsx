@@ -8,6 +8,7 @@ import { generateTicketPDF, printThermalTicket } from '../../utils/ticketGenerat
 import EmptyState from '../EmptyState';
 import { BarChart3 } from 'lucide-react';
 import CasheaIcon from '../CasheaIcon';
+import { isRecyclableSale } from '../../utils/voidSaleProcessor';
 
 // ── Helper sub-components (moved from ReportsView) ──
 
@@ -274,9 +275,10 @@ function TransactionRow({ sale: s, bcvRate, isExpanded, onToggle, onVoidSale, on
                                 <LockIcon size={12} /> Cerrada
                             </div>
                         )}
-                        {onRecycleSale && s.items && s.items.length > 0 && (
+                        {onRecycleSale && isRecyclableSale(s) && (
                             <button
                                 onClick={(e) => { e.stopPropagation(); onRecycleSale(s); }}
+                                title="Reciclar productos a la caja"
                                 className="py-2 px-3 bg-brand-light dark:bg-surface-800/30 text-brand-dark dark:text-brand hover:bg-brand-light hover:dark:bg-surface-800/50 font-bold rounded-lg transition-colors flex justify-center items-center gap-1.5 text-xs shadow-sm active:scale-95"
                             >
                                 <Recycle size={14} />

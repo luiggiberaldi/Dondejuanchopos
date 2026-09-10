@@ -43,19 +43,22 @@ export default function CartPanel({
     const [tempQty, setTempQty] = React.useState('');
     const inputRef = React.useRef(null);
 
-    const handleQtyClick = (item) => {
-        setEditingQtyId(item.id);
-        setTempQty(item.qty.toString());
+    const handleQtyClick = (item, fallbackId) => {
+        if (!item) return;
+        const id = item.id || fallbackId;
+        setEditingQtyId(id);
+        setTempQty(String(item.qty ?? ''));
         setTimeout(() => inputRef.current?.focus(), 50);
     };
 
-    const submitCustomQty = (item) => {
+    const submitCustomQty = (item, fallbackId) => {
+        if (!item) return;
         setEditingQtyId(null);
-        let parsed = parseFloat(tempQty.replace(',', '.'));
+        let parsed = parseFloat(String(tempQty).replace(',', '.'));
         if (isNaN(parsed) || parsed <= 0) return;
-        const diff = parsed - item.qty;
+        const diff = parsed - (item.qty || 0);
         if (diff !== 0) {
-            updateQty(item.id, diff);
+            updateQty(item.id || fallbackId, diff);
         }
     };
 
@@ -95,9 +98,11 @@ export default function CartPanel({
                 ) : (
                     <div className="relative z-10 space-y-2">
                         {cart.map((item, idx) => {
-                            const qtyDisplay = item.isWeight ? `${item.qty.toFixed(3)} Kg` : item.qty;
-                            const isCustomProduct = item.id.toString().startsWith('custom_') || item.name === 'Venta Libre';
-                            const isEditing = editingQtyId === item.id;
+                            if (!item) return null;
+                            const itemId = item.id || `cart_item_${idx}`;
+                            const qtyDisplay = item.isWeight ? `${(item.qty || 0).toFixed(3)} Kg` : (item.qty ?? 0);
+                            const isCustomProduct = String(item.id ?? '').startsWith('custom_') || item.name === 'Venta Libre';
+                            const isEditing = editingQtyId === itemId;
                             const isSelected = cartSelectedIndex === idx;
 
                             const cardBgClass = isSelected
@@ -117,7 +122,7 @@ export default function CartPanel({
                                             : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-700';
 
                             return (
-                                <div key={item.id} className={`group rounded-xl sm:rounded-2xl p-2 pr-7 sm:p-2.5 sm:pr-9 border flex items-center justify-between gap-2 transition-all relative ${cardBgClass}`}>
+                                <div key={itemId} className={`group rounded-xl sm:rounded-2xl p-2 pr-7 sm:p-2.5 sm:pr-9 border flex items-center justify-between gap-2 transition-all relative ${cardBgClass}`}>
                                     <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
                                         <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-lg sm:rounded-xl flex items-center justify-center shrink-0 overflow-hidden ${
                                              isCustomProduct
@@ -245,7 +250,7 @@ export default function CartPanel({
                                             </>
                                         )}
                                         <div className="flex items-center bg-slate-50 dark:bg-slate-800 rounded-lg p-0.5 border border-slate-100 dark:border-slate-700">
-                                            <button aria-label="Quitar uno" onClick={() => updateQty(item.id, item.isWeight ? -0.1 : -1)} className="w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center text-slate-400 hover:text-red-500 transition-colors rounded-l-md active:bg-slate-200 dark:active:bg-slate-700"><Minus size={14} strokeWidth={3} /></button>
+                                            <button aria-label="Quitar uno" onClick={() => updateQty(itemId, item.isWeight ? -0.1 : -1)} className="w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center text-slate-400 hover:text-red-500 transition-colors rounded-l-md active:bg-slate-200 dark:active:bg-slate-700"><Minus size={14} strokeWidth={3} /></button>
                                             
                                             {isEditing ? (
                                                 <input
@@ -253,24 +258,24 @@ export default function CartPanel({
                                                     type="number"
                                                     value={tempQty}
                                                     onChange={e => setTempQty(e.target.value)}
-                                                    onBlur={() => submitCustomQty(item)}
-                                                    onKeyDown={e => { if (e.key === 'Enter') submitCustomQty(item) }}
+                                                    onBlur={() => submitCustomQty(item, itemId)}
+                                                    onKeyDown={e => { if (e.key === 'Enter') submitCustomQty(item, itemId) }}
                                                     className="w-12 sm:w-16 h-7 sm:h-8 text-center font-black text-slate-700 bg-white dark:bg-slate-900 dark:text-white border border-emerald-500 rounded text-xs outline-none"
                                                     step={item.isWeight ? "0.01" : "1"}
                                                 />
                                             ) : (
                                                 <span 
-                                                    onClick={() => handleQtyClick(item)} 
+                                                    onClick={() => handleQtyClick(item, itemId)} 
                                                     className="w-10 sm:w-12 text-center font-black text-slate-700 dark:text-white text-[11px] sm:text-xs cursor-pointer hover:text-emerald-500 transition-colors"
                                                 >
                                                     {qtyDisplay}
                                                 </span>
                                             )}
 
-                                            <button aria-label="Agregar uno" onClick={() => updateQty(item.id, item.isWeight ? 0.1 : 1)} className="w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center text-slate-400 hover:text-emerald-500 transition-colors rounded-r-md active:bg-slate-200 dark:active:bg-slate-700"><Plus size={14} strokeWidth={3} /></button>
+                                            <button aria-label="Agregar uno" onClick={() => updateQty(itemId, item.isWeight ? 0.1 : 1)} className="w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center text-slate-400 hover:text-emerald-500 transition-colors rounded-r-md active:bg-slate-200 dark:active:bg-slate-700"><Plus size={14} strokeWidth={3} /></button>
                                         </div>
                                     </div>
-                                    <button aria-label="Eliminar del carrito" onClick={() => removeFromCart(item.id)} className="absolute -top-1 -right-1 sm:top-2 sm:right-2 p-1.5 bg-red-50 dark:bg-red-900/40 text-red-500 sm:bg-transparent sm:text-slate-300 sm:hover:text-red-500 opacity-80 sm:opacity-0 group-hover:opacity-100 transition-opacity rounded-full sm:rounded-lg">
+                                    <button aria-label="Eliminar del carrito" onClick={() => removeFromCart(itemId)} className="absolute -top-1 -right-1 sm:top-2 sm:right-2 p-1.5 bg-red-50 dark:bg-red-900/40 text-red-500 sm:bg-transparent sm:text-slate-300 sm:hover:text-red-500 opacity-80 sm:opacity-0 group-hover:opacity-100 transition-opacity rounded-full sm:rounded-lg">
                                         <X size={12} className="sm:w-[14px] sm:h-[14px]" />
                                     </button>
                                 </div>

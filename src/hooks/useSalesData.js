@@ -589,7 +589,12 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
 
                 // Only set cart if it's currently empty (don't overwrite if user somehow added items before load)
                 if (savedCart && savedCart.length > 0 && cartRef.current.length === 0) {
-                    setCart(savedCart);
+                    const sanitizedCart = (Array.isArray(savedCart) ? savedCart : []).filter(Boolean).map((item, idx) => ({
+                        ...item,
+                        id: item.id || item.productId || item._originalId || `saved_cart_${Date.now()}_${idx}`,
+                        qty: Number(item.qty) || 1
+                    }));
+                    setCart(sanitizedCart);
                 }
 
                 // Check Apertura (busca la apertura del turno activo que no haya sido cerrada)

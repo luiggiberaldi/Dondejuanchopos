@@ -14,7 +14,7 @@ export default function DiscountModal({
     copPrimary
 }) {
     const [type, setType] = useState(currentDiscount?.type || 'percentage');
-    const [value, setValue] = useState(currentDiscount?.value ? currentDiscount.value.toString() : '');
+    const [value, setValue] = useState(currentDiscount?.value != null ? String(currentDiscount.value) : '');
     const inputRef = useRef(null);
 
     useEffect(() => {

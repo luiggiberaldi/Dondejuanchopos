@@ -1,5 +1,6 @@
 import React from 'react';
 import { UserPlus, Phone, Send, Trash2, Recycle } from 'lucide-react';
+import { isRecyclableSale } from '../../utils/voidSaleProcessor';
 
 export function TicketClientModal({
     ticketPendingSale,
@@ -150,7 +151,7 @@ export function RecycleOfferModal({
     onClose,
     onRecycle,
 }) {
-    if (!recycleOffer) return null;
+    if (!recycleOffer || !isRecyclableSale(recycleOffer)) return null;
 
     return (
         <div

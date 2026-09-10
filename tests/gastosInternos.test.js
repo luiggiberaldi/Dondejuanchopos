@@ -62,4 +62,56 @@ describe('Gastos Internos & Autoconsumo Engine Integration', () => {
         const stockAfterAnulacion = sumR(stockAfterRetiro, qtyToWithdraw);
         expect(stockAfterAnulacion).toBe(10);
     });
+
+    describe('isRecyclableSale Guard', () => {
+        it('debe rechazar reciclaje para GASTO_INTERNO, incluso anulado o con items negativos', async () => {
+            const { isRecyclableSale } = await import('../src/utils/voidSaleProcessor');
+            
+            const gastoInterno = {
+                id: '64719f35-3a62-445b-9c4e-57393d59a6df',
+                tipo: 'GASTO_INTERNO',
+                status: 'ANULADA',
+                items: [{ qty: 1, name: 'Gasto: gasolina', priceUsd: -10 }]
+            };
+            expect(isRecyclableSale(gastoInterno)).toBe(false);
+
+            const egreso = {
+                id: 'egreso-1',
+                tipo: 'EGRESO',
+                items: [{ qty: 1, name: 'Pago proveedor', priceUsd: -50 }]
+            };
+            expect(isRecyclableSale(egreso)).toBe(false);
+
+            const apertura = {
+                id: 'apertura-1',
+                tipo: 'APERTURA_CAJA',
+                items: undefined
+            };
+            expect(isRecyclableSale(apertura)).toBe(false);
+
+            const cierre = {
+                id: 'cierre-1',
+                tipo: 'REGISTRO_CIERRE',
+                items: []
+            };
+            expect(isRecyclableSale(cierre)).toBe(false);
+        });
+
+        it('debe aceptar reciclaje para ventas comerciales legítimas con productos', async () => {
+            const { isRecyclableSale } = await import('../src/utils/voidSaleProcessor');
+
+            const ventaNormal = {
+                id: 'sale-1',
+                tipo: 'VENTA',
+                items: [{ id: 'p1', name: 'Harina PAN', priceUsd: 1.2, qty: 2 }]
+            };
+            expect(isRecyclableSale(ventaNormal)).toBe(true);
+
+            const ventaLegacy = {
+                id: 'sale-legacy',
+                items: [{ id: 'p2', name: 'Arroz', priceUsd: 1.5, qty: 1 }]
+            };
+            expect(isRecyclableSale(ventaLegacy)).toBe(true);
+        });
+    });
 });

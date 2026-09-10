@@ -275,9 +275,9 @@ export default function CheckoutModalPOS({
             : Number(distVueltoBS) || 0;
 
         if (moneda === 'usd') {
-            setDistVueltoUSD(update.wasClamped ? (update.usd > 0 ? update.usd.toString() : '') : cleanVal);
+            setDistVueltoUSD(update.wasClamped ? (update.usd > 0 ? String(update.usd) : '') : cleanVal);
         } else {
-            setDistVueltoBS(update.wasClamped ? (update.bs > 0 ? update.bs.toString() : '') : cleanVal);
+            setDistVueltoBS(update.wasClamped ? (update.bs > 0 ? String(update.bs) : '') : cleanVal);
         }
 
         clearChangeResolutionWhenComplete(calculateChangeAllocation({

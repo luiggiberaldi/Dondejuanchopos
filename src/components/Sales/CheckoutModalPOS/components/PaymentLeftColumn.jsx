@@ -237,7 +237,7 @@ const PaymentLeftColumn = ({
                                                 const restUsd = tasaSegura > 0
                                                     ? divR(Math.max(0, subR(changeTotalBs, parseFloat(distVueltoBS || 0))), tasaSegura)
                                                     : 0;
-                                                handleVueltoDistChange('usd', restUsd.toString());
+                                                handleVueltoDistChange('usd', String(restUsd ?? ''));
                                             }}
                                             className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] font-black bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 rounded hover:bg-emerald-200 active:scale-95 transition-all"
                                         >
@@ -265,7 +265,7 @@ const PaymentLeftColumn = ({
                                             type="button"
                                             onClick={() => {
                                                 const restBs = round2(Math.max(0, subR(changeTotalBs, mulR(parseFloat(distVueltoUSD || 0), tasaSegura))));
-                                                handleVueltoDistChange('bs', restBs.toString());
+                                                handleVueltoDistChange('bs', String(restBs ?? ''));
                                             }}
                                             className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] font-black bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 rounded hover:bg-emerald-200 active:scale-95 transition-all"
                                         >

@@ -248,3 +248,32 @@ export async function processVoidSale(sale, currentSales, currentProducts, actor
         return { updatedSales, updatedProducts, updatedCustomers };
     });
 }
+
+/**
+ * Determina si una venta/registro es apto para ser reciclado en el carrito de la caja.
+ * Excluye:
+ * - Gastos internos, egresos y movimientos administrativos (aperturas, cierres, cobros de deuda).
+ * - Registros sin items o con items de gasto o precios no positivos.
+ *
+ * @param {object} sale
+ * @returns {boolean}
+ */
+export function isRecyclableSale(sale) {
+    if (!sale || typeof sale !== 'object') return false;
+    const nonRecyclableTypes = [
+        'GASTO_INTERNO',
+        'EGRESO',
+        'GASTO_OPERATIVO',
+        'APERTURA_CAJA',
+        'REGISTRO_CIERRE',
+        'COBRO_DEUDA'
+    ];
+    if (sale.tipo && nonRecyclableTypes.includes(sale.tipo)) return false;
+    if (!Array.isArray(sale.items) || sale.items.length === 0) return false;
+    return sale.items.some(i => (
+        i &&
+        typeof i === 'object' &&
+        (Number(i.priceUsd) > 0 || Number(i.priceBs) > 0) &&
+        !String(i.name || '').toLowerCase().startsWith('gasto:')
+    ));
+}

@@ -160,8 +160,13 @@ export default function SalesView({ triggerHaptic, isActive }) {
             showToast('Vacía la cesta actual antes de restaurar una venta en espera.', 'warning');
             return;
         }
-        setCart(hold.items);
-        setDiscount(hold.discount);
+        const sanitizedItems = (hold.items || []).filter(Boolean).map((item, idx) => ({
+            ...item,
+            id: item.id || item.productId || item._originalId || `hold_${holdId}_${idx}`,
+            qty: Number(item.qty) || 1
+        }));
+        setCart(sanitizedItems);
+        setDiscount(hold.discount || { type: 'percentage', value: 0 });
         const newHolds = pendingCarts.filter(h => h.id !== holdId);
         setPendingCarts(newHolds);
         await storageService.setItem('bodega_pending_holds_v1', newHolds);
@@ -200,9 +205,10 @@ export default function SalesView({ triggerHaptic, isActive }) {
 
             // Pesa electrónica con PLU
             if (barcode.startsWith('21') && barcode.length >= 13) {
-                const pluCode = parseInt(barcode.substring(2, 7), 10).toString();
-                const weightKg = parseInt(barcode.substring(7, 12), 10) / 1000;
-                const p = products.find(p => p.id === pluCode || p.barcode?.includes(pluCode) || p.barcode?.includes(barcode.substring(0, 7)));
+                const parsedPlu = parseInt(barcode.substring(2, 7), 10);
+                const pluCode = isNaN(parsedPlu) ? '' : String(parsedPlu);
+                const weightKg = (parseInt(barcode.substring(7, 12), 10) || 0) / 1000;
+                const p = pluCode ? products.find(p => p.id === pluCode || p.barcode?.includes(pluCode) || p.barcode?.includes(barcode.substring(0, 7))) : null;
                 if (p) { addToCart({ ...p, isWeight: true }, weightKg, null, true); return; }
             }
 
@@ -243,9 +249,10 @@ export default function SalesView({ triggerHaptic, isActive }) {
 
         // Intentar Pesa Electrónica
         if (pastedText.startsWith('21') && pastedText.length >= 13) {
-            const pluCode = parseInt(pastedText.substring(2, 7), 10).toString();
-            const weightKg = parseInt(pastedText.substring(7, 12), 10) / 1000;
-            const p = products.find(p => p.id === pluCode || p.barcode?.includes(pluCode) || p.barcode?.includes(pastedText.substring(0, 7)));
+            const parsedPlu = parseInt(pastedText.substring(2, 7), 10);
+            const pluCode = isNaN(parsedPlu) ? '' : String(parsedPlu);
+            const weightKg = (parseInt(pastedText.substring(7, 12), 10) || 0) / 1000;
+            const p = pluCode ? products.find(p => p.id === pluCode || p.barcode?.includes(pluCode) || p.barcode?.includes(pastedText.substring(0, 7))) : null;
             if (p) {
                 addToCart({ ...p, isWeight: true }, weightKg, null, true);
                 setTimeout(() => setSearchTerm(''), 10);
@@ -519,21 +526,21 @@ export default function SalesView({ triggerHaptic, isActive }) {
         let priceBsToUse = productForCart.priceBsManual;
         let priceBsUsdRefToUse = productForCart.priceBsUsdRef;
         let pricingModeToUse = pricing.mode || productForCart.pricingMode || 'tasa_dia';
-        let cartId = product.id;
-        let cartName = product.name;
+        let cartId = product?.id || product?._originalId || product?.barcode || `cart_${Date.now()}`;
+        let cartName = product?.name || 'Producto';
         let unitsMultiplier = 1;
 
         if (mode === 'box') {
             priceBsToUse = productForCart.boxPriceBs;
             priceBsUsdRefToUse = productForCart.boxPriceBsUsdRef;
-            cartId = product.id + '_box';
-            cartName = product.name + ' (Caja)';
+            cartId = `${cartId}_box`;
+            cartName = `${cartName} (Caja)`;
             unitsMultiplier = parseInt(product.boxUnits, 10) || 1;
         } else if (mode === 'halfBox') {
             priceBsToUse = productForCart.halfBoxPriceBs;
             priceBsUsdRefToUse = productForCart.halfBoxPriceBsUsdRef;
-            cartId = product.id + '_half';
-            cartName = product.name + ' (½ Caja)';
+            cartId = `${cartId}_half`;
+            cartName = `${cartName} (½ Caja)`;
             unitsMultiplier = parseInt(product.halfBoxUnits, 10) || 1;
         }
 
@@ -732,9 +739,10 @@ export default function SalesView({ triggerHaptic, isActive }) {
 
             // 2. Barcode de balanza/pesa electrónica (prefijo 21)
             if (trimmedTerm.startsWith('21') && trimmedTerm.length >= 13) {
-                const pluCode = parseInt(trimmedTerm.substring(2, 7), 10).toString();
-                const weightKg = parseInt(trimmedTerm.substring(7, 12), 10) / 1000;
-                const p = products.find(p => p.id === pluCode || p.barcode?.includes(pluCode) || p.barcode?.includes(trimmedTerm.substring(0, 7)));
+                const parsedPlu = parseInt(trimmedTerm.substring(2, 7), 10);
+                const pluCode = isNaN(parsedPlu) ? '' : String(parsedPlu);
+                const weightKg = (parseInt(trimmedTerm.substring(7, 12), 10) || 0) / 1000;
+                const p = pluCode ? products.find(p => p.id === pluCode || p.barcode?.includes(pluCode) || p.barcode?.includes(trimmedTerm.substring(0, 7))) : null;
                 if (p) { addToCart({ ...p, isWeight: true }, weightKg, null, true); handleSetSearchTerm(''); return; }
             }
 
