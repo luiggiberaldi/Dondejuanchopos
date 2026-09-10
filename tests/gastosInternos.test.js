@@ -114,4 +114,40 @@ describe('Gastos Internos & Autoconsumo Engine Integration', () => {
             expect(isRecyclableSale(ventaLegacy)).toBe(true);
         });
     });
+
+    describe('Visual Formatting for Native Currency Gastos (Bs & COP)', () => {
+        it('debe detectar correctamente transacciones y items en Bs cuando totalUsd es 0', async () => {
+            const { formatBs } = await import('../src/utils/calculatorUtils');
+
+            const gastoBs = {
+                id: 'gasto-bs-1',
+                tipo: 'GASTO_INTERNO',
+                currency: 'BS',
+                totalUsd: 0,
+                totalBs: -1500,
+                rate: 920,
+                items: [{
+                    name: 'Gasto: prueb',
+                    qty: 1,
+                    priceUsd: 0,
+                    costBs: -1500
+                }]
+            };
+
+            const isBsMovement = gastoBs.currency === 'BS' || (!gastoBs.currency && (gastoBs.totalUsd === 0 || !gastoBs.totalUsd) && gastoBs.totalBs !== 0);
+            expect(isBsMovement).toBe(true);
+
+            const item = gastoBs.items[0];
+            const isBsItem = ((!item.priceUsd || item.priceUsd === 0) && item.costBs != null && item.costBs !== 0) || (isBsMovement && (!item.priceUsd || item.priceUsd === 0));
+            expect(isBsItem).toBe(true);
+
+            const itemBsVal = (item.costBs != null && item.costBs !== 0) ? item.costBs : ((gastoBs.totalBs || 0) / (item.qty || 1));
+            expect(formatBs(itemBsVal * item.qty)).toBe('-1.500,00');
+            expect(`Bs ${formatBs(gastoBs.totalBs)}`).toBe('Bs -1.500,00');
+
+            const eqUsd = Math.abs(gastoBs.totalBs / gastoBs.rate);
+            expect(eqUsd.toFixed(2)).toBe('1.63');
+        });
+    });
 });
+

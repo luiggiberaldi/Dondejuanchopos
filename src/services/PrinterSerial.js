@@ -264,7 +264,11 @@ class PrinterSerial {
                 const qtyLabel = item.isWeight
                     ? `${item.qty.toFixed(3)}kg`
                     : `${item.qty}u`;
-                const lineTotal = fmtUsd(item.priceUsd * item.qty);
+                const isBsItem = ((!item.priceUsd || item.priceUsd === 0) && item.costBs != null && item.costBs !== 0) || (sale.currency === 'BS' && (!item.priceUsd || item.priceUsd === 0));
+                const itemBsVal = (item.costBs != null && item.costBs !== 0) ? item.costBs : ((sale.totalBs || 0) / (item.qty || 1));
+                const lineTotal = isBsItem
+                    ? `${formatBsLocal(itemBsVal * item.qty)} Bs`
+                    : fmtUsd(item.priceUsd * item.qty);
                 const nameLine = `${qtyLabel} ${item.name}`;
                 // Truncate name if too long
                 const maxNameLen = w - lineTotal.length - 1;
@@ -273,7 +277,11 @@ class PrinterSerial {
                     : nameLine;
                 chunks.push(encode(twoCol(nameShort, lineTotal, w) + '\n'));
                 // Price per unit line (indented)
-                chunks.push(encode(`  @ ${fmtUsd(item.priceUsd)}/u\n`));
+                if (isBsItem) {
+                    chunks.push(encode(`  @ ${formatBsLocal(itemBsVal)} Bs/u\n`));
+                } else {
+                    chunks.push(encode(`  @ ${fmtUsd(item.priceUsd)}/u\n`));
+                }
 
                 // Combo sub-items breakdown
                 const comboBreakdown = item.modularSelections || item.selectedModularItems || item.comboItems;
@@ -297,8 +305,13 @@ class PrinterSerial {
             chunks.push(encode(twoCol(discLabel, `-${fmtUsd(sale.discountAmountUsd)}`, w) + '\n'));
         }
 
+        const isBsSale = sale.currency === 'BS' || (!sale.currency && (sale.totalUsd === 0 || !sale.totalUsd) && sale.totalBs !== 0);
         chunks.push(CMD.BOLD_ON);
-        chunks.push(encode(twoCol('TOTAL:', fmtUsd(sale.totalUsd || 0), w) + '\n'));
+        if (isBsSale) {
+            chunks.push(encode(twoCol('TOTAL:', `${formatBsLocal(sale.totalBs || 0)} Bs`, w) + '\n'));
+        } else {
+            chunks.push(encode(twoCol('TOTAL:', fmtUsd(sale.totalUsd || 0), w) + '\n'));
+        }
         chunks.push(CMD.BOLD_OFF);
         if (isCop) {
             chunks.push(encode(twoCol('COP:', `${fmtCopLocal((sale.totalUsd || 0) * sale.tasaCop)} COP`, w) + '\n'));

@@ -141,9 +141,11 @@ export async function generateTicketPDF(sale, bcvRate) {
             // FIN-024: formatUsd para cantidades peso (2 decimales), sin toFixed.
             const qty = item.isWeight ? formatUsd(item.qty) : String(item.qty);
             const unit = item.isWeight ? 'Kg' : 'u';
+            const isBsItem = ((!item.priceUsd || item.priceUsd === 0) && item.costBs != null && item.costBs !== 0) || (sale.currency === 'BS' && (!item.priceUsd || item.priceUsd === 0));
+            const itemBsVal = (item.costBs != null && item.costBs !== 0) ? item.costBs : ((sale.totalBs || 0) / (item.qty || 1));
             // FIN-024: mulR en vez de multiplicación raw.
-            const sub = mulR(item.priceUsd, item.qty);
-            const subBs = mulR(sub, rate);
+            const subBs = isBsItem ? mulR(itemBsVal, item.qty) : mulR(mulR(item.priceUsd, item.qty), rate);
+            const sub = isBsItem && rate > 0 ? divR(subBs, rate) : mulR(item.priceUsd, item.qty);
 
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(7.5);
@@ -154,7 +156,7 @@ export async function generateTicketPDF(sale, bcvRate) {
             doc.text(nameLines, M + 10, y);
             
             doc.setFont('helvetica', 'bold');
-            doc.text(fmtUsd(sub), RIGHT, y, { align: 'right' });
+            doc.text(isBsItem ? `${formatBs(subBs)} Bs` : fmtUsd(sub), RIGHT, y, { align: 'right' });
             
             const textHeight = Math.max(1, nameLines.length) * 3.5;
             y += textHeight;
@@ -163,10 +165,12 @@ export async function generateTicketPDF(sale, bcvRate) {
             doc.setFontSize(is80 ? 6 : 5.2);
             doc.setTextColor(...MUTED);
             // FIN-024: mulR para conversiones (priceCop*qty, sub*tasaCop, etc.).
-            let detailLine = isCop
-                ? 'USD ' + formatUsd(item.priceUsd) + ' c/u  ·  ' + formatCop(item.priceCop ? mulR(item.priceCop, item.qty) : mulR(sub, sale.tasaCop)) + ' COP  ·  Bs ' + formatBs(subBs)
-                : '$' + formatUsd(item.priceUsd) + ' c/u  ·  Bs ' + formatBs(subBs);
-            if (!isCop && sale.tasaCop > 0) {
+            let detailLine = isBsItem
+                ? `Bs ${formatBs(itemBsVal)} c/u` + (rate > 0 ? `  ·  $${formatUsd(Math.abs(itemBsVal / rate))}` : '')
+                : isCop
+                    ? 'USD ' + formatUsd(item.priceUsd) + ' c/u  ·  ' + formatCop(item.priceCop ? mulR(item.priceCop, item.qty) : mulR(sub, sale.tasaCop)) + ' COP  ·  Bs ' + formatBs(subBs)
+                    : '$' + formatUsd(item.priceUsd) + ' c/u  ·  Bs ' + formatBs(subBs);
+            if (!isCop && !isBsItem && sale.tasaCop > 0) {
                 const copUnit = (item.priceCop || mulR(item.priceUsd, sale.tasaCop)).toLocaleString('es-CO', { maximumFractionDigits: 0 });
                 detailLine += '  ·  ' + copUnit + ' COP';
             }
@@ -225,20 +229,29 @@ export async function generateTicketPDF(sale, bcvRate) {
     y += 8;
 
     const receiptCurrencyMode = localStorage.getItem('receipt_currency_mode') || 'bs';
+    const isBsSale = sale.currency === 'BS' || (!sale.currency && (sale.totalUsd === 0 || !sale.totalUsd) && sale.totalBs !== 0);
 
-    if (receiptCurrencyMode === 'usd') {
+    if (isBsSale || receiptCurrencyMode === 'bs') {
+        doc.setFontSize(20);
+        doc.setTextColor(...GREEN);
+        const totalBsStr = 'Bs ' + formatBs(sale.totalBs || 0);
+        doc.text(totalBsStr, CX, y, { align: 'center' });
+        y += 8;
+
+        if (rate > 0) {
+            doc.setFontSize(10);
+            doc.setTextColor(...BODY);
+            const totalUsdStr = 'Ref: $' + formatUsd(Math.abs((sale.totalBs || 0) / rate));
+            doc.text(totalUsdStr, CX, y, { align: 'center' });
+            y += 6;
+        }
+    } else if (receiptCurrencyMode === 'usd') {
         doc.setFontSize(20);
         doc.setTextColor(...GREEN);
         const totalUsdStr = isCop
             ? 'USD ' + formatUsd(sale.totalUsd || 0)
             : '$' + formatUsd(sale.totalUsd || 0);
         doc.text(totalUsdStr, CX, y, { align: 'center' });
-        y += 8;
-    } else if (receiptCurrencyMode === 'bs') {
-        doc.setFontSize(20);
-        doc.setTextColor(...GREEN);
-        const totalBsStr = 'Bs ' + formatBs(sale.totalBs || 0);
-        doc.text(totalBsStr, CX, y, { align: 'center' });
         y += 8;
     } else {
         // mixto (original)

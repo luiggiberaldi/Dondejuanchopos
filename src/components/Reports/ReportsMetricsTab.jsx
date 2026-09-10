@@ -74,6 +74,18 @@ function TransactionRow({ sale: s, bcvRate, isExpanded, onToggle, onVoidSale, on
     ).join(' + ') || '—';
     const dateLabel = d.toLocaleDateString('es-VE', { day: '2-digit', month: 'short' });
 
+    const isExpense = s.tipo === 'GASTO_INTERNO' || s.tipo === 'PAGO_PROVEEDOR' || (s.totalBs < 0 || s.totalUsd < 0 || s.totalCop < 0);
+    const effectiveRate = s.rate || bcvRate || 1;
+    const isBsMovement = s.currency === 'BS' || (!s.currency && (s.totalUsd === 0 || !s.totalUsd) && s.totalBs !== 0);
+    const isCopMovement = s.currency === 'COP' || (!s.currency && (s.totalUsd === 0 || !s.totalUsd) && s.totalCop !== 0);
+    const amountColorClass = isCanceled
+        ? 'text-slate-400'
+        : isExpense
+            ? 'text-red-500 dark:text-red-400'
+            : copEnabled && copPrimary
+                ? 'text-amber-600 dark:text-amber-400'
+                : 'text-slate-800 dark:text-white';
+
     const handleShare = (e) => {
         e.stopPropagation();
         const useCop = copEnabled && copPrimary && tasaCop > 0;
@@ -84,14 +96,24 @@ function TransactionRow({ sale: s, bcvRate, isExpanded, onToggle, onVoidSale, on
         if (s.items && s.items.length > 0) {
             s.items.forEach(item => {
                 const qty = item.isWeight ? `${item.qty.toFixed(3)}Kg` : `${item.qty} Und`;
-                if (useCop) {
+                const isBsItem = ((!item.priceUsd || item.priceUsd === 0) && item.costBs != null && item.costBs !== 0) || (isBsMovement && (!item.priceUsd || item.priceUsd === 0));
+                const itemBsVal = (item.costBs != null && item.costBs !== 0) ? item.costBs : ((s.totalBs || 0) / (item.qty || 1));
+
+                if (isBsItem) {
+                    text += `- ${item.name} ${qty} x Bs ${formatBs(itemBsVal)} = *Bs ${formatBs(itemBsVal * item.qty)}*\n`;
+                } else if (useCop) {
                     text += `- ${item.name} ${qty} x ${formatCop(item.priceCop || Math.round(item.priceUsd * tasaCop))} COP = *${formatCop((item.priceCop || Math.round(item.priceUsd * tasaCop)) * item.qty)} COP*\n`;
                 } else {
                     text += `- ${item.name} ${qty} x $${item.priceUsd.toFixed(2)} = *$${(item.priceUsd * item.qty).toFixed(2)}*\n`;
                 }
             });
         }
-        if (useCop) {
+        if (isBsMovement) {
+            text += `\n*TOTAL: Bs ${formatBs(s.totalBs || 0)}*\n`;
+            if (effectiveRate > 0) {
+                text += `Ref: $${Math.abs((s.totalBs || 0) / effectiveRate).toFixed(2)}\n`;
+            }
+        } else if (useCop) {
             text += `\n*TOTAL: ${formatCop((s.totalUsd || 0) * tasaCop)} COP*\n`;
             text += `Ref: $${(s.totalUsd || 0).toFixed(2)}\n`;
         } else {
@@ -139,20 +161,42 @@ function TransactionRow({ sale: s, bcvRate, isExpanded, onToggle, onVoidSale, on
                     </p>
                 </div>
                 <div className="text-right shrink-0">
-                    {copEnabled && copPrimary && tasaCop > 0 ? (
+                    {isBsMovement ? (
                         <>
-                            <p className={`text-sm font-black ${isCanceled ? 'text-slate-400' : 'text-amber-600 dark:text-amber-400'}`}>{formatCop((s.totalUsd || 0) * tasaCop)} COP</p>
+                            <p className={`text-sm font-black ${amountColorClass}`}>
+                                Bs {formatBs(s.totalBs)}
+                            </p>
+                            {effectiveRate > 0 && (
+                                <p className="text-[10px] font-medium text-slate-400">
+                                    ≈ {s.totalBs < 0 ? '-' : ''}${Math.abs(s.totalBs / effectiveRate).toFixed(2)}
+                                </p>
+                            )}
+                        </>
+                    ) : isCopMovement ? (
+                        <>
+                            <p className={`text-sm font-black ${amountColorClass}`}>
+                                {formatCop(s.totalCop)} COP
+                            </p>
+                            {tasaCop > 0 && (
+                                <p className="text-[10px] font-medium text-slate-400">
+                                    ≈ {s.totalCop < 0 ? '-' : ''}${Math.abs(s.totalCop / tasaCop).toFixed(2)}
+                                </p>
+                            )}
+                        </>
+                    ) : copEnabled && copPrimary && tasaCop > 0 ? (
+                        <>
+                            <p className={`text-sm font-black ${amountColorClass}`}>{formatCop((s.totalUsd || 0) * tasaCop)} COP</p>
                             <p className="text-[10px] font-medium text-slate-400">${(s.totalUsd || 0).toFixed(2)}</p>
                         </>
                     ) : (
                         <>
-                            <p className={`text-sm font-black ${isCanceled ? 'text-slate-400' : 'text-slate-800 dark:text-white'}`}>${(s.totalUsd || 0).toFixed(2)}</p>
+                            <p className={`text-sm font-black ${amountColorClass}`}>${(s.totalUsd || 0).toFixed(2)}</p>
                             <div className="flex justify-end mt-0.5">
                                 {isExpanded ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
                             </div>
                         </>
                     )}
-                    {copEnabled && copPrimary && tasaCop > 0 && (
+                    {(isBsMovement || isCopMovement || (copEnabled && copPrimary && tasaCop > 0)) && (
                         <div className="flex justify-end mt-0.5">
                             {isExpanded ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
                         </div>
@@ -165,19 +209,44 @@ function TransactionRow({ sale: s, bcvRate, isExpanded, onToggle, onVoidSale, on
                     {s.items && s.items.length > 0 ? (
                         <div className="space-y-1 mb-3 pt-2">
                             <p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">Productos ({s.items.length})</p>
-                            {s.items.map((item, i) => (
+                            {s.items.map((item, i) => {
+                                const isBsItem = ((!item.priceUsd || item.priceUsd === 0) && item.costBs != null && item.costBs !== 0) || (isBsMovement && (!item.priceUsd || item.priceUsd === 0));
+                                const itemBsVal = (item.costBs != null && item.costBs !== 0) ? item.costBs : ((s.totalBs || 0) / (item.qty || 1));
+
+                                return (
                                 <div key={i} className={`flex justify-between items-center text-xs ${isCanceled ? 'text-slate-400 line-through' : 'text-slate-600 dark:text-slate-300'}`}>
                                     <span className="truncate pr-2">
                                         {item.isWeight ? `${item.qty.toFixed(3)}kg` : `${item.qty}u`} {item.name}
                                         {(item.isWeight || item.qty !== 1) && (
                                             <span className="text-[10px] text-slate-400 font-normal ml-1">
-                                                ({item.isWeight ? '' : 'c/u '}{copEnabled && copPrimary && tasaCop > 0 ? `${formatCop(item.priceCop || Math.round(item.priceUsd * tasaCop))} COP` : `$${item.priceUsd.toFixed(2)}`})
+                                                ({item.isWeight ? '' : 'c/u '}
+                                                {isBsItem
+                                                    ? `Bs ${formatBs(itemBsVal)}`
+                                                    : copEnabled && copPrimary && tasaCop > 0 
+                                                        ? `${formatCop(item.priceCop || Math.round(item.priceUsd * tasaCop))} COP` 
+                                                        : `$${item.priceUsd.toFixed(2)}`})
                                             </span>
                                         )}
                                     </span>
-                                    <span className="font-medium">{copEnabled && copPrimary && tasaCop > 0 ? `${formatCop((item.priceCop || Math.round(item.priceUsd * tasaCop)) * item.qty)} COP` : `$${(item.priceUsd * item.qty).toFixed(2)}`}</span>
+                                    <span className="font-medium">
+                                        {isBsItem ? (
+                                            <span className={isExpense ? 'text-red-500 dark:text-red-400' : ''}>
+                                                Bs {formatBs(itemBsVal * item.qty)}
+                                                {effectiveRate > 0 && (
+                                                    <span className="text-slate-400 font-normal ml-1">
+                                                        · {itemBsVal < 0 ? '-' : ''}${Math.abs((itemBsVal * item.qty) / effectiveRate).toFixed(2)}
+                                                    </span>
+                                                )}
+                                            </span>
+                                        ) : (
+                                            copEnabled && copPrimary && tasaCop > 0 
+                                                ? `${formatCop((item.priceCop || Math.round(item.priceUsd * tasaCop)) * item.qty)} COP` 
+                                                : `$${(item.priceUsd * item.qty).toFixed(2)}`
+                                        )}
+                                    </span>
                                 </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     ) : (
                         <p className="text-xs text-slate-400 mb-3 pt-2">Pago de Deudas (Sin productos)</p>

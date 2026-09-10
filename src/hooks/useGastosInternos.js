@@ -67,6 +67,8 @@ export function useGastosInternos({ bcvRate, tasaCop, copEnabled, triggerHaptic,
             note: note?.trim() || '',
             totalBs:  -totalEnBs,
             totalUsd: -totalEnUsd,
+            rate: bcvRate,
+            ...(tasaCop > 0 && { tasaCop }),
             ...(copEnabled && { totalCop: -totalEnCop }),
             paymentMethod: methodId,
             payments: [{
@@ -95,7 +97,12 @@ export function useGastosInternos({ bcvRate, tasaCop, copEnabled, triggerHaptic,
         if (typeof setSales === 'function') setSales(updatedSales);
 
         showToast('Gasto registrado con éxito', 'success');
-        const gastoDescription = `Gasto registrado: "${description}" - $${totalEnUsd.toFixed(2)}`;
+        const formattedAmountStr = isBs
+            ? `Bs ${totalEnBs.toFixed(2)}`
+            : isCop
+            ? `${totalEnCop.toLocaleString('es-CO')} COP`
+            : `$${totalEnUsd.toFixed(2)}`;
+        const gastoDescription = `Gasto registrado: "${description}" - ${formattedAmountStr}`;
         if (typeof auditLog === 'function') auditLog('CAJA', 'REGISTRO_GASTO', gastoDescription);
         else logEvent('CAJA', 'REGISTRO_GASTO', gastoDescription, gastoActor, { gastoId: newGasto.id, deviceId });
         setIsAddGastoOpen(false);

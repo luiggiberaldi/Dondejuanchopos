@@ -47,22 +47,28 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
         .join(' · ') || '$0.00';
 
     // Generar filas de productos
+    const isBsSale = sale.currency === 'BS' || (!sale.currency && (sale.totalUsd === 0 || !sale.totalUsd) && sale.totalBs !== 0);
+
     const itemsHtml = (sale.items || []).map(item => {
         // FIN-024: formatUsd para qty peso, sin toFixed.
         const qty = item.isWeight ? formatUsd(item.qty) : String(item.qty);
         const unit = item.isWeight ? 'Kg' : 'u';
-        // FIN-024: mulR en vez de multiplicación raw.
-        const sub = mulR(item.priceUsd, item.qty);
+        const isBsItem = ((!item.priceUsd || item.priceUsd === 0) && item.costBs != null && item.costBs !== 0) || (sale.currency === 'BS' && (!item.priceUsd || item.priceUsd === 0));
+        const itemBsVal = (item.costBs != null && item.costBs !== 0) ? item.costBs : ((sale.totalBs || 0) / (item.qty || 1));
         // D2: Si el producto tiene precio Bs manual, usarlo directamente en el ticket
         const hasManual = item.priceBsManual != null && Number(item.priceBsManual) > 0;
-        const priceBs = hasManual ? Number(item.priceBsManual) : mulR(item.priceUsd, rate);
-        const subBs = hasManual ? mulR(Number(item.priceBsManual), item.qty) : mulR(sub, rate);
+        const priceBs = isBsItem ? itemBsVal : (hasManual ? Number(item.priceBsManual) : mulR(item.priceUsd, rate));
+        const subBs = isBsItem ? mulR(itemBsVal, item.qty) : (hasManual ? mulR(Number(item.priceBsManual), item.qty) : mulR(mulR(item.priceUsd, item.qty), rate));
+        const sub = isBsItem && rate > 0 ? divR(subBs, rate) : mulR(item.priceUsd, item.qty);
         const name = escapeHtml(item.name);
 
         let totalStr = '';
         let unitPriceStr = '';
 
-        if (receiptCurrencyMode === 'usd') {
+        if (isBsItem) {
+            totalStr = 'Bs ' + formatBs(subBs);
+            unitPriceStr = `Bs ${formatBs(priceBs)}` + (rate > 0 ? ` ($${formatUsd(Math.abs(priceBs / rate))})` : '');
+        } else if (receiptCurrencyMode === 'usd') {
             totalStr = fmtUsd(sub);
             unitPriceStr = `$${formatUsd(item.priceUsd)}`;
         } else if (receiptCurrencyMode === 'bs') {
@@ -88,15 +94,13 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
 
         return `
             <tr>
-                <td colspan="2" style="text-align:left;font-size:${fBase};font-weight:bold;padding:6px 0 1px 0;line-height:1.25;word-break:break-word;">
-                    ${name}
+                <td style="font-size:${fBase};padding:3px 4px 1px 0;text-align:left;vertical-align:top;">
+                    <div style="font-weight:bold;line-height:1.2;color:#000;">${name}</div>
+                    <div style="font-size:${fTiny};color:#000;margin-top:1px;">
+                        ${qty} ${unit} x ${unitPriceStr}
+                    </div>
                 </td>
-            </tr>
-            <tr>
-                <td style="text-align:left;font-size:${fSmall};color:#666;padding:1px 4px 6px 0;width:65%;vertical-align:middle;border-bottom:1px dotted #ccc;">
-                    ${qty}${unit} x ${unitPriceStr}
-                </td>
-                <td style="text-align:right;font-size:${fBase};font-weight:bold;padding:1px 0 6px 0;width:35%;vertical-align:middle;white-space:nowrap;border-bottom:1px dotted #ccc;">
+                <td style="font-size:${fBase};font-weight:bold;padding:3px 0 1px 4px;text-align:right;vertical-align:top;white-space:nowrap;color:#000;">
                     ${totalStr}
                 </td>
             </tr>
@@ -178,10 +182,12 @@ export function buildTicketHtml(sale, bcvRate, paperConfig, settings) {
 
     // Generar bloque total dinámico
     let totalBlockHtml = '';
-    if (receiptCurrencyMode === 'usd') {
+    if (isBsSale || receiptCurrencyMode === 'bs') {
+        totalBlockHtml = `
+        <div class="total-usd">Bs ${formatBs(sale.totalBs || 0)}</div>
+        ${rate > 0 ? `<div class="total-bs" style="margin-bottom:4px">Ref: $${formatUsd(Math.abs((sale.totalBs || 0) / rate))}</div>` : ''}`;
+    } else if (receiptCurrencyMode === 'usd') {
         totalBlockHtml = `<div class="total-usd">${fmtUsd(sale.totalUsd || 0)}</div>`;
-    } else if (receiptCurrencyMode === 'bs') {
-        totalBlockHtml = `<div class="total-usd">Bs ${formatBs(sale.totalBs || 0)}</div>`;
     } else {
         totalBlockHtml = `
         <div class="total-usd">${fmtUsd(sale.totalUsd || 0)}</div>
