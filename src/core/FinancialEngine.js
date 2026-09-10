@@ -222,17 +222,16 @@ export class FinancialEngine {
         salesArray.forEach(sale => {
             // ── APERTURA DE CAJA: store opening float in _apertura metadata bucket (not as revenue or payment method) ──
             if (sale.tipo === 'APERTURA_CAJA') {
-                if (!breakdown['_apertura']) breakdown['_apertura'] = { openingBs: 0, openingUsd: 0, openingCop: 0, isApertura: true };
-                if (sale.openingUsd > 0) {
-                    breakdown['_apertura'].openingUsd = round2(breakdown['_apertura'].openingUsd + round2(sale.openingUsd));
+                if (!breakdown['_apertura']) {
+                    breakdown['_apertura'] = {
+                        openingBs: round2(sale.openingBs || 0),
+                        openingUsd: round2(sale.openingUsd || 0),
+                        openingCop: round2(sale.openingCop || 0),
+                        isApertura: true,
+                        id: sale.id
+                    };
                 }
-                if (sale.openingBs > 0) {
-                    breakdown['_apertura'].openingBs = round2(breakdown['_apertura'].openingBs + round2(sale.openingBs));
-                }
-                if (sale.openingCop > 0) {
-                    breakdown['_apertura'].openingCop = round2(breakdown['_apertura'].openingCop + round2(sale.openingCop));
-                }
-                return; // Do NOT count opening float as sales revenue or payment method receipts
+                return; // Do NOT count opening float as sales revenue or payment method receipts, and do not duplicate if multiple aperturas exist
             }
 
             // ── GASTO_INTERNO: egreso de caja chica (o autoconsumo inofensivo para la caja) ──

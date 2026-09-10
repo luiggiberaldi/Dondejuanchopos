@@ -379,6 +379,51 @@ export function useSupervisorCommands(deviceId) {
                     }
                     return;
                 }
+                if (command.payload?.action === 'register_expense' || command.payload?.action === 'add_gasto') {
+                    try {
+                        const { gasto } = command.payload || {};
+                        const { storageService } = await import('../utils/storageService');
+                        const { pushCloudSync } = await import('./useCloudSync');
+                        const { withLock } = await import('../utils/withLock');
+
+                        if (!gasto || !gasto.id) {
+                            await updateCommandStatus(command.id, 'failed', 'Datos de gasto inválidos');
+                            return;
+                        }
+
+                        let updatedSales = null;
+                        await withLock('pos_write_lock', async () => {
+                            const sales = await storageService.getItem('bodega_sales_v1', []) || [];
+                            if (sales.some(s => s.id === gasto.id)) {
+                                updatedSales = sales;
+                                return;
+                            }
+                            updatedSales = [gasto, ...sales];
+                            await storageService.setItem('bodega_sales_v1', updatedSales);
+                            try {
+                                await storageService.setItem('bodega_sales_mirror_v1', updatedSales);
+                            } catch (_) {}
+                        });
+
+                        appliedIds.add(command.id);
+                        markApplied(command.id);
+                        await updateCommandStatus(command.id, 'applied');
+
+                        window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_sales_v1' } }));
+                        window.dispatchEvent(new CustomEvent('supervisor_expense_registered', { detail: { gasto } }));
+
+                        if (updatedSales) {
+                            await pushCloudSync('bodega_sales_v1', updatedSales, true).catch(() => {});
+                            await pushCloudSync('bodega_sales_mirror_v1', updatedSales, true).catch(() => {});
+                        }
+                    } catch (err) {
+                        appliedIds.delete(command.id);
+                        unmarkApplied(command.id);
+                        console.error('[SupervisorCommands] Error al registrar gasto desde supervisor:', err);
+                        await updateCommandStatus(command.id, 'failed', err?.message);
+                    }
+                    return;
+                }
                 try {
                     const result = await applyInventoryCommand({
                         ...(command.payload || {}),

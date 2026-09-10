@@ -196,4 +196,74 @@ describe('Shift Persistence Guard & Auto-Healing Harness', () => {
             expect(shouldReject).toBe(true);
         });
     });
+
+    describe('Duplicate Apertura & Closed Shift Scope Guard', () => {
+        it('does NOT double count opening funds if duplicate aperturas exist in sales array', async () => {
+            const { FinancialEngine } = await import('../src/core/FinancialEngine');
+            const sales = [
+                {
+                    id: 'ap_1',
+                    tipo: 'APERTURA_CAJA',
+                    openingBs: 9980,
+                    openingUsd: 33,
+                    timestamp: '2026-09-10T16:30:00.000Z',
+                    cajaCerrada: false
+                },
+                {
+                    id: 'ap_2',
+                    tipo: 'APERTURA_CAJA',
+                    openingBs: 9980,
+                    openingUsd: 33,
+                    timestamp: '2026-09-10T16:11:00.000Z',
+                    cajaCerrada: false
+                },
+                {
+                    id: 'gasto_1',
+                    tipo: 'GASTO_INTERNO',
+                    afectaCaja: true,
+                    totalBs: -1700,
+                    totalUsd: 0,
+                    payments: [{ methodId: 'efectivo_bs', amountBs: -1700, currency: 'BS' }]
+                }
+            ];
+
+            const breakdown = FinancialEngine.calculatePaymentBreakdown(sales);
+            const drawer = FinancialEngine.computeExpectedCash(breakdown);
+
+            // Debe contar la apertura UNA sola vez: 9.980 Bs - 1.700 Bs = 8.280 Bs, y $33 USD (NO 18.260 Bs ni $66)
+            expect(breakdown._apertura.openingBs).toBe(9980);
+            expect(breakdown._apertura.openingUsd).toBe(33);
+            expect(drawer.bs).toBe(8280);
+            expect(drawer.usd).toBe(33);
+        });
+
+        it('treats unclosed sales as orphans and movements as empty when register is closed (no open apertura)', async () => {
+            const { getOpenShiftMovements } = await import('../src/utils/shiftScope');
+            const salesWithoutApertura = [
+                {
+                    id: 'sale_old_1',
+                    tipo: 'VENTA',
+                    totalBs: 4782.3,
+                    totalUsd: 5.0,
+                    timestamp: '2026-09-08T18:00:00.000Z',
+                    cajaCerrada: false
+                },
+                {
+                    id: 'sale_old_2',
+                    tipo: 'VENTA',
+                    totalBs: 887.7,
+                    totalUsd: 1.0,
+                    timestamp: '2026-09-09T18:00:00.000Z',
+                    cajaCerrada: false
+                }
+            ];
+
+            const { movements, orphans, apertura } = getOpenShiftMovements(salesWithoutApertura);
+
+            expect(apertura).toBeNull();
+            expect(movements).toHaveLength(0); // Caja cerrada: NINGÚN movimiento en el turno activo
+            expect(orphans).toHaveLength(2); // Todas las ventas sin cerrar anteriores son huérfanas
+        });
+    });
 });
+

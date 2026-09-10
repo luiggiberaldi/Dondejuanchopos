@@ -56,7 +56,7 @@ export function getOpenShiftMovements(sales) {
             continue;
         }
         if (!TIPOS_CIERRE.includes(s.tipo || 'VENTA')) continue;
-        if (from !== null && ts !== null && ts < from) orphans.push(s);
+        if (from === null || (ts !== null && ts < from)) orphans.push(s);
         else movements.push(s);
     }
     return { movements, orphans, voided, apertura };
