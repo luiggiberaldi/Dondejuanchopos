@@ -87,16 +87,30 @@ export function useCheckoutFlow({
     };
 
     const handleCreateCustomer = async (name, documentId, phone) => {
-        const nextCodeNum = customers.reduce((mx, c) => {
-            const numPart = parseInt(c.code?.replace('CLI-', ''), 10);
-            return isNaN(numPart) ? mx : Math.max(mx, numPart);
-        }, 0) + 1;
-        const code = `CLI-${String(nextCodeNum).padStart(5, '0')}`;
-        const newCustomer = { id: crypto.randomUUID(), code, name, documentId: documentId || '', phone: phone || '', deuda: 0, favor: 0, createdAt: new Date().toISOString() };
-        const updated = [...customers, newCustomer];
+        let newCustomer = null;
         try {
-            await storageService.setItem('bodega_customers_v1', updated);
-            setCustomers(updated);
+            await withLock('pos_write_lock', async () => {
+                const freshCustomers = await storageService.getItem('bodega_customers_v1', []) || [];
+                const nextCodeNum = freshCustomers.reduce((mx, c) => {
+                    const numPart = parseInt(c.code?.replace('CLI-', ''), 10);
+                    return isNaN(numPart) ? mx : Math.max(mx, numPart);
+                }, 0) + 1;
+                const code = `CLI-${String(nextCodeNum).padStart(5, '0')}`;
+                newCustomer = {
+                    id: crypto.randomUUID(),
+                    code,
+                    name: (name || '').trim(),
+                    documentId: (documentId || '').trim(),
+                    phone: (phone || '').trim(),
+                    deuda: 0,
+                    favor: 0,
+                    createdAt: new Date().toISOString()
+                };
+                const updated = [...freshCustomers, newCustomer];
+                await storageService.setItem('bodega_customers_v1', updated);
+                setCustomers(updated);
+                window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_customers_v1', value: updated } }));
+            });
         } catch (err) {
             console.error('[checkout] Error al guardar cliente:', err);
             showToast('Error al guardar el cliente', 'error');

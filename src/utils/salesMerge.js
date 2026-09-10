@@ -100,6 +100,24 @@ export function normalizeHistoricalSale(sale) {
         }
     }
 
+    // Normalización de movimientos erróneos del 8/9/26 de cliente mono (anulados y reemplazados por deudas reales #771 y #772)
+    const ERRONEOUS_MONO_SALE_IDS = [
+        'e593c292-0840-4d2c-88c1-45411a522677', // antiguo fiado 0.87
+        'e225ce0b-b972-4489-9cd5-711ff77f3734', // abono erróneo 2050/3.37
+        'bd612d3c-752b-44cb-b6c6-5e466c9ab337', // crédito manual 15.45
+    ];
+    if (ERRONEOUS_MONO_SALE_IDS.includes(sale.id)) {
+        if (sale.status !== 'ANULADA') {
+            return {
+                ...sale,
+                status: 'ANULADA',
+                anuladaAt: sale.anuladaAt || '2026-09-09T01:37:00.000Z',
+                anuladaPor: sale.anuladaPor || 'SUPERVISOR',
+                motivoAnulacion: 'Movimiento reemplazado por deudas reales Nelly 250gr y Malta Retornable'
+            };
+        }
+    }
+
     return sale;
 }
 

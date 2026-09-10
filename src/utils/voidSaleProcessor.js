@@ -124,6 +124,7 @@ export async function processVoidSale(sale, currentSales, currentProducts, actor
 
         // FIN-001, FIN-012: Cantidades a revertir según tipo de venta.
         const fiadoAmountUsd = sale.fiadoUsd || (sale.tipo === 'VENTA_FIADA' ? sale.totalUsd : 0) || 0;
+        const casheaAmountUsd = round2(sale.casheaUsd || (sale.tipo === 'VENTA_CASHEA' ? sale.totalUsd : 0) || 0);
         const favorUsed = sumR((sale.payments?.filter(p => p.methodId === 'saldo_favor') || []).map(p => p.amountUsd));
         const vueltoParaMonedero = round2(sale.vueltoParaMonedero || 0);
         const hasRecordedWalletAllocation = sale.vueltoParaMonederoDebtUsd != null
@@ -131,15 +132,13 @@ export async function processVoidSale(sale, currentSales, currentProducts, actor
         const walletDebtAppliedUsd = round2(Number(sale.vueltoParaMonederoDebtUsd) || 0);
         const walletFavorAppliedUsd = round2(Number(sale.vueltoParaMonederoFavorUsd) || 0);
 
-        // FIN-001: Para COBRO_DEUDA, revertir el abono. Heurística:
-        // - Si el cliente tiene favor >= cobroAmount, era un abono que dejó sobra → restar de favor.
-        // - Si tiene favor pero < cobroAmount, parte era favor y parte deuda.
-        // - Si no tiene favor, era un abono que redujo deuda → sumar a deuda.
+        // FIN-001: Para COBRO_DEUDA, revertir el abono.
         const isCobroDeuda = sale.tipo === 'COBRO_DEUDA';
         const cobroAmount = isCobroDeuda ? round2(sale.totalUsd || 0) : 0;
 
         const shouldTouchCustomer = sale.customerId
             && (fiadoAmountUsd > 0
+                || casheaAmountUsd > 0
                 || favorUsed > 0
                 || vueltoParaMonedero > 0
                 || walletDebtAppliedUsd > 0
@@ -152,32 +151,47 @@ export async function processVoidSale(sale, currentSales, currentProducts, actor
 
                 let newDeuda = round2(c.deuda || 0);
                 let newFavor = round2(c.favor || 0);
+                let newCasheaDeuda = round2(c.casheaDeuda || 0);
+
+                if (casheaAmountUsd > 0) {
+                    newCasheaDeuda = subR(newCasheaDeuda, casheaAmountUsd);
+                    if (newCasheaDeuda < 0) newCasheaDeuda = 0;
+                }
 
                 if (isCobroDeuda && cobroAmount > 0) {
-                    // FIN-001: Revertir COBRO_DEUDA (abono). El abono original redujo deuda
-                    // o sumó a favor; al anular, revertimos en la dirección opuesta.
-                    if (newFavor >= cobroAmount) {
-                        // Todo el abono estaba como favor → quitar de favor.
-                        newFavor = subR(newFavor, cobroAmount);
-                    } else if (newFavor > 0) {
-                        // Parte favor, parte deuda.
-                        const remaining = subR(cobroAmount, newFavor);
-                        newFavor = 0;
-                        newDeuda = sumR(newDeuda, remaining);
+                    // Si la venta guardó la distribución exacta de cuánto redujo deuda y cuánto quedó en favor:
+                    if (hasRecordedWalletAllocation) {
+                        if (walletDebtAppliedUsd > 0) {
+                            newDeuda = sumR(newDeuda, walletDebtAppliedUsd);
+                        }
+                        if (walletFavorAppliedUsd > 0) {
+                            newFavor = subR(newFavor, walletFavorAppliedUsd);
+                        }
                     } else {
-                        // Sin favor → el abono había reducido deuda, devolverla.
-                        newDeuda = sumR(newDeuda, cobroAmount);
+                        // Heurística legacy para ventas previas:
+                        if (newFavor >= cobroAmount) {
+                            newFavor = subR(newFavor, cobroAmount);
+                        } else if (newFavor > 0) {
+                            const remaining = subR(cobroAmount, newFavor);
+                            newFavor = 0;
+                            newDeuda = sumR(newDeuda, remaining);
+                        } else {
+                            newDeuda = sumR(newDeuda, cobroAmount);
+                        }
                     }
                 } else {
-                    // VENTA / VENTA_FIADA: revertir favor usado, fiado generado y
-                    // vuelto digital. Las ventas nuevas guardan cuánto del vuelto
-                    // redujo deuda y cuánto terminó como favor; así la anulación
-                    // no depende del saldo posterior del cliente.
+                    // VENTA / VENTA_FIADA: revertir favor usado, fiado generado y vuelto digital.
                     if (favorUsed > 0) {
                         newFavor = sumR(newFavor, favorUsed);
                     }
                     if (fiadoAmountUsd > 0) {
-                        newDeuda = subR(newDeuda, fiadoAmountUsd);
+                        if (newDeuda >= fiadoAmountUsd) {
+                            newDeuda = subR(newDeuda, fiadoAmountUsd);
+                        } else {
+                            const excessToFavor = subR(fiadoAmountUsd, newDeuda);
+                            newDeuda = 0;
+                            newFavor = sumR(newFavor, excessToFavor);
+                        }
                     }
                     if (hasRecordedWalletAllocation) {
                         if (walletDebtAppliedUsd > 0) {
@@ -187,17 +201,33 @@ export async function processVoidSale(sale, currentSales, currentProducts, actor
                             newFavor = subR(newFavor, walletFavorAppliedUsd);
                         }
                     } else if (vueltoParaMonedero > 0) {
-                        // FIN-012: compatibilidad con ventas históricas que solo
-                        // guardaban el total del vuelto para monedero.
                         newFavor = subR(newFavor, vueltoParaMonedero);
                     }
                 }
 
-                // Normalización: no permitir negativos.
+                // Normalización estricta: The Golden Rule (saldoNeto = favor - deuda)
+                if (newFavor < 0) {
+                    newDeuda = sumR(newDeuda, Math.abs(newFavor));
+                    newFavor = 0;
+                }
                 if (newDeuda < 0) newDeuda = 0;
-                if (newFavor < 0) newFavor = 0;
 
-                return { ...c, deuda: newDeuda, favor: newFavor };
+                const saldoNeto = subR(newFavor, newDeuda);
+                if (saldoNeto >= 0) {
+                    newFavor = round2(saldoNeto);
+                    newDeuda = 0;
+                } else {
+                    newFavor = 0;
+                    const debtVal = round2(Math.abs(saldoNeto));
+                    newDeuda = debtVal <= 0.015 ? 0 : debtVal;
+                }
+
+                return {
+                    ...c,
+                    deuda: newDeuda,
+                    favor: newFavor,
+                    casheaDeuda: round2(newCasheaDeuda)
+                };
             });
         }
 

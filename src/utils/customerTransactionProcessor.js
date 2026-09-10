@@ -1,6 +1,6 @@
 import { storageService } from './storageService';
 import { procesarImpactoCliente } from './financialLogic';
-import { divR, mulR } from './dinero';
+import { divR, mulR, round2, subR } from './dinero';
 import { withLock } from './withLock';      // FIN-006: lock para escrituras de customer/sales.
 import { deepFreeze } from './deepFreeze';  // FIN-008: deep-freeze antes de retornar.
 import { CurrencyService } from '../services/CurrencyService'; // FIN-017-pattern: safeParse en vez de parseFloat.
@@ -80,16 +80,31 @@ export async function processCustomerTransaction({
 
     // FIN-006: envolver TODO el read-modify-write en withLock para evitar race conditions.
     const result = await withLock('pos_write_lock', async () => {
-        // 3. Update customer storage from the fresh snapshot. El parámetro
-        // `customer` puede venir de una vista atrasada si hubo dos abonos
-        // consecutivos; calcular sobre el snapshot dentro del lock evita perder
-        // el primer movimiento.
+        // 3. Update customer storage from the fresh snapshot.
         const customers = await storageService.getItem('bodega_customers_v1', []);
         const currentCustomer = customers.length === 0
             ? customer
             : customers.find(c => c.id === customer.id);
         if (!currentCustomer) return { error: 'El cliente ya no está disponible' };
-        const updatedCustomer = procesarImpactoCliente(currentCustomer, transaccionOpts);
+
+        let appliedUsd = amountUsd;
+        let walletDebtApplied = 0;
+        let walletFavorApplied = 0;
+        let finalTransaccionOpts = {};
+
+        if (type === 'ABONO') {
+            const freshDeuda = Number(currentCustomer.deuda) || 0;
+            if (freshDeuda > 0 && (isFullPayment || Math.abs(amountUsd - freshDeuda) <= 0.02)) {
+                appliedUsd = freshDeuda;
+            }
+            finalTransaccionOpts = { costoTotal: 0, pagoReal: appliedUsd, vueltoParaMonedero: appliedUsd };
+            walletDebtApplied = round2(Math.min(appliedUsd, freshDeuda));
+            walletFavorApplied = round2(Math.max(0, subR(appliedUsd, walletDebtApplied)));
+        } else if (type === 'CREDITO') {
+            finalTransaccionOpts = { esCredito: true, deudaGenerada: appliedUsd };
+        }
+
+        const updatedCustomer = procesarImpactoCliente(currentCustomer, finalTransaccionOpts);
         const customerRecords = customers.length === 0 ? [customer] : customers;
         const newCustomers = customerRecords.map(c => c.id === customer.id ? updatedCustomer : c);
         await storageService.setItem('bodega_customers_v1', newCustomers);
@@ -97,9 +112,9 @@ export async function processCustomerTransaction({
         // 4. Update sales storage
         const sales = await storageService.getItem('bodega_sales_v1', []);
         const nextSaleNumber = sales.reduce((mx, s) => Math.max(mx, s.saleNumber || 0), 0) + 1;
-        const totalEnBs = currencyMode === 'BS' ? rawAmount : mulR(amountUsd, safeBcvRate);
-        const totalEnUsd = amountUsd;
-        const totalEnCop = currencyMode === 'COP' ? rawAmount : mulR(amountUsd, safeTasaCop);
+        const totalEnBs = currencyMode === 'BS' ? rawAmount : mulR(appliedUsd, safeBcvRate);
+        const totalEnUsd = appliedUsd;
+        const totalEnCop = currencyMode === 'COP' ? rawAmount : mulR(appliedUsd, safeTasaCop);
 
         if (type === 'ABONO') {
             const cobroRecord = {
@@ -130,8 +145,10 @@ export async function processCustomerTransaction({
                     amountBs: totalEnBs,
                     methodLabel: String(paymentMethod || '').replace('_', ' ')
                 }],
-                // FIN-012: persistir vueltoParaMonedero para revertir correctamente al anular.
-                vueltoParaMonedero: vueltoParaMonedero,
+                // FIN-012: persistir vueltoParaMonedero y su desglose para revertir correctamente al anular.
+                vueltoParaMonedero: appliedUsd,
+                vueltoParaMonederoDebtUsd: walletDebtApplied,
+                vueltoParaMonederoFavorUsd: walletFavorApplied,
                 customerId: customer.id,
                 customerName: customer.name,
                 items: [{ name: `Abono de deuda: ${customer.name}`, qty: 1, priceUsd: totalEnUsd, costBs: 0 }]
@@ -167,12 +184,25 @@ export async function processCustomerTransaction({
         }
 
         await storageService.setItem('bodega_sales_v1', sales);
+        try {
+            const mirrorSales = await storageService.getItem('bodega_sales_mirror_v1', []) || [];
+            const updatedMirror = [sales[0], ...mirrorSales.filter(s => s.id !== sales[0].id)];
+            await storageService.setItem('bodega_sales_mirror_v1', updatedMirror);
+        } catch (mirrorErr) {
+            console.warn('[customerTransactionProcessor] Error al guardar en sales mirror:', mirrorErr);
+        }
+
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('sales-updated'));
+            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_customers_v1' } }));
+            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_sales_v1' } }));
+        }
 
         const savedRecord = sales[0];
         logEvent(
             'VENTA',
             type === 'ABONO' ? 'COBRO_DEUDA_REGISTRADO' : 'VENTA_FIADA_REGISTRADA',
-            `${type === 'ABONO' ? 'Abono' : 'Crédito'} de $${amountUsd} para ${customer.name}`,
+            `${type === 'ABONO' ? 'Abono' : 'Crédito'} de $${appliedUsd} para ${customer.name}`,
             activeUser,
             { saleId: savedRecord?.id || null, saleNumber: nextSaleNumber, customerId: customer.id, deviceId }
         );

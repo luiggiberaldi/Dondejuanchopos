@@ -140,5 +140,47 @@ describe('Circuit Breaker & Shadow Snapshot unit tests', () => {
         expect(shadow).toHaveLength(1);
         expect(shadow[0].id).toBe('sale-1');
     });
+
+    test('Customer Circuit Breaker throws when reducing 20 customers to 5 without flag', async () => {
+        const existingCustomers = Array.from({ length: 20 }, (_, i) => ({ id: `c_${i}`, name: `Cliente ${i}` }));
+        await localforage.setItem('bodega_customers_v1', existingCustomers);
+
+        const truncatedCustomers = Array.from({ length: 5 }, (_, i) => ({ id: `c_${i}`, name: `Cliente ${i}` }));
+
+        await expect(storageService.setItem('bodega_customers_v1', truncatedCustomers))
+            .rejects.toThrow(/\[CircuitBreaker\]/);
+    });
+
+    test('Customer Circuit Breaker allows reducing 20 customers to 18', async () => {
+        const existingCustomers = Array.from({ length: 20 }, (_, i) => ({ id: `c_${i}`, name: `Cliente ${i}` }));
+        await localforage.setItem('bodega_customers_v1', existingCustomers);
+
+        const reducedCustomers = Array.from({ length: 18 }, (_, i) => ({ id: `c_${i}`, name: `Cliente ${i}` }));
+
+        await expect(storageService.setItem('bodega_customers_v1', reducedCustomers))
+            .resolves.not.toThrow();
+    });
+
+    test('Customer Circuit Breaker creates shadow backup on write', async () => {
+        const existingCustomers = [
+            { id: 'c_1', name: 'Cliente 1' },
+            { id: 'c_2', name: 'Cliente 2' },
+            { id: 'c_3', name: 'Cliente 3' },
+            { id: 'c_4', name: 'Cliente 4' },
+            { id: 'c_5', name: 'Cliente 5' }
+        ];
+        await localforage.setItem('bodega_customers_v1', existingCustomers);
+
+        const updatedCustomers = [
+            ...existingCustomers,
+            { id: 'c_6', name: 'Cliente 6' }
+        ];
+
+        await storageService.setItem('bodega_customers_v1', updatedCustomers);
+
+        const shadow = await localforage.getItem('bodega_customers_shadow_backup_v1');
+        expect(shadow).toHaveLength(5);
+        expect(shadow[0].id).toBe('c_1');
+    });
 });
 

@@ -162,8 +162,15 @@ export default function MonitorDeudasTab({
         const customerName = typeof customer === 'object' ? String(customer.name || customer.nombre || '').toLowerCase().trim() : '';
         const customerPhone = typeof customer === 'object' ? String(customer.phone || customer.telefono || '').replace(/[^\d]/g, '') : '';
 
+        const EXCLUDED_VOID_IDS = [
+            'e593c292-0840-4d2c-88c1-45411a522677',
+            'e225ce0b-b972-4489-9cd5-711ff77f3734',
+            'bd612d3c-752b-44cb-b6c6-5e466c9ab337'
+        ];
+
         return sales.filter(s => {
             if (s.status === 'ANULADA') return false;
+            if (EXCLUDED_VOID_IDS.includes(s.id)) return false;
             if (customerId && (s.customerId === customerId || s.clienteId === customerId || s.cliente === customerId)) return true;
             if (customerName) {
                 const sClient = String(s.clientName || s.customerName || s.cliente || '').toLowerCase().trim();
@@ -631,7 +638,7 @@ export default function MonitorDeudasTab({
                                                             return (
                                                                 <div key={s.id} className="p-2 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/50 dark:border-slate-800 flex items-start justify-between gap-2 text-[11px]">
                                                                     <div className="min-w-0 flex-1">
-                                                                        <div className="flex items-center gap-1.5">
+                                                                        <div className="flex items-center gap-1.5 flex-wrap">
                                                                             <span className={`px-1.5 py-0.2 rounded text-[9px] font-black uppercase ${
                                                                                 isFiada ? 'bg-red-100 dark:bg-red-950/40 text-red-600' :
                                                                                 isCobro ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600' :
@@ -639,6 +646,11 @@ export default function MonitorDeudasTab({
                                                                             }`}>
                                                                                 {isFiada ? 'Venta Fiada' : isCobro ? 'Abono Recibido' : 'Venta Contado'}
                                                                             </span>
+                                                                            {s.saleNumber != null && (
+                                                                                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-black text-slate-600 dark:text-slate-300 bg-slate-200/80 dark:bg-slate-700/80">
+                                                                                    #{s.saleNumber}
+                                                                                </span>
+                                                                            )}
                                                                             <span className="text-[9.5px] text-slate-400 font-mono">{dateStr}</span>
                                                                         </div>
 
@@ -905,7 +917,7 @@ export default function MonitorDeudasTab({
                                     return (
                                         <div key={s.id} className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 flex items-start justify-between gap-3 text-xs">
                                             <div className="min-w-0 flex-1">
-                                                <div className="flex items-center gap-1.5">
+                                                <div className="flex items-center gap-1.5 flex-wrap">
                                                     <span className={`px-2 py-0.5 rounded-md text-[9.5px] font-black uppercase ${
                                                         isFiada ? 'bg-red-100 text-red-700' :
                                                         isCobro ? 'bg-emerald-100 text-emerald-700' :
@@ -913,6 +925,11 @@ export default function MonitorDeudasTab({
                                                     }`}>
                                                         {isFiada ? 'Venta Fiada' : isCobro ? 'Abono Recibido' : 'Venta Contado'}
                                                     </span>
+                                                    {s.saleNumber != null && (
+                                                        <span className="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-black text-slate-700 dark:text-slate-200 bg-slate-200/90 dark:bg-slate-700/90">
+                                                            #{s.saleNumber}
+                                                        </span>
+                                                    )}
                                                     <span className="text-[10px] text-slate-400 font-mono">{dateStr}</span>
                                                 </div>
 

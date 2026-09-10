@@ -1,13 +1,17 @@
 import { useState, useEffect } from 'react';
 // v1.2.0: useReveal hook para animaciones reveal-on-scroll (design system "Precios al Día")
 import { useReveal } from '../hooks/useReveal';
-import { Users, Plus, Search, User, X, Trash2, Pencil, Phone, RefreshCw, Save, ArrowDownRight, ArrowUpRight, Clock, CheckCircle2, CreditCard, ShoppingBag, Truck, Smartphone, Calendar, BriefcaseBusiness } from 'lucide-react';
+import { Users, Plus, Search, User, X, Trash2, Pencil, Phone, RefreshCw, Save, ArrowDownRight, ArrowUpRight, Clock, CheckCircle2, CreditCard, ShoppingBag, Truck, Smartphone, Calendar, BriefcaseBusiness, RotateCcw } from 'lucide-react';
 import { storageService } from '../utils/storageService';
+import { withLock } from '../utils/withLock';
+import { round2 } from '../utils/dinero';
 import { showToast } from '../components/Toast';
 import { formatBs, formatUsd, formatCop } from '../utils/calculatorUtils';
 import { getSaleCurrentBsTotal } from '../utils/saleItemsBsCalculator';
 import { procesarImpactoCliente } from '../utils/financialLogic';
 import TransactionModal from '../components/Customers/TransactionModal';
+import VoidMovementModal from '../components/Customers/VoidMovementModal';
+import { processVoidSale } from '../utils/voidSaleProcessor';
 import { processCustomerTransaction } from '../utils/customerTransactionProcessor';
 import { DEFAULT_PAYMENT_METHODS } from '../config/paymentMethods';
 import ConfirmModal from '../components/ConfirmModal';
@@ -51,23 +55,27 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
     const { log: auditLog } = useAudit();
     const [expandedHistory, setExpandedHistory] = useState(null);
     const [historyData, setHistoryData] = useState([]);
-    // Mapa con el Bs correcto (a precios actuales del catálogo) por cliente
-    const [customerDebtBsMap, setCustomerDebtBsMap] = useState({});
     // Modales de Clientes
     const [selectedCustomer, setSelectedCustomer] = useState(null);
     const [editingCustomer, setEditingCustomer] = useState(null);
     const [deleteCustomerTarget, setDeleteCustomerTarget] = useState(null);
+    const [voidMovementTarget, setVoidMovementTarget] = useState(null);
 
-    // Guard: evita eliminar clientes con deuda o saldo a favor pendiente
+    // Guard: evita eliminar clientes con deuda, saldo a favor o Cashea pendiente
     const handleDeleteCustomerRequest = (customer) => {
         const deuda = customer.deuda || 0;
-        const saldo = customer.saldoFavor || 0;
+        const saldo = customer.favor || customer.saldoFavor || 0;
+        const casheaDeuda = customer.casheaDeuda || 0;
         if (deuda > 0.005) {
             showToast(`No se puede eliminar: ${customer.name} tiene una deuda de $${deuda.toFixed(2)} pendiente.`, 'error');
             return;
         }
         if (saldo > 0.005) {
             showToast(`No se puede eliminar: ${customer.name} tiene un saldo a favor de $${saldo.toFixed(2)}.`, 'error');
+            return;
+        }
+        if (casheaDeuda > 0.005) {
+            showToast(`No se puede eliminar: ${customer.name} tiene una deuda Cashea de $${casheaDeuda.toFixed(2)} pendiente.`, 'error');
             return;
         }
         setDeleteCustomerTarget(customer);
@@ -114,43 +122,42 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
         if (isActive) loadData();
     }, [isActive]);
 
-    // Pre-calcular el Bs correcto (precio actual del catálogo) para cada cliente con deuda
+    // Escuchar eventos de actualización de clientes y ventas
     useEffect(() => {
-        if (!products || products.length === 0 || !customers || customers.length === 0 || bcvRate <= 0) return;
-        const debtors = customers.filter(c => c.deuda > 0.01);
-        if (debtors.length === 0) return;
-
-        storageService.getItem('bodega_sales_v1', []).then(allSales => {
-            const map = {};
-            debtors.forEach(customer => {
-                const fiadasActivas = allSales.filter(s =>
-                    (s.customerId === customer.id || s.clienteId === customer.id) &&
-                    s.tipo === 'VENTA_FIADA' &&
-                    s.status !== 'ANULADA'
-                );
-                if (fiadasActivas.length > 0) {
-                    const totalBs = fiadasActivas.reduce((acc, s) => {
-                        const res = getSaleCurrentBsTotal(s.items, products, bcvRate, bcvRate, bsRoundingStep);
-                        return acc + res.totalBs;
-                    }, 0);
-                    if (totalBs > 0) map[customer.id] = totalBs;
-                }
-            });
-            setCustomerDebtBsMap(prev => ({ ...prev, ...map }));
-        });
-    }, [products, customers, bcvRate, bsRoundingStep]);
+        const handleStorageUpdate = (e) => {
+            if (e.detail?.key === 'bodega_customers_v1' && Array.isArray(e.detail?.value)) {
+                setCustomers(e.detail.value);
+            }
+        };
+        const handleSalesUpdate = () => {
+            loadData();
+        };
+        window.addEventListener('app_storage_update', handleStorageUpdate);
+        window.addEventListener('sales-updated', handleSalesUpdate);
+        return () => {
+            window.removeEventListener('app_storage_update', handleStorageUpdate);
+            window.removeEventListener('sales-updated', handleSalesUpdate);
+        };
+    }, []);
 
     const saveCustomers = async (updatedCustomers) => {
         setCustomers(updatedCustomers);
-        await storageService.setItem('bodega_customers_v1', updatedCustomers);
+        await withLock('pos_write_lock', async () => {
+            await storageService.setItem('bodega_customers_v1', updatedCustomers);
+        });
         window.dispatchEvent(new CustomEvent('sales-updated'));
+        window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_customers_v1', value: updatedCustomers } }));
     };
 
     const filteredCustomers = customers.filter(c => {
-        const matchesSearch = c.name.toLowerCase().includes(searchTerm.toLowerCase()) || (c.phone && c.phone.includes(searchTerm));
+        const term = searchTerm.toLowerCase();
+        const matchesSearch = (c.name && c.name.toLowerCase().includes(term)) ||
+            (c.phone && c.phone.includes(term)) ||
+            (c.documentId && c.documentId.toLowerCase().includes(term)) ||
+            (c.code && c.code.toLowerCase().includes(term));
         if (!matchesSearch) return false;
-        if (filterType === 'deuda') return c.deuda > 0.01;
-        if (filterType === 'favor') return c.deuda < -0.01;
+        if (filterType === 'deuda') return (c.deuda || 0) > 0.01;
+        if (filterType === 'favor') return (c.favor || c.saldoFavor || 0) > 0.01 || (c.deuda || 0) < -0.01;
         return true;
     });
 
@@ -179,8 +186,41 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
         const customerSales = allSales
             .filter(s => s.customerId === customerId || s.clienteId === customerId)
             .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-            .slice(0, 20);
+            .slice(0, 100);
         setHistoryData(customerSales);
+    };
+
+    const handleConfirmVoidMovement = async (movement) => {
+        if (!movement) return;
+        try {
+            const allSales = await storageService.getItem('bodega_sales_v1', []);
+            const { updatedSales, updatedCustomers } = await processVoidSale(movement, allSales, products);
+
+            // Actualizar cartera de clientes
+            setCustomers(updatedCustomers);
+
+            // Actualizar el cliente actualmente abierto en el bottom sheet
+            const freshCustomer = updatedCustomers.find(c => c.id === selectedCustomer?.id) || null;
+            if (freshCustomer) {
+                setSelectedCustomer(freshCustomer);
+            }
+
+            // Actualizar historial local para tachar y marcar como ANULADA al instante
+            setHistoryData(prev => prev.map(s => s.id === movement.id ? { ...s, status: 'ANULADA', voidedAt: new Date().toISOString() } : s));
+
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('sales-updated'));
+                window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_customers_v1' } }));
+                window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_sales_v1' } }));
+            }
+
+            showToast('Movimiento revertido y saldo actualizado con éxito', 'success');
+            auditLog('CLIENTE', 'MOVIMIENTO_REVERTIDO', `Revertido ${movement.tipo} (#${movement.saleNumber || movement.id?.slice(0, 6)}) para ${selectedCustomer?.name || 'Cliente'}`);
+        } catch (err) {
+            console.error('[CustomersView] Error al revertir movimiento:', err);
+            showToast(err?.message || 'Error al revertir el movimiento', 'error');
+            throw err;
+        }
     };
 
     const handleResetBalance = async (customer) => {
@@ -246,7 +286,7 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
         }
 
         const { newCustomers } = transactionResult;
-        await saveCustomers(newCustomers);
+        if (newCustomers) setCustomers(newCustomers);
         showToast(`Operación de ${transactionModal.type} exitosa`, 'success');
         auditLog('CLIENTE', transactionModal.type === 'ABONO' ? 'ABONO_REGISTRADO' : 'CREDITO_REGISTRADO', `${transactionModal.type} de ${transactionAmount} ${currencyMode} para ${transactionModal.customer?.name}`);
 
@@ -407,7 +447,7 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
                                     tasaCop={tasaCop}
                                     copEnabled={copEnabled}
                                     copPrimary={copPrimary}
-                                    debtBs={customerDebtBsMap[customer.id]}
+                                    debtBs={round2((customer.deuda || 0) * bcvRate)}
                                     onClick={() => {
                                         setSelectedCustomer(customer);
                                         toggleHistory(customer.id);
@@ -508,7 +548,7 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
                 }}
                 onDelete={() => {
                     const deuda = selectedCustomer?.deuda || 0;
-                    const saldo = selectedCustomer?.saldoFavor || 0;
+                    const saldo = selectedCustomer?.favor || selectedCustomer?.saldoFavor || 0;
                     const casheaDeuda = selectedCustomer?.casheaDeuda || 0;
                     if (deuda > 0.005) {
                         showToast(`No se puede eliminar: ${selectedCustomer.name} tiene una deuda de $${deuda.toFixed(2)} pendiente.`, 'error');
@@ -532,6 +572,20 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
                 bsRoundingStep={bsRoundingStep}
                 products={products}
                 sales={historyData}
+                onVoidMovement={sale => setVoidMovementTarget(sale)}
+            />
+
+            {/* Modal Reversión de Movimiento del Cliente */}
+            <VoidMovementModal
+                isOpen={!!voidMovementTarget}
+                movement={voidMovementTarget}
+                customer={selectedCustomer}
+                onClose={() => setVoidMovementTarget(null)}
+                onConfirm={handleConfirmVoidMovement}
+                bcvRate={bcvRate}
+                tasaCop={tasaCop}
+                copEnabled={copEnabled}
+                copPrimary={copPrimary}
             />
 
             {/* Modal Confirmación: Reiniciar Saldo */}
@@ -688,15 +742,7 @@ function buildCustomerStatementWhatsAppUrl(customer, sales, bcvRate, bsRoundingS
     const favor = customer.favor || 0;
     const casheaDeuda = customer.casheaDeuda || 0;
 
-    const fiadasActivas = (sales || []).filter(s => s.tipo === 'VENTA_FIADA' && s.status !== 'ANULADA');
-    let totalProductDebtBs = 0;
-    if (fiadasActivas.length > 0) {
-        totalProductDebtBs = fiadasActivas.reduce((acc, s) => {
-            const itemRes = getSaleCurrentBsTotal(s.items, products, bcvRate, bcvRate, bsRoundingStep);
-            return acc + itemRes.totalBs;
-        }, 0);
-    }
-    const debtBsToDisplay = totalProductDebtBs > 0 ? totalProductDebtBs : (deuda * bcvRate);
+    const debtBsToDisplay = round2(deuda * bcvRate);
 
     if (deuda > 0) {
         msg += `*Estado:* Deuda Pendiente de *$${formatUsd(deuda)}*`;
@@ -752,13 +798,18 @@ function buildCustomerStatementWhatsAppUrl(customer, sales, bcvRate, bsRoundingS
     msg += `_Reporte generado el ${new Date().toLocaleDateString('es-VE')} a las ${new Date().toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit', hour12: true })}._`;
 
     const cleanPhone = (customer.phone || '').replace(/\D/g, '');
-    const phoneWithCountry = cleanPhone.length === 10 ? `58${cleanPhone}` : cleanPhone;
+    let phoneWithCountry = cleanPhone;
+    if (cleanPhone.length === 11 && cleanPhone.startsWith('0')) {
+        phoneWithCountry = `58${cleanPhone.slice(1)}`;
+    } else if (cleanPhone.length === 10) {
+        phoneWithCountry = `58${cleanPhone}`;
+    }
 
     return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(msg)}`;
 }
 
 // ─── Sub-componente: Bottom Sheet de Detalle ────────────────
-function CustomerDetailSheet({ customer, isOpen, isAdmin, onClose, onAjustar, onReset, onSaldarCashea, onEdit, onDelete, bcvRate, tasaCop, copEnabled, copPrimary, bsRoundingStep = 10, products = [], sales }) {
+function CustomerDetailSheet({ customer, isOpen, isAdmin, onClose, onAjustar, onReset, onSaldarCashea, onEdit, onDelete, onVoidMovement, bcvRate, tasaCop, copEnabled, copPrimary, bsRoundingStep = 10, products = [], sales }) {
     if (!isOpen || !customer) return null;
 
     // Mini-paginación del historial
@@ -839,15 +890,7 @@ function CustomerDetailSheet({ customer, isOpen, isAdmin, onClose, onAjustar, on
 
                     {/* Saldo */}
                     {(() => {
-                        const fiadasActivas = (sales || []).filter(s => s.tipo === 'VENTA_FIADA' && s.status !== 'ANULADA');
-                        let totalProductDebtBs = 0;
-                        if (fiadasActivas.length > 0) {
-                            totalProductDebtBs = fiadasActivas.reduce((acc, s) => {
-                                const itemRes = getSaleCurrentBsTotal(s.items, products, bcvRate, bcvRate, bsRoundingStep);
-                                return acc + itemRes.totalBs;
-                            }, 0);
-                        }
-                        const debtBsToDisplay = totalProductDebtBs > 0 ? totalProductDebtBs : (customer.deuda * bcvRate);
+                        const debtBsToDisplay = round2((customer.deuda || 0) * bcvRate);
 
                         return (
                             <div className="flex flex-col gap-2 w-full">
@@ -1023,7 +1066,23 @@ function CustomerDetailSheet({ customer, isOpen, isAdmin, onClose, onAjustar, on
                                                 {sale.casheaUsd > 0 && (
                                                     <p className="text-[10px] text-purple-500 dark:text-purple-400 font-bold mt-0.5">Deuda Cashea: ${formatUsd(sale.casheaUsd)}</p>
                                                 )}
-                                                <p className="text-[9px] text-slate-400 mt-0.5">{dateStr} • {timeStr}</p>
+                                                <div className="flex items-center justify-between mt-1 pt-1 border-t border-slate-100 dark:border-slate-800/60">
+                                                    <p className="text-[9px] text-slate-400">{dateStr} • {timeStr}</p>
+                                                    {!isAnulada && onVoidMovement && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                onVoidMovement(sale);
+                                                            }}
+                                                            className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-md transition-all active:scale-95 cursor-pointer border border-red-200/50 dark:border-red-900/30 shadow-xs"
+                                                            title="Revertir este movimiento"
+                                                        >
+                                                            <RotateCcw size={10} />
+                                                            <span>Revertir</span>
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
                                     );

@@ -587,6 +587,10 @@ export async function processSaleTransaction({
         let updatedCustomers = customers;
 
         if (selectedCustomer) {
+            // Re-leer snapshot fresco de clientes dentro del lock para evitar sobreescritura ciega
+            const freshCustomers = await storageService.getItem(CUSTOMERS_KEY, customers) || customers;
+            const currentSelectedCustomer = freshCustomers.find(c => c.id === selectedCustomer.id) || selectedCustomer;
+
             const amount_favor_used = sumR(normalizedPayments
                 .filter(p => p.methodId === 'saldo_favor')
                 .map(p => p.amountUsd));
@@ -601,8 +605,8 @@ export async function processSaleTransaction({
                 esCashea:         casheaUsd > 0
             };
 
-            updatedCustomer  = procesarImpactoCliente(selectedCustomer, transaccionOpts);
-            updatedCustomers = customers.map(c => c.id === selectedCustomer.id ? updatedCustomer : c);
+            updatedCustomer  = procesarImpactoCliente(currentSelectedCustomer, transaccionOpts);
+            updatedCustomers = freshCustomers.map(c => c.id === currentSelectedCustomer.id ? updatedCustomer : c);
 
             await storageService.setItem(CUSTOMERS_KEY, updatedCustomers);
             // FIN-008: deep-freeze customers antes de retornar.

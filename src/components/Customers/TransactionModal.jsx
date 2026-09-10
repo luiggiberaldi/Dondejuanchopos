@@ -1,6 +1,7 @@
-import React from 'react';
-import { X, ArrowDownRight, ArrowUpRight, CheckCircle2, Save } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, ArrowDownRight, ArrowUpRight, CheckCircle2, Save, ArrowLeft, User, CreditCard, ShieldCheck } from 'lucide-react';
 import { procesarImpactoCliente } from '../../utils/financialLogic';
+import { round2, mulR } from '../../utils/dinero';
 import { formatUsd, formatBs, formatCop } from '../../utils/calculatorUtils';
 import CustomSelect from '../CustomSelect';
 
@@ -13,7 +14,7 @@ export default function TransactionModal({
     setCurrencyMode,
     paymentMethod,
     setPaymentMethod,
-    activePaymentMethods,
+    activePaymentMethods = [],
     bcvRate,
     tasaCop,
     copEnabled,
@@ -22,7 +23,13 @@ export default function TransactionModal({
 }) {
     if (!transactionModal.isOpen || !transactionModal.customer) return null;
 
-    const [isFullPayment, setIsFullPayment] = React.useState(false);
+    const [isFullPayment, setIsFullPayment] = useState(false);
+    const [showConfirmation, setShowConfirmation] = useState(false);
+
+    // Resetear confirmación al cambiar de cliente, tipo o visibilidad
+    useEffect(() => {
+        setShowConfirmation(false);
+    }, [transactionModal.isOpen, transactionModal.customer?.id, transactionModal.type]);
 
     // Calcular preview del saldo resultante en tiempo real
     const rawAmt = parseFloat(transactionAmount) || 0;
@@ -31,15 +38,16 @@ export default function TransactionModal({
     if (currencyMode === 'COP' && tasaCop > 0) amtUsd = rawAmt / tasaCop;
     const currentCustomer = transactionModal.customer;
 
+    let appliedUsd = amtUsd;
+    if (transactionModal.type === 'ABONO') {
+        const currentDeuda = Number(currentCustomer?.deuda) || 0;
+        if (currentDeuda > 0 && (isFullPayment || Math.abs(amtUsd - currentDeuda) <= 0.02)) {
+            appliedUsd = currentDeuda;
+        }
+    }
+
     let previewCustomer = null;
     if (rawAmt > 0) {
-        let appliedUsd = amtUsd;
-        if (transactionModal.type === 'ABONO') {
-            const currentDeuda = Number(currentCustomer.deuda) || 0;
-            if (currentDeuda > 0 && (isFullPayment || Math.abs(amtUsd - currentDeuda) <= 0.02)) {
-                appliedUsd = currentDeuda;
-            }
-        }
         const opts = transactionModal.type === 'ABONO'
             ? { costoTotal: 0, pagoReal: appliedUsd, vueltoParaMonedero: appliedUsd }
             : { esCredito: true, deudaGenerada: appliedUsd };
@@ -59,6 +67,170 @@ export default function TransactionModal({
 
     const saldoActual = formatSaldo(saldoActualUsd);
     const saldoPreview = formatSaldo(saldoPreviewUsd);
+
+    const displayAmount = currencyMode === 'BS'
+        ? `Bs ${formatBs(rawAmt)}`
+        : currencyMode === 'COP'
+        ? `${formatBs(rawAmt)} COP`
+        : `$${formatUsd(rawAmt)}`;
+
+    const equivUsdText = currencyMode !== 'USD' && bcvRate > 0 ? `$${formatUsd(appliedUsd)} USD` : null;
+    const equivBsText = currencyMode !== 'BS' && bcvRate > 0 ? `Bs ${formatBs(round2(mulR(appliedUsd, bcvRate)))}` : null;
+    const equivCopText = currencyMode !== 'COP' && copEnabled && tasaCop > 0 ? `${formatBs(round2(mulR(appliedUsd, tasaCop)))} COP` : null;
+
+    const safeMethods = Array.isArray(activePaymentMethods) ? activePaymentMethods : [];
+    const filteredMethods = safeMethods.filter(m => m.currency === currencyMode);
+    const selectedMethodObj = filteredMethods.find(m => m.id === paymentMethod)
+        || safeMethods.find(m => m.id === paymentMethod)
+        || filteredMethods[0]
+        || { label: paymentMethod || 'Efectivo' };
+    const SelectedMethodIcon = selectedMethodObj?.Icon || CreditCard;
+
+    // ── VISTA DE CONFIRMACIÓN CON RESUMEN ──
+    if (showConfirmation) {
+        return (
+            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+                <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-t-3xl sm:rounded-3xl shadow-xl overflow-hidden animate-in slide-in-from-bottom-10 sm:zoom-in-95 duration-200 border border-slate-100 dark:border-slate-800">
+                    <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/70 dark:bg-slate-800/40">
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setShowConfirmation(false)}
+                                className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                                title="Volver a editar"
+                            >
+                                <ArrowLeft size={18} />
+                            </button>
+                            <div>
+                                <h3 className="text-base font-black text-slate-800 dark:text-white leading-tight">
+                                    Confirmar {transactionModal.type === 'ABONO' ? 'Abono' : 'Nueva Deuda'}
+                                </h3>
+                                <p className="text-[10px] font-bold text-slate-400">Revisa el resumen de la operación</p>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setShowConfirmation(false);
+                                setTransactionModal({ isOpen: false, type: null, customer: null });
+                            }}
+                            className="p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
+                        >
+                            <X size={18} />
+                        </button>
+                    </div>
+
+                    <div className="p-5 space-y-3.5 max-h-[70vh] overflow-y-auto">
+                        {/* Cliente */}
+                        <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800">
+                            <div className="w-10 h-10 rounded-xl bg-brand/10 text-brand flex items-center justify-center font-black text-sm shrink-0">
+                                {currentCustomer.name?.charAt(0).toUpperCase() || 'C'}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm font-black text-slate-800 dark:text-white truncate">
+                                    {currentCustomer.name}
+                                </p>
+                                <div className="flex items-center gap-2 text-[10px] text-slate-400 font-bold">
+                                    {currentCustomer.code && <span>{currentCustomer.code}</span>}
+                                    {currentCustomer.documentId && <span>· C.I: {currentCustomer.documentId}</span>}
+                                </div>
+                            </div>
+                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                                transactionModal.type === 'ABONO'
+                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400'
+                                    : 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400'
+                            }`}>
+                                {transactionModal.type === 'ABONO' ? 'ABONO' : 'DEUDA'}
+                            </span>
+                        </div>
+
+                        {/* Monto Principal con Equivalencias */}
+                        <div className="p-4 rounded-2xl bg-gradient-to-b from-slate-50 to-white dark:from-slate-800/40 dark:to-slate-900 border border-slate-200/80 dark:border-slate-800 text-center shadow-xs">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">
+                                {transactionModal.type === 'ABONO' ? 'Monto que abonará el cliente' : 'Monto que se cargará a la cuenta'}
+                            </p>
+                            <div className={`text-3xl font-black tracking-tight ${
+                                transactionModal.type === 'ABONO' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
+                            }`}>
+                                {displayAmount}
+                            </div>
+                            <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/60 flex flex-wrap items-center justify-center gap-1.5 text-xs font-bold text-slate-500 dark:text-slate-400">
+                                {equivUsdText && <span className="bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 px-2 py-0.5 rounded-md">{equivUsdText}</span>}
+                                {equivBsText && <span className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded-md">{equivBsText}</span>}
+                                {equivCopText && <span className="bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded-md">{equivCopText}</span>}
+                            </div>
+                            {bcvRate > 0 && (
+                                <p className="text-[9px] text-slate-400 mt-1.5 font-medium">Tasa BCV de referencia: {formatBs(bcvRate)} Bs/$</p>
+                            )}
+                        </div>
+
+                        {/* Método de Pago */}
+                        {transactionModal.type === 'ABONO' && (
+                            <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800">
+                                <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">Método de Pago:</span>
+                                <div className="flex items-center gap-1.5 font-bold text-sm text-slate-800 dark:text-white">
+                                    <SelectedMethodIcon size={16} className="text-brand shrink-0" />
+                                    <span>{selectedMethodObj.label}</span>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Impacto en Cuenta */}
+                        <div className={`p-3.5 rounded-xl border ${saldoPreview.bg} space-y-2`}>
+                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                Balance de la Cuenta
+                            </p>
+                            <div className="flex items-center justify-between gap-2">
+                                <div>
+                                    <span className="text-[10px] font-bold text-slate-400 block">Saldo Actual</span>
+                                    <span className={`text-sm font-black ${saldoActual.color}`}>
+                                        {saldoActual.text}
+                                    </span>
+                                </div>
+                                <div className="text-slate-300 dark:text-slate-600 font-bold text-lg">→</div>
+                                <div className="text-right">
+                                    <span className="text-[10px] font-bold text-slate-400 block">Nuevo Saldo</span>
+                                    <span className={`text-base font-black ${saldoPreview.color}`}>
+                                        {saldoPreview.text}
+                                    </span>
+                                </div>
+                            </div>
+                            {bcvRate > 0 && (
+                                <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 text-right border-t border-black/5 dark:border-white/5 pt-1.5 mt-1">
+                                    Ref. local nuevo saldo: {saldoPreviewUsd >= 0 ? '+' : '-'}{formatBs(Math.abs(saldoPreviewUsd) * bcvRate)} Bs
+                                </p>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/50 flex gap-2.5">
+                        <button
+                            type="button"
+                            onClick={() => setShowConfirmation(false)}
+                            className="flex-1 py-3 px-3 text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-bold rounded-xl active:scale-95 transition-all text-xs border border-slate-200 dark:border-slate-700"
+                        >
+                            Modificar
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setShowConfirmation(false);
+                                handleTransaction(isFullPayment);
+                            }}
+                            className={`flex-[1.5] py-3 px-3 text-white font-black rounded-xl active:scale-95 transition-all text-xs flex justify-center items-center gap-1.5 shadow-md ${
+                                transactionModal.type === 'ABONO'
+                                    ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20'
+                                    : 'bg-red-600 hover:bg-red-700 shadow-red-500/20'
+                            }`}
+                        >
+                            <CheckCircle2 size={16} />
+                            {transactionModal.type === 'ABONO' ? 'Confirmar Abono' : 'Confirmar Deuda'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
@@ -148,26 +320,24 @@ export default function TransactionModal({
                                 type="button"
                                 onClick={() => {
                                     setIsFullPayment(true);
-                                    const deudaUsd = currentCustomer.deuda;
+                                    const deudaUsd = currentCustomer.deuda || 0;
                                     if (currencyMode === 'BS' && bcvRate > 0) {
-                                        const debtBsToUse = (transactionModal.debtCurrentBs && transactionModal.debtCurrentBs > 0)
-                                            ? transactionModal.debtCurrentBs
-                                            : (deudaUsd * bcvRate);
+                                        const debtBsToUse = round2(mulR(deudaUsd, bcvRate));
                                         setTransactionAmount(debtBsToUse.toFixed(2));
                                     } else if (currencyMode === 'COP' && tasaCop > 0) {
-                                        setTransactionAmount((deudaUsd * tasaCop).toFixed(2));
+                                        setTransactionAmount(round2(mulR(deudaUsd, tasaCop)).toFixed(2));
                                     } else {
-                                        setTransactionAmount(deudaUsd.toFixed(2));
+                                        setTransactionAmount(round2(deudaUsd).toFixed(2));
                                     }
                                 }}
                                 className="mt-2 w-full py-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/30 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-all active:scale-95 flex items-center justify-center gap-1.5"
                             >
                                 <CheckCircle2 size={14} />
                                 Pagar Total: {currencyMode === 'BS' && bcvRate > 0
-                                    ? `Bs ${formatBs((transactionModal.debtCurrentBs && transactionModal.debtCurrentBs > 0) ? transactionModal.debtCurrentBs : (currentCustomer.deuda * bcvRate))}`
+                                    ? `Bs ${formatBs(round2(mulR(currentCustomer.deuda || 0, bcvRate)))}`
                                     : currencyMode === 'COP' && tasaCop > 0
-                                    ? `${formatBs(currentCustomer.deuda * tasaCop)} COP`
-                                    : `USD ${formatUsd(currentCustomer.deuda)}`
+                                    ? `${formatBs(round2(mulR(currentCustomer.deuda || 0, tasaCop)))} COP`
+                                    : `USD ${formatUsd(currentCustomer.deuda || 0)}`
                                 }
                             </button>
                         )}
@@ -260,7 +430,8 @@ export default function TransactionModal({
 
                 <div className="p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
                     <button
-                        onClick={() => handleTransaction(isFullPayment)}
+                        type="button"
+                        onClick={() => setShowConfirmation(true)}
                         disabled={!transactionAmount || parseFloat(transactionAmount) <= 0}
                         className={`w-full py-3.5 text-white font-bold rounded-xl active:scale-95 transition-all text-sm flex justify-center items-center gap-2 ${transactionModal.type === 'ABONO'
                             ? 'bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-500/50'

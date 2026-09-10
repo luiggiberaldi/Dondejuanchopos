@@ -327,28 +327,40 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
     const handleRegisterClientForTicket = async () => {
         if (!ticketClientName.trim() || !ticketPendingSale) return;
 
-        const newCustomer = {
-            id: crypto.randomUUID(),
-            name: ticketClientName.trim(),
-            documentId: ticketClientDocument.trim() || '',
-            phone: ticketClientPhone.trim() || '',
-            deuda: 0,
-            favor: 0,
-            createdAt: new Date().toISOString(),
-        };
-
-        const updatedCustomers = [...customers, newCustomer];
-        setCustomers(updatedCustomers);
-        await storageService.setItem('bodega_customers_v1', updatedCustomers);
-
-        const updatedSale = {
-            ...ticketPendingSale,
-            customerId: newCustomer.id,
-            customerName: newCustomer.name,
-            customerPhone: newCustomer.phone,
-        };
+        let createdCustomer = null;
+        let updatedSale = null;
 
         await withLock('pos_write_lock', async () => {
+            const freshCustomers = await storageService.getItem('bodega_customers_v1', []) || [];
+            const nextCodeNum = freshCustomers.reduce((mx, c) => {
+                const numPart = parseInt(c.code?.replace('CLI-', ''), 10);
+                return isNaN(numPart) ? mx : Math.max(mx, numPart);
+            }, 0) + 1;
+            const code = `CLI-${String(nextCodeNum).padStart(5, '0')}`;
+
+            createdCustomer = {
+                id: crypto.randomUUID(),
+                code,
+                name: ticketClientName.trim(),
+                documentId: ticketClientDocument.trim() || '',
+                phone: ticketClientPhone.trim() || '',
+                deuda: 0,
+                favor: 0,
+                createdAt: new Date().toISOString(),
+            };
+
+            const updatedCustomers = [...freshCustomers, createdCustomer];
+            await storageService.setItem('bodega_customers_v1', updatedCustomers);
+            setCustomers(updatedCustomers);
+            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_customers_v1', value: updatedCustomers } }));
+
+            updatedSale = {
+                ...ticketPendingSale,
+                customerId: createdCustomer.id,
+                customerName: createdCustomer.name,
+                customerPhone: createdCustomer.phone,
+            };
+
             const freshSales = await storageService.getItem(SALES_KEY, []) || [];
             const updatedSales = freshSales.map(s => s.id === updatedSale.id ? updatedSale : s);
             setSales(updatedSales);
@@ -364,7 +376,9 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
         setTicketClientName('');
         setTicketClientPhone('');
         setTicketClientDocument('');
-        handleShareWhatsApp(updatedSale);
+        if (updatedSale) {
+            handleShareWhatsApp(updatedSale);
+        }
     };
 
     // Handler: Cierre de Caja

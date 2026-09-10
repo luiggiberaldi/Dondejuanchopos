@@ -188,6 +188,36 @@ export const storageService = {
                 }
             }
 
+            // ── PROTECCIÓN DE CLIENTES: Circuit Breaker & Shadow Snapshot ──
+            if (key === 'bodega_customers_v1' && Array.isArray(value)) {
+                try {
+                    const existing = await localforage.getItem('bodega_customers_v1');
+                    if (Array.isArray(existing) && existing.length > 3) {
+                        // 1. Shadow Snapshot periódico (cada 30 min) si el array no encoge
+                        const SHADOW_CUSTOMERS_INTERVAL_MS = 30 * 60 * 1000;
+                        const lastCustomersShadowTs = Date.parse(localStorage.getItem('bodega_customers_shadow_backup_ts') || '') || 0;
+                        const shrinks = value.length < existing.length;
+                        if (!shrinks && Date.now() - lastCustomersShadowTs > SHADOW_CUSTOMERS_INTERVAL_MS) {
+                            await localforage.setItem('bodega_customers_shadow_backup_v1', existing);
+                            localStorage.setItem('bodega_customers_shadow_backup_ts', new Date().toISOString());
+                        }
+
+                        // 2. Circuit Breaker: Bloquear si se intenta vaciar o reducir anómalamente la cartera (>50% de caída) sin confirmación
+                        const isBulkDeleteAllowed = localStorage.getItem('confirm_customers_purge_flag') === 'true';
+                        const floor = Math.max(Math.floor(existing.length * 0.5), 1);
+                        if (!isBulkDeleteAllowed && value.length < floor) {
+                            console.error(`[CIRCUIT BREAKER CLIENTES] Intento de reducción anómala detectado: de ${existing.length} a ${value.length} clientes. Escritura bloqueada para proteger la cartera.`);
+                            throw new Error(`[CircuitBreaker] Sobrescritura anómala bloqueada: de ${existing.length} a ${value.length} clientes.`);
+                        }
+                    }
+                } catch (customersGuardErr) {
+                    if (customersGuardErr.message?.includes('[CircuitBreaker]')) {
+                        throw customersGuardErr;
+                    }
+                    console.warn('[StorageGuard] Advertencia al verificar protección de clientes:', customersGuardErr);
+                }
+            }
+
             await localforage.setItem(key, value);
             // Anti-zombie: purgar localStorage para que el fallback nunca resucite datos viejos
             localStorage.removeItem(key);

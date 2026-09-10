@@ -40,6 +40,7 @@ export default function CheckoutModal({
     const { setCheckoutMode } = useProductContext();
 
     const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
+    const customerFavor = selectedCustomer ? (selectedCustomer.favor || selectedCustomer.saldoFavor || (selectedCustomer.deuda < -0.01 ? Math.abs(selectedCustomer.deuda) : 0)) : 0;
 
     const {
         barValues,
@@ -319,13 +320,13 @@ export default function CheckoutModal({
                 />
 
                 {/* Saldo a Favor */}
-                {selectedCustomer?.deuda < -0.01 && remainingUsd > 0.01 && (
+                {customerFavor > 0.01 && remainingUsd > 0.01 && (
                     <div className="px-3 py-1">
                         <button
                             onClick={handleSaldoFavor}
                             className="w-full py-2.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-200 font-bold text-sm rounded-xl transition-all flex items-center justify-center gap-2"
                         >
-                            <Wallet size={16} /> Usar Saldo a Favor ({copEnabled && tasaCop > 0 ? (copPrimary ? `${formatCop(Math.abs(selectedCustomer.deuda) * tasaCop)} COP / $${Math.abs(selectedCustomer.deuda).toFixed(2)}` : `$${Math.abs(selectedCustomer.deuda).toFixed(2)} / ${formatCop(Math.abs(selectedCustomer.deuda) * tasaCop)} COP`) : `$${Math.abs(selectedCustomer.deuda).toFixed(2)}`})
+                            <Wallet size={16} /> Usar Saldo a Favor ({copEnabled && tasaCop > 0 ? (copPrimary ? `${formatCop(customerFavor * tasaCop)} COP / $${customerFavor.toFixed(2)}` : `$${customerFavor.toFixed(2)} / ${formatCop(customerFavor * tasaCop)} COP`) : `$${customerFavor.toFixed(2)}`})
                         </button>
                     </div>
                 )}

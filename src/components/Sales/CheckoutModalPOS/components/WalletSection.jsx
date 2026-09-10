@@ -13,7 +13,7 @@ export default function WalletSection({
     pagoSaldoFavor,
     setPagoSaldoFavor,
 }) {
-    const saldoDisponible = parseFloat(cliente?.favor) || 0;
+    const saldoDisponible = parseFloat(cliente?.favor || cliente?.saldoFavor || (cliente?.deuda < -0.01 ? Math.abs(cliente.deuda) : 0)) || 0;
     if (saldoDisponible <= 0.01) return null;
 
     const pagadoOtros = totalPagadoUSD;

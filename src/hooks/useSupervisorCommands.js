@@ -379,48 +379,6 @@ export function useSupervisorCommands(deviceId) {
                     }
                     return;
                 }
-                if (command.payload?.action === 'save_customer' || command.payload?.action === 'update_customer_balance') {
-                    try {
-                        const { customerId, customerCode, deuda, favor, customer } = command.payload || {};
-                        const { storageService } = await import('../utils/storageService');
-                        const { pushCloudSync } = await import('./useCloudSync');
-
-                        const customers = await storageService.getItem('bodega_customers_v1', []) || [];
-                        let updated = false;
-                        const newCustomers = customers.map(c => {
-                            const isMatch = (customerId && (c.id === customerId || c._id === customerId)) ||
-                                            (customerCode && (c.code === customerCode || c.id === customerCode));
-                            if (isMatch) {
-                                updated = true;
-                                return {
-                                    ...c,
-                                    ...(customer || {}),
-                                    deuda: deuda !== undefined ? Number(deuda) : (customer?.deuda !== undefined ? Number(customer.deuda) : c.deuda),
-                                    favor: favor !== undefined ? Number(favor) : (customer?.favor !== undefined ? Number(customer.favor) : c.favor),
-                                    updatedAt: new Date().toISOString()
-                                };
-                            }
-                            return c;
-                        });
-
-                        if (updated) {
-                            await storageService.setItem('bodega_customers_v1', newCustomers);
-                            appliedIds.add(command.id);
-                            markApplied(command.id);
-                            await updateCommandStatus(command.id, 'applied');
-                            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_customers_v1' } }));
-                            await pushCloudSync('bodega_customers_v1', newCustomers, true);
-                        } else {
-                            await updateCommandStatus(command.id, 'failed', 'Cliente no encontrado en la caja');
-                        }
-                    } catch (err) {
-                        appliedIds.delete(command.id);
-                        unmarkApplied(command.id);
-                        console.error('[SupervisorCommands] Error al actualizar cliente remoto:', err);
-                        await updateCommandStatus(command.id, 'failed', err?.message);
-                    }
-                    return;
-                }
                 try {
                     const result = await applyInventoryCommand({
                         ...(command.payload || {}),
@@ -570,35 +528,74 @@ export function useSupervisorCommands(deviceId) {
                 }
             } else if (command.command_type === 'customer_update' || (command.command_type === 'inventory_update' && (command.payload?.action === 'save_customer' || command.payload?.action === 'update_customer_balance'))) {
                 try {
-                    const { customerId, customerCode, deuda, favor, customer } = command.payload || {};
+                    const { customerId, customerCode, deuda, favor, customer, action } = command.payload || {};
                     const { storageService } = await import('../utils/storageService');
                     const { pushCloudSync } = await import('./useCloudSync');
+                    const { withLock } = await import('../utils/withLock');
+                    const { subR, round2 } = await import('../utils/dinero');
 
-                    const customers = await storageService.getItem('bodega_customers_v1', []) || [];
-                    let updated = false;
-                    const newCustomers = customers.map(c => {
-                        const isMatch = (customerId && (c.id === customerId || c._id === customerId)) ||
-                                        (customerCode && (c.code === customerCode || c.id === customerCode));
-                        if (isMatch) {
-                            updated = true;
-                            return {
-                                ...c,
-                                ...(customer || {}),
-                                deuda: deuda !== undefined ? Number(deuda) : (customer?.deuda !== undefined ? Number(customer.deuda) : c.deuda),
-                                favor: favor !== undefined ? Number(favor) : (customer?.favor !== undefined ? Number(customer.favor) : c.favor),
-                                updatedAt: new Date().toISOString()
+                    let savedCustomers = null;
+                    await withLock('pos_write_lock', async () => {
+                        const customers = await storageService.getItem('bodega_customers_v1', []) || [];
+                        let updated = false;
+                        const newCustomers = customers.map(c => {
+                            const isMatch = (customerId && (c.id === customerId || c._id === customerId)) ||
+                                            (customerCode && (c.code === customerCode || c.id === customerCode)) ||
+                                            (customer?.id && (c.id === customer.id || c._id === customer.id));
+                            if (isMatch) {
+                                updated = true;
+                                const rawDeuda = deuda !== undefined ? Number(deuda) : (customer?.deuda !== undefined ? Number(customer.deuda) : c.deuda);
+                                const rawFavor = favor !== undefined ? Number(favor) : (customer?.favor !== undefined ? Number(customer.favor) : c.favor);
+                                const saldoNeto = subR(rawFavor, rawDeuda);
+                                return {
+                                    ...c,
+                                    ...(customer || {}),
+                                    favor: saldoNeto > 0 ? round2(saldoNeto) : 0,
+                                    deuda: saldoNeto < 0 ? round2(Math.abs(saldoNeto)) : 0,
+                                    updatedAt: new Date().toISOString()
+                                };
+                            }
+                            return c;
+                        });
+
+                        // Si es save_customer y no existía, agregarlo como nuevo cliente
+                        if (!updated && (action === 'save_customer' || command.payload?.action === 'save_customer') && customer) {
+                            const rawDeuda = Number(customer.deuda || deuda || 0);
+                            const rawFavor = Number(customer.favor || favor || 0);
+                            const saldoNeto = subR(rawFavor, rawDeuda);
+                            const nextCodeNum = customers.reduce((mx, c) => {
+                                const numPart = parseInt(c.code?.replace('CLI-', ''), 10);
+                                return isNaN(numPart) ? mx : Math.max(mx, numPart);
+                            }, 0) + 1;
+                            const generatedCode = `CLI-${String(nextCodeNum).padStart(5, '0')}`;
+                            const newCust = {
+                                id: customer.id || crypto.randomUUID(),
+                                code: customer.code || generatedCode,
+                                name: customer.name || 'Cliente',
+                                documentId: customer.documentId || '',
+                                phone: customer.phone || '',
+                                ...customer,
+                                favor: saldoNeto > 0 ? round2(saldoNeto) : 0,
+                                deuda: saldoNeto < 0 ? round2(Math.abs(saldoNeto)) : 0,
+                                createdAt: customer.createdAt || new Date().toISOString(),
+                                updatedAt: new Date().toISOString(),
                             };
+                            newCustomers.push(newCust);
+                            updated = true;
                         }
-                        return c;
+
+                        if (updated) {
+                            await storageService.setItem('bodega_customers_v1', newCustomers);
+                            savedCustomers = newCustomers;
+                        }
                     });
 
-                    if (updated) {
-                        await storageService.setItem('bodega_customers_v1', newCustomers);
+                    if (savedCustomers) {
                         appliedIds.add(command.id);
                         markApplied(command.id);
                         await updateCommandStatus(command.id, 'applied');
-                        window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_customers_v1' } }));
-                        await pushCloudSync('bodega_customers_v1', newCustomers, true);
+                        window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_customers_v1', value: savedCustomers } }));
+                        await pushCloudSync('bodega_customers_v1', savedCustomers, true);
                     } else {
                         await updateCommandStatus(command.id, 'failed', 'Cliente no encontrado en la caja');
                     }
