@@ -173,14 +173,29 @@ export const storageService = {
                             localStorage.setItem('bodega_sales_shadow_backup_ts', new Date().toISOString());
                         }
 
-                        // 2. Circuit Breaker Anti-Encogimiento:
-                        // Si se intenta guardar un array que tiene menos ventas que el existente, auto-fusionar para no perder registros
-                        if (value.length < existing.length) {
+                        // 2. Circuit Breaker Anti-Encogimiento y Anti-Pérdida de Cierres:
+                        // Si se intenta guardar un array que tiene menos ventas o menos cierres que el existente, auto-fusionar
+                        const existingCierres = existing.filter(s => s && s.tipo === 'REGISTRO_CIERRE').length;
+                        const incomingCierres = value.filter(s => s && s.tipo === 'REGISTRO_CIERRE').length;
+                        const hasFewerCierres = existingCierres > 0 && incomingCierres < existingCierres;
+                        const hasFewerSales = value.length < existing.length;
+
+                        if (hasFewerCierres || hasFewerSales) {
                             const allowSalesShrink = localStorage.getItem('confirm_sales_purge_flag') === 'true';
                             const isMonitor = localStorage.getItem('dj_pairing_mode') === 'monitor';
                             if (!allowSalesShrink && !isMonitor) {
-                                console.warn(`[CIRCUIT BREAKER VENTAS] Intento de encogimiento detectado: de ${existing.length} a ${value.length} ventas. Auto-fusionando registros para proteger integridad.`);
+                                console.warn(`[CIRCUIT BREAKER VENTAS] Intento de pérdida detectado (ventas: ${existing.length}->${value.length}, cierres: ${existingCierres}->${incomingCierres}). Auto-fusionando registros para proteger integridad.`);
                                 value = mergeSalesArrays(value, existing);
+                            }
+                        }
+                    } else if ((!Array.isArray(existing) || existing.length === 0) && Array.isArray(value)) {
+                        // Si el almacenamiento local está vacío pero tenemos un shadow snapshot con datos, recuperar
+                        const shadow = await localforage.getItem('bodega_sales_shadow_backup_v1');
+                        if (Array.isArray(shadow) && shadow.length > value.length) {
+                            const allowSalesShrink = localStorage.getItem('confirm_sales_purge_flag') === 'true';
+                            if (!allowSalesShrink) {
+                                console.warn(`[CIRCUIT BREAKER VENTAS] Local vacío pero existe shadow snapshot con ${shadow.length} ventas. Fusionando.`);
+                                value = mergeSalesArrays(value, shadow);
                             }
                         }
                     }

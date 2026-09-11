@@ -133,11 +133,27 @@ function mergeSingleSale(local, incoming) {
     const rawBase = incomingTs >= localTs ? { ...local, ...incoming } : { ...incoming, ...local };
     const base = normalizeHistoricalSale(rawBase);
 
-    // Regla de Oro 1: Si la venta fue cerrada en caja localmente, se preserva cerrada
-    if (local.cajaCerrada === true || incoming.cajaCerrada === true) {
+    // Regla de Oro 1: Preservación indestructible de Cierres de Caja y vinculación de ventas
+    const resolvedCierreId = (local.cierreId && local.cierreId !== '')
+        ? local.cierreId
+        : ((incoming.cierreId && incoming.cierreId !== '') ? incoming.cierreId : (base.cierreId || undefined));
+
+    const resolvedCierreNumber = (local.cierreNumber !== undefined && local.cierreNumber !== null && local.cierreNumber !== '')
+        ? local.cierreNumber
+        : ((incoming.cierreNumber !== undefined && incoming.cierreNumber !== null && incoming.cierreNumber !== '')
+            ? incoming.cierreNumber
+            : (base.cierreNumber !== undefined ? base.cierreNumber : undefined));
+
+    const isClosed = local.cajaCerrada === true || incoming.cajaCerrada === true || !!resolvedCierreId;
+
+    if (isClosed) {
         base.cajaCerrada = true;
-        base.cierreId = local.cierreId ?? incoming.cierreId;
-        base.cierreNumber = local.cierreNumber ?? incoming.cierreNumber;
+        if (resolvedCierreId) {
+            base.cierreId = resolvedCierreId;
+        }
+        if (resolvedCierreNumber !== undefined) {
+            base.cierreNumber = resolvedCierreNumber;
+        }
     }
 
     // Regla de Oro 2: Si la venta fue anulada en cualquiera de los lados, se preserva como ANULADA
@@ -159,6 +175,15 @@ function mergeSingleSale(local, incoming) {
     base.checkoutOperationId = local.checkoutOperationId || incoming.checkoutOperationId || base.checkoutOperationId;
     base.inventoryOperationId = local.inventoryOperationId || incoming.inventoryOperationId || base.inventoryOperationId;
 
+    // Regla de Oro 5: Preservar integridad estructural y resúmenes de REGISTRO_CIERRE
+    if (local.tipo === 'REGISTRO_CIERRE' || incoming.tipo === 'REGISTRO_CIERRE') {
+        base.tipo = 'REGISTRO_CIERRE';
+        base.cajaCerrada = true;
+        base.summary = local.summary || incoming.summary || base.summary;
+        base.cierreNumber = local.cierreNumber ?? incoming.cierreNumber ?? base.cierreNumber;
+        base.cierreId = local.cierreId ?? incoming.cierreId ?? local.id ?? incoming.id ?? base.cierreId;
+    }
+
     return base;
 }
 
@@ -168,4 +193,14 @@ function mergeSingleSale(local, incoming) {
 export function isSalesArrayShrinking(newSales, existingSales) {
     if (!Array.isArray(existingSales) || !Array.isArray(newSales)) return false;
     return existingSales.length > 0 && newSales.length < existingSales.length;
+}
+
+/**
+ * Detecta si una escritura causaría una pérdida de registros de cierre histórico.
+ */
+export function isCierresCountShrinking(newSales, existingSales) {
+    if (!Array.isArray(existingSales) || !Array.isArray(newSales)) return false;
+    const existingCierres = existingSales.filter(s => s && s.tipo === 'REGISTRO_CIERRE').length;
+    const newCierres = newSales.filter(s => s && s.tipo === 'REGISTRO_CIERRE').length;
+    return existingCierres > 0 && newCierres < existingCierres;
 }

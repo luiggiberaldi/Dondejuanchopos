@@ -546,6 +546,24 @@ El `device_id` autoritativo en `sync_documents` y `supervisor_commands` es:
 `PDA-V2-ED46F23C375734BF8DF4CC7DC4A4D39F`
 Toda auditoría de ventas, inventario, Kardex, cierres de caja y clientes debe consultar y operar contra este device_id.
 
+#### Caso de Protección y Balance: Jose Gregorio (anteriormente Mono, CLI-00011)
+- **Problema histórico:** Cliente `CLI-00011` (`733d1603-5672-4dec-8f40-79aa572f5d5a`) presentó anomalía de saldo a favor de `+$2,022.97` por confusión de moneda en `TransactionModal`.
+- **Causa de reversión previa:** La caja Sunmi física retenía el array local en IndexedDB y lo empujaba en bloque con `pushCloudSync('bodega_customers_v1')`, sobreescribiendo las correcciones cloud.
+- **Estado Consolidado Definitivo (11-09-2026):**
+  - **Nombre:** `jose gregorio` (CLI-00011) | **Teléfono:** `04128677412`
+  - **Deuda Legítima:** **$14.08 USD** (Venta #438 $9.58 + Venta #492 $1.13 + Venta fiada #793 $3.37 [1x Margarina Nelly 250gr $2.50 + 1x Malta Retornable $0.87]).
+  - **Saldo a favor:** **$0.00**.
+  - **Comando Supervisor:** ID `d0a94c27-bd0f-445a-885c-4b984370768f` encolado en `supervisor_commands` para sincronización local en la caja.
+
+#### Blindaje de Cierres Históricos y Anti-Sobreescritura Cloud (11-09-2026)
+- **Problema detectado:** En el "Historial de Cierres" del Monitor, cierres pasados (ej. Cierre #37) mostraban el desglose y ventas cerradas vacíos (`[]`) porque las ventas carecían del campo `cierreId` en Doc 60.
+- **Causa raíz:** Las ventas históricas con `cierreId` estaban en Doc 18483, mientras que Doc 60 solo contenía las cabeceras `REGISTRO_CIERRE` y ventas recientes sin vincular.
+- **Triple Blindaje:**
+  1. `salesMerge.js`: Preservación indestructible de `cierreId`, `cierreNumber` y `cajaCerrada: true`.
+  2. `useCloudSync.js`: Circuit breaker en `pushCloudSyncNow` que rechaza cualquier subida de `bodega_sales_v1` si contiene menos de 39 cierres o menos del máximo conocido.
+  3. `storageService.js`: Auto-fusión inmediata si una escritura intenta encoger el conteo de ventas o cierres (`isCierresCountShrinking`).
+- **Estado Consolidado en Doc 60:** 906 registros totales (40 cierres históricos, 805 ventas vinculadas con `cierreId`, y la jornada activa del 10-09-2026 con 8 ventas, 1 gasto y fondo de gaveta de 8.410 Bs y $33 USD).
+
 ---
 
 ## 14. Mapa de issues (ISSUES.md)

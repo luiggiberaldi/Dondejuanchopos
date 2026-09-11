@@ -258,4 +258,41 @@ describe('Historical Cierres & Active Shift Reconciliation Guard', () => {
         const liveTotalBs = liveSalesOnly.reduce((sum, s) => sum + s.totalBs, 0);
         expect(liveTotalBs).toBe(15350);
     });
+
+    it('should verify live Cierre #37 has its closed sales linked and matches 18.222,66 Bs and $22.22 USD', async () => {
+        const fs = await import('fs');
+        const envContent = fs.readFileSync('.env', 'utf8');
+        const env = {};
+        envContent.split('\n').forEach(line => {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('#')) return;
+            const idx = trimmed.indexOf('=');
+            if (idx > -1) {
+                let val = trimmed.substring(idx + 1).trim();
+                if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) val = val.slice(1, -1);
+                env[trimmed.substring(0, idx).trim()] = val;
+            }
+        });
+        const url = env.VITE_SUPABASE_URL || env.VITE_SUPABASE_CLOUD_URL;
+        const key = env.SUPABASE_SERVICE_KEY || env.VITE_SUPABASE_ANON_KEY;
+
+        const res = await fetch(`${url}/rest/v1/sync_documents?id=eq.60&select=data`, {
+            headers: { apikey: key, Authorization: `Bearer ${key}` }
+        });
+        const doc = await res.json();
+        const liveSales = doc[0]?.data?.payload || [];
+
+        const c37 = liveSales.find(s => s.tipo === 'REGISTRO_CIERRE' && s.cierreNumber === 37);
+        expect(c37).toBeDefined();
+
+        const c37Movements = liveSales.filter(s => (s.cierreId === c37.id || s.cierreId === c37.cierreId) && s.tipo !== 'REGISTRO_CIERRE');
+        expect(c37Movements.length).toBe(6);
+        expect(c37Movements.filter(s => s.tipo === 'VENTA').length).toBe(3);
+        expect(c37Movements.filter(s => s.tipo === 'GASTO_INTERNO').length).toBe(1);
+
+        const totalBs = c37Movements
+            .filter(s => s.tipo === 'VENTA')
+            .reduce((acc, s) => acc + (s.totalBs || 0), 0);
+        expect(totalBs).toBeCloseTo(18222.66, 1);
+    });
 });

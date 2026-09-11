@@ -140,6 +140,30 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
 
     const payloadToUpload = sanitizePayloadForSync(key, value);
 
+    // ── BLINDAJE INMUTABLE DE HISTORIAL DE VENTAS Y CIERRES (ANTI-REGRESIÓN) ──
+    if (key === 'bodega_sales_v1' && Array.isArray(payloadToUpload)) {
+        const allowSalesPurge = localStorage.getItem('confirm_sales_purge_flag') === 'true';
+        if (!allowSalesPurge) {
+            const cierresInPayload = payloadToUpload.filter(s => s && s.tipo === 'REGISTRO_CIERRE').length;
+            const maxKnownCierres = parseInt(localStorage.getItem('bodega_sales_max_cierres') || '0', 10);
+            const isProductionDevice = activeDeviceId === 'PDA-V2-ED46F23C375734BF8DF4CC7DC4A4D39F';
+            const minAllowedCierres = isProductionDevice ? 39 : maxKnownCierres;
+
+            if (cierresInPayload < minAllowedCierres) {
+                console.error(
+                    `[CIRCUIT BREAKER CLOUD SYNC] Bloqueado intento de subir ventas incompletas a la nube. ` +
+                    `Cierres detectados: ${cierresInPayload}, mínimo requerido: ${minAllowedCierres}. ` +
+                    `Protegiendo base de datos remota contra sobreescritura accidental.`
+                );
+                return false;
+            }
+
+            if (cierresInPayload > maxKnownCierres) {
+                localStorage.setItem('bodega_sales_max_cierres', String(cierresInPayload));
+            }
+        }
+    }
+
     // E2: tope duro de egress por documento (8 MB, alineado con REMOTE_BACKUP_MAX_BYTES).
     // Con el compactador inteligente proactivo (compactSalesPayload), los payloads se
     // mantienen compactos (~1MB) y nunca alcanzan este umbral.
