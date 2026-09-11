@@ -232,27 +232,33 @@ export default function MonitorCierresTab({ AlertTriangle, ChevronRight, Downloa
                                                 <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/60 dark:border-slate-800 p-5 shadow-sm">
                                                     <h3 className="text-xs font-black text-slate-800 dark:text-white mb-4 uppercase tracking-wider">Desglose de Ingresos</h3>
                                                     <div className="space-y-2.5">
-                                                        {activeC.paymentBreakdown.map(([methodId, data]) => {
-                                                            const IconComp = getMethodIcon(methodId);
-                                                            const pct = activeC.totalUsd > 0 ? Math.round((data.totalUsd / activeC.totalUsd) * 100) : 0;
-                                                            return (
-                                                                <div key={methodId} className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-800 rounded-2xl">
-                                                                    <div className="w-8 h-8 bg-white dark:bg-slate-800 border border-slate-150 dark:border-slate-700 rounded-lg flex items-center justify-center text-slate-500 dark:text-slate-400 shrink-0">
-                                                                        <IconComp size={14} />
-                                                                    </div>
-                                                                    <div className="flex-1 min-w-0">
-                                                                        <div className="flex items-center justify-between text-xs">
-                                                                            <span className="font-black text-slate-700 dark:text-slate-200">{data.label}</span>
-                                                                            <span className="font-outfit font-black text-slate-800 dark:text-white">${data.totalUsd.toFixed(2)}</span>
+                                                        {activeC.paymentBreakdown.length === 0 ? (
+                                                            <div className="py-5 px-4 text-center bg-slate-50 dark:bg-slate-800/20 border border-slate-100 dark:border-slate-800 rounded-2xl">
+                                                                <p className="text-xs font-bold text-slate-400">Sin ingresos registrados en este turno.</p>
+                                                            </div>
+                                                        ) : (
+                                                            activeC.paymentBreakdown.map(([methodId, data]) => {
+                                                                const IconComp = getMethodIcon(methodId);
+                                                                const pct = activeC.totalUsd > 0 ? Math.round((data.totalUsd / activeC.totalUsd) * 100) : 0;
+                                                                return (
+                                                                    <div key={methodId} className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-800 rounded-2xl">
+                                                                        <div className="w-8 h-8 bg-white dark:bg-slate-800 border border-slate-150 dark:border-slate-700 rounded-lg flex items-center justify-center text-slate-500 dark:text-slate-400 shrink-0">
+                                                                            <IconComp size={14} />
                                                                         </div>
-                                                                        <div className="flex items-center justify-between text-[10px] text-slate-400 mt-0.5">
-                                                                            <span>{data.count} tx • {pct}%</span>
-                                                                            <span className="font-outfit">{formatBs(data.totalBs)} Bs</span>
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <div className="flex items-center justify-between text-xs">
+                                                                                <span className="font-black text-slate-700 dark:text-slate-200">{data.label}</span>
+                                                                                <span className="font-outfit font-black text-slate-800 dark:text-white">${data.totalUsd.toFixed(2)}</span>
+                                                                            </div>
+                                                                            <div className="flex items-center justify-between text-[10px] text-slate-400 mt-0.5">
+                                                                                <span>{data.count} tx • {pct}%</span>
+                                                                                <span className="font-outfit">{formatBs(data.totalBs)} Bs</span>
+                                                                            </div>
                                                                         </div>
                                                                     </div>
-                                                                </div>
-                                                            );
-                                                        })}
+                                                                );
+                                                            })
+                                                        )}
                                                     </div>
                                                 </div>
 
@@ -260,7 +266,12 @@ export default function MonitorCierresTab({ AlertTriangle, ChevronRight, Downloa
                                                 <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/60 dark:border-slate-800 p-6 shadow-sm">
                                                     <h3 className="text-xs font-black text-slate-800 dark:text-white mb-4 uppercase tracking-wider">Ventas Cerradas en este Turno</h3>
                                                     <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
-                                                        {activeC.sales.slice().sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(sale => {
+                                                        {activeC.sales.length === 0 ? (
+                                                            <div className="py-8 px-4 text-center bg-slate-50 dark:bg-slate-800/20 border border-slate-100 dark:border-slate-800 rounded-2xl">
+                                                                <p className="text-xs font-bold text-slate-400">Sin ventas registradas en este turno.</p>
+                                                            </div>
+                                                        ) : (
+                                                            activeC.sales.slice().sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(sale => {
                                                             const isVoided = sale.status === 'ANULADA';
                                                             return (
                                                                 <div 
@@ -327,7 +338,7 @@ export default function MonitorCierresTab({ AlertTriangle, ChevronRight, Downloa
                                                                     </div>
                                                                 </div>
                                                             );
-                                                        })}
+                                                        }))}
                                                     </div>
                                                 </div>
                                             </div>

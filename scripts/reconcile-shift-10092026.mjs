@@ -249,37 +249,44 @@ export async function runReconciliation() {
 
     console.log('[Reconcile] Conectando a Supabase...');
 
-    // 1. Obtener cierres históricos de Doc 18483
+    // 1. Obtener historial completo de Doc 18483 (40 cierres + 834 ventas con su cierreId)
     const res18483 = await fetch(`${url}/rest/v1/sync_documents?id=eq.18483&select=data`, {
         headers: { apikey: key, Authorization: `Bearer ${key}` }
     });
     const data18483 = await res18483.json();
     const sales18483 = data18483[0]?.data?.payload || [];
-    const cierres = sales18483.filter(s => s.tipo === 'REGISTRO_CIERRE');
-    console.log(`[Reconcile] Cierres históricos recuperados: ${cierres.length}`);
+    console.log(`[Reconcile] Registros históricos recuperados de Doc 18483: ${sales18483.length}`);
 
-    // 2. Obtener ventas cerradas previas al día de hoy de Doc 60
+    // 2. Obtener datos actuales de Doc 60 para no perder ventas no indexadas en 18483
     const res60 = await fetch(`${url}/rest/v1/sync_documents?id=eq.60&select=data`, {
         headers: { apikey: key, Authorization: `Bearer ${key}` }
     });
     const data60 = await res60.json();
     const sales60 = data60[0]?.data?.payload || [];
 
-    const historicalClosed = sales60.filter(s => {
-        if (s.tipo === 'APERTURA_CAJA') return false;
-        if (s.tipo === 'REGISTRO_CIERRE') return false;
-        if (s.saleNumber >= 785) return false;
-        if (s.id?.startsWith('sale_manual_100926_')) return false;
-        if (s.id === 'gasto_teipe_1789067070525') return false;
-        return true;
-    }).map(s => ({ ...s, cajaCerrada: true }));
+    // Mapear por ID asegurando precedencia limpia
+    const itemsById = new Map();
 
-    const unifiedPayload = [
-        ...CANONICAL_SHIFT_10092026,
-        ...historicalClosed,
-        ...cierres
-    ];
+    // Base: Archivo histórico 18483 (incluye cierres y ventas vinculadas por cierreId)
+    sales18483.forEach(item => {
+        if (item && item.id) itemsById.set(item.id, item);
+    });
 
+    // Ventas intermedias de Doc 60 (ej: 775-784 del 9 de septiembre)
+    sales60.forEach(item => {
+        if (item && item.id && !itemsById.has(item.id)) {
+            itemsById.set(item.id, item);
+        }
+    });
+
+    // Sobreescribir con la jornada canónica activa oficial del 10-09-2026 (#785-#792, teipe, apertura)
+    CANONICAL_SHIFT_10092026.forEach(item => {
+        if (item && item.id) {
+            itemsById.set(item.id, item);
+        }
+    });
+
+    const unifiedPayload = Array.from(itemsById.values());
     console.log(`[Reconcile] Payload unificado preparado con ${unifiedPayload.length} registros.`);
 
     const updateRes = await fetch(`${url}/rest/v1/sync_documents?id=eq.60`, {
