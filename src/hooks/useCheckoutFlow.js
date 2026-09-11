@@ -7,6 +7,7 @@ import { CurrencyService } from '../services/CurrencyService'; // FIN-026: safeP
 import { SALES_KEY } from './useSalesData';
 import { useAuthStore } from './store/useAuthStore';
 import { sniperLog } from '../utils/sniperPayDiagnostic';
+import { findOpenApertura } from '../utils/shiftScope';
 
 export function useCheckoutFlow({
     cart, cartTotalUsd, cartTotalBs, cartSubtotalUsd,
@@ -137,29 +138,54 @@ export function useCheckoutFlow({
             const activeUser = useAuthStore.getState().usuarioActivo;
             const cajeroNombre = activeUser ? (activeUser.nombre || activeUser.usuario || 'Cajero') : null;
 
-            const aperturaRecord = {
-                id: `apertura_${Date.now()}`,
-                tipo: 'APERTURA_CAJA',
-                openingUsd,
-                openingBs,
-                // FIN-026: incluir openingCop siempre (aunque sea 0) para trazabilidad.
-                openingCop,
-                cajero: cajeroNombre,
-                cajeroId: activeUser?.id || null,
-                timestamp: today,
-                cajaCerrada: false
-            };
-
             // FIN-026: envolver en withLock para evitar duplicar aperturas en doble-click.
             await withLock('pos_write_lock', async () => {
                 const existingSales = await storageService.getItem(SALES_KEY, []);
-                const updatedSales = [...existingSales, aperturaRecord];
+                const existingApertura = findOpenApertura(existingSales);
+
+                let aperturaRecordToSave;
+                let updatedSales;
+
+                if (existingApertura) {
+                    // Guarda-rail Anti-Reinicio Accidental:
+                    // Si ya existía una apertura abierta en el turno activo, preservamos el timestamp
+                    // original de apertura para que ninguna venta previa de la jornada se convierta en huérfana.
+                    // Si el usuario especificó nuevos fondos positivos, los adoptamos; si introdujo 0 pero
+                    // ya había fondos declarados, preservamos los fondos existentes.
+                    aperturaRecordToSave = {
+                        ...existingApertura,
+                        openingUsd: openingUsd > 0 ? openingUsd : (existingApertura.openingUsd || 0),
+                        openingBs: openingBs > 0 ? openingBs : (existingApertura.openingBs || 0),
+                        openingCop: openingCop > 0 ? openingCop : (existingApertura.openingCop || 0),
+                        cajero: cajeroNombre || existingApertura.cajero,
+                        cajeroId: activeUser?.id || existingApertura.cajeroId,
+                        updatedAt: today
+                    };
+                    updatedSales = existingSales.map(s => s.id === existingApertura.id ? aperturaRecordToSave : s);
+                } else {
+                    aperturaRecordToSave = {
+                        id: `apertura_${Date.now()}`,
+                        tipo: 'APERTURA_CAJA',
+                        openingUsd,
+                        openingBs,
+                        // FIN-026: incluir openingCop siempre (aunque sea 0) para trazabilidad.
+                        openingCop,
+                        cajero: cajeroNombre,
+                        cajeroId: activeUser?.id || null,
+                        timestamp: today,
+                        cajaCerrada: false
+                    };
+                    updatedSales = [...existingSales, aperturaRecordToSave];
+                }
+
                 await storageService.setItem(SALES_KEY, updatedSales);
 
                 // Arnés 1: Guardar también en el espejo de seguridad de ventas (paridad con checkoutProcessor)
                 try {
                     const mirrorSales = await storageService.getItem('bodega_sales_mirror_v1', []) || [];
-                    const updatedMirror = [...mirrorSales, aperturaRecord];
+                    const updatedMirror = existingApertura
+                        ? mirrorSales.map(s => s.id === existingApertura.id ? aperturaRecordToSave : s)
+                        : [...mirrorSales, aperturaRecordToSave];
                     await storageService.setItem('bodega_sales_mirror_v1', updatedMirror);
                 } catch (mirrorErr) {
                     console.warn('[handleSaveApertura] Error actualizando espejo:', mirrorErr);
@@ -167,13 +193,13 @@ export function useCheckoutFlow({
 
                 // Arnés 2: Sellar en ancla persistente dedicada (LocalStorage y almacenamiento de turno)
                 try {
-                    localStorage.setItem('bodega_active_shift_anchor', JSON.stringify(aperturaRecord));
-                    await storageService.setItem('bodega_active_shift_v1', aperturaRecord);
+                    localStorage.setItem('bodega_active_shift_anchor', JSON.stringify(aperturaRecordToSave));
+                    await storageService.setItem('bodega_active_shift_v1', aperturaRecordToSave);
                 } catch (anchorErr) {
                     console.warn('[handleSaveApertura] Error guardando ancla de turno:', anchorErr);
                 }
 
-                setTodayAperturaData(aperturaRecord);
+                setTodayAperturaData(aperturaRecordToSave);
             });
 
             setIsAperturaOpen(false);

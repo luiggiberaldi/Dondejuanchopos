@@ -3,6 +3,7 @@ import { storageService } from '../utils/storageService';
 import { withLock } from '../utils/withLock';
 import { getActivePaymentMethods } from '../config/paymentMethods';
 import { getLocalISODate } from '../utils/dateHelpers';
+import { findOpenApertura } from '../utils/shiftScope';
 
 export const SALES_KEY = 'bodega_sales_v1';
 
@@ -49,7 +50,7 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
         salesList = salesList.map(normalizeSale224);
 
         // ── GUARDA-RAIL: Auto-reparación del Turno Activo desde Ancla Persistente ──
-        let activeApertura = salesList.find(s => s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada);
+        let activeApertura = findOpenApertura(salesList);
         if (!activeApertura) {
             try {
                 let anchorRecord = null;
@@ -79,6 +80,11 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
             } catch (anchorReadErr) {
                 console.warn('[useSalesData] Advertencia al leer ancla de turno:', anchorReadErr);
             }
+        } else {
+            // Refrescar anclas persistentes si la apertura activa está presente y válida
+            try {
+                localStorage.setItem('bodega_active_shift_anchor', JSON.stringify(activeApertura));
+            } catch {}
         }
 
         // Sanear ventas anuladas históricas que quedaron sin cajaCerrada: true
@@ -668,7 +674,7 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
             setSalesData(savedSales);
 
             // Recalculate Apertura (busca la apertura del turno activo que no haya sido cerrada)
-            let apertura = savedSales.find(s => s.tipo === 'APERTURA_CAJA' && !s.cajaCerrada);
+            let apertura = findOpenApertura(savedSales);
             if (!apertura) {
                 try {
                     const rawAnchor = localStorage.getItem('bodega_active_shift_anchor');
