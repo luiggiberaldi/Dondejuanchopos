@@ -208,6 +208,22 @@ export function useSupervisorCommands(deviceId) {
 
         const processCommand = async (command) => {
             if (!command || command.status !== 'pending') return;
+            // FASE 3A: aislamiento de la instancia fantasma. Con gate registrado,
+            // solo la instancia primaria procesa comandos; las demás NO los
+            // consumen (quedan pending para la caja real). Sin gate → fail-open
+            // (comportamiento previo, despliegue seguro).
+            try {
+                const { getInstanceId, readGate, canProcessCommands } = await import('../utils/instanceFingerprint');
+                const myId = getInstanceId();
+                const gate = await readGate(deviceId, supabaseCloud);
+                const decision = canProcessCommands(gate, myId);
+                if (!decision.allowed) {
+                    console.warn(`[SupervisorCommands] ${decision.reason}: comando ${command.id} (${command.command_type}) se deja pending para la instancia primaria.`);
+                    return;
+                }
+            } catch (gateErr) {
+                console.warn('[SupervisorCommands] Gate de instancia no disponible (fail-open):', gateErr?.message || gateErr);
+            }
             if (appliedIds.has(command.id)) return; // dedup: catch-up + realtime
             if (_processingCommandIds.has(command.id)) return;
             _processingCommandIds.add(command.id);
@@ -231,7 +247,8 @@ export function useSupervisorCommands(deviceId) {
                             if (value !== null) lsData[key] = value;
                         }
 
-                        return buildLocalRemoteBackup(deviceId, command.id, idbData, lsData);
+                        const { getInstanceId, hasServiceWorker } = await import('../utils/instanceFingerprint');
+                        return buildLocalRemoteBackup(deviceId, command.id, idbData, lsData, undefined, getInstanceId(), hasServiceWorker());
                     });
                     const { error } = await supabaseCloud.rpc('write_paired_cloud_backup', {
                         p_device_id: deviceId,

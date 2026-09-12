@@ -339,6 +339,8 @@ export function buildLocalRemoteBackup(
     idbData = {},
     lsData = {},
     generatedAt = new Date().toISOString(),
+    instanceId = null,
+    hasSW = null,
 ) {
     if (typeof deviceId !== 'string' || deviceId.trim() === '') {
         throw new Error('El device_id de origen es requerido para el backup.');
@@ -364,10 +366,14 @@ export function buildLocalRemoteBackup(
     const missingCriticalDocIds = REMOTE_BACKUP_CRITICAL_DOC_IDS.filter(docId => !receivedIds.has(docId));
     const backup = {
         timestamp: generatedAt,
-        version: '2.0',
+        version: '2.1',
         appName: 'TasasAlDia_Bodegas_Cloud',
         source: 'supervisor_full_backup_request',
         sourceDeviceId: deviceId,
+        // FASE 3A: identidad de la instancia que generó el backup (trazabilidad
+        // de la fantasma bajo el mismo device_id; ver .agents/AGENTS.md §9).
+        instanceId: instanceId || null,
+        instanceHasServiceWorker: hasSW,
         data: { idb: safeIdb, ls: safeLs },
         metadata: {
             requestId: requestId || null,
