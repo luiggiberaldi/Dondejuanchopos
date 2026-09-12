@@ -1,35 +1,32 @@
 /**
  * src/hooks/useSupervisorCommandQueue.js
  *
- * Cola de comandos supervisor → caja: pendientes locales (TTL 24h), en vuelo
- * (TTL 20min), comandos en la nube, polling de estado, realtime, autoupload,
- * anulación de comandos y descarga de backup remoto.
- *
- * Extraído de OwnerMonitorView.jsx (refactor 2026-08-21). Comportamiento
- * idéntico; los estados/handlers se movieron sin cambios de lógica.
+ * Cola durable supervisor → caja: pendientes locales, envíos inciertos y
+ * confirmaciones sin caducidad ciega. Conserva UUID y contenido desde el primer
+ * intento, y separa el acuse de la caja del catálogo realmente sincronizado.
+ * Incluye consulta de estados, cancelación y descarga de respaldo remoto.
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { showToast } from '../components/Toast';
 import { COMMAND_STATUS } from '../constants/commandStatus';
 import { fetchRemoteFullBackup } from '../services/remoteAuditService';
-import { applyProjectedStock } from '../utils/supervisorStockProjection';
+import { applyProjectedStock, hasSupervisorReceipt, shouldProjectSupervisorChange } from '../utils/supervisorStockProjection';
+import { useDurableSupervisorQueue, LEGACY_PENDING_KEY, LEGACY_INFLIGHT_KEY } from './useDurableSupervisorQueue';
 import {
     createSupervisorCommandId,
-    getSupervisorChangeKey,
     getSupervisorChangeResolution,
     normalizeSupervisorChanges,
+    sameSupervisorRequest,
     restoreLocalRateState,
     SUPERVISOR_RATE_PENDING_KEY,
 } from '../utils/supervisorCommandModel';
 
-const PENDING_KEY = 'dj_pending_inventory_changes_v1';
-const INFLIGHT_KEY = 'dj_inflight_inventory_changes_v1';
+const PENDING_KEY = LEGACY_PENDING_KEY;
 
 export function useSupervisorCommandQueue({
     pairedDeviceId,
     products,
-    setProducts,
     supervisorUser,
     triggerHaptic,
     setSales,
@@ -44,40 +41,33 @@ export function useSupervisorCommandQueue({
     const [showDiscardQueueModal, setShowDiscardQueueModal] = useState(false);
     const [cancellingCmdId, setCancellingCmdId] = useState(null);
     const [downloadingBackup, setDownloadingBackup] = useState(false);
-    const [pendingChanges, setPendingChanges] = useState(() => {
-        try {
-            const raw = localStorage.getItem(PENDING_KEY);
-            const arr = raw ? JSON.parse(raw) : [];
-            const now = Date.now();
-            const MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h para pendientes locales
-            const valid = (Array.isArray(arr) ? arr : []).filter(c => {
-                const time = new Date(c.queuedAt || c.sentAt || 0).getTime();
-                return !Number.isFinite(time) || (now - time) < MAX_AGE_MS;
-            });
-            return normalizeSupervisorChanges(valid);
-        } catch { return []; }
-    });
-    const [inFlightChanges, setInFlightChanges] = useState(() => {
-        try {
-            const raw = localStorage.getItem(INFLIGHT_KEY);
-            const arr = raw ? JSON.parse(raw) : [];
-            const now = Date.now();
-            const MAX_INFLIGHT_AGE_MS = 20 * 60 * 1000; // 20 minutos máximo para cambios en confirmación huérfanos
-            const valid = (Array.isArray(arr) ? arr : []).filter(c => {
-                const time = new Date(c.sentAt || c.queuedAt || 0).getTime();
-                return Number.isFinite(time) && (now - time) < MAX_INFLIGHT_AGE_MS;
-            });
-            return normalizeSupervisorChanges(valid);
-        } catch { return []; }
-    });
+    const durableQueue = useDurableSupervisorQueue(pairedDeviceId);
+    const { ref: queueRef, update: updateQueue } = durableQueue;
+    const { pending: pendingChanges, inFlight: inFlightChanges } = durableQueue.state;
+    const resolvedIdsRef = useRef(new Set());
+    const recoveryRequestedRef = useRef(new Set());
+    const timersRef = useRef(new Set());
     const [uploading, setUploading] = useState(false);
     const uploadingRef = useRef(false);
     const [recentlyConfirmedIds, setRecentlyConfirmedIds] = useState(() => new Set());
     const [pendingVoidSaleIds, setPendingVoidSaleIds] = useState(() => new Set());
     const [pendingVoidCommands, setPendingVoidCommands] = useState({});
     const notifiedCommandIdsRef = useRef(new Set());
-    const autoUploadTimerRef = useRef(null);
-    const uploadPendingChangesRef = useRef(null);
+    useEffect(() => {
+        if (durableQueue.error && !notifiedCommandIdsRef.current.has('queue-storage-error')) {
+            notifiedCommandIdsRef.current.add('queue-storage-error');
+            showToast('No se pudo recuperar la cola guardada. Se conservaron los datos; no se enviarán cambios hasta resolver el almacenamiento.', 'error');
+        }
+    }, [durableQueue.error]);
+    const requestRecovery = useCallback((id) => {
+        if (recoveryRequestedRef.current.has(id)) return;
+        recoveryRequestedRef.current.add(id);
+        window.dispatchEvent(new CustomEvent('supervisor_sync_requested'));
+    }, []);
+    useEffect(() => () => {
+        timersRef.current.forEach(clearTimeout);
+        timersRef.current.clear();
+    }, []);
 
     const totalControlChanges = pendingChanges.length + cloudPendingCmds.length;
 
@@ -100,194 +90,99 @@ export function useSupervisorCommandQueue({
         };
     }, [allCloudCmds, pendingChanges, inFlightChanges, pendingVoidCommands]);
 
-    const persistInFlight = useCallback((next) => {
-        const normalized = normalizeSupervisorChanges(next);
-        setInFlightChanges(normalized);
-        try {
-            localStorage.setItem(INFLIGHT_KEY, JSON.stringify(normalized));
-        } catch { /* storage lleno */ }
-    }, []);
-
-    const getChangeKey = useCallback((change) => getSupervisorChangeKey(change), []);
-
-    const isInventoryChangeConfirmed = useCallback((change, catalog) => {
+    const isInventoryChangeConfirmed = useCallback((change, catalog, acknowledged = false, command = null) => {
         if (!change || !Array.isArray(catalog)) return false;
         const product = catalog.find(p => String(p.id) === String(change.productId));
-
-        if (change.action === 'add') {
-            if (!product) return false;
-            const expectedStock = Number(change.data?.stock);
-            return Number.isFinite(expectedStock)
-                ? Number(product.stock) === Math.max(0, expectedStock)
-                    || product.stockOperationIds?.includes(change.commandId)
-                : true;
+        if (hasSupervisorReceipt(product, change)) return true;
+        if (!acknowledged) return false;
+        // Tras más de 25 movimientos el recibo puede salir del anillo. Un ACK
+        // sin advertencias + una traza física POSTERIOR (ambas fechadas por la
+        // misma caja) permite adoptar el catálogo nuevo sin recrear el delta.
+        // Sin estas evidencias se mantiene la espera; la igualdad de stock no basta.
+        if (change.action === 'adjust_stock') {
+            return command?.status === 'applied' && Array.isArray(product?.stockOperationIds)
+                && product.stockOperationIds.length >= 25
+                && Number.isFinite(Date.parse(command.applied_at))
+                && Date.parse(product.stockUpdatedAt) > Date.parse(command.applied_at);
         }
         if (change.action === 'delete') return !product;
-        if (change.action === 'adjust_stock') {
-            if (product.stockOperationIds?.includes(change.commandId)) return true;
-            const target = change.data?.targetStock;
-            const expectedStock = target !== undefined && target !== null && target !== ''
-                ? Math.max(0, Number(target))
-                : (change.baseStock !== undefined
-                    ? applyProjectedStock(Number(change.baseStock), [change])
-                    : null);
-            return Boolean(product && expectedStock !== null && Number(product.stock) === expectedStock);
-        }
+        if (change.action === 'add') return Boolean(product);
         if (change.action !== 'edit' || !product) return false;
-
-        const data = change.data || {};
-        return Object.entries(data)
+        return Object.entries(change.data || {})
             .filter(([key]) => !['baseUpdatedAt', 'updatedAt', 'createdAt', 'stock'].includes(key) && !key.startsWith('_'))
-            .every(([key, expected]) => {
-                if (key === 'name') return String(product[key] || '').trim() === String(expected || '').trim();
-                if (expected === null || expected === undefined || expected === '') return true;
-                return String(product[key] ?? '') === String(expected);
-            });
+            .every(([key, expected]) => key === 'name'
+                ? String(product[key] || '').trim() === String(expected || '').trim()
+                : JSON.stringify(product[key] ?? null) === JSON.stringify(expected ?? null));
     }, []);
 
     useEffect(() => {
-        if (inFlightChanges.length === 0 || !Array.isArray(products)) return;
-
         const ownMonitorId = localStorage.getItem('dj_device_id');
-        const inventoryCommands = new Map(
-            (Array.isArray(allCloudCmds) ? allCloudCmds : [])
-                .filter(command => command.monitor_device_id === ownMonitorId
-                    && command.command_type === 'inventory_update')
-                .map(command => [command.id, command])
-        );
-        const commandList = [...inventoryCommands.values()];
-        const confirmedKeys = new Set();
-        const rejectedKeys = new Set();
-
-        for (const change of inFlightChanges) {
-            const resolution = getSupervisorChangeResolution(change, commandList);
-            const command = resolution.command;
-            if (resolution.status === 'pending' || !command) continue;
-
+        const ownCommands = allCloudCmds.filter(command => command.monitor_device_id === ownMonitorId
+            && command.primary_device_id === pairedDeviceId);
+        const current = queueRef.current;
+        const changes = [...current.inFlight, ...current.pending.filter(c => c.attemptedAt)];
+        const resolved = new Set();
+        const awaiting = new Set();
+        const confirmedProdIds = [];
+        for (const change of changes) {
+            const resolution = getSupervisorChangeResolution(change, ownCommands);
             if (resolution.status === 'rejected') {
-                rejectedKeys.add(getChangeKey(change));
-                if (command.id && !notifiedCommandIdsRef.current.has(command.id)) {
-                    notifiedCommandIdsRef.current.add(command.id);
-                    showToast(
-                        `La caja rechazó ${change.action === 'adjust_stock' ? 'el ajuste de stock' : 'el cambio de inventario'}${command.error_reason ? `: ${command.error_reason}` : ''}. Se restauró la vista anterior.`,
-                        'error'
-                    );
+                resolved.add(change.commandId);
+                if (!notifiedCommandIdsRef.current.has(change.commandId)) {
+                    notifiedCommandIdsRef.current.add(change.commandId);
+                    showToast(`La caja rechazó el cambio: ${resolution.command.error_reason || resolution.command.status}.`, 'error');
                 }
-            } else if (resolution.status === 'applied' || ['applied', 'applied_with_warnings'].includes(command.status)) {
-                confirmedKeys.add(getChangeKey(change));
+            } else if (isInventoryChangeConfirmed(change, products, resolution.status === 'applied', resolution.command)
+                || (resolution.status === 'applied' && !['add', 'edit', 'delete', 'adjust_stock'].includes(change.action))) {
+                if (resolution.status === 'applied') requestRecovery(change.commandId);
+                resolved.add(change.commandId);
+                if (change.productId) confirmedProdIds.push(String(change.productId));
+            } else if (resolution.status === 'applied') {
+                if (change.syncState !== 'awaiting_catalog') awaiting.add(change.commandId);
+                requestRecovery(change.commandId);
             }
         }
-
-        // Las órdenes confirmadas por la caja (o reflejadas en catálogo) se retiran de inmediato de la cola
-        for (const change of inFlightChanges) {
-            if (rejectedKeys.has(getChangeKey(change)) || confirmedKeys.has(getChangeKey(change))) continue;
-            const command = inventoryCommands.get(change.commandId);
-            if (command && ['applied', 'applied_with_warnings'].includes(command.status)) {
-                confirmedKeys.add(getChangeKey(change));
-            } else if (change.action !== 'adjust_stock' && isInventoryChangeConfirmed(change, products)) {
-                confirmedKeys.add(getChangeKey(change));
-            }
-        }
-
-        const stockGroups = new Map();
-        inFlightChanges
-            .filter(change => change.action === 'adjust_stock' && !rejectedKeys.has(getChangeKey(change)) && !confirmedKeys.has(getChangeKey(change)))
-            .forEach(change => {
-                const key = String(change.productId);
-                if (!stockGroups.has(key)) stockGroups.set(key, []);
-                stockGroups.get(key).push(change);
+        if (!resolved.size && !awaiting.size) return;
+        try {
+            updateQueue(state => {
+                const waiting = state.pending.filter(c => awaiting.has(c.commandId));
+                return {
+                    pending: state.pending.filter(c => !resolved.has(c.commandId) && !awaiting.has(c.commandId)),
+                    inFlight: [...state.inFlight, ...waiting].filter(c => !resolved.has(c.commandId))
+                        .map(c => awaiting.has(c.commandId) ? { ...c, syncState: 'awaiting_catalog' } : c),
+                };
             });
-
-        for (const [productId, group] of stockGroups) {
-            const product = products.find(p => String(p.id) === productId);
-            if (!product || group.length === 0) continue;
-            const ordered = [...group].sort((a, b) =>
-                String(a.sentAt || a.queuedAt || '').localeCompare(String(b.sentAt || b.queuedAt || ''))
-            );
-            const firstBase = Number(ordered[0].baseStock);
-            if (!Number.isFinite(firstBase)) continue;
-
-            let expected = Math.max(0, firstBase);
-            let matchedPrefix = -1;
-            for (let index = 0; index < ordered.length; index++) {
-                const command = inventoryCommands.get(ordered[index].commandId);
-                if (command && ['applied', 'applied_with_warnings'].includes(command.status)) {
-                    matchedPrefix = index;
-                    break;
-                }
-                expected = applyProjectedStock(expected, [ordered[index]]);
-                if (Number(product.stock) === Number(expected)) matchedPrefix = index;
-            }
-            if (matchedPrefix >= 0) {
-                ordered.slice(0, matchedPrefix + 1).forEach(change => confirmedKeys.add(getChangeKey(change)));
-            }
+            resolved.forEach(id => resolvedIdsRef.current.add(id));
+        } catch (error) {
+            console.warn('[OwnerMonitor] No se pudo persistir la confirmación; se reintentará:', error);
+            return;
         }
-
-        const resolvedKeys = new Set([...confirmedKeys, ...rejectedKeys]);
-        if (resolvedKeys.size > 0) {
-            const confirmedChanges = inFlightChanges.filter(change => confirmedKeys.has(getChangeKey(change)));
-            const confirmedProdIds = confirmedChanges.map(c => String(c.productId || c.data?.id)).filter(Boolean);
-
-            if (confirmedChanges.length > 0 && typeof setProducts === 'function') {
-                setProducts(prevProducts => {
-                    let updated = Array.isArray(prevProducts) ? [...prevProducts] : [];
-                    for (const change of confirmedChanges) {
-                        const pId = String(change.productId || change.data?.id);
-                        const existingIdx = updated.findIndex(p => String(p.id) === pId);
-
-                        if (change.action === 'adjust_stock' && existingIdx >= 0) {
-                            const newStock = applyProjectedStock(updated[existingIdx].stock, [change]);
-                            updated[existingIdx] = { ...updated[existingIdx], stock: newStock };
-                        } else if (change.action === 'edit' && existingIdx >= 0) {
-                            updated[existingIdx] = { ...updated[existingIdx], ...(change.data || {}) };
-                        } else if (change.action === 'add') {
-                            if (existingIdx < 0 && change.data) {
-                                updated.unshift({ ...change.data, id: change.productId || change.data.id });
-                            }
-                        } else if (change.action === 'delete' && existingIdx >= 0) {
-                            updated.splice(existingIdx, 1);
-                        }
-                    }
-                    try {
-                        import('../utils/storageService').then(({ storageService }) => {
-                            storageService.setItem('bodega_products_v1', updated).catch(() => {});
-                        });
-                    } catch {}
-                    return updated;
-                });
-            }
-
-            if (confirmedProdIds.length > 0) {
-                setRecentlyConfirmedIds(prev => {
-                    const next = new Set(prev);
-                    confirmedProdIds.forEach(id => next.add(id));
-                    return next;
-                });
-                setTimeout(() => {
-                    setRecentlyConfirmedIds(prev => {
-                        const next = new Set(prev);
-                        confirmedProdIds.forEach(id => next.delete(id));
-                        return next;
-                    });
-                }, 3000);
-            }
-
-            persistInFlight(inFlightChanges.filter(change => !resolvedKeys.has(getChangeKey(change))));
+        // La confirmación solo retira la proyección. Nunca escribe productos:
+        // ese catálogo pertenece exclusivamente al eco canónico de la caja.
+        if (confirmedProdIds.length) {
+            setRecentlyConfirmedIds(prev => new Set([...prev, ...confirmedProdIds]));
+            const timer = setTimeout(() => {
+                timersRef.current.delete(timer);
+                setRecentlyConfirmedIds(prev => new Set([...prev].filter(id => !confirmedProdIds.includes(id))));
+            }, 3000);
+            timersRef.current.add(timer);
         }
-    }, [products, setProducts, inFlightChanges, allCloudCmds, getChangeKey, isInventoryChangeConfirmed, persistInFlight]);
+    }, [products, pendingChanges, inFlightChanges, allCloudCmds, pairedDeviceId,
+        queueRef, updateQueue, isInventoryChangeConfirmed, requestRecovery]);
 
     // Consulta en tiempo real del historial completo de comandos (pendientes, aplicados y anulados)
     const fetchAllCloudCmds = useCallback(async () => {
         if (!supabaseCloud || !pairedDeviceId) return;
         try {
-            const { data } = await supabaseCloud
+            const { data, error } = await supabaseCloud
                 .from('supervisor_commands')
                 .select('*')
                 .eq('primary_device_id', pairedDeviceId)
                 .order('created_at', { ascending: false })
                 .limit(150);
 
-            const all = data || [];
+            if (error) throw error;
+            const all = Array.isArray(data) ? data : [];
             setAllCloudCmds(all);
             setCloudPendingCmds(all.filter(c => c.status === 'pending'));
         } catch (err) {
@@ -436,22 +331,35 @@ export function useSupervisorCommandQueue({
         if (ratePendingRaw) {
             try {
                 const ratePending = JSON.parse(ratePendingRaw);
-                const rateCommand = allCloudCmds.find(command => command.id === ratePending.commandId);
-                if (rateCommand && terminalStatuses.has(rateCommand.status)) {
+                const rateCommand = allCloudCmds.find(command => command.id === ratePending.commandId
+                    && command.monitor_device_id === ownMonitorId && command.primary_device_id === pairedDeviceId
+                    && command.command_type === 'rate_change');
+                if (rateCommand && terminalStatuses.has(rateCommand.status)
+                    && localStorage.getItem(SUPERVISOR_RATE_PENDING_KEY) === ratePendingRaw) {
+                    const noticeId = `rate:${rateCommand.id}:${rateCommand.status}`;
                     if (rateCommand.status === 'failed' || rateCommand.status === 'cancelled') {
+                        // Retirar solo la solicitud actual ANTES de notificar storage.
+                        // Los listeners pueden crear una nueva solicitud al restaurar.
+                        localStorage.removeItem(SUPERVISOR_RATE_PENDING_KEY);
                         restoreLocalRateState(ratePending.previous);
-                        showToast('La caja rechazó la tasa. Se restauró el valor anterior.', 'error');
-                    } else {
-                        // No borrar todavía el recibo: useMonitorSync lo conserva
-                        // como barrera hasta observar en la nube las tres claves
-                        // de la tasa. Si se elimina aquí, un pull viejo puede
-                        // devolver visualmente la tasa anterior y provocar el
-                        // segundo clic que este flujo debe evitar.
+                        requestRecovery(noticeId);
+                        if (!notifiedCommandIdsRef.current.has(noticeId)) {
+                            notifiedCommandIdsRef.current.add(noticeId);
+                            showToast('La caja rechazó la tasa. Se restauró el valor anterior.', 'error');
+                        }
+                    } else if (!notifiedCommandIdsRef.current.has(noticeId)) {
+                        notifiedCommandIdsRef.current.add(noticeId);
+                        // El éxito conserva la barrera hasta observar las tres claves.
+                        requestRecovery(noticeId);
                         showToast('La caja confirmó la nueva tasa. Esperando eco de configuración.', 'success');
                     }
                 }
-            } catch {
-                localStorage.removeItem(SUPERVISOR_RATE_PENDING_KEY);
+            } catch (error) {
+                console.warn('[OwnerMonitor] No se pudo resolver la tasa pendiente:', error);
+                // No borrar una solicitud nueva que un listener haya creado.
+                if (localStorage.getItem(SUPERVISOR_RATE_PENDING_KEY) === ratePendingRaw) {
+                    try { JSON.parse(ratePendingRaw); } catch { localStorage.removeItem(SUPERVISOR_RATE_PENDING_KEY); }
+                }
             }
         }
 
@@ -485,7 +393,8 @@ export function useSupervisorCommandQueue({
                 showToast('La caja confirmó la anulación de la venta.', 'success');
             }
         }
-    }, [allCloudCmds, inFlightChanges, pendingVoidSaleIds, pendingVoidCommands, persistInFlight, getChangeKey]);
+    }, [allCloudCmds, inFlightChanges, pendingVoidSaleIds, pendingVoidCommands,
+        pairedDeviceId, requestRecovery, setSales, setSelectedSaleDetail]);
 
     const wipeMonitorSession = async () => {
         localStorage.removeItem('dj_pairing_code');
@@ -495,6 +404,9 @@ export function useSupervisorCommandQueue({
         localStorage.removeItem('business_name');
         localStorage.removeItem('business_rif');
         localStorage.removeItem(PENDING_KEY);
+        localStorage.removeItem(LEGACY_INFLIGHT_KEY);
+        localStorage.removeItem(durableQueue.key);
+        localStorage.removeItem(SUPERVISOR_RATE_PENDING_KEY);
 
         try {
             const { default: localforage } = await import('localforage');
@@ -520,18 +432,29 @@ export function useSupervisorCommandQueue({
     }, []);
 
     const persistPending = useCallback((next) => {
-        const normalized = normalizeSupervisorChanges(next);
-        setPendingChanges(normalized);
-        try { localStorage.setItem(PENDING_KEY, JSON.stringify(normalized)); } catch { /* storage lleno */ }
-    }, []);
+        try {
+            updateQueue(state => ({ ...state,
+                pending: typeof next === 'function' ? next(state.pending) : next,
+            }));
+            return true;
+        } catch (error) {
+            console.warn('[OwnerMonitor] No se pudo guardar la cola:', error);
+            showToast(`No se pudo guardar el cambio: ${error.message || 'almacenamiento no disponible'}. La cola existente se conserva.`, 'error');
+            return false;
+        }
+    }, [updateQueue]);
+    const setPendingChanges = persistPending;
 
     // Fusión de cambios en cola con setPendingChanges(prev => ...) para evitar
     // closure stale cuando el usuario pulsa +/- rápidamente antes del re-render.
     // Cada cambio conserva un UUID desde el primer intento; así un timeout del
     // monitor no puede convertir el mismo clic en dos comandos distintos.
     const queueInventoryChange = useCallback((action, productId, data) => {
-        setPendingChanges(prev => {
-            const next = normalizeSupervisorChanges([...prev]);
+        return persistPending(prev => {
+            // Desde el primer intento, UUID y payload son inmutables. Los
+            // cambios nuevos solo se fusionan con otros todavía no enviados.
+            const frozen = prev.filter(change => change.attemptedAt);
+            const next = normalizeSupervisorChanges(prev.filter(change => !change.attemptedAt));
             const now = new Date().toISOString();
             const idxOf = (act) => next.findIndex(c => c.productId === productId && c.action === act);
             const makeChange = (existing = null, nextData = data) => ({
@@ -609,19 +532,17 @@ export function useSupervisorCommandQueue({
                 next.push(makeChange());
             }
 
-            const normalized = normalizeSupervisorChanges(next);
-            try { localStorage.setItem(PENDING_KEY, JSON.stringify(normalized)); } catch { /* storage lleno */ }
-            return normalized;
+            return normalizeSupervisorChanges([...frozen, ...next]);
         });
-
-        return true;
-    }, [products]);
+    }, [products, persistPending]);
 
     // Delta de stock pendiente por producto (para proyectar en la fila)
     const pendingStockDelta = (productId) => {
-        const baseStock = (products || []).find(p => String(p.id) === String(productId))?.stock || 0;
+        const product = (products || []).find(p => String(p.id) === String(productId));
+        const baseStock = product?.stock || 0;
         const changes = [...inFlightChanges, ...pendingChanges]
-            .filter(c => String(c.productId) === String(productId) && c.action === 'adjust_stock');
+            .filter(c => String(c.productId) === String(productId) && c.action === 'adjust_stock'
+                && shouldProjectSupervisorChange(c, product));
         return applyProjectedStock(baseStock, changes) - (Number(baseStock) || 0);
     };
 
@@ -741,12 +662,28 @@ export function useSupervisorCommandQueue({
             return;
         }
         if (uploadingRef.current) return;
-        const listToProcess = normalizeSupervisorChanges(overrideList || pendingChanges);
-        if (!listToProcess || listToProcess.length === 0) return;
+        const monitorDeviceId = localStorage.getItem('dj_device_id');
+        if (!monitorDeviceId || localStorage.getItem('dj_paired_device_id') !== pairedDeviceId) {
+            showToast('La identidad o vinculación del supervisor no es válida.', 'error');
+            return;
+        }
+        if (Array.isArray(overrideList)) {
+            // Un onClick puede pasar un evento React; solo un array es un lote.
+            // También los lotes explícitos quedan recuperables si se pierde la respuesta.
+            if (!persistPending(previous => {
+                const byId = new Map(previous.map(c => [c.commandId, c]));
+                normalizeSupervisorChanges(overrideList).forEach(c => {
+                    if (!byId.has(c.commandId) && !resolvedIdsRef.current.has(c.commandId)) byId.set(c.commandId, c);
+                });
+                return [...byId.values()];
+            })) return;
+        }
+        const listToProcess = normalizeSupervisorChanges(queueRef.current.pending)
+            .filter(change => change.syncState !== 'rejected_local');
+        if (!listToProcess.length) return;
 
         uploadingRef.current = true;
         setUploading(true);
-        const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
         const actor = {
             supervisorId: supervisorUser?.id || null,
             supervisorNombre: supervisorUser?.nombre || supervisorUser?.usuario || 'Supervisor',
@@ -754,7 +691,8 @@ export function useSupervisorCommandQueue({
         };
 
         try {
-            const rowsToInsert = listToProcess.map(change => {
+            const buildRequest = change => {
+                if (change.request) return change.request;
                 const commandId = change.commandId || createSupervisorCommandId();
                 const commandType = change.action === 'user_update' ? 'user_update' : 'inventory_update';
                 const payload = change.action === 'user_update'
@@ -776,47 +714,87 @@ export function useSupervisorCommandQueue({
                     payload,
                     status: 'pending'
                 };
-            });
+            };
+            const rowsToInsert = listToProcess.map(buildRequest);
 
             // Inserción fila a fila: un cambio inválido no bloquea los demás.
             // Si la respuesta se perdió después de que Postgres insertó la fila,
             // el UUID estable se resuelve como "ya aceptado" en vez de crear otro.
             const okRows = [];
             const failedRows = [];
-            const okChanges = [];
-
             for (let i = 0; i < rowsToInsert.length; i++) {
-                const row = rowsToInsert[i];
-                const change = listToProcess[i];
-                let { error: rowError } = await supabaseCloud
-                    .from('supervisor_commands')
-                    .insert(row);
+                durableQueue.assertScope();
+                const id = rowsToInsert[i].id;
+                const change = queueRef.current.pending.find(c => c.commandId === id);
+                if (!change || resolvedIdsRef.current.has(id) || change.syncState === 'rejected_local') continue;
+                // Congelar solo el que va a salir. B no se marca como intentado
+                // si la respuesta incierta de A impide llegar a su petición.
+                const priorAttemptUncertain = Boolean(change.attemptedAt && change.syncState !== 'rejected_local');
+                const attemptedAt = change.attemptedAt || new Date().toISOString();
+                updateQueue(state => ({ ...state, pending: state.pending.map(c => c.commandId === id
+                    ? { ...c, attemptedAt, request: buildRequest(c) } : c) }));
+                const row = queueRef.current.pending.find(c => c.commandId === id)?.request;
+                if (!row) continue;
+                if (row.primary_device_id !== pairedDeviceId || row.monitor_device_id !== monitorDeviceId) {
+                    throw new Error('El comando guardado pertenece a otra vinculación.');
+                }
+                let rowError;
+                let requestConflict = false;
+                try {
+                    ({ error: rowError } = await supabaseCloud.from('supervisor_commands').insert(row));
+                } catch (error) {
+                    rowError = { message: error.message || 'Respuesta de red desconocida' };
+                }
+                durableQueue.assertScope();
 
                 if (rowError?.code === '23505') {
                     const { data: existingCommand, error: lookupError } = await supabaseCloud
                         .from('supervisor_commands')
-                        .select('id,status,primary_device_id,monitor_device_id')
+                        .select('id,status,primary_device_id,monitor_device_id,command_type,payload,error_reason')
                         .eq('id', row.id)
                         .maybeSingle();
-                    const isSamePair = existingCommand
-                        && existingCommand.primary_device_id === pairedDeviceId
-                        && existingCommand.monitor_device_id === monitorDeviceId;
-                    if (!lookupError && isSamePair
-                        && ['pending', 'applied', 'applied_with_warnings'].includes(existingCommand.status)) {
+                    durableQueue.assertScope();
+                    if (!lookupError && sameSupervisorRequest(existingCommand, row)) {
                         rowError = null;
+                        setAllCloudCmds(previous => [...previous.filter(c => c.id !== existingCommand.id), existingCommand]);
+                    } else if (!lookupError && existingCommand) {
+                        requestConflict = true;
+                        rowError = { code: 'REQUEST_ID_CONFLICT', message: 'Ese identificador ya corresponde a otro contenido. No se ha reenviado como una operación nueva.' };
                     }
                 }
 
+                // Solo una respuesta definitiva al primer intento permite afirmar
+                // que NO se insertó. Un rechazo tras un timeout anterior no borra
+                // la incertidumbre de la petición original.
+                const rejectedWithoutInsert = requestConflict || (!priorAttemptUncertain && rowError
+                    && (/^(22|23)/.test(String(rowError.code)) && rowError.code !== '23505'
+                        || ['42501', 'PGRST102', 'PGRST204'].includes(rowError.code)));
                 if (rowError) {
                     failedRows.push({ row, change, message: rowError.message, code: rowError.code });
-                    console.warn(
-                        `[OwnerMonitor] Comando '${row.command_type}' rechazado ` +
-                        `(${rowError.code || 's/c'}): ${rowError.message}`
-                    );
+                    updateQueue(state => ({ ...state, pending: state.pending.map(c => c.commandId === id ? {
+                        ...c,
+                        syncState: rejectedWithoutInsert ? 'rejected_local' : 'uncertain',
+                        lastError: rowError.message || 'No se pudo confirmar el envío',
+                    } : c) }));
+                    console.warn(`[OwnerMonitor] Comando ${id}: ${rowError.message}`);
                 } else {
                     okRows.push(row);
-                    okChanges.push({ ...change, commandId: row.id });
+                    // Conciliar cada respuesta contra el estado vigente, no contra
+                    // la fotografía del inicio del lote. Un ACK adelantado manda.
+                    updateQueue(state => {
+                        const pending = state.pending.find(c => c.commandId === row.id);
+                        if (!pending || resolvedIdsRef.current.has(row.id)) return state;
+                        return {
+                            pending: state.pending.filter(c => c.commandId !== row.id),
+                            inFlight: [...state.inFlight.filter(c => c.commandId !== row.id), {
+                                ...pending, sentAt: new Date().toISOString(), syncState: 'sent',
+                            }],
+                        };
+                    });
                 }
+                // No adelantar comandos nuevos al que tiene resultado incierto.
+                // Una consulta/reintento con su mismo UUID resolverá primero ese envío.
+                if (rowError && !rejectedWithoutInsert) break;
             }
 
             if (failedRows.length > 0) {
@@ -829,30 +807,8 @@ export function useSupervisorCommandQueue({
                 );
             }
 
-            if (!overrideList) {
-                const sentKeys = new Set(okChanges.map(getChangeKey));
-                const remainingPending = pendingChanges.filter(c => !sentKeys.has(getChangeKey(c)));
-                persistPending(remainingPending);
-                if (okChanges.length > 0) {
-                    const sentAt = new Date().toISOString();
-                    const nextInFlight = [
-                        ...inFlightChanges.filter(existing => !sentKeys.has(getChangeKey(existing))),
-                        ...okChanges.map(change => ({
-                            ...change,
-                            ...(change.action === 'adjust_stock'
-                                ? { baseStock: products.find(p => String(p.id) === String(change.productId))?.stock }
-                                : {}),
-                            sentAt,
-                            syncState: 'sent',
-                        })),
-                    ];
-                    persistInFlight(nextInFlight);
-                }
-                if (failedRows.length === 0) {
-                    showToast(`${okRows.length} cambio${okRows.length !== 1 ? 's' : ''} enviado${okRows.length !== 1 ? 's' : ''}; esperando confirmación de la caja`, 'success');
-                }
-            } else if (failedRows.length === 0) {
-                showToast(`${okRows.length} cambio${okRows.length !== 1 ? 's' : ''} enviado${okRows.length !== 1 ? 's' : ''} con éxito a la caja principal`, 'success');
+            if (failedRows.length === 0 && okRows.length > 0) {
+                showToast(`${okRows.length} cambio(s) enviado(s); esperando confirmación de la caja`, 'success');
             }
         } catch (err) {
             console.error('[OwnerMonitor] Excepción al subir lote:', err);
@@ -862,18 +818,24 @@ export function useSupervisorCommandQueue({
             setUploading(false);
         }
     };
-    uploadPendingChangesRef.current = uploadPendingChanges;
-
     const discardPendingChanges = () => {
-        persistPending([]);
-        persistInFlight([]);
-        showToast('Cola de cambios descartada', 'info');
+        const retained = queueRef.current.pending.some(c => c.attemptedAt && c.syncState !== 'rejected_local') || queueRef.current.inFlight.length > 0;
+        if (persistPending(previous => previous.filter(c => c.attemptedAt && c.syncState !== 'rejected_local'))) {
+            showToast(retained ? 'Descartados solo cambios sin enviar. Los enviados se conservan hasta confirmar o cancelar en la nube.' : 'Cola local descartada', 'info');
+        }
     };
 
     const discardSinglePendingChange = (targetIndex) => {
-        const next = pendingChanges.filter((_, idx) => idx !== targetIndex);
-        persistPending(next);
-        showToast('Cambio descartado de la cola', 'info');
+        const target = pendingChanges[targetIndex];
+        if (!target) return;
+        if (target.attemptedAt && target.syncState !== 'rejected_local') {
+            showToast('El envío puede existir en la nube. Verifica su estado antes de cancelarlo.', 'warning');
+            return;
+        }
+        if (persistPending(previous => previous.filter(c => c.commandId !== target.commandId
+            || (c.attemptedAt && c.syncState !== 'rejected_local')))) {
+            showToast('Cambio descartado de la cola local', 'info');
+        }
     };
 
     const cancelSingleCloudCmd = async (cmdId) => {

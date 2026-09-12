@@ -1,7 +1,8 @@
 // Vercel Serverless Function — Proxy de tasas BCV (dolarapi.com / Scraper BCV)
 // Cachea en memoria por 14 minutos para no saturar la fuente externa.
 
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+// TLS permanece verificado en producción. Si la fuente directa falla,
+// usar los respaldos existentes o devolver la última tasa marcada como antigua.
 
 let cache = null;
 let cacheTime = 0;
@@ -52,11 +53,12 @@ export default async function handler(req, res) {
     }
 
     try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 7000);
-        
         // 1. Intentar obtener tasas oficiales directamente de la página del BCV
         const directRates = await fetchBcvDirect();
+        // Los respaldos conservan su propio plazo incluso si la fuente directa
+        // consume sus seis segundos o falla al validar el certificado.
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 7000);
         
         // 2. Fetch DolarApi y CriptoYa en paralelo como respaldo y tasa primaria USDT
         const [resDollars, resEuros, resCriptoya] = await Promise.all([

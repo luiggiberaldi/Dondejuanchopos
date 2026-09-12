@@ -1,7 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { beforeAll, describe, it, expect } from 'vitest';
+import { randomUUID } from 'node:crypto';
 
-const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL || 'https://pleasing-corgi-164650.upstash.io';
-const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || 'gQAAAAAAAoMqAAIgcDEwNDI4MmRkZDMyNzY0ZmVhYjdkZGViZGRlYjc3MzViMQ';
+// Esta integración escribe datos: solo ejecutar contra un servicio de PRUEBAS
+// configurado explícitamente. Nunca usar credenciales incrustadas o de producción.
+const UPSTASH_URL = process.env.UPSTASH_TEST_URL;
+const UPSTASH_TOKEN = process.env.UPSTASH_TEST_TOKEN;
+const enabled = process.env.RUN_REMOTE_RELAY_TESTS === '1';
 
 async function redis(command, ...args) {
     const res = await fetch(`${UPSTASH_URL}`, {
@@ -17,8 +21,11 @@ async function redis(command, ...args) {
     return data.result;
 }
 
-describe('Compartir Base de Datos por Código (Relay Test)', () => {
-    const testCode = '777333';
+describe.skipIf(!enabled)('Compartir Base de Datos por Código (Relay Test)', () => {
+    const testCode = `test-${randomUUID()}`;
+    beforeAll(() => {
+        if (!UPSTASH_URL || !UPSTASH_TOKEN) throw new Error('Configura UPSTASH_TEST_URL y UPSTASH_TEST_TOKEN para esta integración.');
+    });
 
     it('guarda un paquete de base de datos y genera código con TTL de 24h', async () => {
         const payload = {

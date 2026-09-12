@@ -272,7 +272,250 @@ export function useSupervisorCommands(deviceId) {
                     console.error('[SupervisorCommands] Error al aplicar rate_change:', err);
                     await updateCommandStatus(command.id, 'failed', err?.message);
                 }
-            } else if (command.command_type === 'inventory_update') {
+            } else if (command.command_type === 'inventory_update' && command.payload?.action !== 'enable_feature') {
+                if (command.payload?.action === 'save_customer' || command.payload?.action === 'update_customer_balance') {
+                    try {
+                        const { customerId, customerCode, deuda, favor, customer, action } = command.payload || {};
+                        const { storageService } = await import('../utils/storageService');
+                        const { pushCloudSync } = await import('./useCloudSync');
+                        const { withLock } = await import('../utils/withLock');
+                        const { subR, round2 } = await import('../utils/dinero');
+
+                        let savedCustomers = null;
+                        await withLock('pos_write_lock', async () => {
+                            const customers = await storageService.getItem('bodega_customers_v1', []) || [];
+                            let updated = false;
+                            const newCustomers = customers.map(c => {
+                                const isMatch = (customerId && (c.id === customerId || c._id === customerId)) ||
+                                                (customerCode && (c.code === customerCode || c.id === customerCode)) ||
+                                                (customer?.id && (c.id === customer.id || c._id === customer.id));
+                                if (isMatch) {
+                                    updated = true;
+                                    const rawDeuda = deuda !== undefined ? Number(deuda) : (customer?.deuda !== undefined ? Number(customer.deuda) : c.deuda);
+                                    const rawFavor = favor !== undefined ? Number(favor) : (customer?.favor !== undefined ? Number(customer.favor) : c.favor);
+                                    const saldoNeto = subR(rawFavor, rawDeuda);
+                                    return {
+                                        ...c,
+                                        ...(customer || {}),
+                                        favor: saldoNeto > 0 ? round2(saldoNeto) : 0,
+                                        deuda: saldoNeto < 0 ? round2(Math.abs(saldoNeto)) : 0,
+                                        updatedAt: new Date().toISOString()
+                                    };
+                                }
+                                return c;
+                            });
+
+                            // Si es save_customer y no existía, agregarlo como nuevo cliente
+                            if (!updated && (action === 'save_customer' || command.payload?.action === 'save_customer') && customer) {
+                                const rawDeuda = Number(customer.deuda || deuda || 0);
+                                const rawFavor = Number(customer.favor || favor || 0);
+                                const saldoNeto = subR(rawFavor, rawDeuda);
+                                const nextCodeNum = customers.reduce((mx, c) => {
+                                    const numPart = parseInt(c.code?.replace('CLI-', ''), 10);
+                                    return isNaN(numPart) ? mx : Math.max(mx, numPart);
+                                }, 0) + 1;
+                                const generatedCode = `CLI-${String(nextCodeNum).padStart(5, '0')}`;
+                                const newCust = {
+                                    id: customer.id || crypto.randomUUID(),
+                                    code: customer.code || generatedCode,
+                                    name: customer.name || 'Cliente',
+                                    documentId: customer.documentId || '',
+                                    phone: customer.phone || '',
+                                    ...customer,
+                                    favor: saldoNeto > 0 ? round2(saldoNeto) : 0,
+                                    deuda: saldoNeto < 0 ? round2(Math.abs(saldoNeto)) : 0,
+                                    createdAt: customer.createdAt || new Date().toISOString(),
+                                    updatedAt: new Date().toISOString(),
+                                };
+                                newCustomers.push(newCust);
+                                updated = true;
+                            }
+
+                            if (updated) {
+                                await storageService.setItem('bodega_customers_v1', newCustomers);
+                                savedCustomers = newCustomers;
+                            }
+                        });
+
+                        if (savedCustomers) {
+                            appliedIds.add(command.id);
+                            markApplied(command.id);
+                            await updateCommandStatus(command.id, 'applied');
+                            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_customers_v1', value: savedCustomers } }));
+                            await pushCloudSync('bodega_customers_v1', savedCustomers, true);
+                        } else {
+                            await updateCommandStatus(command.id, 'failed', 'Cliente no encontrado en la caja');
+                        }
+                    } catch (err) {
+                        appliedIds.delete(command.id);
+                        unmarkApplied(command.id);
+                        console.error('[SupervisorCommands] Error al actualizar cliente remoto:', err);
+                        await updateCommandStatus(command.id, 'failed', err?.message);
+                    }
+                    return;
+                }
+                if (command.payload?.action === 'delete_customer') {
+                    try {
+                        const { customerId, customerCode, force } = command.payload || {};
+                        const { storageService } = await import('../utils/storageService');
+                        const { pushCloudSync } = await import('./useCloudSync');
+                        const { withLock } = await import('../utils/withLock');
+
+                        let deleted = false;
+                        await withLock('pos_write_lock', async () => {
+                            const customers = await storageService.getItem('bodega_customers_v1', []) || [];
+                            const target = customers.find(c =>
+                                (customerId && (c.id === customerId || c._id === customerId)) ||
+                                (customerCode && (c.code === customerCode || c.id === customerCode))
+                            );
+                            if (!target) return; // deleted = false → "no encontrado"
+                            // Blindaje: no borrar un cliente con saldo pendiente sin force.
+                            const tieneSaldo = (Number(target.deuda) || 0) > 0 || (Number(target.favor) || 0) > 0;
+                            if (tieneSaldo && !force) return; // deleted = false → "con saldo"
+                            const newCustomers = customers.filter(c => c !== target);
+                            await storageService.setItem('bodega_customers_v1', newCustomers);
+                            deleted = true;
+                            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_customers_v1', value: newCustomers } }));
+                            await pushCloudSync('bodega_customers_v1', newCustomers, true);
+                        });
+
+                        if (deleted) {
+                            appliedIds.add(command.id);
+                            markApplied(command.id);
+                            await updateCommandStatus(command.id, 'applied');
+                        } else {
+                            const customers = await (async () => {
+                                const { storageService } = await import('../utils/storageService');
+                                return await storageService.getItem('bodega_customers_v1', []) || [];
+                            })();
+                            const target = customers.find(c =>
+                                (customerId && (c.id === customerId || c._id === customerId)) ||
+                                (customerCode && (c.code === customerCode || c.id === customerCode))
+                            );
+                            await updateCommandStatus(command.id, 'failed',
+                                !target ? 'Cliente a eliminar no encontrado en la caja'
+                                    : 'Cliente con saldo pendiente; se requiere force:true para eliminar');
+                        }
+                    } catch (err) {
+                        appliedIds.delete(command.id);
+                        unmarkApplied(command.id);
+                        console.error('[SupervisorCommands] Error al eliminar cliente remoto:', err);
+                        await updateCommandStatus(command.id, 'failed', err?.message);
+                    }
+                    return;
+                }
+                if (command.payload?.action === 'register_customer_payment') {
+                    try {
+                        const { cobro, creditos, customerId, customerCode, deuda, favor } = command.payload || {};
+                        const { storageService } = await import('../utils/storageService');
+                        const { pushCloudSync } = await import('./useCloudSync');
+                        const { withLock } = await import('../utils/withLock');
+                        const { subR, round2 } = await import('../utils/dinero');
+
+                        // Acepta un cobro (ABONO) y/o un lote de ventas fiadas (CREDITO).
+                        const records = [cobro, ...(Array.isArray(creditos) ? creditos : [])].filter(r => r && r.id);
+                        if (records.length === 0) {
+                            await updateCommandStatus(command.id, 'failed', 'Datos de transacción inválidos');
+                            return;
+                        }
+
+                        let savedCustomers = null;
+                        await withLock('pos_write_lock', async () => {
+                            const sales = await storageService.getItem('bodega_sales_v1', []) || [];
+                            // Idempotencia por id: solo inserta los registros que falten.
+                            const faltantes = records.filter(r => !sales.some(s => s.id === r.id));
+                            if (faltantes.length > 0) {
+                                const updatedSales = [...faltantes, ...sales];
+                                await storageService.setItem('bodega_sales_v1', updatedSales);
+                                try {
+                                    await storageService.setItem('bodega_sales_mirror_v1', updatedSales);
+                                } catch (_) {}
+                            }
+
+                            const customers = await storageService.getItem('bodega_customers_v1', []) || [];
+                            const newCustomers = customers.map(c => {
+                                const isMatch = (customerId && (c.id === customerId || c._id === customerId)) ||
+                                                (customerCode && (c.code === customerCode || c.id === customerCode));
+                                if (!isMatch) return c;
+                                const rawDeuda = deuda !== undefined ? Number(deuda) : c.deuda;
+                                const rawFavor = favor !== undefined ? Number(favor) : c.favor;
+                                const saldoNeto = subR(rawFavor, rawDeuda);
+                                return {
+                                    ...c,
+                                    favor: saldoNeto > 0 ? round2(saldoNeto) : 0,
+                                    deuda: saldoNeto < 0 ? round2(Math.abs(saldoNeto)) : 0,
+                                    updatedAt: new Date().toISOString(),
+                                };
+                            });
+                            await storageService.setItem('bodega_customers_v1', newCustomers);
+                            savedCustomers = newCustomers;
+                        });
+
+                        if (savedCustomers) {
+                            appliedIds.add(command.id);
+                            markApplied(command.id);
+                            await updateCommandStatus(command.id, 'applied');
+                            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_sales_v1' } }));
+                            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_customers_v1', value: savedCustomers } }));
+                            await pushCloudSync('bodega_sales_v1', await storageService.getItem('bodega_sales_v1', []), true).catch(() => {});
+                            await pushCloudSync('bodega_customers_v1', savedCustomers, true);
+                        } else {
+                            await updateCommandStatus(command.id, 'failed', 'No se pudo registrar el abono');
+                        }
+                    } catch (err) {
+                        appliedIds.delete(command.id);
+                        unmarkApplied(command.id);
+                        console.error('[SupervisorCommands] Error al registrar abono de cliente:', err);
+                        await updateCommandStatus(command.id, 'failed', err?.message);
+                    }
+                    return;
+                }
+                if (command.payload?.action === 'update_sales_record') {
+                    try {
+                        const { recordId, patch } = command.payload || {};
+                        const { storageService } = await import('../utils/storageService');
+                        const { pushCloudSync } = await import('./useCloudSync');
+                        const { withLock } = await import('../utils/withLock');
+
+                        if (!recordId || !patch || typeof patch !== 'object') {
+                            await updateCommandStatus(command.id, 'failed', 'Datos de corrección inválidos');
+                            return;
+                        }
+
+                        let updated = false;
+                        let updatedSales = null;
+                        await withLock('pos_write_lock', async () => {
+                            const sales = await storageService.getItem('bodega_sales_v1', []) || [];
+                            updatedSales = sales.map(s => {
+                                if (s.id !== recordId) return s;
+                                updated = true;
+                                return { ...s, ...patch, updatedAt: new Date().toISOString() };
+                            });
+                            if (updated) {
+                                await storageService.setItem('bodega_sales_v1', updatedSales);
+                                try {
+                                    await storageService.setItem('bodega_sales_mirror_v1', updatedSales);
+                                } catch (_) {}
+                            }
+                        });
+
+                        if (updated) {
+                            appliedIds.add(command.id);
+                            markApplied(command.id);
+                            await updateCommandStatus(command.id, 'applied');
+                            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_sales_v1' } }));
+                            await pushCloudSync('bodega_sales_v1', updatedSales, true).catch(() => {});
+                        } else {
+                            await updateCommandStatus(command.id, 'failed', 'Registro no encontrado en la caja');
+                        }
+                    } catch (err) {
+                        appliedIds.delete(command.id);
+                        unmarkApplied(command.id);
+                        console.error('[SupervisorCommands] Error al corregir registro de ventas:', err);
+                        await updateCommandStatus(command.id, 'failed', err?.message);
+                    }
+                    return;
+                }
                 if (command.payload?.action === 'void_employee_consumption') {
                     try {
                         const { consumptionId, reason } = command.payload || {};
@@ -571,85 +814,6 @@ export function useSupervisorCommands(deviceId) {
                     console.error('[SupervisorCommands] Error al aplicar user_update:', err);
                     await updateCommandStatus(command.id, 'failed', err?.message);
                 }
-            } else if (command.command_type === 'customer_update' || (command.command_type === 'inventory_update' && (command.payload?.action === 'save_customer' || command.payload?.action === 'update_customer_balance'))) {
-                try {
-                    const { customerId, customerCode, deuda, favor, customer, action } = command.payload || {};
-                    const { storageService } = await import('../utils/storageService');
-                    const { pushCloudSync } = await import('./useCloudSync');
-                    const { withLock } = await import('../utils/withLock');
-                    const { subR, round2 } = await import('../utils/dinero');
-
-                    let savedCustomers = null;
-                    await withLock('pos_write_lock', async () => {
-                        const customers = await storageService.getItem('bodega_customers_v1', []) || [];
-                        let updated = false;
-                        const newCustomers = customers.map(c => {
-                            const isMatch = (customerId && (c.id === customerId || c._id === customerId)) ||
-                                            (customerCode && (c.code === customerCode || c.id === customerCode)) ||
-                                            (customer?.id && (c.id === customer.id || c._id === customer.id));
-                            if (isMatch) {
-                                updated = true;
-                                const rawDeuda = deuda !== undefined ? Number(deuda) : (customer?.deuda !== undefined ? Number(customer.deuda) : c.deuda);
-                                const rawFavor = favor !== undefined ? Number(favor) : (customer?.favor !== undefined ? Number(customer.favor) : c.favor);
-                                const saldoNeto = subR(rawFavor, rawDeuda);
-                                return {
-                                    ...c,
-                                    ...(customer || {}),
-                                    favor: saldoNeto > 0 ? round2(saldoNeto) : 0,
-                                    deuda: saldoNeto < 0 ? round2(Math.abs(saldoNeto)) : 0,
-                                    updatedAt: new Date().toISOString()
-                                };
-                            }
-                            return c;
-                        });
-
-                        // Si es save_customer y no existía, agregarlo como nuevo cliente
-                        if (!updated && (action === 'save_customer' || command.payload?.action === 'save_customer') && customer) {
-                            const rawDeuda = Number(customer.deuda || deuda || 0);
-                            const rawFavor = Number(customer.favor || favor || 0);
-                            const saldoNeto = subR(rawFavor, rawDeuda);
-                            const nextCodeNum = customers.reduce((mx, c) => {
-                                const numPart = parseInt(c.code?.replace('CLI-', ''), 10);
-                                return isNaN(numPart) ? mx : Math.max(mx, numPart);
-                            }, 0) + 1;
-                            const generatedCode = `CLI-${String(nextCodeNum).padStart(5, '0')}`;
-                            const newCust = {
-                                id: customer.id || crypto.randomUUID(),
-                                code: customer.code || generatedCode,
-                                name: customer.name || 'Cliente',
-                                documentId: customer.documentId || '',
-                                phone: customer.phone || '',
-                                ...customer,
-                                favor: saldoNeto > 0 ? round2(saldoNeto) : 0,
-                                deuda: saldoNeto < 0 ? round2(Math.abs(saldoNeto)) : 0,
-                                createdAt: customer.createdAt || new Date().toISOString(),
-                                updatedAt: new Date().toISOString(),
-                            };
-                            newCustomers.push(newCust);
-                            updated = true;
-                        }
-
-                        if (updated) {
-                            await storageService.setItem('bodega_customers_v1', newCustomers);
-                            savedCustomers = newCustomers;
-                        }
-                    });
-
-                    if (savedCustomers) {
-                        appliedIds.add(command.id);
-                        markApplied(command.id);
-                        await updateCommandStatus(command.id, 'applied');
-                        window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_customers_v1', value: savedCustomers } }));
-                        await pushCloudSync('bodega_customers_v1', savedCustomers, true);
-                    } else {
-                        await updateCommandStatus(command.id, 'failed', 'Cliente no encontrado en la caja');
-                    }
-                } catch (err) {
-                    appliedIds.delete(command.id);
-                    unmarkApplied(command.id);
-                    console.error('[SupervisorCommands] Error al actualizar cliente remoto:', err);
-                    await updateCommandStatus(command.id, 'failed', err?.message);
-                }
             } else if (command.command_type === 'void_sale') {
                 try {
                     const { saleId } = command.payload || {};
@@ -912,6 +1076,64 @@ export function useSupervisorCommands(deviceId) {
                     window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_sales_v1' } }));
                 } catch (err) {
                     console.error('[SupervisorCommands] Error al reabrir turno remoto:', err);
+                    await updateCommandStatus(command.id, 'failed', err?.message);
+                }
+            } else if (
+                command.command_type === 'enable_feature' ||
+                (command.command_type === 'inventory_update' && command.payload?.action === 'enable_feature')
+            ) {
+                // FASE 1 del plan maestro: activación remota de feature flags.
+                // Sobre el envelope inventory_update (único permitido por la
+                // constraint viva de supervisor_commands). Lista blanca estricta:
+                // solo flags de sync aprobados. Cualquier otra clave se rechaza
+                // explícitamente (no es un backdoor de config genérico).
+                // Idempotente: reenviar el comando no rompe nada. Con código VIEJO
+                // en la caja, el envelope cae en applyInventoryCommand y falla con
+                // "Acción inválida" (inofensivo) hasta que el SW se active.
+                try {
+                    const flag = command.payload?.flag;
+                    // Existing queued envelopes use action=enable_feature; keep
+                    // the operation separate from the routing discriminator.
+                    const action = command.payload?.action === 'enable_feature'
+                        ? (command.payload?.flagAction ?? 'enable')
+                        : command.payload?.action; // 'enable' | 'disable' | 'clear'
+                    const ALLOWED_FLAGS = ['dj_sales_push_merge_v1'];
+
+                    if (!ALLOWED_FLAGS.includes(flag)) {
+                        await updateCommandStatus(command.id, 'failed', `Flag no permitido: ${String(flag).slice(0, 100)}`);
+                        return;
+                    }
+
+                    if (action === 'enable') {
+                        localStorage.setItem(flag, 'true');
+                    } else if (action === 'disable') {
+                        localStorage.setItem(flag, 'false');
+                    } else if (action === 'clear') {
+                        localStorage.removeItem(flag);
+                    } else {
+                        await updateCommandStatus(command.id, 'failed', `Acción inválida: ${String(action).slice(0, 50)}`);
+                        return;
+                    }
+
+                    appliedIds.add(command.id);
+                    markApplied(command.id);
+                    await updateCommandStatus(command.id, 'applied');
+
+                    // Efecto inmediato: con el merge activado, empujar el historial
+                    // local fusionado. Si el RPC de lectura falla o no hay pairing,
+                    // el push actúa igual que siempre (passthrough + breaker).
+                    if (flag === 'dj_sales_push_merge_v1' && action === 'enable') {
+                        try {
+                            const { pushCloudSync } = await import('./useCloudSync');
+                            const { storageService } = await import('../utils/storageService');
+                            const sales = await storageService.getItem('bodega_sales_v1', []);
+                            await pushCloudSync('bodega_sales_v1', sales, true);
+                        } catch (pushErr) {
+                            console.warn('[SupervisorCommands] Push post-enable falló (se reintentará en el ciclo periódico):', pushErr);
+                        }
+                    }
+                } catch (err) {
+                    console.error('[SupervisorCommands] Error en enable_feature:', err);
                     await updateCommandStatus(command.id, 'failed', err?.message);
                 }
             }

@@ -163,7 +163,7 @@ export default function MonitorCambiosTab({ ChevronLeft, ChevronRight, Clock, IT
                                                         <div className="min-w-0 space-y-1.5 flex-1">
                                                             <div className="flex items-center gap-2 flex-wrap">
                                                                 <span className="text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                                                                    EN COLA LOCAL (Sin Subir)
+                                                                    {change.syncState === 'rejected_local' ? 'RECHAZADO AL ENVIAR' : change.attemptedAt ? 'ENVÍO POR CONFIRMAR' : 'EN COLA LOCAL (Sin Subir)'}
                                                                 </span>
                                                                 <span className="text-[10px] text-slate-400 font-bold">
                                                                     Encolado a las {new Date(change.queuedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -175,6 +175,11 @@ export default function MonitorCambiosTab({ ChevronLeft, ChevronRight, Clock, IT
                                                                     {info.actionLabel}
                                                                 </span>
                                                             </div>
+                                                            {change.lastError && (
+                                                                <p className="text-xs text-amber-700 dark:text-amber-300">
+                                                                    {change.lastError}{change.syncState === 'rejected_local' ? ' Descarta este rechazo y crea el cambio corregido.' : ' Se conserva el identificador para comprobar o reintentar sin duplicar.'}
+                                                                </p>
+                                                            )}
                                                             {info.details.length > 0 && (
                                                                 <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
                                                                     {info.details.map((det, dIdx) => (

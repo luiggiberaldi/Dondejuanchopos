@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, ArrowDownRight, ArrowUpRight, CheckCircle2, Save, ArrowLeft, User, CreditCard, ShieldCheck } from 'lucide-react';
+import { X, ArrowDownRight, ArrowUpRight, CheckCircle2, Save, ArrowLeft, User, CreditCard, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { procesarImpactoCliente } from '../../utils/financialLogic';
 import { round2, mulR } from '../../utils/dinero';
 import { formatUsd, formatBs, formatCop } from '../../utils/calculatorUtils';
@@ -25,11 +25,13 @@ export default function TransactionModal({
 
     const [isFullPayment, setIsFullPayment] = useState(false);
     const [showConfirmation, setShowConfirmation] = useState(false);
+    const [explicitHighAmountConfirmed, setExplicitHighAmountConfirmed] = useState(false);
 
     // Resetear confirmación al cambiar de cliente, tipo o visibilidad
     useEffect(() => {
         setShowConfirmation(false);
-    }, [transactionModal.isOpen, transactionModal.customer?.id, transactionModal.type]);
+        setExplicitHighAmountConfirmed(false);
+    }, [transactionModal.isOpen, transactionModal.customer?.id, transactionModal.type, transactionAmount]);
 
     // Calcular preview del saldo resultante en tiempo real
     const rawAmt = parseFloat(transactionAmount) || 0;
@@ -203,30 +205,64 @@ export default function TransactionModal({
                         </div>
                     </div>
 
-                    <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/50 flex gap-2.5">
-                        <button
-                            type="button"
-                            onClick={() => setShowConfirmation(false)}
-                            className="flex-1 py-3 px-3 text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-bold rounded-xl active:scale-95 transition-all text-xs border border-slate-200 dark:border-slate-700"
-                        >
-                            Modificar
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setShowConfirmation(false);
-                                handleTransaction(isFullPayment);
-                            }}
-                            className={`flex-[1.5] py-3 px-3 text-white font-black rounded-xl active:scale-95 transition-all text-xs flex justify-center items-center gap-1.5 shadow-md ${
-                                transactionModal.type === 'ABONO'
-                                    ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20'
-                                    : 'bg-red-600 hover:bg-red-700 shadow-red-500/20'
-                            }`}
-                        >
-                            <CheckCircle2 size={16} />
-                            {transactionModal.type === 'ABONO' ? 'Confirmar Abono' : 'Confirmar Deuda'}
-                        </button>
-                    </div>
+                    {/* Alerta y Confirmación de Seguridad para montos altos en USD */}
+                    {currencyMode === 'USD' && rawAmt >= 300 && (
+                        <div className="mx-5 mb-2 p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-xl space-y-2">
+                            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300">
+                                <AlertTriangle size={18} className="shrink-0" />
+                                <span className="text-xs font-black uppercase tracking-wide">Confirmación de Seguridad</span>
+                            </div>
+                            <p className="text-xs text-amber-900 dark:text-amber-200">
+                                El monto indicado es de <strong className="font-black">${formatUsd(rawAmt)} USD</strong>. Confirme que no se trata de una cifra en Bolívares antes de proceder.
+                            </p>
+                            <label className="flex items-start gap-2.5 pt-1 cursor-pointer select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={explicitHighAmountConfirmed}
+                                    onChange={(e) => setExplicitHighAmountConfirmed(e.target.checked)}
+                                    className="mt-0.5 w-4 h-4 rounded text-brand focus:ring-brand dark:bg-slate-800"
+                                />
+                                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 leading-tight">
+                                    Confirmo que este movimiento es de ${formatUsd(rawAmt)} DÓLARES en efectivo o transferencia, no en Bolívares.
+                                </span>
+                            </label>
+                        </div>
+                    )}
+
+                    {(() => {
+                        const requiresHighCheck = currencyMode === 'USD' && rawAmt >= 300;
+                        const isConfirmDisabled = requiresHighCheck && !explicitHighAmountConfirmed;
+
+                        return (
+                            <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/50 flex gap-2.5">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowConfirmation(false)}
+                                    className="flex-1 py-3 px-3 text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 font-bold rounded-xl active:scale-95 transition-all text-xs border border-slate-200 dark:border-slate-700"
+                                >
+                                    Modificar
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={isConfirmDisabled}
+                                    onClick={() => {
+                                        setShowConfirmation(false);
+                                        handleTransaction(isFullPayment, explicitHighAmountConfirmed);
+                                    }}
+                                    className={`flex-[1.5] py-3 px-3 text-white font-black rounded-xl active:scale-95 transition-all text-xs flex justify-center items-center gap-1.5 shadow-md ${
+                                        isConfirmDisabled
+                                            ? 'bg-slate-300 dark:bg-slate-700 text-slate-500 dark:text-slate-400 cursor-not-allowed opacity-60 shadow-none'
+                                            : transactionModal.type === 'ABONO'
+                                            ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20'
+                                            : 'bg-red-600 hover:bg-red-700 shadow-red-500/20'
+                                    }`}
+                                >
+                                    <CheckCircle2 size={16} />
+                                    {transactionModal.type === 'ABONO' ? 'Confirmar Abono' : 'Confirmar Deuda'}
+                                </button>
+                            </div>
+                        );
+                    })()}
                 </div>
             </div>
         );
@@ -357,6 +393,34 @@ export default function TransactionModal({
                                     {formatBs(parseFloat(transactionAmount) * bcvRate)} Bs
                                     {copEnabled && tasaCop > 0 && ` · ${formatCop(parseFloat(transactionAmount) * tasaCop)} COP`}
                                 </span>
+                            </div>
+                        )}
+                        {/* Guardarraíl visual: alerta cuando el monto en USD es inusualmente alto */}
+                        {currencyMode === 'USD' && rawAmt >= 100 && (
+                            <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/60 rounded-xl p-3 mt-3 space-y-2">
+                                <div className="flex items-start gap-2">
+                                    <AlertTriangle size={18} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                                    <div className="flex-1 text-xs">
+                                        <p className="font-bold text-amber-800 dark:text-amber-300">
+                                            Monto elevado en Dólares (${formatUsd(rawAmt)} USD)
+                                        </p>
+                                        <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5">
+                                            Verifique si el cliente realmente está pagando en divisa o si el monto ingresado corresponde a Bolívares.
+                                        </p>
+                                    </div>
+                                </div>
+                                {bcvRate > 0 && rawAmt >= bcvRate && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setCurrencyMode('BS');
+                                            setPaymentMethod('efectivo_bs');
+                                        }}
+                                        className="w-full py-2 px-2.5 bg-amber-200/80 hover:bg-amber-300 dark:bg-amber-900/60 dark:hover:bg-amber-800/80 text-amber-900 dark:text-amber-100 font-black rounded-lg text-xs transition-colors flex items-center justify-center gap-1.5 shadow-xs active:scale-98"
+                                    >
+                                        💡 Cambiar a Bolívares ({rawAmt} Bs = ${(rawAmt / bcvRate).toFixed(2)} USD)
+                                    </button>
+                                )}
                             </div>
                         )}
                         {currencyMode === 'COP' && transactionAmount && tasaCop > 0 && (

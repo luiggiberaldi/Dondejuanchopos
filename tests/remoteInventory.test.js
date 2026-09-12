@@ -99,6 +99,27 @@ describe('applyInventoryCommand — comandos remotos de inventario', () => {
         expect(products).toHaveLength(1);
     });
 
+    it('un objetivo de stock ya alcanzado deja recibo sin movimiento físico', async () => {
+        const request = { action: 'adjust_stock', productId: 'p1', operationId: 'noop-target', data: { targetStock: 24 } };
+        const first = await applyInventoryCommand(request);
+        expect(first.success).toBe(true);
+        expect(first.updatedProducts[0].stock).toBe(24);
+        expect(first.updatedProducts[0].stockOperationIds).toContain('noop-target');
+        expect(await storageService.getItem('bodega_kardex_v1', [])).toEqual([]);
+        const again = await applyInventoryCommand(request);
+        expect(again.success).toBe(true);
+        const current = await storageService.getItem(PRODUCTS_KEY);
+        expect(current[0].stockOperationIds.filter(id => id === 'noop-target')).toHaveLength(1);
+    });
+
+    it('el delta limitado a cero también deja recibo sin inventar Kardex', async () => {
+        await storageService.setItem(PRODUCTS_KEY, [{ ...baseProduct, stock: 0 }]);
+        const res = await applyInventoryCommand({ action: 'adjust_stock', productId: 'p1', operationId: 'noop-negative', data: { delta: -2 } });
+        expect(res.success).toBe(true);
+        expect(res.updatedProducts[0]).toMatchObject({ stock: 0, lastStockOperationId: 'noop-negative' });
+        expect(await storageService.getItem('bodega_kardex_v1', [])).toEqual([]);
+    });
+
     it('edit inexistente → failed', async () => {
         const res = await applyInventoryCommand({
             action: 'edit', productId: 'nope', data: { name: 'X', priceUsd: 1 },

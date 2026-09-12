@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { calculateComboStock, getEffectiveCostUsd } from '../utils/productProcessor';
-import { applyProjectedStock } from '../utils/supervisorStockProjection';
+import { applyProjectedStock, shouldProjectSupervisorChange } from '../utils/supervisorStockProjection';
 
 const ITEMS_PER_PAGE_INVENTARIO = 15;
 
@@ -24,7 +24,9 @@ export function useMonitorInventory({ products, pendingChanges, inFlightChanges,
     const projectedProducts = useMemo(() => {
         if (!products) return [];
 
-        const allProjectedChanges = [...inFlightChanges, ...pendingChanges];
+        const allProjectedChanges = [...inFlightChanges, ...pendingChanges]
+            .filter(change => shouldProjectSupervisorChange(change,
+                products.find(p => String(p.id) === String(change.productId))));
         const baseList = products.map(p => {
             const stockChanges = allProjectedChanges
                 .filter(c => c.productId === p.id && c.action === 'adjust_stock');
@@ -57,6 +59,7 @@ export function useMonitorInventory({ products, pendingChanges, inFlightChanges,
                 _isQueuedEdit: !!editChange,
                 _isLocalPending: isLocalPending,
                 _isInFlight: isInFlight,
+                _isAwaitingCatalog: inFlightChanges.some(c => String(c.productId) === String(p.id) && c.syncState === 'awaiting_catalog'),
                 _isPendingSync: isLocalPending || isInFlight,
                 _isRecentlyConfirmed: isRecentlyConfirmed,
             };
@@ -67,7 +70,8 @@ export function useMonitorInventory({ products, pendingChanges, inFlightChanges,
 
         // Agregar a la vista los creados en cola (nuevos)
         const addChanges = allProjectedChanges.filter(c => c.action === 'add');
-        const newItems = addChanges.filter(c => c.data).map(addChange => {
+        const newItems = addChanges.filter(c => c.data
+            && !products.some(p => String(p.id) === String(c.productId || c.data.id))).map(addChange => {
             const tempId = addChange.productId || addChange.data.id || `temp_${Date.now()}`;
             const isAddInFlight = inFlightChanges.some(c => c.action === 'add' && String(c.productId || c.data?.id) === String(tempId));
             return {

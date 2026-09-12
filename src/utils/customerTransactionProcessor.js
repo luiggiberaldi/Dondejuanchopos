@@ -24,7 +24,8 @@ export async function processCustomerTransaction({
     tasaCop,
     copEnabled,
     activePaymentMethods = [],
-    isFullPayment = false
+    isFullPayment = false,
+    isExplicitHighAmount = false
 }) {
     if (!customer?.id) return { error: 'Cliente inválido' };
     if (!['ABONO', 'CREDITO'].includes(type)) return { error: 'Tipo de operación inválido' };
@@ -54,6 +55,11 @@ export async function processCustomerTransaction({
     if (currencyMode === 'COP') {
         if (!copEnabled || safeTasaCop <= 0) return { error: 'Tasa COP no configurada' };
         amountUsd = divR(rawAmount, safeTasaCop);
+    }
+
+    // Guardarraíl de cordura comercial: ningún abono/deuda desatendido > $1,000 USD
+    if (amountUsd > 1000 && !isExplicitHighAmount) {
+        return { error: 'El monto excede el límite de seguridad ($1,000 USD). Verifique si el monto corresponde a Bolívares o confirme explícitamente.' };
     }
 
     // 2. Financial quadrant logic
@@ -104,7 +110,11 @@ export async function processCustomerTransaction({
             finalTransaccionOpts = { esCredito: true, deudaGenerada: appliedUsd };
         }
 
-        const updatedCustomer = procesarImpactoCliente(currentCustomer, finalTransaccionOpts);
+        const baseUpdatedCustomer = procesarImpactoCliente(currentCustomer, finalTransaccionOpts);
+        const updatedCustomer = {
+            ...baseUpdatedCustomer,
+            updatedAt: transactionTimestamp,
+        };
         const customerRecords = customers.length === 0 ? [customer] : customers;
         const newCustomers = customerRecords.map(c => c.id === customer.id ? updatedCustomer : c);
         await storageService.setItem('bodega_customers_v1', newCustomers);

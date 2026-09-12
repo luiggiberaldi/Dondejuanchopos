@@ -45,10 +45,18 @@ export default function SupervisorRateModal({ isOpen, onClose, rates, primaryDev
             return;
         }
         
+        const monitorDeviceId = localStorage.getItem('dj_device_id');
+        const isCurrentPair = () => localStorage.getItem('dj_device_id') === monitorDeviceId
+            && localStorage.getItem('dj_paired_device_id') === primaryDeviceId;
+        if (!monitorDeviceId || !isCurrentPair()) {
+            showToast('La identidad o vinculación del supervisor cambió. Recarga antes de enviar.', 'error');
+            return;
+        }
+
         // Validar tasa manual
         if (rateMode === 'manual') {
             const val = parseFloat(customRate);
-            if (isNaN(val) || val <= 0) {
+            if (!Number.isFinite(val) || val <= 0) {
                 showToast('Ingresa un valor de tasa válido mayor a 0', 'error');
                 return;
             }
@@ -74,26 +82,39 @@ export default function SupervisorRateModal({ isOpen, onClose, rates, primaryDev
             customRate: rateMode === 'manual' ? String(customRate) : null,
         };
 
+        let requestStarted = false;
+        const restoreOwnPendingRate = () => {
+            const raw = localStorage.getItem(SUPERVISOR_RATE_PENDING_KEY);
+            if (!isCurrentPair() || !raw || JSON.parse(raw)?.commandId !== commandId) return false;
+            // Los listeners de restauración pueden crear B: retirar A antes de
+            // notificar, y nunca borrar la solicitud nueva después de esos eventos.
+            localStorage.removeItem(SUPERVISOR_RATE_PENDING_KEY);
+            restoreLocalRateState(previousRateState);
+            window.dispatchEvent(new CustomEvent('supervisor_sync_requested'));
+            return true;
+        };
         try {
-            const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
-
-            // Optimistic UI: el Supervisor cambia de inmediato, pero conserva una
-            // fotografía local para restaurar el valor si la caja rechaza el comando.
-            localStorage.setItem('bodega_rate_mode', desiredRateState.rateMode);
-            localStorage.setItem('bodega_use_auto_rate', desiredRateState.useAutoRate);
-            if (desiredRateState.customRate === null) localStorage.removeItem('bodega_custom_rate');
-            else localStorage.setItem('bodega_custom_rate', desiredRateState.customRate);
+            // Guardar el recibo primero: si falta espacio, no cambiar la tasa ni
+            // enviar una operación que no pueda identificarse tras una recarga.
             localStorage.setItem(SUPERVISOR_RATE_PENDING_KEY, JSON.stringify({
                 commandId,
+                primaryDeviceId,
+                monitorDeviceId,
                 previous: previousRateState,
                 desired: desiredRateState,
                 issuedAt: new Date().toISOString(),
             }));
+            localStorage.setItem('bodega_rate_mode', desiredRateState.rateMode);
+            localStorage.setItem('bodega_use_auto_rate', desiredRateState.useAutoRate);
+            if (desiredRateState.customRate === null) localStorage.removeItem('bodega_custom_rate');
+            else localStorage.setItem('bodega_custom_rate', desiredRateState.customRate);
             window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_rate_mode' } }));
             window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_custom_rate' } }));
 
             // El id se fija desde el primer intento. Si la respuesta se pierde,
             // un reintento no crea una segunda orden para la misma acción.
+            if (!isCurrentPair()) throw new Error('La vinculación cambió durante la preparación de la tasa.');
+            requestStarted = true;
             const { error } = await supabaseCloud
                 .from('supervisor_commands')
                 .insert({
@@ -117,46 +138,57 @@ export default function SupervisorRateModal({ isOpen, onClose, rates, primaryDev
             showToast('¡Comando enviado a la caja! Aplicación pendiente de confirmación.', 'success');
             onClose();
         } catch (err) {
+            if (!isCurrentPair()) return;
+            if (!requestStarted) {
+                try { restoreOwnPendingRate(); } catch { /* conservar el recibo si el almacenamiento está bloqueado */ }
+                showToast('No se pudo preparar la tasa en el almacenamiento local. No se envió ningún comando.', 'error');
+                return;
+            }
             // Un timeout puede ocurrir DESPUÉS de que Supabase insertó la fila.
             // Consultar el commandId estable antes de restaurar evita que el usuario
             // reenvíe la misma orden y que la caja la procese dos veces.
             let remoteCommand = null;
-            let lookupFailed = false;
             try {
-                const monitorDeviceId = localStorage.getItem('dj_device_id') || 'monitor_web';
                 const { data, error: lookupError } = await supabaseCloud
                     .from('supervisor_commands')
                     .select('id,status,primary_device_id,monitor_device_id,error_reason')
                     .eq('id', commandId)
                     .maybeSingle();
-                if (lookupError) lookupFailed = true;
-                else if (data
+                if (!lookupError && data
                     && data.primary_device_id === primaryDeviceId
                     && data.monitor_device_id === monitorDeviceId) {
                     remoteCommand = data;
                 }
             } catch {
-                lookupFailed = true;
+                // Una consulta fallida o vacía no prueba que la inserción no ocurrió.
+                // Conservar el recibo y consultar su mismo ID, nunca crear otro.
             }
 
+            if (!isCurrentPair()) return;
             if (remoteCommand && RATE_COMMAND_ACCEPTED_STATUSES.has(remoteCommand.status)) {
                 if (RATE_COMMAND_TERMINAL_SUCCESS_STATUSES.has(remoteCommand.status)) {
-                    localStorage.removeItem(SUPERVISOR_RATE_PENDING_KEY);
-                    showToast('La tasa ya fue recibida y aplicada por la caja.', 'success');
+                    // Aceptada no significa que ya llegaron las tres claves de
+                    // configuración: useMonitorSync retira la barrera al observarlas.
+                    window.dispatchEvent(new CustomEvent('supervisor_sync_requested'));
+                    showToast('La caja confirmó la tasa. Esperando la configuración sincronizada.', 'success');
                 } else {
                     showToast('La tasa quedó en espera en la nube; no la reenvíes. La caja la aplicará al conectarse.', 'warning');
                 }
                 onClose();
-            } else if (lookupFailed && !isDefinitiveRateInsertFailure(err)) {
-                // Estado de transporte ambiguo: conservar la proyección y el
-                // recibo local para que el polling/realtime resuelva la orden.
+            } else if (['failed', 'cancelled'].includes(remoteCommand?.status) || isDefinitiveRateInsertFailure(err)) {
+                try {
+                    const restored = restoreOwnPendingRate();
+                    showToast(restored
+                        ? 'La solicitud de tasa fue rechazada. Se restauró el valor anterior.'
+                        : 'La solicitud anterior fue rechazada; no se modificó la configuración actual.', 'error');
+                } catch (restoreError) {
+                    console.warn('[SupervisorRateModal] No se pudo restaurar la configuración:', restoreError);
+                    window.dispatchEvent(new CustomEvent('supervisor_sync_requested'));
+                    showToast('La tasa fue rechazada, pero falta recuperar la configuración local.', 'error');
+                }
+            } else {
                 showToast('No se pudo confirmar el envío. La orden se conserva para evitar duplicarla.', 'warning');
                 onClose();
-            } else {
-                restoreLocalRateState(previousRateState);
-                localStorage.removeItem(SUPERVISOR_RATE_PENDING_KEY);
-                console.error('[SupervisorRateModal] Error al enviar comando:', err);
-                showToast('No se pudo enviar la tasa. Se restauró el valor anterior.', 'error');
             }
         } finally {
             setLoading(false);
@@ -183,7 +215,7 @@ export default function SupervisorRateModal({ isOpen, onClose, rates, primaryDev
                 </div>
 
                 <p className="text-[11px] text-slate-400 leading-relaxed font-semibold">
-                    Selecciona la tasa de cambio de referencia. Se aplicará a los cálculos de precios en bolívares (Bs) en la caja principal de forma inmediata.
+                    Selecciona la tasa de referencia. La caja principal debe estar conectada para aplicar el cambio; el supervisor mostrará la confirmación al sincronizar.
                 </p>
 
                 {/* Opciones */}

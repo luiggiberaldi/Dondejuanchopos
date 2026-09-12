@@ -222,7 +222,14 @@ export class FinancialEngine {
         salesArray.forEach(sale => {
             // ── APERTURA DE CAJA: store opening float in _apertura metadata bucket (not as revenue or payment method) ──
             if (sale.tipo === 'APERTURA_CAJA') {
-                if (!breakdown['_apertura']) {
+                const hasFloat = (Number(sale.openingBs) || 0) > 0 || (Number(sale.openingUsd) || 0) > 0 || (Number(sale.openingCop) || 0) > 0;
+                const currentHasFloat = breakdown['_apertura'] && (
+                    (Number(breakdown['_apertura'].openingBs) || 0) > 0 ||
+                    (Number(breakdown['_apertura'].openingUsd) || 0) > 0 ||
+                    (Number(breakdown['_apertura'].openingCop) || 0) > 0
+                );
+
+                if (!breakdown['_apertura'] || (!currentHasFloat && hasFloat)) {
                     breakdown['_apertura'] = {
                         openingBs: round2(sale.openingBs || 0),
                         openingUsd: round2(sale.openingUsd || 0),

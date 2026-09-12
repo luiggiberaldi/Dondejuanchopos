@@ -34,6 +34,17 @@ export function getSupervisorChangeKey(change) {
     );
 }
 
+// JSONB puede reordenar claves; la comparación no depende de su orden.
+export function sameSupervisorRequest(a, b) {
+    const canonical = value => Array.isArray(value) ? value.map(canonical)
+        : value && typeof value === 'object'
+            ? Object.fromEntries(Object.keys(value).sort().filter(k => value[k] !== undefined).map(k => [k, canonical(value[k])]))
+            : value;
+    return Boolean(a && b && a.id === b.id && a.primary_device_id === b.primary_device_id
+        && a.monitor_device_id === b.monitor_device_id && a.command_type === b.command_type
+        && JSON.stringify(canonical(a.payload)) === JSON.stringify(canonical(b.payload)));
+}
+
 export function isTerminalSupervisorCommandStatus(status) {
     return status === 'applied'
         || status === 'applied_with_warnings'

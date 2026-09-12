@@ -66,10 +66,7 @@ import { generateEmployeePayrollPDF } from '../utils/employeePayrollPdfGenerator
 import { useAuthStore } from '../hooks/store/useAuthStore';
 import {
     createSupervisorCommandId,
-    normalizeSupervisorChanges,
 } from '../utils/supervisorCommandModel';
-
-const PENDING_KEY = 'dj_pending_inventory_changes_v1';
 
 const MAIN_SUPERVISOR_TABS = [
     {
@@ -158,7 +155,6 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         cancellingCmdId,
         downloadingBackup,
         pendingChanges,
-        setPendingChanges,
         inFlightChanges,
         uploading,
         recentlyConfirmedIds,
@@ -166,7 +162,6 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         setPendingVoidSaleIds,
         pendingVoidCommands,
         setPendingVoidCommands,
-        persistPending,
         queueInventoryChange,
         pendingStockDelta,
         hasPendingFor,
@@ -443,13 +438,8 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         // Escuchar actualizaciones del almacenamiento causadas por la sincronización en tiempo real o encolado de comandos
         const handleUpdate = (e) => {
             loadLocalData();
-            if (!e?.detail?.key || e.detail.key === PENDING_KEY) {
-                try {
-                    const raw = localStorage.getItem(PENDING_KEY);
-                    const arr = raw ? JSON.parse(raw) : [];
-                    if (Array.isArray(arr)) setPendingChanges(normalizeSupervisorChanges(arr));
-                } catch { /* cola corrupta: se ignora */ }
-            }
+            // La cola duradera gestiona sus eventos storage por su clave y caja.
+            // No restaurar aquí la cola legacy con cada evento del catálogo.
         };
 
         window.addEventListener('app_storage_update', handleUpdate);

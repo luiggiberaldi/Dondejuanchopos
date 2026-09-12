@@ -1,0 +1,26 @@
+# Evita subir al deploy los artefactos locales que el build web no necesita.
+# (El deploy normal de este proyecto es vía Git; esto es solo para CLI.)
+node_modules
+desktop
+backups
+dist
+.git
+logs
+*.log
+
+# Respaldos y datos históricos grandes en la raíz (no forman parte de la app)
+123456.json
+123456_actualizado.json
+luigi respaldo*.json
+RESPALDO_*.json
+backup_*.json
+auditoria_inventario_*.json
+Manual*.json
+Manual*.md
+
+# Binarios/documentos que nunca van al bundle
+*.pdf
+*.mp4
+*.mov
+*.xls
+*.xlsx

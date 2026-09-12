@@ -214,7 +214,7 @@ describe('Historical Cierres & Active Shift Reconciliation Guard', () => {
         expect(expectedCash.bs).toBe(8410);
     });
 
-    it('should verify live Supabase Doc 60 has 40 cierres and active drawer equals 8410 Bs / $33 USD', async () => {
+    it('should verify live Supabase Doc 60 keeps the canonical Jornada 10-09 closed and registers the 11-09 PC closes + rescued sales', async () => {
         const fs = await import('fs');
         const envContent = fs.readFileSync('.env', 'utf8');
         const env = {};
@@ -238,25 +238,66 @@ describe('Historical Cierres & Active Shift Reconciliation Guard', () => {
         const liveSales = doc[0]?.data?.payload || [];
 
         const liveCierres = liveSales.filter(s => s.tipo === 'REGISTRO_CIERRE');
-        expect(liveCierres.length).toBe(40);
+        // 40 históricos + #40 (cierre forzado por supervisor 16:51) + #41 (cierre canónico reescrito)
+        expect(liveCierres.length).toBeGreaterThanOrEqual(42);
 
+        // ── INVARIANTE 1: el cierre #41 (ex $0.71 ciego) lleva los datos canónicos ──
+        const c41 = liveCierres.find(s => s.cierreId === 1789145662786);
+        expect(c41).toBeDefined();
+        expect(c41.cajaCerrada).toBe(true);
+        expect(c41.summary.todayTotalBs).toBe(15350);
+        expect(c41.summary.todayItemsSold).toBe(8);
+        expect(c41.summary.reconData.cashBs).toBe(8410);
+        expect(c41.summary.reconData.cashUsd).toBe(33);
+        expect(c41.summary.reconData.diffBs).toBe(0);
+        expect(c41.summary.jornadaCanonica).toBe('2026-09-10');
+
+        // ── INVARIANTE 2: las 8 ventas de la Jornada 10-09 selladas y vinculadas al cierre ──
+        for (let n = 785; n <= 792; n++) {
+            const v = liveSales.find(s => s.tipo === 'VENTA' && s.saleNumber === n);
+            expect(v, `venta #${n} debe existir`).toBeDefined();
+            expect(v.cajaCerrada, `venta #${n} debe estar sellada`).toBe(true);
+            expect(v.cierreId, `venta #${n} debe estar vinculada al cierre canónico`).toBe(1789145662786);
+        }
+        const aperturaCanon = liveSales.find(s => s.id === 'apertura_1789057800000');
+        expect(aperturaCanon?.cajaCerrada).toBe(true);
+        const gastoTeipe = liveSales.find(s => s.id === 'gasto_teipe_1789067070525');
+        expect(gastoTeipe?.cajaCerrada).toBe(true);
+
+        // ── INVARIANTE 3: cierres PC del 11-09 registrados ──
+        const c40 = liveCierres.find(s => s.id === 'cierre_1789145494504');
+        expect(c40, 'cierre #40 forzado por supervisor debe existir').toBeDefined();
+
+        // ── INVARIANTE 4: las 8 ventas reales del 11-09 rescatadas (#793–#800, 58.390 Bs) ──
+        const ventas11 = liveSales.filter(s => s.tipo === 'VENTA' && s.saleNumber >= 793 && s.saleNumber <= 800);
+        expect(ventas11.length).toBe(8);
+        const total11 = ventas11.reduce((acc, s) => acc + (s.totalBs || 0), 0);
+        expect(total11).toBe(58390);
+
+        // ── INVARIANTE 5: exactamente UNA apertura abierta (relance 8.410/$33) ──
         const liveApertura = findOpenApertura(liveSales);
         expect(liveApertura).toBeDefined();
-        expect(liveApertura.openingBs).toBe(9980);
+        expect(liveApertura.openingBs).toBe(8410);
         expect(liveApertura.openingUsd).toBe(33);
+        const openAperturas = liveSales.filter(s => s.tipo === 'APERTURA_CAJA' && s.cajaCerrada === false);
+        expect(openAperturas.length).toBe(1);
 
         const { movements, orphans } = getOpenShiftMovements(liveSales);
         expect(orphans.length).toBe(0);
 
+        // ── INVARIANTE 6: todo el turno activo pertenece al turno de relance del 11-09 ──
+        const aperturaTs = new Date(liveApertura.timestamp).getTime();
+        for (const m of movements) {
+            const ts = new Date(m.timestamp).getTime();
+            expect(ts, `${m.tipo} ${m.id} debe ser posterior a la apertura de relance`).toBeGreaterThanOrEqual(aperturaTs);
+        }
+
+        // La gaveta del turno activo es DINÁMICA (la caja sigue vendiendo):
+        // gaveta esperada = apertura (8.410 Bs / $33) + flujos netos de métodos en efectivo.
         const breakdown = FinancialEngine.calculatePaymentBreakdown(movements);
         const liveExpected = FinancialEngine.computeExpectedCash(breakdown);
-        expect(liveExpected.bs).toBe(8410);
-        expect(liveExpected.usd).toBe(33);
-
-        const liveSalesOnly = movements.filter(s => s.tipo === 'VENTA');
-        expect(liveSalesOnly.length).toBe(8);
-        const liveTotalBs = liveSalesOnly.reduce((sum, s) => sum + s.totalBs, 0);
-        expect(liveTotalBs).toBe(15350);
+        expect(liveExpected.bs).toBeGreaterThanOrEqual(0);
+        expect(liveExpected.usd).toBeGreaterThanOrEqual(33);
     });
 
     it('should verify live Cierre #37 has its closed sales linked and matches 18.222,66 Bs and $22.22 USD', async () => {

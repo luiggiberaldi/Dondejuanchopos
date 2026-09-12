@@ -25,9 +25,10 @@ if (!('locks' in navigator)) {
   });
 }
 
-// crypto.subtle sí está en jsdom reciente (Node 20+), pero garantizamos crypto.randomUUID.
-if (!globalThis.crypto?.randomUUID) {
-  const { webcrypto } = require('node:crypto');
+// jsdom may expose randomUUID without subtle (notably in VM workers).
+// Install the real Node WebCrypto implementation, not a cryptography mock.
+import { webcrypto } from 'node:crypto';
+if (!globalThis.crypto?.subtle || !globalThis.crypto?.randomUUID) {
   Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true });
 }
 

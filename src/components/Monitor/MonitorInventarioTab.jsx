@@ -249,8 +249,8 @@ export default function MonitorInventarioTab({ ChevronLeft, ChevronRight, Clock,
                                                         {p._isInFlight && !p._isRecentlyConfirmed && (
                                                             <span className="inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-200 border border-blue-300 dark:border-blue-700 animate-pulse transition-all shadow-2xs">
                                                                 <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0 animate-ping" />
-                                                                <span className="hidden sm:inline">⏳ Sincronizando con caja...</span>
-                                                                <span className="sm:hidden">⏳ Sincronizando</span>
+                                                                <span className="hidden sm:inline">{p._isAwaitingCatalog ? 'Confirmado; esperando catálogo' : 'Sincronizando con caja...'}</span>
+                                                                <span className="sm:hidden">{p._isAwaitingCatalog ? 'Esperando catálogo' : 'Sincronizando'}</span>
                                                             </span>
                                                         )}
                                                         {(p._isLocalPending || p._isQueuedNew || p._isQueuedEdit || hasPendingFor(p.id)) && !p._isInFlight && !p._isRecentlyConfirmed && (

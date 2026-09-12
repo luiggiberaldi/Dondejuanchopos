@@ -275,7 +275,12 @@ export async function runReconciliation() {
     // Ventas intermedias de Doc 60 (ej: 775-784 del 9 de septiembre)
     sales60.forEach(item => {
         if (item && item.id && !itemsById.has(item.id)) {
-            itemsById.set(item.id, item);
+            // Sellar aperturas espurias accidentales de 0 Bs/0 USD
+            if (item.id === 'apertura_1789068266714' || (item.tipo === 'APERTURA_CAJA' && !item.openingBs && !item.openingUsd && item.id !== 'apertura_1789057800000')) {
+                itemsById.set(item.id, { ...item, cajaCerrada: true });
+            } else {
+                itemsById.set(item.id, item);
+            }
         }
     });
 

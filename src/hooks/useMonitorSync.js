@@ -4,7 +4,7 @@ import { runWithoutEco } from '../utils/syncFlags';
 import localforage from 'localforage';
 import { shouldApplySyncVersion } from '../utils/syncVersionGuard';
 import { mergeCloudProductImages } from '../utils/productImageRecovery';
-import { mergeSalesArrays, normalizeHistoricalSale } from '../utils/salesMerge';
+import { normalizeHistoricalSale } from '../utils/salesMerge';
 import { fetchRemoteDocuments, REMOTE_MONITOR_DOC_IDS } from '../services/remoteAuditService';
 import { SUPERVISOR_RATE_PENDING_KEY } from '../utils/supervisorCommandModel';
 
@@ -43,14 +43,13 @@ const MONITOR_DOC_IDS = [
     'bodega_use_auto_rate'
 ];
 
-let reconnectTimer = null;
-let oversizePullTimer = null;
+// Timers and recovery cursors belong to a mounted monitor, never to the module.
 
 export function useMonitorSync(pairedDeviceId) {
     const [isConnected, setIsConnected] = useState(false);
     const [lastSync, setLastSync] = useState(() => {
         const stored = localStorage.getItem('monitor_last_sync');
-        return stored ? new Date(stored) : null;
+        return stored && Number.isFinite(Date.parse(stored)) ? new Date(stored) : null;
     });
     const [loading, setLoading] = useState(true);
     const [posLastSeen, setPosLastSeen] = useState(null);
@@ -71,6 +70,13 @@ export function useMonitorSync(pairedDeviceId) {
     const monitorSubscriptionRef = useRef(null);
     const appliedVersionsRef = useRef(new Map());
     const applyDocQueueRef = useRef(new Map());
+    // Only a fully applied RPC batch may advance this cursor. Realtime events
+    // are partial and must never hide missed documents from the next catch-up.
+    const pullCursorRef = useRef(null);
+    const oversizePullTimerRef = useRef(null);
+    const lifecycleRef = useRef(0);
+    const fullPullRequestedRef = useRef(0);
+    const fullPullCompletedRef = useRef(0);
 
     const getVersionKey = useCallback((docId) => {
         const deviceId = pairedDeviceId || localStorage.getItem('dj_paired_device_id') || 'unknown-device';
@@ -90,6 +96,7 @@ export function useMonitorSync(pairedDeviceId) {
 
     useEffect(() => {
         appliedVersionsRef.current = new Map();
+        pullCursorRef.current = null;
         try {
             const raw = localStorage.getItem('dj_monitor_sync_versions_v1');
             const versions = raw ? JSON.parse(raw) : {};
@@ -158,6 +165,11 @@ export function useMonitorSync(pairedDeviceId) {
         if (payload == null && !RATE_CONFIG_DOC_IDS.includes(docId)) return;
 
         let expectedRateValue = null;
+        let pendingRateCommandId = null;
+        const currentRateCommandId = () => {
+            try { return JSON.parse(localStorage.getItem(SUPERVISOR_RATE_PENDING_KEY) || 'null')?.commandId || null; }
+            catch { return null; }
+        };
         // Un pull viejo de la tasa no debe pisar la proyección optimista del
         // Supervisor mientras la caja aún confirma el commandId. Sin este
         // guard, la vista cambiaba inmediatamente y volvía al valor anterior,
@@ -167,6 +179,7 @@ export function useMonitorSync(pairedDeviceId) {
                 const rawPendingRate = localStorage.getItem(SUPERVISOR_RATE_PENDING_KEY);
                 if (rawPendingRate) {
                     const pendingRate = JSON.parse(rawPendingRate);
+                    pendingRateCommandId = pendingRate?.commandId || null;
                     const desired = pendingRate?.desired || {};
                     expectedRateValue = docId === 'bodega_rate_mode'
                         ? desired.rateMode
@@ -188,8 +201,8 @@ export function useMonitorSync(pairedDeviceId) {
 
         const versionKey = getVersionKey(docId);
         const currentVersion = appliedVersionsRef.current.get(versionKey) || null;
-        if (docId === 'bodega_products_v1' && !shouldApplySyncVersion(currentVersion, syncVersion)) {
-            console.info('[useMonitorSync] Documento de productos ignorado por versión anterior:', {
+        if (!shouldApplySyncVersion(currentVersion, syncVersion)) {
+            console.info('[useMonitorSync] Documento ignorado por versión anterior:', {
                 source,
                 currentVersion,
                 syncVersion,
@@ -198,17 +211,24 @@ export function useMonitorSync(pairedDeviceId) {
         }
 
         // Usamos runWithoutEco para estar seguros de que no se gatille ningún eco de sincronización
+        let rateInterrupted = false;
         await runWithoutEco(async () => {
             if (collection === 'local' || docId === 'bodega_users_catalog_v1') {
                 let stringPayload = typeof payload === 'string' ? payload : JSON.stringify(payload);
+                if (docId === 'bodega_rate_mode' && payload != null) {
+                    const { sanitizeRateMode } = await import('../context/ProductContext');
+                    stringPayload = sanitizeRateMode(payload);
+                }
+                // La importación o el guard de sync pueden ceder el control.
+                // Un eco de A no puede sobrescribir una solicitud B recién creada.
+                if (RATE_CONFIG_DOC_IDS.includes(docId) && currentRateCommandId() !== pendingRateCommandId) {
+                    rateInterrupted = true;
+                    return;
+                }
                 if (payload == null) {
                     localStorage.removeItem(docId);
                     stringPayload = null;
                 } else {
-                    if (docId === 'bodega_rate_mode') {
-                        const { sanitizeRateMode } = await import('../context/ProductContext');
-                        stringPayload = sanitizeRateMode(payload);
-                    }
                     localStorage.setItem(docId, stringPayload);
                 }
                 window.dispatchEvent(new StorageEvent('storage', {
@@ -238,7 +258,8 @@ export function useMonitorSync(pairedDeviceId) {
             }
         });
 
-        if (docId === 'bodega_products_v1' && syncVersion) {
+        if (rateInterrupted) return false;
+        if (syncVersion) {
             appliedVersionsRef.current.set(versionKey, syncVersion);
             persistAppliedVersion(versionKey, syncVersion);
         }
@@ -246,11 +267,12 @@ export function useMonitorSync(pairedDeviceId) {
         // El recibo de la tasa se conserva hasta observar todos los documentos
         // esperados. Esto evita que un UPDATE `applied` llegue antes que el push
         // de configuración y un pull viejo vuelva a pintar el valor anterior.
-        if (RATE_CONFIG_DOC_IDS.includes(docId) && expectedRateValue !== null || RATE_CONFIG_DOC_IDS.includes(docId) && localStorage.getItem(SUPERVISOR_RATE_PENDING_KEY)) {
+        if (RATE_CONFIG_DOC_IDS.includes(docId) && pendingRateCommandId) {
             try {
                 const rawPendingRate = localStorage.getItem(SUPERVISOR_RATE_PENDING_KEY);
                 if (rawPendingRate) {
                     const pendingRate = JSON.parse(rawPendingRate);
+                    if (pendingRate.commandId !== pendingRateCommandId) return false;
                     const observed = {
                         ...(pendingRate.observed || {}),
                         [docId]: true,
@@ -290,6 +312,8 @@ export function useMonitorSync(pairedDeviceId) {
     };
 
     const initMonitor = useCallback(async (isSilent = false) => {
+        const lifecycle = lifecycleRef.current;
+        const isCurrent = () => lifecycle === lifecycleRef.current;
         let activeDeviceId = pairedDeviceId || localStorage.getItem('dj_paired_device_id');
         
         // R3: eliminado el "francotirador" global. Consultaba sync_documents SIN
@@ -308,8 +332,13 @@ export function useMonitorSync(pairedDeviceId) {
             return;
         }
 
+        // Una petición completa no se pierde por existir un pull en vuelo.
+        // El contador conserva también el reintento si falla esa recuperación.
+        if (!isSilent) fullPullRequestedRef.current++;
         if (isSyncingRef.current) return;
         isSyncingRef.current = true;
+        const fullPullRequest = fullPullRequestedRef.current;
+        const needsFullPull = fullPullRequest > fullPullCompletedRef.current;
 
         if (!isSilent) setLoading(true);
 
@@ -318,26 +347,17 @@ export function useMonitorSync(pairedDeviceId) {
             await checkPosPresence();
 
             // 1. Pull inicial o de recuperación incremental (catch-up)
-            const lastSyncIso = (isSilent && lastSyncRef.current) ? lastSyncRef.current.toISOString() : null;
-            const lastFullPullTs = parseInt(localStorage.getItem('dj_monitor_last_full_pull_ts') || '0', 10);
-            const nowTs = Date.now();
-            const MONITOR_FULL_PULL_MIN_INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
+            // Start every mounted session with a full snapshot. Persisted client
+            // timestamps cannot prove that IndexedDB still contains that snapshot.
+            const updatedAfter = needsFullPull ? null : pullCursorRef.current;
+            let batchFailed = false;
 
             // El monitor no puede consultar sync_documents directamente: el rol
             // anon no tiene SELECT por RLS. La lectura pasa por el RPC que valida
             // el pairing exacto y aplica la whitelist de documentos.
             //
-            // D3: el rate limiter se marca DESPUÉS de un pull exitoso, nunca antes.
-            // El RPC recibe el cursor para que el servidor no retransmita históricos
-            // completos durante un catch-up.
-            let isFullPull = false;
-            let updatedAfter = lastSyncIso;
-            if (!updatedAfter && nowTs - lastFullPullTs < MONITOR_FULL_PULL_MIN_INTERVAL_MS) {
-                console.log('[useMonitorSync] Full-Pull del Monitor omitido por Rate Limiter (< 5 min). Usando datos locales.');
-                updatedAfter = new Date(lastFullPullTs).toISOString();
-            } else if (!updatedAfter) {
-                isFullPull = true;
-            }
+            // Use the protected RPC for both initial reads and incremental recovery.
+            // Keep the original server timestamp, including sub-millisecond precision.
 
             const remoteResult = await fetchRemoteDocuments(
                 activeDeviceId,
@@ -346,6 +366,7 @@ export function useMonitorSync(pairedDeviceId) {
                 { updatedAfter },
             );
 
+            if (!isCurrent()) return;
             if (!remoteResult.success) {
                 throw new Error(remoteResult.error?.message || 'No se pudieron leer los datos remotos del monitor.');
             }
@@ -356,16 +377,7 @@ export function useMonitorSync(pairedDeviceId) {
                     doc_id: document.doc_id,
                     data: { payload: document.payload },
                     updated_at: document.updated_at,
-                }))
-                .filter(document => !updatedAfter || (
-                    document.updated_at
-                    && new Date(document.updated_at).getTime() > new Date(updatedAfter).getTime()
-                ));
-
-            // D3: solo ahora sabemos que el pull completo se realizó de verdad.
-            if (isFullPull) {
-                localStorage.setItem('dj_monitor_last_full_pull_ts', String(nowTs));
-            }
+                }));
 
             if (docs && docs.length > 0) {
                 // D2: try/catch por documento — igual que HOOK-023 en la caja.
@@ -374,21 +386,25 @@ export function useMonitorSync(pairedDeviceId) {
                 let appliedCount = 0;
                 let failedCount = 0;
                 for (const doc of docs) {
+                    if (!isCurrent()) return;
                     try {
                         if (!doc || doc.data == null) {
                             failedCount++;
                             console.warn(`[useMonitorSync] Documento sin data, omitido: ${doc?.doc_id}`);
                             continue;
                         }
-                        await applyDocToLocal(doc.doc_id, doc.collection, doc.data.payload, doc.updated_at, 'pull');
-                        appliedCount++;
+                        const applied = await applyDocToLocal(doc.doc_id, doc.collection, doc.data.payload, doc.updated_at, 'pull');
+                        // Deferred optimistic rate values must be retried too.
+                        if (applied === false && RATE_CONFIG_DOC_IDS.includes(doc.doc_id)) failedCount++;
+                        else appliedCount++;
                     } catch (e) {
                         failedCount++;
                         console.warn(`[useMonitorSync] Error aplicando doc ${doc?.doc_id}:`, e);
                     }
                 }
 
-                if (failedCount > 0) {
+                batchFailed = failedCount > 0;
+                if (batchFailed) {
                     console.warn(`[useMonitorSync] Pull parcial: ${appliedCount} aplicados, ${failedCount} fallidos.`);
                 }
 
@@ -396,13 +412,20 @@ export function useMonitorSync(pairedDeviceId) {
                 // recibido, no del reloj local. El `updated_at` lo escribe el
                 // servidor (ver FX10), así que ambos lados comparten referencia
                 // temporal y un desfase de reloj ya no descarta ventanas.
-                const maxUpdatedAt = docs.reduce((acc, d) => {
-                    const t = d?.updated_at ? new Date(d.updated_at).getTime() : 0;
-                    return t > acc ? t : acc;
-                }, 0);
-                const now = maxUpdatedAt > 0 ? new Date(maxUpdatedAt) : new Date();
-                setLastSync(now);
-                localStorage.setItem('monitor_last_sync', now.toISOString());
+                const latestDoc = docs.reduce((latest, doc) => (
+                    Number.isFinite(Date.parse(doc.updated_at))
+                    && (!latest || Date.parse(doc.updated_at) > Date.parse(latest.updated_at))
+                        ? doc : latest
+                ), null);
+                if (!batchFailed && latestDoc && fullPullRequestedRef.current === fullPullRequest) {
+                    const previousCursor = pullCursorRef.current;
+                    if (!previousCursor || Date.parse(latestDoc.updated_at) > Date.parse(previousCursor)) {
+                        pullCursorRef.current = latestDoc.updated_at;
+                    }
+                    const now = new Date(latestDoc.updated_at);
+                    setLastSync(previous => previous && previous > now ? previous : now);
+                    localStorage.setItem('monitor_last_sync', now.toISOString());
+                }
 
                 // `applyDocToLocal` ya notifica cada documento con su versión y
                 // payload. No emitir aquí un segundo evento de productos sin
@@ -416,6 +439,10 @@ export function useMonitorSync(pairedDeviceId) {
                 setLastSync(prev => prev || new Date());
             }
 
+            if (!isCurrent()) return;
+            if (needsFullPull && !batchFailed) {
+                fullPullCompletedRef.current = Math.max(fullPullCompletedRef.current, fullPullRequest);
+            }
             setIsConnected(true);
 
             // 2. Suscripción en Tiempo Real vía WebSocket
@@ -429,15 +456,15 @@ export function useMonitorSync(pairedDeviceId) {
                         table: 'sync_documents',
                         filter: `device_id=eq.${activeDeviceId}`
                     }, async (payload) => {
-                        if (payload?.eventType === 'DELETE') return;
+                        if (!isCurrent() || payload?.eventType === 'DELETE') return;
 
                         const doc = payload?.new;
 
                         if (!doc || !doc.doc_id || !doc.data) {
                             console.warn('[useMonitorSync] Evento de Realtime sin cuerpo (posible 413). Forzando pull completo.', payload?.errors);
-                            if (!oversizePullTimer) {
-                                oversizePullTimer = setTimeout(() => {
-                                    oversizePullTimer = null;
+                            if (!oversizePullTimerRef.current) {
+                                oversizePullTimerRef.current = setTimeout(() => {
+                                    oversizePullTimerRef.current = null;
                                     initMonitorRef.current?.(true);
                                 }, 3000);
                             }
@@ -446,7 +473,13 @@ export function useMonitorSync(pairedDeviceId) {
 
                         if (!['store', 'local'].includes(doc.collection)) return;
                         if (!MONITOR_DOC_IDS.includes(doc.doc_id)) return;
-                        await applyDocToLocal(doc.doc_id, doc.collection, doc.data?.payload, doc.updated_at, 'realtime');
+                        try {
+                            await applyDocToLocal(doc.doc_id, doc.collection, doc.data?.payload, doc.updated_at, 'realtime');
+                        } catch (error) {
+                            console.warn('[useMonitorSync] Realtime persistence failed; RPC recovery will retry:', error);
+                            return;
+                        }
+                        if (!isCurrent()) return;
                         const now = doc.updated_at ? new Date(doc.updated_at) : new Date();
                         setLastSync(now);
                         setPosLastSeen(now);
@@ -455,6 +488,7 @@ export function useMonitorSync(pairedDeviceId) {
                         localStorage.setItem('monitor_last_sync', now.toISOString());
                     })
                     .subscribe((status) => {
+                        if (!isCurrent()) return;
                         if (status === 'SUBSCRIBED') {
                             setIsConnected(true);
                         } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
@@ -468,10 +502,19 @@ export function useMonitorSync(pairedDeviceId) {
             }
         } catch (err) {
             console.warn('[useMonitorSync] Error en sincronización o reconexión:', err);
-            setIsConnected(false);
+            if (isCurrent()) setIsConnected(false);
         } finally {
-            isSyncingRef.current = false;
-            setLoading(false);
+            if (isCurrent()) {
+                isSyncingRef.current = false;
+                setLoading(false);
+                // Solo una solicitud NUEVA dispara otra lectura inmediata; un
+                // error conserva la recuperación para el siguiente tick sin bucle.
+                if (fullPullRequestedRef.current > fullPullRequest) {
+                    queueMicrotask(() => {
+                        if (isCurrent()) initMonitorRef.current?.(true);
+                    });
+                }
+            }
         }
     }, [pairedDeviceId, checkPosPresence]);
 
@@ -485,6 +528,7 @@ export function useMonitorSync(pairedDeviceId) {
             monitorSubscriptionRef.current = null;
         }
         localStorage.removeItem('dj_monitor_last_full_pull_ts');
+        pullCursorRef.current = null;
         lastSyncRef.current = null;
         setLastSync(null);
         await initMonitor(false);
@@ -519,6 +563,10 @@ export function useMonitorSync(pairedDeviceId) {
             return;
         }
 
+        // StrictMode and pairing changes invalidate outstanding requests before
+        // a new subscription starts. A disposed pull must not recreate a channel.
+        lifecycleRef.current++;
+        isSyncingRef.current = false;
         // Inicializar sincronización y enviar heartbeat inicial
         initMonitor(false);
         sendHeartbeat();
@@ -553,13 +601,20 @@ export function useMonitorSync(pairedDeviceId) {
             }
         };
 
+        const handleSupervisorRecovery = () => {
+            // Una confirmación necesita reobservar datos que no necesariamente
+            // cambiaron de versión (p. ej. una tasa rechazada o un ajuste sin delta).
+            pullCursorRef.current = null;
+            initMonitorRef.current?.(false);
+        };
+        window.addEventListener('supervisor_sync_requested', handleSupervisorRecovery);
         window.addEventListener('online', handleOnline);
         window.addEventListener('offline', handleOffline);
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
         const checkCounterRef = { current: 0 };
         // 3. Health-check en segundo plano: 30s con canal sano, 10s cuando está caído (FX9)
-        reconnectTimer = setInterval(() => {
+        const reconnectTimer = setInterval(() => {
             if (!navigator.onLine) return;
             tickRef.current++;
             // E3: en segundo plano, 1 de cada 6 ticks.
@@ -572,7 +627,9 @@ export function useMonitorSync(pairedDeviceId) {
                 checkPosPresence();
             }
 
-            if (!isHealthy) {
+            // SUBSCRIBED does not guarantee row delivery (RLS or a lost event).
+            // Recover through the protected RPC every 30s even with a live socket.
+            if (!isHealthy || checkCounterRef.current % 3 === 0) {
                 initMonitor(true);
             }
         }, 10000);
@@ -586,12 +643,18 @@ export function useMonitorSync(pairedDeviceId) {
         }, 60000);
 
         return () => {
+            lifecycleRef.current++;
+            isSyncingRef.current = false;
+            window.removeEventListener('supervisor_sync_requested', handleSupervisorRecovery);
             window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             if (reconnectTimer) clearInterval(reconnectTimer);
             if (heartbeatTimer) clearInterval(heartbeatTimer);
-            if (oversizePullTimer) { clearTimeout(oversizePullTimer); oversizePullTimer = null; }
+            if (oversizePullTimerRef.current) {
+                clearTimeout(oversizePullTimerRef.current);
+                oversizePullTimerRef.current = null;
+            }
             if (monitorSubscriptionRef.current) {
                 supabaseCloud.removeChannel(monitorSubscriptionRef.current).catch(() => {});
                 monitorSubscriptionRef.current = null;

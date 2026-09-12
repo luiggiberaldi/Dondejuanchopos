@@ -3,7 +3,8 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+// Mantener la validación TLS de Node. Un certificado inválido debe fallar
+// y pasar a las fuentes de respaldo, nunca desproteger todas las peticiones.
 
 async function fetchBcvDirect() {
     const controller = new AbortController();

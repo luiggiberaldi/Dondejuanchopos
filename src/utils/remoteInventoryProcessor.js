@@ -644,6 +644,21 @@ export async function applyInventoryCommand(payload) {
             }
         }
 
+        // Un objetivo ya alcanzado (o un delta limitado a cero) también tiene
+        // recibo. No hay movimiento físico que registrar, pero el monitor debe
+        // distinguir esta aplicación de una simple coincidencia numérica.
+        if (actualQtyChange === 0 && commandId) {
+            updated = products.map(product => product.id !== existing.id ? product : {
+                ...product,
+                lastStockOperationId: commandId,
+                stockOperationIds: [
+                    ...(Array.isArray(product.stockOperationIds) ? product.stockOperationIds : []).filter(id => id !== commandId),
+                    commandId,
+                ].slice(-25),
+            });
+            await persistProductsSnapshot(updated);
+        }
+
         const result = {
             success: true,
             productName: existing.name,
