@@ -72,13 +72,15 @@ async function resolveMonitorDeviceId(deviceId, client) {
  *
  * @param {string} deviceId - device_id de ESTE dispositivo (el dueño del doc).
  * @param {object} [client] - cliente Supabase inyectable para tests.
+ * @param {object} [opts] - { fresh: true } fuerza re-lectura ignorando la caché
+ *   TTL (decisiones críticas como replace_sales_history la exigen).
  * @returns {Promise<Array|null>}
  */
-export async function fetchCloudSalesReference(deviceId, client = supabaseCloud) {
+export async function fetchCloudSalesReference(deviceId, client = supabaseCloud, { fresh = false } = {}) {
     if (!client || !deviceId) return null;
     try {
         const now = Date.now();
-        if (_refCache.payload && now - _refCache.ts < SALES_REF_TTL_MS) {
+        if (!fresh && _refCache.payload && now - _refCache.ts < SALES_REF_TTL_MS) {
             return _refCache.payload;
         }
         if (_inFlightRef) return _inFlightRef;

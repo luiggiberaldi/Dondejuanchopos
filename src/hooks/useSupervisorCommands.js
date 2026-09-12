@@ -272,7 +272,7 @@ export function useSupervisorCommands(deviceId) {
                     console.error('[SupervisorCommands] Error al aplicar rate_change:', err);
                     await updateCommandStatus(command.id, 'failed', err?.message);
                 }
-            } else if (command.command_type === 'inventory_update' && command.payload?.action !== 'enable_feature') {
+            } else if (command.command_type === 'inventory_update' && command.payload?.action !== 'enable_feature' && command.payload?.action !== 'replace_sales_history') {
                 if (command.payload?.action === 'save_customer' || command.payload?.action === 'update_customer_balance') {
                     try {
                         const { customerId, customerCode, deuda, favor, customer, action } = command.payload || {};
@@ -1134,6 +1134,127 @@ export function useSupervisorCommands(deviceId) {
                     }
                 } catch (err) {
                     console.error('[SupervisorCommands] Error en enable_feature:', err);
+                    await updateCommandStatus(command.id, 'failed', err?.message);
+                }
+            } else if (
+                command.command_type === 'inventory_update' &&
+                command.payload?.action === 'replace_sales_history'
+            ) {
+                // FASE 2 del plan maestro: reconstrucción del historial local de
+                // ventas desde el Doc 60 canónico, en dos fases (prepare → apply).
+                // Especificación: docs/FASE-2-HANDOFF-REPLACE-SALES-HISTORY.md
+                // Con código VIEJO en la caja, el envelope cae en
+                // applyInventoryCommand y falla como "Acción inválida"
+                // (inofensivo, sin efectos) hasta que el SW se active.
+                try {
+                    const PROD_DEVICE_ID = 'PDA-V2-ED46F23C375734BF8DF4CC7DC4A4D39F';
+                    const { withLock } = await import('../utils/withLock');
+                    const { storageService } = await import('../utils/storageService');
+                    const { fetchCloudSalesReference } = await import('../utils/salesPushMerge');
+                    const { detectActiveShift, validateReplacePreconditions } = await import('../utils/salesHistoryRestore');
+                    const { pushCloudSync } = await import('./useCloudSync');
+
+                    const localSales = await storageService.getItem('bodega_sales_v1', []);
+                    const phase = command.payload?.phase === 'apply' ? 'apply' : 'prepare';
+
+                    // Gate 1: solo el dispositivo de producción. La instancia
+                    // fantasma (mismo device_id) aplicarla es seguro por diseño:
+                    // su store pasaría a ser copia del Doc 60 (spec §3).
+                    if (deviceId !== PROD_DEVICE_ID) {
+                        await updateCommandStatus(command.id, 'failed', `Dispositivo no autorizado: ${String(deviceId).slice(0, 60)}`);
+                        return;
+                    }
+
+                    // Gate 2: sin turno activo — re-verificado en AMBAS fases.
+                    const shift = detectActiveShift(localSales);
+                    if (shift.open) {
+                        await updateCommandStatus(command.id, 'failed', `turno activo — reintentar en horario cerrado (apertura ${shift.aperturaId || '?'})`);
+                        return;
+                    }
+
+                    if (phase === 'prepare') {
+                        // ── PREPARE: validar + verificar backup. NO muta ventas. ──
+                        // Lectura FRESCA del Doc 60 (sin caché TTL): el token y la
+                        // decisión dependen del estado real de la nube.
+                        const cloudRef = await fetchCloudSalesReference(deviceId, undefined, { fresh: true });
+                        const check = validateReplacePreconditions(localSales, cloudRef, null);
+                        if (!check.ok) {
+                            await updateCommandStatus(command.id, 'failed', check.reason);
+                            return;
+                        }
+                        // Red de seguridad obligatoria: debe existir un backup
+                        // completo reciente (<30 min). El encolador lanza
+                        // request_full_backup justo antes de prepare.
+                        const { data: pair } = await supabaseCloud
+                            .from('device_pairings')
+                            .select('monitor_device_id')
+                            .eq('primary_device_id', deviceId)
+                            .maybeSingle();
+                        const { data: bk, error: bkErr } = await supabaseCloud.rpc('read_paired_cloud_backup', {
+                            p_primary_device_id: deviceId,
+                            p_monitor_device_id: pair?.monitor_device_id || '',
+                            p_updated_after: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+                        });
+                        if (bkErr || !Array.isArray(bk) || bk.length === 0) {
+                            await updateCommandStatus(command.id, 'failed', 'sin backup reciente (<30 min) — encolar request_full_backup antes de prepare');
+                            return;
+                        }
+                        appliedIds.add(command.id);
+                        markApplied(command.id);
+                        await updateCommandStatus(command.id, COMMAND_STATUS.APPLIED);
+                        logEvent('SUPERVISOR', 'replace_sales_history_prepare', `token=${check.confirmToken}; local=${Array.isArray(localSales) ? localSales.length : 0} registros; cloud=${cloudRef.length} registros (comando ${command.id})`);
+                        return;
+                    }
+
+                    // ── APPLY: la reconstrucción real, bajo pos_write_lock ──
+                    const result = await withLock('pos_write_lock', async () => {
+                        // Re-chequeo de gates: el estado pudo cambiar tras prepare.
+                        const localNow = await storageService.getItem('bodega_sales_v1', []);
+                        const shiftNow = detectActiveShift(localNow);
+                        if (shiftNow.open) throw new Error(`turno activo — apply cancelado (apertura ${shiftNow.aperturaId || '?'})`);
+                        // Re-lectura FRESCA + token: prueba que el encolador verificó
+                        // la MISMA nube y que no se movió desde prepare.
+                        const cloudNow = await fetchCloudSalesReference(deviceId, undefined, { fresh: true });
+                        const check = validateReplacePreconditions(localNow, cloudNow, command.payload?.confirmToken);
+                        if (!check.ok) throw new Error(check.reason);
+                        const before = Array.isArray(localNow) ? localNow.length : 0;
+                        // ÚNICA escritura: bodega_sales_v1. Jamás otros docs ni flags.
+                        await storageService.setItem('bodega_sales_v1', cloudNow);
+                        // Post-invariantes (reporte; no hay rollback automático: el
+                        // rollback es el backup de prepare + re-aplicar desde nube).
+                        const afterArr = await storageService.getItem('bodega_sales_v1', []);
+                        const after = Array.isArray(afterArr) ? afterArr.length : -1;
+                        const cierresDespues = (Array.isArray(afterArr) ? afterArr : []).filter((s) => s?.tipo === 'REGISTRO_CIERRE').length;
+                        const cierresCloud = cloudNow.filter((s) => s?.tipo === 'REGISTRO_CIERRE').length;
+                        const warnings = [];
+                        if (after !== cloudNow.length) warnings.push(`conteo post-apply ${after} != cloud ${cloudNow.length}`);
+                        if (cierresDespues !== cierresCloud) warnings.push(`cierres post-apply ${cierresDespues} != cloud ${cierresCloud}`);
+                        return { before, after, token: check.confirmToken, cloudCount: cloudNow.length, warnings };
+                    });
+
+                    appliedIds.add(command.id);
+                    markApplied(command.id);
+                    await updateCommandStatus(
+                        command.id,
+                        result.warnings.length ? COMMAND_STATUS.APPLIED_WITH_WARNINGS : COMMAND_STATUS.APPLIED,
+                        result.warnings.length ? result.warnings.join('; ') : null,
+                    );
+                    logEvent('SUPERVISOR', 'replace_sales_history_apply', `historial reconstruido desde Doc 60: ${result.before} → ${result.after} registros, token=${result.token} (comando ${command.id})`);
+
+                    // Confirmación end-to-end: con FASE 1 activa, un push fusionado
+                    // es un no-op de unión (local == cloud). Si el flag NO está
+                    // activo, no empujar: el breaker lo bloquearía (ruido inútil).
+                    if (localStorage.getItem('dj_sales_push_merge_v1') === 'true') {
+                        try {
+                            const restored = await storageService.getItem('bodega_sales_v1', []);
+                            await pushCloudSync('bodega_sales_v1', restored, true);
+                        } catch (pushErr) {
+                            console.warn('[SupervisorCommands] Push post-replace falló (se reintentará en el ciclo):', pushErr);
+                        }
+                    }
+                    window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_sales_v1' } }));
+                } catch (err) {
+                    console.error('[SupervisorCommands] Error en replace_sales_history:', err);
                     await updateCommandStatus(command.id, 'failed', err?.message);
                 }
             }

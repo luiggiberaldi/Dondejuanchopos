@@ -144,6 +144,28 @@ FASE 1 permita su push, su numeración sigue divergente y su arqueo local incomp
 
 **Esfuerzo estimado:** ½ sesión (comando ya tiene el patrón de `update_sales_record`).
 
+### ✅ IMPLEMENTADA (12-09, desplegada en producción)
+Comando en dos fases (`prepare` → `apply`) según `docs/FASE-2-HANDOFF-REPLACE-SALES-HISTORY.md`:
+- **Enrutado:** envelope `inventory_update` con `action: 'replace_sales_history'`, excluido del
+  branch genérico de inventario (mismo patrón que `enable_feature` de FASE 1).
+- **Helpers puros:** `src/utils/salesHistoryRestore.js` — `detectActiveShift`,
+  `computeConfirmToken` (`cierreCount:maxSaleNumber:recordCount`),
+  `validateReplacePreconditions`. Sin storage ni red, 13 tests unitarios.
+- **Gates (ambas fases):** solo el device de producción; sin turno activo (re-verificado
+  dentro del `pos_write_lock` en apply); lectura cloud FRESCA (`{ fresh: true }`).
+- **prepare:** valida + exige backup completo <30 min verificado por RPC; NO muta ventas;
+  calcula el token.
+- **apply:** bajo `pos_write_lock`; re-verifica token contra re-lectura fresca (si la nube se
+  movió desde prepare → rechaza); escribe SOLO `bodega_sales_v1`; post-invariantes con
+  `applied_with_warnings` si difieren; push final condicionado al flag de FASE 1.
+- **Estado del comando:** el token NO viaja en la tabla (no existe columna `result`); queda
+  en `logEvent` + el encolador lo calcula de su propia lectura del Doc 60.
+- **Orquestación:** `scripts/fase2-overnight-12092026.mjs` — espera cierre de caja →
+  `request_full_backup` → `prepare` (reintento 3.5 min ante SW viejo) → verificación de token
+  → `apply` → backup final. Armado y corriendo (log: `logs/fase2-overnight.log`).
+- **Tests:** 13 unitarios + 10 fuente-invariantes (`tests/salesHistoryRestore*.test.js`),
+  37/37 en verde junto a la suite de FASE 1.
+
 ---
 
 # FASE 3 — Identidad y numeración (prevenir colisiones)
