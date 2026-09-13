@@ -68,6 +68,44 @@ Este archivo define las directivas operativas mandatorias, contexto del negocio,
      4. **Numeración de ventas autoritativa en nube**: obtener `saleNumber` de un contador central (secuencia en Supabase o max de Doc 60) al momento de facturar, en vez de `max(local)+1`.
      5. **Alerta de divergencia**: chequeo programático (o en el Monitor) que compare `count(ventas hoy en Doc 60)` vs `max(saleNumber)` y avise cuando la nube se quede atrás del PC.
    - **Lección operativa:** mientras el push siga bloqueado, después de cada jornada con ventas hay que verificar el Monitor contra un `request_full_backup` del PC y rescatar a mano.
+   - **ACTUALIZACIÓN 13-09 (II): FASE 3B CORREGIDA EN PRODUCCIÓN (RLS) + FASE 4 DESPLEGADA** —
+     (a) La primera venta con allocator (#842, 22:47) reveló vía `saleNumberNote` que el
+     INSERT del reclamo violaba RLS: la política de hardening exige `status='pending'`
+     y el diseño insertaba 'applied' directo (los scripts de boot lo enmascaraban con
+     service key). Arreglo: insert pending + self-confirm UPDATE a 'applied' + relectura
+     AGNÓSTICA de status (`.in('status', ['pending','applied'])`); claims excluidos del
+     routing del hook. Verificado en vivo: ventas de 23:55/00:10/00:24 reclamaron
+     #844/#845/#846 desde la nube con la instancia real del PC. (b) FASE 4 completa:
+     banner de divergencia PC↔nube en Monitor (divergenceAlert.js puro 12 tests +
+     usePcDivergenceCheck con auto-chequeo por sesión TTL 15 min + botón manual) y
+     `scripts/daily-sync-audit.mjs` (solo lectura, exit 1 en advertencias): su primera
+     corrida guió la limpieza de 5 pares duplicados (#830–#834→#847–#851) y quedó
+     vigilando la divergencia estructural (PC 78 vs nube 967) que FASE 2 cierra al
+     cierre de caja.
+   - **ACTUALIZACIÓN 13-09: FASE 3B IMPLEMENTADA Y DESPLEGADA — tobogán de duplicados cerrado** —
+     `src/utils/saleNumberAllocator.js`: el `saleNumber` ya no nace de `max(local)+1`
+     (causa raíz de todos los incidentes de duplicados) sino de la NUBE al facturar:
+     línea base = máx del Doc 60 leído fresco (RPC existente, sin DDL), reclamo atómico
+     en `supervisor_commands` (fila `applied`, `action='sale_number_claim'` — patrón de
+     anuncio de 3A) + compactación secuencial determinista (`resolveClaims`) para
+     ráfagas; fallback offline = `max(local)+1` marcado `saleNumberProvisional` con
+     guardia monótona. Migrados `checkoutProcessor` (facturación) y
+     `customerTransactionProcessor` (abonos/créditos). Bugs reales atrapados por tests:
+     claimKey colapsable en misma ms, COBRO_DEUDA invisible para el máximo local (los
+     abonos SÍ consumen numeración). 27 tests nuevos + suites de checkout/clientes en
+     verde (118 corridas). Bootstrap end-to-end en vivo: asignación cloud #842 con el
+     par canónico + fallback verificado; reclamo de evidencia eliminado tras la prueba.
+     3 pares duplicados del vespertino (#825–#827) renumerados a #839–#841 con el
+     script idempotente; Doc 60 con 0 duplicados y máx #841 al cierre de la fase. El
+     par FASE 2 (`replace_sales_history`) sigue armado en pending para el cierre de
+     hoy — tras aplicarse, el máximo local del PC se alinea y las colisiones cesan.
+   - **ACTUALIZACIÓN 12-09 (noche, IV): FASE 2 re-armada con AUTO-DIFERIMIENTO** —
+     El orquestador nocturno murió con la sesión que lo lanzó (21:01 UTC) y FASE 2 nunca ejecutó. Sustituido por defer integrado: prepare/apply encolados una vez quedan `pending` con turno abierto (Gate 2 hace return silencioso), se re-evalúan en cada ciclo de polling y se ejecutan solos al cierre de caja (prepare auto-encola su backup, sella confirmToken en su fila; apply espera el prepare aplicado). Tres pares quemados por SW viejo antes de que el defer estuviera activo (incluido un bug propio: defer DESPUÉS del Gate 2 — corregido moviéndolo AL Gate 2). Cuarto par armado y VERIFICADO en defer (pending tras polling del PC real, 21:44 UTC). La verificación de la reconstrucción (historial PC == Doc 60, max #838+) es para la mañana del 13-09.
+   - **ACTUALIZACIÓN 12-09 (noche, III): FASE 3A IMPLEMENTADA Y GATE REGISTRADO** —
+     (a) **Código**: `src/utils/instanceFingerprint.js` — `dj_instance_id` persistente por navegador (aparece como `instanceId` en cada backup v2.1), puerta de comandos con concesión central y cache TTL 60s; fail-open si el gate no está registrado (despliegue seguro). Gate cableado al inicio de `processCommand` en `useSupervisorCommands.js`: instancia no-primaria → `return` SIN `updateCommandStatus` (el comando queda pending para la caja real).
+     (b) **Canal del gate** (decisión de diseño): `read_paired_audit_documents` tiene lista blanca de doc_ids (agregar uno exige DDL; token Management API muerto) → el gate vive como ANUNCIO en `supervisor_commands` (`{action:'instance_gate', primaryInstanceId}`, `command_type='inventory_update'`, insertada DIRECTAMENTE en status 'applied' — jamás se procesa como comando). Elegido el más reciente por `created_at` (la tabla viva no tiene `updated_at`). 22 tests; verificado el upsert/lectura con el MISMO camino que usa el POS.
+     (c) **Registro**: `scripts/register-primary-instance-12092026.mjs` — encola backup fresco, verifica identidad (`instanceId` + Service Worker + dataset reciente/número cercano; la fantasma del 19-08 queda descartada por datos viejos, NO por historial truncado que es normal) y registra `6630e805…` como instancia primaria. Desplegado a producción; efectivo en cuanto la fantasma recargue su SW.
+     (d) **Segunda pasada de renumeración**: la facturación vespertina del cajero (#816–#824) creó 9 colisiones nuevas con los números de la primera cirugía; re-aplicado el script (idempotente) → #830–#838, 0 duplicados, totales intactos. Ventana de colisión residual queda limitada a ventas nuevas hasta FASE 2 (esta noche) y desaparece con FASE 3B.
    - **ACTUALIZACIÓN 12-09 (noche, II): FASE 1 ACTIVADA Y VERIFICADA + FASE 2 IMPLEMENTADA** —
      (a) El 12-09 a las 19:41 UTC la PC real aplicó `enable_feature` (los 2 intentos previos los quemó la instancia fantasma mientras la PC estaba apagada) y su primer push FUSIONADO entregó a la nube el cierre de las 12:30 am y 7 ventas nocturnas: Doc 60 de 935→945 registros, 42→43 cierres, 14→21 ventas de hoy, sin pérdidas ni duplicados por id. Conciliación PC↔nube por id: 0 faltantes en ambas direcciones; summary del cierre byte-idéntico; clientes 18/18 idénticos.
      (b) **FASE 2 implementada y desplegada**: comando `replace_sales_history` (envelope `inventory_update`) en dos fases prepare→apply con token de confirmación `cierreCount:maxSaleNumber:recordCount`, gates de device+turno cerrado+lectura cloud fresca+backup <30 min verificado, única escritura `bodega_sales_v1` bajo `pos_write_lock` (detalle en el plan maestro). Helpers puros en `src/utils/salesHistoryRestore.js`; 23 tests nuevos, suite en verde.

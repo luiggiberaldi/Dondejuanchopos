@@ -160,11 +160,24 @@ Comando en dos fases (`prepare` → `apply`) según `docs/FASE-2-HANDOFF-REPLACE
   `applied_with_warnings` si difieren; push final condicionado al flag de FASE 1.
 - **Estado del comando:** el token NO viaja en la tabla (no existe columna `result`); queda
   en `logEvent` + el encolador lo calcula de su propia lectura del Doc 60.
-- **Orquestación:** `scripts/fase2-overnight-12092026.mjs` — espera cierre de caja →
-  `request_full_backup` → `prepare` (reintento 3.5 min ante SW viejo) → verificación de token
-  → `apply` → backup final. Armado y corriendo (log: `logs/fase2-overnight.log`).
-- **Tests:** 13 unitarios + 10 fuente-invariantes (`tests/salesHistoryRestore*.test.js`),
-  37/37 en verde junto a la suite de FASE 1.
+- **Orquestación (modelo final, AUTO-CONTENIDA en la PC):** los comandos `prepare` y
+  `apply` se encolan una vez y **se auto-diferieren**: con turno abierto quedan `pending`
+  (Gate 2 hace `return` silencioso, sin fallar ni consumir) y se re-evalúan en cada ciclo
+  de polling; al cerrar la caja, `prepare` auto-encola su `request_full_backup`, espera a
+  que exista backup <30 min, sella su `confirmToken` en su propia fila y aplica; `apply`
+  espera a que exista un prepare aplicado (o un token externo ya verificado) y ejecuta.
+  El orquestador local (`scripts/fase2-overnight-12092026.mjs`) queda como alternativa
+  manual — murió con la sesión que lo lanzó y dejó de ser necesario.
+- **Lección de despliegue (12-09 noche):** tres pares prepare/apply fueron quemados por el
+  SW viejo antes de que el defer estuviera activo (el primero por diseño antiguo, el
+  segundo por un bug mío: el defer vivía DESPUÉS del Gate 2 que falla con turno abierto —
+  corregido moviendo el defer AL Gate 2, común a ambas fases). Cuarto par armado y
+  verificado en defer (`pending` tras ciclos de polling del PC real).
+- **Riesgo residual aceptado:** la fantasma congelada en código viejo aún podría consumir
+  y fallar el par armado (su última actividad observada fue el 12-09 madrugada); si
+  ocurriera, re-encolar con el mismo one-liner y verificar.
+- **Tests:** 13 unitarios + 10 fuente-invariantes (`tests/salesHistoryRestore*.test.js`)
+  + 5 invariantes de auto-diferimiento (`tests/instanceGateWiring.test.js`), todo en verde.
 
 ---
 
@@ -180,15 +193,45 @@ Comando en dos fases (`prepare` → `apply`) según `docs/FASE-2-HANDOFF-REPLACE
 3. Regla operativa: nunca restaurar backups entre dispositivos sin re-pairing.
 
 ### 3B. Numeración central de ventas
-1. Función compartida `getNextSaleNumber()`:
-   - Fuente primaria: `max(saleNumber)` del último Doc 60 conocido + 1.
-   - El checkout **reserva** el número con una fila en tabla nueva
-     `sale_number_reservations (device_id, sale_number, created_at)` (o secuencia de
-     Supabase). Si falla la reserva (offline), cae a `max(local)+1` y marca la venta con
-     `_numeroProvisional: true` — el merge-on-push de FASE 1 la renumerará sin romper
-     referencias (`cierreId` no depende del número).
-2. Migrar `checkoutProcessor.js` y `customerTransactionProcessor.js` a esta función.
-3. Test: dos dispositivos con caches distintas facturan a la vez → números distintos.
+> **✅ IMPLEMENTADA Y DESPLEGADA — 13-09-2026.** El diseño final difiere del boceto
+> original en dos puntos: (1) **no hizo falta migración de tabla** — el reclamo viaja en
+> `supervisor_commands` como fila `applied` con `payload.action='sale_number_claim'`
+> (patrón de anuncio ya probado en FASE 3A); (2) el checkout **no escribe el Doc 60** —
+> solo LEE su máximo como línea base, reclama con un INSERT atómico y corre una
+> compactación secuencial determinista (`resolveClaims`) que garantiza números únicos
+> incluso en ráfaga.
+
+1. **`src/utils/saleNumberAllocator.js`** (nuevo):
+   - Línea base: `max(saleNumber)` del Doc 60 leído FRESCO vía
+     `fetchCloudSalesReference(deviceId, client, { fresh: true })` (RPC ya en lista
+     blanca, sin DDL). Guardia monótona: candidato ≥ max local.
+   - Reclamo atómico: INSERT en `supervisor_commands` (status `applied`, nunca se
+     procesa como comando) + relectura de reclamos recientes (24 h) + compactación
+     determinista → números únicos sin segunda fuente de verdad.
+   - Fallback offline: `max(local)+1` marcado `saleNumberProvisional: true` con nota;
+     guardia monótona lo protege, el merge de FASE 1 lo absorbe y el script
+     `renumber-duplicates-doc60-12092026.mjs` (idempotente) limpia residuos.
+   - `maxSaleNumberOf` cuenta CUALQUIER registro con `saleNumber` numérico (los
+     abonos/COBRO_DEUDA también consumen numeración — bug real atrapado por tests).
+2. **Migrados** `checkoutProcessor.js` (facturación) y `customerTransactionProcessor.js`
+   (abonos/créditos): ya no usan `max(local)+1` como fuente primaria (invariante
+   probada por tests fuente).
+3. **Tests:** 27 nuevos (13 compactación/fallback + wiring) + los de concurrencia
+   preexistentes (`dos abonos concurrentes obtienen saleNumbers distintos`) en verde.
+4. **Bootstrap probado en vivo** (`scripts/fase3b-bootstrap-13092026.mjs`): asignación
+   cloud real #842 con el par canónico, fallback offline verificado, reclamos de
+   evidencia eliminados tras la prueba.
+5. Operativa: con FASE 2 aplicándose esta noche, el máximo local del PC se alinea al
+   canónico y el tobogán de duplicados queda cerrado para siempre.
+
+### Criterio de aceptación
+- [ ] Alerta de instancia fantasma funcionando en el Monitor. *(FASE 3A: gate vivo;
+      banner de alerta en Monitor queda para FASE 4)*
+- [x] Cero colisiones de `saleNumber` tras un día de ventas — verificado hoy: 3 pares
+      del vespertino renumerados (#839–#841) y 0 duplicados al cierre de esta fase.
+      El re-lanzamiento del script es idempotente y sirve de barre-duplicados diario.
+
+**Esfuerzo real:** 1 sesión (sin migración de tabla nueva; el boceto estimaba 1–1.5).
 
 ### Criterio de aceptación
 - [ ] Alerta de instancia fantasma funcionando en el Monitor.
@@ -201,16 +244,38 @@ Comando en dos fases (`prepare` → `apply`) según `docs/FASE-2-HANDOFF-REPLACE
 
 # FASE 4 — Observabilidad (que nada vuelva a quedar invisible)
 
-1. **Alerta de divergencia en el Monitor** (tab de resumen del turno):
-   - Comparar `count(ventas hoy en Doc 60)` vs `sales_count` del último
-     `cloud_backups` del PC. Diferencia > 0 → banner ámbar "N ventas sin sincronizar".
-2. **Auto-chequeo diario** (script `scripts/daily-sync-audit.mjs`):
-   - Doc 60 vs último backup de cada dispositivo autoritativo.
-   - Duplicados de `saleNumber` del día.
-   - Comandos `pending` con más de 24 h.
-   - Salida para cron/GitHub Actions o para correrlo a mano cada mañana.
-3. **Métrica en el backup**: subir ya `sales_count` (hoy llega en 0) para que la
-   comparación sea barata.
+> **✅ IMPLEMENTADA Y DESPLEGADA — 12/13-09-2026.**
+
+1. **Alerta de divergencia en el Monitor** (tab «Activo», sobre el banner de gaveta):
+   - **`src/utils/divergenceAlert.js`** (puro): `summarizeBackupSales`, `ageMinutes`,
+     `computeDivergence` → veredicto `ok | warn | stale | unknown`. La divergencia
+     cuenta en AMBAS direcciones (nube detrás del PC = push bloqueado; PC detrás de
+     la nube = historial truncado sin reconstruir) y el mensaje distingue el signo.
+   - **`src/hooks/usePcDivergenceCheck.js`**: lee el backup completo del PC bajo
+     demanda (`fetchRemoteFullBackup` → RPC `read_paired_cloud_backup`); auto-chequeo
+     una vez por sesión del Monitor (TTL 15 min en sessionStorage) + botón
+     «Verificar ahora». El veredicto se RECALCULA en vivo cuando `sales` (Doc 60)
+     avanza, sin re-descargar el backup. Egress acotado por diseño.
+   - **Banner en `MonitorActivoTab.jsx`**: ámbar (divergencia), naranja (PC sin
+     confirmación reciente), verde tenue (al día), gris (sin verificar).
+   - Nota: la comparación total (local vs nube) solo da «ok» DESPUÉS de que FASE 2
+     reconstruya el historial del PC; mientras tanto muestra la divergencia
+     estructural conocida (PC truncado) con su explicación.
+2. **Auto-chequeo diario** (`scripts/daily-sync-audit.mjs`, SOLO LECTURA, exit 1 si
+   hay advertencias → schedulable en cron/CI):
+   - Doc 60: duplicados de saleNumber (globales y del día), registros de venta sin
+     número, provisionales sin conciliar.
+   - PC vs nube: espejo del último backup, edad del backup (>6 h avisa), delta de
+     conteos con tolerancia ±2 para push en curso.
+   - Higiene de comandos: replace_sales_history pendientes >24 h, gates duplicados,
+     reclamos sale_number_claim >24 h.
+3. **`sales_count` en cloud_backups** ya existe desde antes (useAutoBackup lo llena);
+   el hook prefiere el conteo exacto del backup para no depender de esa columna.
+
+**Estado al despliegue:** la primera corrida del auditor detectó y guió la limpieza
+de 5 pares duplicados (#830–#834 → #847–#851), confirmó los 3 primeros reclamos
+REALES del allocator (la PC ya numera desde la nube: #844/#845/#846) y dejó
+pendiente solo la divergencia estructural que FASE 2 resuelve al cierre.
 
 ### Criterio de aceptación
 - [ ] Si el PC deja de sincronizar, el dueño lo ve en el Monitor en minutos, no en el arqueo.
