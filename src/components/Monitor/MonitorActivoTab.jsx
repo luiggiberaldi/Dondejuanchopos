@@ -1,7 +1,7 @@
 import React from 'react';
-import { BookOpen } from 'lucide-react';
+import { BookOpen, CloudOff, RefreshCw } from 'lucide-react';
 
-export default function MonitorActivoTab({ AlertTriangle, ArrowDownRight, ChevronRight, Clock, Coins, DollarSign, FileText, HandCoins, Hash, Lock, Package, RefreshCw, RotateCcw, ShoppingBag, TrendingUp, Users, Wallet, activeCashier, activeShiftApertura, activeShiftAutoconsumoMetrics, activeShiftAvgTicket, activeShiftChangeMetrics, activeShiftExpectedCash, activeShiftExpensesMetrics, activeShiftGrossUsd, activeShiftMetrics, activeShiftPaymentBreakdown, activeShiftSales, activeShiftTipTotals, activeStockAlertTab, bcvRate, customers, effectiveRate, formatBs, formatCop, formatTime, getEffectiveSaleTotalBs, getFormattedPaymentMethod, getFormattedSaleCode, getMethodIcon, getPaymentBadgeStyle, getSaleChangeDetails, isShiftActive, loadingData, lowStockProducts, outOfStockProducts, payrollEmployees, payrollTotals, products, setSelectedSaleDetail, setShowRemoteCloseModal, setStockAlertTab, setViewTab, shiftStatusInfo, syncLoading, triggerHaptic }) {
+export default function MonitorActivoTab({ AlertTriangle, ArrowDownRight, ChevronRight, Clock, Coins, DollarSign, FileText, HandCoins, Hash, Lock, Package, RefreshCw, RotateCcw, ShoppingBag, TrendingUp, Users, Wallet, activeCashier, activeShiftApertura, activeShiftAutoconsumoMetrics, activeShiftAvgTicket, activeShiftChangeMetrics, activeShiftExpectedCash, activeShiftExpensesMetrics, activeShiftGrossUsd, activeShiftMetrics, activeShiftPaymentBreakdown, activeShiftSales, activeShiftTipTotals, activeStockAlertTab, bcvRate, customers, effectiveRate, formatBs, formatCop, formatTime, getEffectiveSaleTotalBs, getFormattedPaymentMethod, getFormattedSaleCode, getMethodIcon, getPaymentBadgeStyle, getSaleChangeDetails, isShiftActive, loadingData, lowStockProducts, outOfStockProducts, payrollEmployees, payrollTotals, products, setSelectedSaleDetail, setShowRemoteCloseModal, setStockAlertTab, setViewTab, shiftStatusInfo, syncLoading, triggerHaptic, divergence }) {
     return (
                     <div className="space-y-6">
                         {/* Banner de Estado de Apertura del Turno (Estructura Ultra-Óptima 2 Filas) */}
@@ -51,6 +51,43 @@ export default function MonitorActivoTab({ AlertTriangle, ArrowDownRight, Chevro
                                 </div>
                             )}
                         </div>
+
+                        {/* FASE 4: Banner de divergencia PC ↔ nube (detector de humo de sync) */}
+                        {divergence && (() => {
+                            const { verdict, checking, lastChecked, checkDivergence } = divergence;
+                            const style = {
+                                warn: 'bg-amber-50/90 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800/40 text-amber-900 dark:text-amber-300',
+                                stale: 'bg-orange-50/90 dark:bg-orange-950/20 border-orange-300 dark:border-orange-800/40 text-orange-900 dark:text-orange-300',
+                                ok: 'bg-emerald-50/70 dark:bg-emerald-950/10 border-emerald-200 dark:border-emerald-800/30 text-emerald-900 dark:text-emerald-300',
+                                unknown: 'bg-slate-100/90 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800/60 text-slate-600 dark:text-slate-300',
+                            }[verdict?.level || 'unknown'];
+                            return (
+                                <div className={`p-3 sm:p-3.5 rounded-2xl border flex flex-col gap-1.5 shadow-sm ${style}`}>
+                                    <div className="flex items-center justify-between gap-2 w-full">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <CloudOff size={15} className="shrink-0" />
+                                            <span className="font-black text-xs sm:text-[13px] leading-none truncate">
+                                                {verdict ? verdict.title : 'Verificando sync con el PC…'}
+                                            </span>
+                                        </div>
+                                        <button
+                                            onClick={() => { triggerHaptic?.(); checkDivergence(); }}
+                                            disabled={checking}
+                                            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-current/20 font-bold text-[10.5px] shadow-2xs transition-all active:scale-95 cursor-pointer disabled:opacity-60 shrink-0"
+                                        >
+                                            <RefreshCw size={11} className={checking ? 'animate-spin' : ''} />
+                                            <span>{checking ? 'Verificando…' : 'Verificar ahora'}</span>
+                                        </button>
+                                    </div>
+                                    {verdict && (
+                                        <p className="text-[10.5px] leading-snug opacity-90">
+                                            {verdict.message}
+                                            {lastChecked && ` · verificado ${new Date(lastChecked).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' })}`}
+                                        </p>
+                                    )}
+                                </div>
+                            );
+                        })()}
 
                         {/* Banner de Efectivo Esperado en Gaveta (Cuadre Teórico de Caja en Vivo) */}
                         <div className="bg-white dark:bg-slate-900 border border-emerald-500/30 dark:border-emerald-800/60 p-3.5 sm:p-4 rounded-2xl shadow-sm flex flex-col gap-2.5">

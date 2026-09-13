@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useProductContext } from '../context/ProductContext';
 import { useMonitorSync } from '../hooks/useMonitorSync';
+import { usePcDivergenceCheck } from '../hooks/usePcDivergenceCheck'; // FASE 4: divergencia PC ↔ nube
 import { useSupervisorCommandQueue } from '../hooks/useSupervisorCommandQueue';
 import { useMonitorShiftMetrics } from '../hooks/useMonitorShiftMetrics';
 import { useMonitorInventory } from '../hooks/useMonitorInventory';
@@ -533,6 +534,9 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     // Determinar si la caja está actualmente inactiva (sin turno abierto)
     const isShiftActive = activeShiftApertura !== null || activeShiftSales.length > 0;
 
+    // FASE 4: veredicto de divergencia PC ↔ nube (banner en pestaña Activo).
+    // `sales` del Monitor ES el Doc 60 sincronizado → es el lado nube de la comparación.
+    const divergence = usePcDivergenceCheck(pairedDeviceId, Array.isArray(sales) ? sales.length : 0, { pcOnline: isPosOnline });
 
     const monitorCtx = {
         ...queue,
@@ -629,6 +633,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         isConnected,
         isDuplicateProductIdFailure,
         isShiftActive,
+        divergence,
         loadingData,
         lowStockProducts,
         outOfStockProducts,
