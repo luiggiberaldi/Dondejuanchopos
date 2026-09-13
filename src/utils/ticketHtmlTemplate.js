@@ -1,6 +1,6 @@
 import { formatBs, formatCop, formatUsd } from './calculatorUtils';
 // FIN-024: reemplazar `* rate` raw y `.toFixed(2)` con mulR + formatUsd (sin Math.round/toFixed).
-import { mulR } from './dinero';
+import { mulR, divR } from './dinero';
 import { getChangeLedger, getChangeDisplayParts } from './changeLedger';
 
 function escapeHtml(str) {

@@ -269,6 +269,7 @@ export async function seedInitialKardexIfEmpty(products, deviceId, user) {
  */
 export async function createInventorySnapshot(cierreId, products, user) {
     if (!cierreId || !Array.isArray(products)) return;
+    const snapshotTimestamp = new Date().toISOString();
     const resolvedUser = user || useAuthStore.getState().usuarioActivo;
     const deviceId = localStorage.getItem('dj_device_id') || 'CAJA_PRINCIPAL';
 
@@ -294,7 +295,7 @@ export async function createInventorySnapshot(cierreId, products, user) {
         id: crypto.randomUUID(),
         device_id: deviceId,
         cierre_id: cierreId,
-        fecha_corte: new Date().toISOString(),
+        fecha_corte: snapshotTimestamp,
         usuario_id: resolvedUser?.id || null,
         usuario_nombre: resolvedUser?.nombre || 'Sistema',
         usuario_rol: resolvedUser?.rol || 'SYSTEM',

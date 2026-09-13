@@ -1,6 +1,6 @@
 // tests/withLock.test.js — Tests para el wrapper navigator.locks con fallback.
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { withLock, isLocksSupported } from '../src/utils/withLock';
 
 describe('isLocksSupported', () => {
@@ -63,6 +63,68 @@ describe('withLock — fallback (sin navigator.locks)', () => {
     };
     await Promise.all([slow(1), slow(2)]);
     expect(order).toEqual(['start_1', 'end_1', 'start_2', 'end_2']);
+  });
+});
+
+describe('withLock — H01: nunca repetir trabajo ya iniciado', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('conserva la excepción y ejecuta una sola vez el efecto parcial', async () => {
+    const error = new Error('falló después de guardar');
+    let writes = 0;
+    const callback = vi.fn(async () => { writes += 1; throw error; });
+    await expect(withLock('h01_partial_write', callback)).rejects.toBe(error);
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(writes).toBe(1);
+  });
+
+  it('no repite un callback que lanza sincrónicamente', async () => {
+    const error = new TypeError('dato inválido');
+    const callback = vi.fn(() => { throw error; });
+    await expect(withLock('h01_sync_error', callback)).rejects.toBe(error);
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
+  it('no oculta un fallo nativo posterior al callback ni vuelve a ejecutarlo', async () => {
+    const error = new Error('respuesta del lock incierta');
+    vi.spyOn(navigator.locks, 'request').mockImplementation(async (_name, _opts, fn) => {
+      await fn();
+      throw error;
+    });
+    const callback = vi.fn(async () => 'guardado');
+    await expect(withLock('h01_after_callback', callback)).rejects.toBe(error);
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
+  it('propaga cancelación nativa sin iniciar trabajo por fallback', async () => {
+    const error = new DOMException('Operación cancelada', 'AbortError');
+    vi.spyOn(navigator.locks, 'request').mockRejectedValue(error);
+    const callback = vi.fn(async () => 'no ejecutar');
+    await expect(withLock('h01_aborted', callback)).rejects.toBe(error);
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it('permite que el siguiente trabajo termine tras una excepción sin duplicar el primero', async () => {
+    const events = [];
+    const results = await Promise.allSettled([
+      withLock('h01_continue', async () => { events.push('primero'); throw new Error('fallo'); }),
+      withLock('h01_continue', async () => { events.push('segundo'); return 'ok'; }),
+    ]);
+    expect(results.map(r => r.status)).toEqual(['rejected', 'fulfilled']);
+    expect(events).toEqual(['primero', 'segundo']);
+  });
+
+  it('trata locks=null como no soportado sin lanzar en feature detection', async () => {
+    const originalLocks = navigator.locks;
+    Object.defineProperty(navigator, 'locks', { value: null, configurable: true });
+    try {
+      expect(isLocksSupported()).toBe(false);
+      const callback = vi.fn(async () => 7);
+      await expect(withLock('h01_null_locks', callback)).resolves.toBe(7);
+      expect(callback).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.defineProperty(navigator, 'locks', { value: originalLocks, configurable: true });
+    }
   });
 });
 

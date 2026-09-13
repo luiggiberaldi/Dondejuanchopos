@@ -9,8 +9,9 @@
  * Estrategia:
  *   1. Si `navigator.locks` está disponible y el contexto es seguro, lo usamos (atómico real).
  *   2. Si no, caemos a un mutex en memoria basado en promesas (mejor effort, no cross-tab).
- *   3. Siempre envolvemos en try/catch para que el callback nunca se pierda por un error
- *      del mecanismo de lock (la integridad del dato prevalece sobre la atomicidad perfecta).
+ *   3. Solo usar fallback si falla la adquisición ANTES de iniciar el trabajo.
+ *      Un error del callback se propaga sin repetir efectos parcialmente aplicados.
+ *      Una cancelación explícita tampoco autoriza ejecutar por otra vía.
  *
  * Uso:
  *   import { withLock } from '@/utils/withLock';
@@ -34,7 +35,8 @@ async function _memoryMutex(name, fn) {
   const prev = _queues.get(name) ?? Promise.resolve();
   let resolveNext;
   const next = new Promise((r) => { resolveNext = r; });
-  _queues.set(name, prev.then(() => next));
+  const tail = prev.then(() => next);
+  _queues.set(name, tail);
 
   try {
     await prev;
@@ -47,7 +49,7 @@ async function _memoryMutex(name, fn) {
   } finally {
     resolveNext();
     // Limpieza: si somos el último, liberar la entrada del Map.
-    if (_queues.get(name) === next) {
+    if (_queues.get(name) === tail) {
       _queues.delete(name);
     }
   }
@@ -60,6 +62,7 @@ async function _memoryMutex(name, fn) {
  */
 export function isLocksSupported() {
   return typeof navigator !== 'undefined'
+    && navigator.locks !== null
     && typeof navigator.locks === 'object'
     && typeof navigator.locks.request === 'function'
     && (typeof window === 'undefined' || window.isSecureContext !== false);
@@ -105,13 +108,19 @@ export async function withLock(name, fn, opts = {}) {
 
   // Camino rápido: navigator.locks soportado.
   if (isLocksSupported()) {
+    let callbackStarted = false;
     try {
       return await navigator.locks.request(name, { mode }, async () => {
+        callbackStarted = true;
         return await fn();
       });
     } catch (err) {
+      // El callback puede haber escrito parte de una operación. Su error no es
+      // un fallo de adquisición: repetirlo aquí duplicaría esos efectos.
+      // Tampoco convertir una cancelación explícita en trabajo por otra vía.
+      if (callbackStarted || err?.name === 'AbortError') throw err;
       if (import.meta.env?.DEV) {
-        console.warn(`[withLock] navigator.locks falló para "${name}", usando fallback:`, err);
+        console.warn(`[withLock] Adquisición nativa falló para "${name}", usando fallback local:`, err);
       }
       return await _memoryMutex(name, fn);
     }
