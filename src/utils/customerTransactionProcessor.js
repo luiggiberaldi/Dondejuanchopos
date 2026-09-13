@@ -6,6 +6,7 @@ import { deepFreeze } from './deepFreeze';  // FIN-008: deep-freeze antes de ret
 import { CurrencyService } from '../services/CurrencyService'; // FIN-017-pattern: safeParse en vez de parseFloat.
 import { logEvent } from '../services/auditService';
 import { useAuthStore } from '../hooks/store/useAuthStore';
+import { allocateSaleNumber } from './saleNumberAllocator'; // FASE 3B: numeración central
 
 /**
  * Procesa la lógica de abonar o endeudar a un cliente desde el TransactionModal.
@@ -121,7 +122,9 @@ export async function processCustomerTransaction({
 
         // 4. Update sales storage
         const sales = await storageService.getItem('bodega_sales_v1', []);
-        const nextSaleNumber = sales.reduce((mx, s) => Math.max(mx, s.saleNumber || 0), 0) + 1;
+        // FASE 3B: número asignado desde la NUBE; fallback offline = provisional.
+        const allocation = await allocateSaleNumber(deviceId, { localSales: sales });
+        const nextSaleNumber = allocation.saleNumber;
         const totalEnBs = currencyMode === 'BS' ? rawAmount : mulR(appliedUsd, safeBcvRate);
         const totalEnUsd = appliedUsd;
         const totalEnCop = currencyMode === 'COP' ? rawAmount : mulR(appliedUsd, safeTasaCop);
@@ -139,6 +142,7 @@ export async function processCustomerTransaction({
                 deviceId,
                 tipo: 'COBRO_DEUDA',
                 saleNumber: nextSaleNumber,
+                ...(allocation.provisional ? { saleNumberProvisional: true, saleNumberNote: allocation.note } : {}),
                 rate: safeBcvRate,
                 status: 'COMPLETADA',
                 clienteId: customer.id,
@@ -177,6 +181,7 @@ export async function processCustomerTransaction({
                 deviceId,
                 tipo: 'VENTA_FIADA',
                 saleNumber: nextSaleNumber,
+                ...(allocation.provisional ? { saleNumberProvisional: true, saleNumberNote: allocation.note } : {}),
                 rate: safeBcvRate,
                 status: 'COMPLETADA',
                 clienteId: customer.id,

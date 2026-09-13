@@ -12,6 +12,7 @@ import { calculatePricing } from './productProcessor';
 import { getChangeLedger, normalizeChangeCurrency } from './changeLedger';
 import { expandCartToPhysicalDeductions, aggregatePhysicalDeductions } from './inventoryMovementModel';
 import { applyInventoryOperationUnlocked } from '../services/inventoryOperationService';
+import { allocateSaleNumber } from './saleNumberAllocator'; // FASE 3B: numeración central
 
 const SALES_KEY = 'bodega_sales_v1';
 const PRODUCTS_KEY = 'bodega_products_v1';
@@ -385,7 +386,11 @@ export async function processSaleTransaction({
                 };
             }
         }
-        const saleNumber = existingSales.reduce((mx, s) => Math.max(mx, s.saleNumber || 0), 0) + 1;
+        // FASE 3B: el saleNumber se asigna desde la NUBE (claim atómico + compactación
+        // determinista) con fallback offline marcado provisional. Nunca max(local)+1
+        // como fuente primaria — esa era la causa de los saleNumber duplicados.
+        const allocation = await allocateSaleNumber(deviceId, { localSales: existingSales });
+        const saleNumber = allocation.saleNumber;
 
         // Capturar la composición física con el catálogo vigente antes de
         // persistir la venta. La anulación usa esta fotografía y no vuelve a
@@ -399,6 +404,7 @@ export async function processSaleTransaction({
         const finalPersistedSale = deepFreeze({
             ...sale,
             saleNumber,
+            ...(allocation.provisional ? { saleNumberProvisional: true, saleNumberNote: allocation.note } : {}),
             inventoryDeductions: physicalDeductions,
             inventoryDeductionsApplied: [],
             inventoryAnomalies: expanded.anomalies

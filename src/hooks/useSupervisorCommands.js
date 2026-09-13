@@ -289,7 +289,7 @@ export function useSupervisorCommands(deviceId) {
                     console.error('[SupervisorCommands] Error al aplicar rate_change:', err);
                     await updateCommandStatus(command.id, 'failed', err?.message);
                 }
-            } else if (command.command_type === 'inventory_update' && command.payload?.action !== 'enable_feature' && command.payload?.action !== 'replace_sales_history') {
+            } else if (command.command_type === 'inventory_update' && command.payload?.action !== 'enable_feature' && command.payload?.action !== 'replace_sales_history' && command.payload?.action !== 'sale_number_claim') {
                 if (command.payload?.action === 'save_customer' || command.payload?.action === 'update_customer_balance') {
                     try {
                         const { customerId, customerCode, deuda, favor, customer, action } = command.payload || {};
@@ -1182,15 +1182,18 @@ export function useSupervisorCommands(deviceId) {
                         return;
                     }
 
-                    // Gate 2: sin turno activo — re-verificado en AMBAS fases.
+                    // Gate 2 (AUTO-DIFERIMIENTO): con turno activo el comando NO se
+                    // consume ni falla — queda 'pending' y se re-evalúa en cada ciclo
+                    // de polling hasta que la caja cierre (ejecución nocturna).
                     const shift = detectActiveShift(localSales);
                     if (shift.open) {
-                        await updateCommandStatus(command.id, 'failed', `turno activo — reintentar en horario cerrado (apertura ${shift.aperturaId || '?'})`);
-                        return;
+                        return; // defer silencioso: pendiente para el ciclo nocturno
                     }
 
                     if (phase === 'prepare') {
                         // ── PREPARE: validar + verificar backup. NO muta ventas. ──
+                        // (El auto-diferimiento por turno activo vive en el Gate 2,
+                        // común a ambas fases.)
                         // Lectura FRESCA del Doc 60 (sin caché TTL): el token y la
                         // decisión dependen del estado real de la nube.
                         const cloudRef = await fetchCloudSalesReference(deviceId, undefined, { fresh: true });
@@ -1200,8 +1203,8 @@ export function useSupervisorCommands(deviceId) {
                             return;
                         }
                         // Red de seguridad obligatoria: debe existir un backup
-                        // completo reciente (<30 min). El encolador lanza
-                        // request_full_backup justo antes de prepare.
+                        // completo reciente (<30 min). El encolador (o el ciclo de
+                        // auto-diferimiento) lanza request_full_backup antes.
                         const { data: pair } = await supabaseCloud
                             .from('device_pairings')
                             .select('monitor_device_id')
@@ -1213,9 +1216,23 @@ export function useSupervisorCommands(deviceId) {
                             p_updated_after: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
                         });
                         if (bkErr || !Array.isArray(bk) || bk.length === 0) {
-                            await updateCommandStatus(command.id, 'failed', 'sin backup reciente (<30 min) — encolar request_full_backup antes de prepare');
-                            return;
+                            // Sin backup reciente: encolarlo nosotros y quedar pendiente
+                            // para el siguiente ciclo (el backup se habrá aplicado).
+                            await supabaseCloud.from('supervisor_commands').insert({
+                                primary_device_id: deviceId,
+                                monitor_device_id: pair?.monitor_device_id || '',
+                                command_type: 'request_full_backup',
+                                status: 'pending',
+                                payload: { reason: 'pre-replace-sales-history (auto)' },
+                            });
+                            return; // defer: se re-evalúa cuando haya backup <30 min
                         }
+                        // FASE 2 ejecutada en horario cerrado: sellar el token en
+                        // ESTA fila (payload.confirmToken) para el apply.
+                        await supabaseCloud
+                            .from('supervisor_commands')
+                            .update({ payload: { ...command.payload, confirmToken: check.confirmToken } })
+                            .eq('id', command.id);
                         appliedIds.add(command.id);
                         markApplied(command.id);
                         await updateCommandStatus(command.id, COMMAND_STATUS.APPLIED);
@@ -1224,15 +1241,36 @@ export function useSupervisorCommands(deviceId) {
                     }
 
                     // ── APPLY: la reconstrucción real, bajo pos_write_lock ──
+                    // AUTO-DIFERIMIENTO: sin prepare aplicado todavía (o con turno
+                    // abierto), el apply NO falla — espera su turno como pending.
+                    const { data: prepareRow } = await supabaseCloud
+                        .from('supervisor_commands')
+                        .select('payload,status,created_at')
+                        .eq('primary_device_id', deviceId)
+                        .contains('payload', { action: 'replace_sales_history', phase: 'prepare' })
+                        .in('status', ['applied', 'applied_with_warnings'])
+                        .order('created_at', { ascending: false })
+                        .limit(1)
+                        .maybeSingle();
+                    const preparedToken = prepareRow?.payload?.confirmToken;
+                    if (!preparedToken) {
+                        if (command.payload?.confirmToken) {
+                            // El encolador externo trajo su propio token verificado:
+                            // respetarlo (modo manual/orquestado).
+                        } else {
+                            return; // defer: aún no hay prepare aplicado
+                        }
+                    }
                     const result = await withLock('pos_write_lock', async () => {
                         // Re-chequeo de gates: el estado pudo cambiar tras prepare.
                         const localNow = await storageService.getItem('bodega_sales_v1', []);
                         const shiftNow = detectActiveShift(localNow);
                         if (shiftNow.open) throw new Error(`turno activo — apply cancelado (apertura ${shiftNow.aperturaId || '?'})`);
-                        // Re-lectura FRESCA + token: prueba que el encolador verificó
-                        // la MISMA nube y que no se movió desde prepare.
+                        // Re-lectura FRESCA + token: prueba que la nube es la MISMA
+                        // que verificó el prepare (sellado por el propio prepare).
                         const cloudNow = await fetchCloudSalesReference(deviceId, undefined, { fresh: true });
-                        const check = validateReplacePreconditions(localNow, cloudNow, command.payload?.confirmToken);
+                        const tokenToCheck = command.payload?.confirmToken || preparedToken;
+                        const check = validateReplacePreconditions(localNow, cloudNow, tokenToCheck);
                         if (!check.ok) throw new Error(check.reason);
                         const before = Array.isArray(localNow) ? localNow.length : 0;
                         // ÚNICA escritura: bodega_sales_v1. Jamás otros docs ni flags.

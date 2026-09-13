@@ -37,9 +37,9 @@ describe('cableado replace_sales_history en useSupervisorCommands.js', () => {
         expect(hits.length).toBeGreaterThanOrEqual(2);
     });
 
-    test('backup obligatorio verificado antes de prepare', () => {
+    test('backup obligatorio verificado antes de prepare (o auto-encolado + defer)', () => {
         expect(HOOK).toMatch(/read_paired_cloud_backup/);
-        expect(HOOK).toMatch(/sin backup reciente/);
+        expect(HOOK).toMatch(/pre-replace-sales-history \(auto\)/);
     });
 
     test('solo se escribe bodega_sales_v1 (ningún otro doc ni flags de sync)', () => {

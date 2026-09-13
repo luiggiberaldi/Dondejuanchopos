@@ -57,27 +57,42 @@ describe('hasServiceWorker', () => {
     });
 });
 
-describe('readGate (cache y forma del payload)', () => {
+describe('readGate (canal supervisor_commands, cache y forma)', () => {
     beforeEach(() => {
         resetGateCacheForTests();
     });
 
-    const makeClient = (payload, calls) => ({
-        rpc: async (_fn, _args) => {
-            calls.push(1);
-            return { data: payload ? [{ data: { payload } }] : [{ data: { payload: null } }], error: null };
-        },
-    });
+    const makeClient = (rows, calls, { error = null } = {}) => {
+        const builder = {
+            select() { return this; },
+            eq() { return this; },
+            contains() { return this; },
+            order() { return this; },
+            limit() { return this; },
+            then(onOk) {
+                calls.push(1);
+                return Promise.resolve({ data: rows, error }).then(onOk);
+            },
+        };
+        return { from: () => builder };
+    };
 
-    test('sin gate en la nube → null (fail-open aguas abajo)', async () => {
+    test('sin anuncio de gate → null (fail-open aguas abajo)', async () => {
         const calls = [];
-        const g = await readGate('DEV', makeClient(null, calls));
+        const g = await readGate('DEV', makeClient([], calls));
         expect(g).toBeNull();
     });
 
-    test('cachea la lectura por TTL (1 RPC para N llamadas)', async () => {
+    test('lee el payload del anuncio más reciente', async () => {
         const calls = [];
-        const client = makeClient({ primaryInstanceId: 'x' }, calls);
+        const client = makeClient([{ payload: { action: 'instance_gate', primaryInstanceId: 'x' }, updated_at: 't1' }], calls);
+        const g = await readGate('DEV', client);
+        expect(g).toEqual({ action: 'instance_gate', primaryInstanceId: 'x' });
+    });
+
+    test('cachea por TTL (1 lectura para N llamadas)', async () => {
+        const calls = [];
+        const client = makeClient([{ payload: { primaryInstanceId: 'x' }, updated_at: 't1' }], calls);
         await readGate('DEV', client);
         await readGate('DEV', client);
         await readGate('DEV', client);
@@ -85,8 +100,9 @@ describe('readGate (cache y forma del payload)', () => {
         expect(await readGate('DEV', client)).toEqual({ primaryInstanceId: 'x' });
     });
 
-    test('error de RPC → null sin lanzar (fail-open)', async () => {
-        const client = { rpc: async () => { throw new Error('boom'); } };
+    test('error de consulta → null sin lanzar (fail-open)', async () => {
+        const calls = [];
+        const client = makeClient([], calls, { error: new Error('boom') });
         expect(await readGate('DEV', client)).toBeNull();
     });
 });

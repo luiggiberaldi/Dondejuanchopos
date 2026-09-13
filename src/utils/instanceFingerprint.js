@@ -6,25 +6,30 @@
  * consume comandos de supervisor (quemó 3: dos enable_feature y quedó a punto
  * de quemar replace_sales_history). Ver .agents/AGENTS.md §9.
  *
- * Diseño (según docs/FASE-2-HANDOFF §3 y AGENTS.md):
+ * Diseño:
  *  - ID de instancia persistente por navegador: `dj_instance_id`
- *    (crypto.randomUUID; los navegadores sin crypto —el fantasma probablemente
- *    corre un build viejo— obtienen un fallback estable). Aparece en cada
- *    backup que la instancia sube, trazando SIEMPRE quién respondió.
- *  - Puerta de comandos con concesión central: cada instancia compara su id con
- *    `dj_gate_v1.primaryInstanceId` (doc `bodega_instance_gate_v1`, collection
- *    'local' — registrado por el orquestador tras VERIFICAR la instancia real).
- *    No registrado → fail-open (comportamiento actual, deploy seguro).
- *    Registrado y distinto → la instancia NO es la primaria: se salta el
- *    comando SIN consumirlo (queda pending para la caja real) y lo deja anotado.
- *  - Cache en memoria 60 s: 1 lectura RPC por minuto por instancia, no por comando.
+ *    (crypto.randomUUID; navegadores sin crypto obtienen un fallback estable).
+ *    Aparece en cada backup que la instancia sube (`instanceId`), trazando
+ *    SIEMPRE quién respondió.
+ *  - Concesión central "gate": la instancia más reciente anuncia su id en
+ *    supervisor_commands como { action: 'instance_gate', primaryInstanceId }
+ *    (command_type='inventory_update', insertada directamente en status
+ *    'applied' — NUNCA es procesada como comando; es solo un dato persistente
+ *    legible por todas las instancias, que ya leen esa tabla para hacer polling).
+ *    Elegimos este canal porque read_paired_audit_documents tiene lista blanca
+ *    de doc_ids (agregar uno exige DDL) y supervisor_commands ya es legible por
+ *    anon con los permisos existentes.
+ *  - No registrada → fail-open (comportamiento previo, despliegue seguro).
+ *    Registrada y distinta → la instancia NO es la primaria: se salta el
+ *    comando SIN consumirlo (queda pending para la caja real).
+ *  - Cache en memoria 60 s: una lectura por minuto por instancia, no por comando.
  *
  * Nada de esto crea, borra ni mueve datos de negocio: solo decide quién
  * procesa comandos y firma los backups con su identidad.
  */
 
 const INSTANCE_ID_KEY = 'dj_instance_id';
-const GATE_DOC_ID = 'bodega_instance_gate_v1';
+const GATE_ACTION = 'instance_gate';
 const GATE_TTL_MS = 60 * 1000;
 
 let _cachedGate = { value: null, ts: 0 };
@@ -54,7 +59,8 @@ export function hasServiceWorker() {
 }
 
 /**
- * Lee la concesión central. null = no registrada aún (fail-open).
+ * Lee el anuncio de gate más reciente para este device.
+ * null = no registrado aún (fail-open aguas abajo).
  * @param {string} deviceId
  * @param {object} [client] - cliente Supabase inyectable (tests).
  */
@@ -64,15 +70,22 @@ export async function readGate(deviceId, client) {
         if (_cachedGate.value !== null && now - _cachedGate.ts < GATE_TTL_MS) {
             return _cachedGate.value;
         }
-        const { data, error } = await client.rpc('read_paired_audit_documents', {
-            p_primary_device_id: deviceId,
-            p_monitor_device_id: deviceId, // el gate es del dispositivo, no del par
-            p_doc_ids: [GATE_DOC_ID],
-        });
+        // El anuncio vive como fila applied (jamás pending) → ningún dispositivo
+        // la consume como comando; todas la leen como dato.
+        // NOTA: la tabla viva NO tiene updated_at; el orden correcto es created_at.
+        const { data, error } = await client
+            .from('supervisor_commands')
+            .select('payload')
+            .eq('primary_device_id', deviceId)
+            .eq('command_type', 'inventory_update')
+            .eq('status', 'applied')
+            .contains('payload', { action: GATE_ACTION })
+            .order('created_at', { ascending: false })
+            .limit(1);
         if (error) throw error;
-        const payload = data?.[0]?.data?.payload;
-        _cachedGate = { value: payload || null, ts: Date.now() };
-        return _cachedGate.value;
+        const payload = data?.[0]?.payload || null;
+        _cachedGate = { value: payload, ts: Date.now() };
+        return payload;
     } catch {
         return null;
     }
