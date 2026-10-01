@@ -128,6 +128,7 @@ export function normalizeHistoricalSale(sale) {
 function mergeSingleSale(local, incoming) {
     const localTs = new Date(local.updatedAt || local.timestamp || 0).getTime();
     const incomingTs = new Date(incoming.updatedAt || incoming.timestamp || 0).getTime();
+
     // Base: usar la versión más reciente (o incoming si son iguales para reflejar sincronizaciones de nube)
     const rawBase = incomingTs >= localTs ? { ...local, ...incoming } : { ...incoming, ...local };
     const base = normalizeHistoricalSale(rawBase);

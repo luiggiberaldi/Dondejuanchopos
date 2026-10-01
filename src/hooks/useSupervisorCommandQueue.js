@@ -409,8 +409,9 @@ export function useSupervisorCommandQueue({
         localStorage.removeItem(SUPERVISOR_RATE_PENDING_KEY);
 
         try {
-            const { localStore } = await import('../utils/localStore');
-            await localStore.clear();
+            const { default: localforage } = await import('localforage');
+            localforage.config({ name: 'BodegaApp', storeName: 'bodega_app_data' });
+            await localforage.clear();
         } catch (e) {
             console.warn('[OwnerMonitorView] Error limpiando IndexedDB:', e);
         }

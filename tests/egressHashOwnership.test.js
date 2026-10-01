@@ -45,19 +45,6 @@ describe('D1 — pushCloudSync es el unico dueno del hash de egress', () => {
         expect(SRC).toMatch(/Sincronización pausada/);
     });
 
-    test('el arranque respeta hashes y no fuerza publicaciones incondicionales', () => {
-        expect(SRC).toContain('forceSyncAllPOSData(deviceId, false)');
-        expect(SRC).not.toContain('forceSyncAllPOSData(deviceId, true)');
-    });
-
-    test('la transformación de ventas no se ejecuta mientras el archivado outbound esté desactivado', () => {
-        expect(SRC).toMatch(/const SALES_ARCHIVE_ENABLED = false/);
-        expect(SRC).toMatch(/const KARDEX_EGRESS_COMPACTION_ENABLED = false/);
-        expect(SRC).toContain('allowArchiving: SALES_ARCHIVE_ENABLED');
-        expect(SRC).toContain('prepareSalesPushPayload');
-        expect(SRC).toContain('se pospone el push para no sobrescribir historial no verificado');
-    });
-
     test('forceSyncAllPOSData no reporta éxito si una subida falla', () => {
         expect(SRC).toMatch(/let allSucceeded = true/);
         expect(SRC).toMatch(/if \(allSucceeded\)/);

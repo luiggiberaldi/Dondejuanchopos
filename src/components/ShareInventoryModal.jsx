@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import localforage from 'localforage';
 import { Share2, Download, X, Copy, Check, Loader2, AlertTriangle, Package, Users, ShoppingBag, Settings2, Database } from 'lucide-react';
 import { storageService } from '../utils/storageService';
 

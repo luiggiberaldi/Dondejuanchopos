@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 // v1.2.0: useReveal hook para animaciones reveal-on-scroll (design system "Precios al Día")
 import { useReveal } from '../hooks/useReveal';
 import { Users, Plus, Search, User, X, Trash2, Pencil, Phone, RefreshCw, Save, ArrowDownRight, ArrowUpRight, Clock, CheckCircle2, CreditCard, ShoppingBag, Truck, Smartphone, Calendar, BriefcaseBusiness, RotateCcw } from 'lucide-react';
@@ -47,8 +47,6 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
     // Modal de Abono / Crédito
     const [transactionModal, setTransactionModal] = useState({ isOpen: false, type: null, customer: null }); // type: 'ABONO' | 'CREDITO'
     const [transactionAmount, setTransactionAmount] = useState('');
-    const transactionRequestRef = useRef(null);
-    const transactionInFlightRef = useRef(false);
     const [currencyMode, setCurrencyMode] = useState('USD'); // 'USD' | 'BS'
     const [paymentMethod, setPaymentMethod] = useState('efectivo_usd');
     const [activePaymentMethods, setActivePaymentMethods] = useState([]);
@@ -269,33 +267,19 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
             return;
         }
 
-        if (transactionInFlightRef.current) return;
-        const signature = JSON.stringify([transactionModal.customer?.id, transactionModal.type, transactionAmount, currencyMode, methodForCurrency.id, isFullPayment]);
-        if (transactionRequestRef.current?.signature !== signature) transactionRequestRef.current = { signature, id: crypto.randomUUID() };
-        transactionInFlightRef.current = true;
-        let transactionResult;
-        try {
-            transactionResult = await processCustomerTransaction({
-                operationId: transactionRequestRef.current.id,
-                transactionAmount,
-                currencyMode,
-                type: transactionModal.type,
-                customer: transactionModal.customer,
-                paymentMethod: methodForCurrency.id,
-                bcvRate,
-                tasaCop,
-                copEnabled,
-                activePaymentMethods,
-                isFullPayment,
-                isExplicitHighAmount,
-            });
-        } catch (error) {
-            // Un fallo puede ocurrir después de un efecto parcial. Conservar
-            // modal e importe, sin toast de éxito ni recomendación de repetir.
-            console.error('[Customers] Operación sin confirmación completa:', error);
-            showToast('No se confirmó la operación completa. Revisa el saldo y el historial antes de repetirla.', 'error');
-            return;
-        } finally { transactionInFlightRef.current = false; }
+        const transactionResult = await processCustomerTransaction({
+            transactionAmount,
+            currencyMode,
+            type: transactionModal.type,
+            customer: transactionModal.customer,
+            paymentMethod: methodForCurrency.id,
+            bcvRate,
+            tasaCop,
+            copEnabled,
+            activePaymentMethods,
+            isFullPayment,
+            isExplicitHighAmount,
+        });
 
         if (transactionResult?.error) {
             showToast(transactionResult.error, 'error');
@@ -307,8 +291,7 @@ export default function CustomersView({ triggerHaptic, rates, isActive }) {
         showToast(`Operación de ${transactionModal.type} exitosa`, 'success');
         auditLog('CLIENTE', transactionModal.type === 'ABONO' ? 'ABONO_REGISTRADO' : 'CREDITO_REGISTRADO', `${transactionModal.type} de ${transactionAmount} ${currencyMode} para ${transactionModal.customer?.name}`);
 
-        // Cerrar modal; el próximo movimiento recibe una identidad nueva.
-        transactionRequestRef.current = null;
+        // Cerrar modal
         setTransactionModal({ isOpen: false, type: null, customer: null });
         setTransactionAmount('');
         setCurrencyMode('USD');

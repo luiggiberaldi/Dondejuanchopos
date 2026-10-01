@@ -27,9 +27,7 @@ export async function processVoidSale(sale, currentSales, currentProducts, actor
     if (sale.status === 'ANULADA') throw new Error("Esta venta ya fue anulada.");
 
     // FIN-007: withLock reemplaza navigator.locks.request directo.
-    return withLock('pos_write_lock', () => storageService.transaction(async (storageService) => {
-        const applyInventory = operation => applyInventoryOperationUnlocked(operation, storageService);
-        const auditAfterCommit = (...args) => storageService.afterCommit(() => logEvent(...args));
+    return withLock('pos_write_lock', async () => {
         // Re-read fresh sales from storage to prevent stale data
         const freshSales = await storageService.getItem(SALES_KEY, []);
         const executingUser = useAuthStore.getState().usuarioActivo;
@@ -71,7 +69,7 @@ export async function processVoidSale(sale, currentSales, currentProducts, actor
         let updatedProducts = freshProducts;
         if (restorationEntries.length > 0) {
             const activeUser = useAuthStore.getState().usuarioActivo;
-            const inventoryResult = await applyInventory({
+            const inventoryResult = await applyInventoryOperationUnlocked({
                 operationId: `void_${freshSale.id}`,
                 referenceId: freshSale.id,
                 referenceType: 'ANULACION',
@@ -244,8 +242,7 @@ export async function processVoidSale(sale, currentSales, currentProducts, actor
             const sessionCancelled = await cancelSessionBySaleIdUnlocked(
                 freshSale.id,
                 cajeroNombre,
-                requestedBy || executingUser,
-                storageService
+                requestedBy || executingUser
             );
             if (!sessionCancelled) {
                 throw new Error(`No se pudo anular la ficha de consumo de la venta ${freshSale.id}`);
@@ -256,16 +253,8 @@ export async function processVoidSale(sale, currentSales, currentProducts, actor
         // 5. Persistir ventas/clientes. El catálogo ya fue escrito por la
         // fachada de inventario; no se vuelve a guardar desde este flujo.
         await storageService.setItem(SALES_KEY, updatedSales);
+        await storageService.setItem('bodega_sales_mirror_v1', updatedSales);
         await storageService.setItem(CUSTOMERS_KEY, updatedCustomers);
-        // El espejo es auxiliar: su fallo no puede interrumpir la reversión de
-        // la cuenta después de haber guardado la venta como ANULADA.
-        let mirrorPending = false;
-        try {
-            await storageService.setItem('bodega_sales_mirror_v1', updatedSales);
-        } catch (error) {
-            mirrorPending = true;
-            console.warn('[VoidSale] Anulación guardada; actualización de espejo pendiente:', error);
-        }
 
         // FIN-008: deep-freeze outputs antes de retornar (defensa contra mutaciones posteriores).
         deepFreeze(updatedProducts);
@@ -274,7 +263,7 @@ export async function processVoidSale(sale, currentSales, currentProducts, actor
         // FIN-032: era console.log — movido a logEvent para auditoría.
         const user = executingUser || useAuthStore.getState().usuarioActivo;
         const auditActor = requestedBy || user;
-        auditAfterCommit('VENTA', 'VENTA_ANULADA',
+        logEvent('VENTA', 'VENTA_ANULADA',
             `Venta #${sale.saleNumber || '?'} anulada - $${round2(sale.totalUsd || 0)}`,
             auditActor,
             {
@@ -286,8 +275,8 @@ export async function processVoidSale(sale, currentSales, currentProducts, actor
             }
         );
 
-        return { updatedSales, updatedProducts, updatedCustomers, mirrorPending };
-    }));
+        return { updatedSales, updatedProducts, updatedCustomers };
+    });
 }
 
 /**

@@ -25,14 +25,13 @@ function normalizeActor(actorOrName, fallback = {}) {
 /**
  * Crea una nueva Ficha de Consumo Activa vinculada a una Venta (versión interna sin cerrojo).
  */
-export async function createSessionFromSaleUnlocked(sale, cartItem, io = storageService) {
-    const applyInventory = op => applyInventoryOperationUnlocked(op, io);
+export async function createSessionFromSaleUnlocked(sale, cartItem) {
     if (!sale || !cartItem) return null;
 
     const customerRef = (cartItem.deferredCustomerRef || sale.customerName || 'Cliente en Sitio').trim();
     const sessionId = `session_${String(sale.id)}_${String(cartItem.id || cartItem._originalId || 'item')}`
         .replace(/[^a-zA-Z0-9:_-]/g, '_');
-    const sessions = await io.getItem(CONSUMPTION_SESSIONS_KEY, []) || [];
+    const sessions = await storageService.getItem(CONSUMPTION_SESSIONS_KEY, []) || [];
     const existingSession = sessions.find(session => (
         session.saleId === sale.id && session.comboId === cartItem.id
     ));
@@ -94,7 +93,7 @@ export async function createSessionFromSaleUnlocked(sale, cartItem, io = storage
     try {
         // Descontar inventario físico y registrar Kardex como una sola operación.
         if (initialItems.length > 0) {
-            const inventoryResult = await applyInventory({
+            const inventoryResult = await applyInventoryOperationUnlocked({
                 operationId: `dispatch_${initialDispatchId}`,
                 referenceId: initialDispatchId,
                 referenceType: 'CONSUMO_DIFERIDO',
@@ -123,21 +122,18 @@ export async function createSessionFromSaleUnlocked(sale, cartItem, io = storage
         }
 
         const updatedSessions = [newSession, ...sessions];
-        await io.setItem(CONSUMPTION_SESSIONS_KEY, updatedSessions);
+        await storageService.setItem(CONSUMPTION_SESSIONS_KEY, updatedSessions);
 
         try {
-            if (io.afterCommit) io.afterCommit(() => pushCloudSync(CONSUMPTION_SESSIONS_KEY, updatedSessions, true));
-            else await pushCloudSync(CONSUMPTION_SESSIONS_KEY, updatedSessions, true);
+            await pushCloudSync(CONSUMPTION_SESSIONS_KEY, updatedSessions, true);
         } catch (syncErr) {
-        if (io.transactional) throw syncErr;
             console.warn('[ConsumptionService] Error al sincronizar ficha en la nube:', syncErr);
         }
 
-        io.afterCommit ? io.afterCommit(() => window.dispatchEvent(new CustomEvent('consumption-sessions-updated'))) : window.dispatchEvent(new CustomEvent('consumption-sessions-updated'));
-        io.afterCommit ? io.afterCommit(() => window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: PRODUCTS_KEY } }))) : window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: PRODUCTS_KEY } }));
+        window.dispatchEvent(new CustomEvent('consumption-sessions-updated'));
+        window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: PRODUCTS_KEY } }));
         return newSession;
     } catch (err) {
-        if (io.transactional) throw err;
         console.error('[ConsumptionService] Error al crear ficha de consumo:', err);
         return null;
     }
@@ -148,7 +144,7 @@ export async function createSessionFromSaleUnlocked(sale, cartItem, io = storage
  */
 export async function createSessionFromSale(sale, cartItem) {
     return await withLock('pos_write_lock', async () => {
-        return await storageService.transaction(io => createSessionFromSaleUnlocked(sale, cartItem, io));
+        return await createSessionFromSaleUnlocked(sale, cartItem);
     });
 }
 
@@ -178,8 +174,7 @@ export async function getAllSessions() {
 /**
  * Registra una entrega parcial de productos en una ficha de consumo (versión interna sin cerrojo).
  */
-export async function registerPartialDispatchUnlocked(sessionId, dispatchedItems, cashierName = 'Cajero', requestId = null, actorOverride = null, io = storageService) {
-    const applyInventory = op => applyInventoryOperationUnlocked(op, io);
+export async function registerPartialDispatchUnlocked(sessionId, dispatchedItems, cashierName = 'Cajero', requestId = null, actorOverride = null) {
     if (!sessionId || !Array.isArray(dispatchedItems) || dispatchedItems.length === 0) {
         return { success: false, error: 'Parámetros de despacho inválidos' };
     }
@@ -193,8 +188,8 @@ export async function registerPartialDispatchUnlocked(sessionId, dispatchedItems
     const dispatchActor = normalizeActor(actorOverride, { nombre: cashierName });
 
     try {
-        const sessions = await io.getItem(CONSUMPTION_SESSIONS_KEY, []) || [];
-        const products = await io.getItem(PRODUCTS_KEY, []) || [];
+        const sessions = await storageService.getItem(CONSUMPTION_SESSIONS_KEY, []) || [];
+        const products = await storageService.getItem(PRODUCTS_KEY, []) || [];
 
         const sessionIndex = sessions.findIndex(s => s.id === sessionId);
         if (sessionIndex === -1) {
@@ -222,7 +217,7 @@ export async function registerPartialDispatchUnlocked(sessionId, dispatchedItems
             };
         }
 
-        const operationRecords = await io.getItem('bodega_inventory_operations_v1', []) || [];
+        const operationRecords = await storageService.getItem('bodega_inventory_operations_v1', []) || [];
         const existingOperation = operationRecords.find(operation => (
             operation.operationId === operationId
             && operation.metadata?.sessionId === session.id
@@ -273,7 +268,7 @@ export async function registerPartialDispatchUnlocked(sessionId, dispatchedItems
         };
 
         // 4. Descontar productos y registrar Kardex con snapshots explícitos.
-        const inventoryResult = await applyInventory({
+        const inventoryResult = await applyInventoryOperationUnlocked({
             operationId,
             referenceId: dispatchRecord.id,
             referenceType: 'CONSUMO_DIFERIDO',
@@ -318,19 +313,17 @@ export async function registerPartialDispatchUnlocked(sessionId, dispatchedItems
         updatedSessions[sessionIndex] = updatedSession;
 
         // 5. Persistir la ficha; el catálogo ya fue aplicado por la operación.
-        await io.setItem(CONSUMPTION_SESSIONS_KEY, updatedSessions);
+        await storageService.setItem(CONSUMPTION_SESSIONS_KEY, updatedSessions);
 
         try {
-            if (io.afterCommit) io.afterCommit(() => pushCloudSync(CONSUMPTION_SESSIONS_KEY, updatedSessions, true));
-            else await pushCloudSync(CONSUMPTION_SESSIONS_KEY, updatedSessions, true);
+            await pushCloudSync(CONSUMPTION_SESSIONS_KEY, updatedSessions, true);
         } catch (syncErr) {
-        if (io.transactional) throw syncErr;
             console.warn('[ConsumptionService] Error en push de sincronización post-despacho:', syncErr);
         }
 
         // Notificar cambios al sistema React
-        io.afterCommit ? io.afterCommit(() => window.dispatchEvent(new CustomEvent('consumption-sessions-updated'))) : window.dispatchEvent(new CustomEvent('consumption-sessions-updated'));
-        io.afterCommit ? io.afterCommit(() => window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: PRODUCTS_KEY } }))) : window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: PRODUCTS_KEY } }));
+        window.dispatchEvent(new CustomEvent('consumption-sessions-updated'));
+        window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: PRODUCTS_KEY } }));
 
         return {
             success: true,
@@ -339,7 +332,6 @@ export async function registerPartialDispatchUnlocked(sessionId, dispatchedItems
             isCompleted: isFullyCompleted
         };
     } catch (err) {
-        if (io.transactional) throw err;
         console.error('[ConsumptionService] Error al registrar despacho parcial:', err);
         return { success: false, error: err?.message || 'Error al procesar despacho' };
     }
@@ -351,20 +343,19 @@ export async function registerPartialDispatchUnlocked(sessionId, dispatchedItems
  */
 export async function registerPartialDispatch(sessionId, dispatchedItems, cashierName = 'Cajero', requestId = null, actorOverride = null) {
     return await withLock('pos_write_lock', async () => {
-        return await storageService.transaction(io => registerPartialDispatchUnlocked(sessionId, dispatchedItems, cashierName, requestId, actorOverride, io));
+        return await registerPartialDispatchUnlocked(sessionId, dispatchedItems, cashierName, requestId, actorOverride);
     });
 }
 
 /**
  * Anula una ficha de consumo asociada a una venta anulada (versión interna sin cerrojo).
  */
-export async function cancelSessionBySaleIdUnlocked(saleId, cashierName = 'Supervisor', actorOverride = null, io = storageService) {
-    const applyInventory = op => applyInventoryOperationUnlocked(op, io);
+export async function cancelSessionBySaleIdUnlocked(saleId, cashierName = 'Supervisor', actorOverride = null) {
     if (!saleId) return false;
 
     try {
         const cancellationActor = normalizeActor(actorOverride, { nombre: cashierName });
-        const sessions = await io.getItem(CONSUMPTION_SESSIONS_KEY, []) || [];
+        const sessions = await storageService.getItem(CONSUMPTION_SESSIONS_KEY, []) || [];
         const sessionIndex = sessions.findIndex(s => s.saleId === saleId && s.status !== 'CANCELLED');
         if (sessionIndex === -1) return false;
 
@@ -391,7 +382,7 @@ export async function cancelSessionBySaleIdUnlocked(saleId, cashierName = 'Super
             }));
 
         if (refundEntries.length > 0) {
-            const inventoryResult = await applyInventory({
+            const inventoryResult = await applyInventoryOperationUnlocked({
                 operationId: `cancel_session_${session.id}`,
                 referenceId: session.id,
                 referenceType: 'ANULACION_CONSUMO_DIFERIDO',
@@ -420,20 +411,17 @@ export async function cancelSessionBySaleIdUnlocked(saleId, cashierName = 'Super
 
         // `applyInventoryOperationUnlocked` ya persistió el catálogo y el
         // movimiento. Solo se confirma el documento de la ficha aquí.
-        await io.setItem(CONSUMPTION_SESSIONS_KEY, updatedSessions);
+        await storageService.setItem(CONSUMPTION_SESSIONS_KEY, updatedSessions);
 
         try {
-            if (io.afterCommit) io.afterCommit(() => pushCloudSync(CONSUMPTION_SESSIONS_KEY, updatedSessions, true));
-            else await pushCloudSync(CONSUMPTION_SESSIONS_KEY, updatedSessions, true);
-        } catch (e) {
-        if (io.transactional) throw e;}
+            await pushCloudSync(CONSUMPTION_SESSIONS_KEY, updatedSessions, true);
+        } catch (e) {}
 
-        io.afterCommit ? io.afterCommit(() => window.dispatchEvent(new CustomEvent('consumption-sessions-updated'))) : window.dispatchEvent(new CustomEvent('consumption-sessions-updated'));
-        io.afterCommit ? io.afterCommit(() => window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: PRODUCTS_KEY } }))) : window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: PRODUCTS_KEY } }));
+        window.dispatchEvent(new CustomEvent('consumption-sessions-updated'));
+        window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: PRODUCTS_KEY } }));
 
         return true;
     } catch (err) {
-        if (io.transactional) throw err;
         console.error('[ConsumptionService] Error al anular ficha de consumo:', err);
         return false;
     }
@@ -445,22 +433,21 @@ export async function cancelSessionBySaleIdUnlocked(saleId, cashierName = 'Super
  */
 export async function cancelSessionBySaleId(saleId, cashierName = 'Supervisor', actorOverride = null) {
     return await withLock('pos_write_lock', async () => {
-        return await storageService.transaction(io => cancelSessionBySaleIdUnlocked(saleId, cashierName, actorOverride, io));
+        return await cancelSessionBySaleIdUnlocked(saleId, cashierName, actorOverride);
     });
 }
 
 /**
  * Revierte una ronda de entrega parcial de consumo diferido (versión interna sin cerrojo).
  */
-export async function revertDispatchRoundUnlocked(sessionId, dispatchId, cashierName = 'Cajero', actorOverride = null, io = storageService) {
-    const applyInventory = op => applyInventoryOperationUnlocked(op, io);
+export async function revertDispatchRoundUnlocked(sessionId, dispatchId, cashierName = 'Cajero', actorOverride = null) {
     if (!sessionId || !dispatchId) {
         return { success: false, error: 'Parámetros insuficientes para revertir' };
     }
 
     try {
         const revertActor = normalizeActor(actorOverride, { nombre: cashierName });
-        const sessions = await io.getItem(CONSUMPTION_SESSIONS_KEY, []) || [];
+        const sessions = await storageService.getItem(CONSUMPTION_SESSIONS_KEY, []) || [];
 
         const sessionIndex = sessions.findIndex(s => s.id === sessionId);
         if (sessionIndex === -1) {
@@ -482,7 +469,7 @@ export async function revertDispatchRoundUnlocked(sessionId, dispatchId, cashier
         // 1. Restituir inventario físico y registrar Kardex mediante la
         // fachada única. El operationId estable hace segura la repetición si
         // falla la persistencia de la ficha después del movimiento.
-        const inventoryResult = await applyInventory({
+        const inventoryResult = await applyInventoryOperationUnlocked({
             operationId: `revert_dispatch_${session.id}_${targetDispatch.id}`,
             referenceId: targetDispatch.id,
             referenceType: 'REVERSION_CONSUMO_DIFERIDO',
@@ -527,19 +514,17 @@ export async function revertDispatchRoundUnlocked(sessionId, dispatchId, cashier
         // 4. Persistir en IndexedDB y Sincronizar en la Nube
         // `applyInventoryOperationUnlocked` ya persistió el catálogo y el
         // movimiento. Solo se confirma el documento de la ficha aquí.
-        await io.setItem(CONSUMPTION_SESSIONS_KEY, updatedSessions);
+        await storageService.setItem(CONSUMPTION_SESSIONS_KEY, updatedSessions);
 
         try {
-            if (io.afterCommit) io.afterCommit(() => pushCloudSync(CONSUMPTION_SESSIONS_KEY, updatedSessions, true));
-            else await pushCloudSync(CONSUMPTION_SESSIONS_KEY, updatedSessions, true);
+            await pushCloudSync(CONSUMPTION_SESSIONS_KEY, updatedSessions, true);
         } catch (syncErr) {
-        if (io.transactional) throw syncErr;
             console.warn('[ConsumptionService] Error al sincronizar reversión en la nube:', syncErr);
         }
 
         // Notificar cambios al sistema React
-        io.afterCommit ? io.afterCommit(() => window.dispatchEvent(new CustomEvent('consumption-sessions-updated'))) : window.dispatchEvent(new CustomEvent('consumption-sessions-updated'));
-        io.afterCommit ? io.afterCommit(() => window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: PRODUCTS_KEY } }))) : window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: PRODUCTS_KEY } }));
+        window.dispatchEvent(new CustomEvent('consumption-sessions-updated'));
+        window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: PRODUCTS_KEY } }));
 
         return {
             success: true,
@@ -547,7 +532,6 @@ export async function revertDispatchRoundUnlocked(sessionId, dispatchId, cashier
             revertedQty: revertTotalQty
         };
     } catch (err) {
-        if (io.transactional) throw err;
         console.error('[ConsumptionService] Error al revertir ronda de despacho:', err);
         return { success: false, error: err?.message || 'Error inesperado al revertir entrega' };
     }
@@ -560,7 +544,7 @@ export async function revertDispatchRoundUnlocked(sessionId, dispatchId, cashier
  */
 export async function revertDispatchRound(sessionId, dispatchId, cashierName = 'Cajero', actorOverride = null) {
     return await withLock('pos_write_lock', async () => {
-        return await storageService.transaction(io => revertDispatchRoundUnlocked(sessionId, dispatchId, cashierName, actorOverride, io));
+        return await revertDispatchRoundUnlocked(sessionId, dispatchId, cashierName, actorOverride);
     });
 }
 

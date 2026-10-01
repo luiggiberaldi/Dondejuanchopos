@@ -54,10 +54,9 @@ export function useCheckoutFlow({
         } catch (err) {
             sniperLog('2_PROCESS_EXCEPTION', 'Excepción en processSaleTransaction', { message: err?.message, stack: err?.stack });
             console.error('[checkout] Error inesperado en processSaleTransaction:', err);
-            const message = 'No se confirmó la venta completa. Revisa el historial antes de repetir el cobro.';
-            showToast(message, 'error');
+            showToast('Error al procesar la venta. Intenta de nuevo.', 'error');
             playError();
-            return { success: false, error: message };
+            return { success: false, error: 'Error al procesar la venta. Intenta de nuevo.' };
         }
 
         if (!result.success) {

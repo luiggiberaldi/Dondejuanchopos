@@ -147,14 +147,9 @@ export default function SaleDetailModal({ sale, onClose, bcvRate, pairedDeviceId
                     {/* Desglose de Artículos */}
                     <div className="space-y-2.5">
                         <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-400 px-1">
-                            <span>Artículos ({sale.items ? sale.items.reduce((s, i) => s + (i.qty || 1), 0) : (sale.itemCount || 0)})</span>
+                            <span>Artículos ({sale.items ? sale.items.reduce((s, i) => s + (i.qty || 1), 0) : 0})</span>
                             <span>Subtotal</span>
                         </div>
-                        {sale.isArchived === true && (
-                            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-semibold text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
-                                Detalle histórico archivado. El ticket original sigue disponible en el POS o en el backup.
-                            </div>
-                        )}
                         
                             {sale.items && sale.items.length > 0 ? (
                                 sale.items.map((item, idx) => {

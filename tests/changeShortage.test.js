@@ -6,10 +6,6 @@ import { getCustomerBalanceSnapshot } from '../src/utils/financialLogic.js';
 // Mock storageService & auditService & authStore
 vi.mock('../src/utils/storageService.js', () => ({
     storageService: {
-        async transaction(callback) {
-            const { runLegacyUnitTransaction } = await import('./legacyUnitTransaction');
-            return runLegacyUnitTransaction(this, callback);
-        },
         getItem: vi.fn().mockImplementation((key, defaultVal) => Promise.resolve(defaultVal || [])),
         setItem: vi.fn().mockImplementation(() => Promise.resolve(true))
     }

@@ -1,66 +1,63 @@
-/** Customer balance validation must quarantine questionable values, never repair them. */
+/**
+ * Guardarraíles de integridad y sincronización para Clientes (bodega_customers_v1).
+ * Previene que anomalías de saldo (ej. >  favor) se propaguen a la nube
+ * y garantiza una fusión inteligente basada en timestamps (updatedAt) en lugar de sobreescritura ciega.
+ */
+
 export const MAX_CUSTOMER_FAVOR_THRESHOLD_USD = 300.00;
 export const MAX_CUSTOMER_DEBT_THRESHOLD_USD = 2500.00;
 
-function isCustomerRecord(customer) {
-    return customer !== null && typeof customer === 'object' && !Array.isArray(customer)
-        && ((typeof customer.id === 'string' && customer.id.trim() !== '')
-            || (typeof customer.id === 'number' && Number.isFinite(customer.id)));
-}
-
-function isInvalidBalance(value, threshold, explicitlyConfirmed) {
-    const isNumeric = typeof value === 'number'
-        || (typeof value === 'string' && value.trim() !== '');
-    const amount = isNumeric ? Number(value) : NaN;
-    return !Number.isFinite(amount) || amount < 0 || (amount > threshold && !explicitlyConfirmed);
-}
-
+/**
+ * Valida un array de clientes antes del push a Supabase.
+ * Detecta valores atípicos imposibles en un negocio de abasto de barrio.
+ */
 export function validateCustomerSyncPayload(customers) {
-    const anomalies = [];
-    const sanitized = Array.isArray(customers) ? Array.from(customers, (customer, index) => {
-        if (!isCustomerRecord(customer)) {
-            anomalies.push({ index, reason: 'Invalid customer record' });
-            return customer && typeof customer === 'object' && !Array.isArray(customer)
-                ? { ...customer, _quarantinedAnomaly: true } : customer;
-        }
+    if (!Array.isArray(customers)) {
+        return {
+            valid: false,
+            isValid: false,
+            sanitized: [],
+            sanitizedCustomers: [],
+            anomalies: [],
+            anomalousCustomers: []
+        };
+    }
 
-        const approval = customer.highAmountApproval;
-        const explicitlyConfirmed = customer.isExplicitHighAmount === true && (!approval || (
-            Number(approval.favor) === Number(customer.favor) && Number(approval.deuda) === Number(customer.deuda)
-            && Number.isFinite(Date.parse(approval.approvedAt))
-        ));
-        const hasFavorAnomaly = isInvalidBalance(customer.favor, MAX_CUSTOMER_FAVOR_THRESHOLD_USD, explicitlyConfirmed);
-        const hasDebtAnomaly = isInvalidBalance(customer.deuda, MAX_CUSTOMER_DEBT_THRESHOLD_USD, explicitlyConfirmed);
+    const anomalies = [];
+    const sanitized = customers.map(c => {
+        if (!c) return c;
+        const favor = Number(c.favor) || 0;
+        const deuda = Number(c.deuda) || 0;
+
+        // Si excede el tope de favor o deuda y no fue explícitamente confirmado
+        const hasFavorAnomaly = favor > MAX_CUSTOMER_FAVOR_THRESHOLD_USD && !c.isExplicitHighAmount;
+        const hasDebtAnomaly = deuda > MAX_CUSTOMER_DEBT_THRESHOLD_USD && !c.isExplicitHighAmount;
 
         if (hasFavorAnomaly || hasDebtAnomaly) {
             anomalies.push({
-                index,
-                id: customer.id,
-                code: customer.code,
-                name: customer.name,
-                favor: customer.favor,
-                deuda: customer.deuda,
+                id: c.id,
+                code: c.code,
+                name: c.name,
+                favor,
+                deuda,
                 hasCorruptedFavor: hasFavorAnomaly,
                 hasCorruptedDebt: hasDebtAnomaly,
-                reason: hasFavorAnomaly ? 'Invalid or unconfirmed favor balance' : 'Invalid or unconfirmed debt balance'
+                reason: hasFavorAnomaly ? `Saldo a favor anómalo: $${favor}` : `Deuda anómala: $${deuda}`
             });
-            return { ...customer, _quarantinedAnomaly: true };
+            // Sanitización quirúrgica: aislar el saldo anómalo para no contaminar la nube
+            return {
+                ...c,
+                favor: hasFavorAnomaly ? 0 : favor,
+                _quarantinedAnomaly: true
+            };
         }
-        if (customer._quarantinedAnomaly) {
-            const confirmedCustomer = { ...customer };
-            delete confirmedCustomer._quarantinedAnomaly;
-            return confirmedCustomer;
-        }
-        return customer;
-    }) : [];
+        return c;
+    });
 
-    if (!Array.isArray(customers)) anomalies.push({ reason: 'Customer payload must be an array' });
-    const valid = anomalies.length === 0;
+    const isHealthy = anomalies.length === 0;
     return {
-        valid,
-        isValid: valid,
-        quarantined: !valid,
-        // Compatibility aliases: these rows preserve balances and are NOT safe to push unless valid.
+        valid: isHealthy,
+        isValid: isHealthy,
         sanitized,
         sanitizedCustomers: sanitized,
         anomalies,
@@ -68,45 +65,56 @@ export function validateCustomerSyncPayload(customers) {
     };
 }
 
-/** Preserve unresolved local balances; use timestamps only for healthy conflicts. */
+/**
+ * Fusión inteligente de clientes (Cloud vs Local).
+ * Resuelve conflictos cliente a cliente basándose en el timestamp más reciente (updatedAt).
+ */
 export function mergeCloudCustomers(cloudCustomers, localCustomers) {
-    const localRows = validateCustomerSyncPayload(localCustomers).sanitized;
-    if (!Array.isArray(cloudCustomers)) return localRows;
-    const cloudRows = validateCustomerSyncPayload(cloudCustomers).sanitized;
-    if (localRows.length === 0) return cloudRows;
+    if (!Array.isArray(cloudCustomers)) return localCustomers || [];
+    if (!Array.isArray(localCustomers) || localCustomers.length === 0) return cloudCustomers;
 
     const localMap = new Map();
-    for (const customer of localRows) {
-        if (!isCustomerRecord(customer)) continue;
-        localMap.set(customer.id, customer);
-        if (customer.code) localMap.set(customer.code, customer);
+    for (const c of localCustomers) {
+        if (c?.id) localMap.set(c.id, c);
+        if (c?.code) localMap.set(c.code, c);
     }
 
-    const merged = cloudRows.map(cloudCustomer => {
-        if (!isCustomerRecord(cloudCustomer)) return cloudCustomer;
-        const localCustomer = localMap.get(cloudCustomer.id) || (cloudCustomer.code && localMap.get(cloudCustomer.code));
-        if (!localCustomer) return cloudCustomer;
+    const merged = cloudCustomers.map(cloudC => {
+        if (!cloudC?.id) return cloudC;
+        const localC = localMap.get(cloudC.id) || (cloudC.code && localMap.get(cloudC.code));
+        if (!localC) return cloudC;
 
-        // A cloud snapshot is not confirmation that the original local balance can be discarded.
-        if (localCustomer._quarantinedAnomaly) return localCustomer;
+        const cloudTs = cloudC.updatedAt ? new Date(cloudC.updatedAt).getTime() : 0;
+        const localTs = localC.updatedAt ? new Date(localC.updatedAt).getTime() : 0;
 
-        const cloudTs = cloudCustomer.updatedAt ? new Date(cloudCustomer.updatedAt).getTime() : 0;
-        const localTs = localCustomer.updatedAt ? new Date(localCustomer.updatedAt).getTime() : 0;
-        if (localTs > cloudTs && !isNaN(localTs) && (localTs - cloudTs) < 30 * 24 * 3600 * 1000) {
-            return localCustomer;
+        // Si la versión local tiene una anomalía de saldo a favor (> ), la nube siempre gana
+        const localFavor = Number(localC.favor) || 0;
+        if (localFavor > MAX_CUSTOMER_FAVOR_THRESHOLD_USD && !localC.isExplicitHighAmount) {
+            return cloudC;
         }
-        return cloudCustomer;
+
+        // Si la versión local es estrictamente más reciente y válida
+        if (localTs > cloudTs && !isNaN(localTs) && (localTs - cloudTs) < 30 * 24 * 3600 * 1000) {
+            return localC;
+        }
+
+        // Por defecto, la versión de la nube
+        return cloudC;
     });
 
-    const cloudIds = new Set(cloudRows.filter(isCustomerRecord).map(customer => customer.id));
-    const cloudCodes = new Set(cloudRows.filter(isCustomerRecord).map(customer => customer.code).filter(Boolean));
-    for (const localCustomer of localRows) {
-        if (!isCustomerRecord(localCustomer)) {
-            merged.push(localCustomer);
-            continue;
+    // Añadir clientes creados recientemente en local estando offline
+    const cloudIds = new Set(cloudCustomers.map(c => c.id).filter(Boolean));
+    const cloudCodes = new Set(cloudCustomers.map(c => c.code).filter(Boolean));
+
+    for (const localC of localCustomers) {
+        if (!localC?.id) continue;
+        const inCloud = cloudIds.has(localC.id) || (localC.code && cloudCodes.has(localC.code));
+        if (!inCloud) {
+            const favor = Number(localC.favor) || 0;
+            if (favor <= MAX_CUSTOMER_FAVOR_THRESHOLD_USD) {
+                merged.push(localC);
+            }
         }
-        const inCloud = cloudIds.has(localCustomer.id) || (localCustomer.code && cloudCodes.has(localCustomer.code));
-        if (!inCloud) merged.push(localCustomer);
     }
 
     return merged;

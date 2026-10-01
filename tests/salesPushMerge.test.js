@@ -36,13 +36,11 @@ describe('prepareSalesPushPayload (FASE 1: merge-on-push)', () => {
         expect(r.vetoed).toBe(false);
     });
 
-    test('referencia cloud vacía → vetar push por baseline no verificable', () => {
+    test('I4: referencia cloud vacía → passthrough puro', () => {
         const local = [mkVenta('v1', 1)];
         const r = prepareSalesPushPayload(local, []);
         expect(r.strategy).toBe('passthrough');
         expect(r.payload).toEqual(local);
-        expect(r.vetoed).toBe(true);
-        expect(r.reason).toBe('empty-cloud-reference');
     });
 
     test('I1: local pequeño (2 cierres) + nube grande (42 cierres) → la unión conserva TODOS los de la nube y añade las nuevas', () => {
@@ -64,33 +62,6 @@ describe('prepareSalesPushPayload (FASE 1: merge-on-push)', () => {
         for (const c of cloud) expect(ids.has(c.id), `debe conservar ${c.id}`).toBe(true);
         expect(ids.has('new1')).toBe(true);
         expect(ids.has('new2')).toBe(true);
-    });
-
-    test('permite archivar detalle solo cuando el registro y su detalle coinciden con la referencia cloud', () => {
-        const sourceSale = mkVenta('archive-1', 101, {
-            timestamp: '2026-01-01T12:00:00.000Z',
-            updatedAt: '2026-01-01T12:00:00.000Z',
-            cajaCerrada: true,
-            cierreId: 'close-1',
-            items: [{ id: 'p1', name: 'Producto', qty: 2, priceUsd: 4 }],
-        });
-        const archivedSale = { ...sourceSale, items: undefined, itemCount: 2, isArchived: true, archiveVersion: 1 };
-        const verified = prepareSalesPushPayload([archivedSale], [sourceSale], { sourceSales: [sourceSale] });
-        expect(verified.payload[0]).toMatchObject({ isArchived: true, archiveVersion: 1, itemCount: 2 });
-        expect(verified.payload[0].items).toBeUndefined();
-
-        const mismatchedCloud = { ...sourceSale, totalUsd: 99 };
-        const rejected = prepareSalesPushPayload([archivedSale], [mismatchedCloud], { sourceSales: [sourceSale] });
-        expect(rejected.payload[0].totalUsd).toBe(99);
-        expect(rejected.payload[0].items).toEqual(sourceSale.items);
-        expect(rejected.payload[0].isArchived).toBeUndefined();
-    });
-
-    test('a missing cloud baseline never authorizes archive marker creation', () => {
-        const sourceSale = mkVenta('archive-new', 102, { items: [{ id: 'p1', qty: 1 }] });
-        const archivedSale = { ...sourceSale, items: undefined, itemCount: 1, isArchived: true, archiveVersion: 1 };
-        const result = prepareSalesPushPayload([archivedSale], [mkVenta('other', 2)], { sourceSales: [sourceSale] });
-        expect(result.payload.find(entry => entry.id === 'archive-new').isArchived).toBeUndefined();
     });
 
     test('I1: el merge NUNCA encoge — intento de borrado queda vetado y se devuelve la nube intacta', () => {
@@ -187,16 +158,11 @@ describe('fetchCloudSalesReference (lectura del Doc 60 por RPC)', () => {
         }));
     });
 
-    test('sin pairing → null (el caller mantiene la política segura de sync)', async () => {
+    test('sin pairing → null (passthrough + breaker clásico, sin regresión)', async () => {
         const client = mkClient({ pairData: null });
         const ref = await fetchCloudSalesReference('PDA-TEST', client);
         expect(ref).toBeNull();
         expect(client.rpc).not.toHaveBeenCalled();
-    });
-
-    test('respuesta RPC vacía → null, no se interpreta como referencia autorizada', async () => {
-        const client = mkClient({ pairData: { monitor_device_id: 'mon_1' }, rpcData: [] });
-        await expect(fetchCloudSalesReference('PDA-TEST', client)).resolves.toBeNull();
     });
 
     test('error del RPC → null, nunca lanza', async () => {

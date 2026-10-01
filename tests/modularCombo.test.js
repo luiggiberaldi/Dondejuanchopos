@@ -9,10 +9,6 @@ vi.mock('../src/utils/storageService', () => {
     let memoryStore = {};
     return {
         storageService: {
-        async transaction(callback) {
-            const { runLegacyUnitTransaction } = await import('./legacyUnitTransaction');
-            return runLegacyUnitTransaction(this, callback);
-        },
             getItem: vi.fn(async (key, defaultValue) => memoryStore[key] ?? defaultValue),
             setItem: vi.fn(async (key, value) => { memoryStore[key] = value; }),
             removeItem: vi.fn(async (key) => { delete memoryStore[key]; }),

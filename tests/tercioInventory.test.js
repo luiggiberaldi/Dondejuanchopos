@@ -4,10 +4,6 @@ const state = vi.hoisted(() => ({ store: new Map() }));
 
 vi.mock('../src/utils/storageService', () => ({
     storageService: {
-        async transaction(callback) {
-            const { runLegacyUnitTransaction } = await import('./legacyUnitTransaction');
-            return runLegacyUnitTransaction(this, callback);
-        },
         getItem: vi.fn(async (key, defaultValue = null) => (
             state.store.has(key) ? state.store.get(key) : defaultValue
         )),

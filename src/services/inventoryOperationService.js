@@ -42,7 +42,7 @@ function clone(value) {
 // IndexedDB normalmente confirma la escritura al resolver setItem, pero el
 // storage de contingencia puede absorber un error. Verificar la lectura local
 // deja la operación en outbox en vez de anunciar un stock aplicado a medias.
-async function persistAndVerifyStore(key, value, storageService) {
+async function persistAndVerify(key, value) {
     await storageService.setItem(key, value);
     const persisted = await storageService.getItem(key, null);
     if (JSON.stringify(persisted) !== JSON.stringify(value)) {
@@ -287,8 +287,7 @@ function appendMissingMovements(kardex, movements) {
     return missing.length > 0 ? [...missing.reverse(), ...current] : current;
 }
 
-async function persistSaleInventoryTrace(operation, transitions, storageService) {
-    const persistAndVerify = (key, value) => persistAndVerifyStore(key, value, storageService);
+async function persistSaleInventoryTrace(operation, transitions) {
     if (operation.referenceType !== 'VENTA' || !operation.referenceId) return;
     // Si la operación fue disparada desde POS_CHECKOUT, checkoutProcessor consolida
     // la venta final con sus transiciones de inventario en una única escritura atómica bajo pos_write_lock.
@@ -353,10 +352,7 @@ function getOperationResult(operation, transitions, movements, pending = false, 
  * Aplica una operación dentro de un lock ya adquirido.
  * Los callers que ya están bajo pos_write_lock deben usar esta variante.
  */
-export async function applyInventoryOperationUnlocked(rawOperation, io = storageService) {
-    const persistAndVerify = (key, value) => persistAndVerifyStore(key, value, io);
-    const afterCommit = effect => io.afterCommit ? io.afterCommit(effect) : effect();
-    const auditAfterCommit = (...args) => afterCommit(() => logEvent(...args));
+export async function applyInventoryOperationUnlocked(rawOperation) {
     let operation;
     try {
         operation = normalizeOperation(rawOperation);
@@ -364,14 +360,14 @@ export async function applyInventoryOperationUnlocked(rawOperation, io = storage
         return { success: false, pending: false, error: error.message };
     }
 
-    let operations = await io.getItem(INVENTORY_OPERATIONS_KEY, []) || [];
+    let operations = await storageService.getItem(INVENTORY_OPERATIONS_KEY, []) || [];
     const previous = findOperation(operations, operation.operationId);
     if (previous?.status === OPERATION_APPLIED) {
-        const kardex = await io.getItem(KARDEX_KEY, []) || [];
+        const kardex = await storageService.getItem(KARDEX_KEY, []) || [];
         const movements = kardex.filter(movement => previous.movementIds?.includes(movement?.id));
         const hasAllMovements = (previous.movementIds || []).every(id => movements.some(movement => movement.id === id));
         if (hasAllMovements) {
-            const products = await io.getItem(PRODUCTS_KEY, operation.productsFallback) || operation.productsFallback || [];
+            const products = await storageService.getItem(PRODUCTS_KEY, operation.productsFallback) || operation.productsFallback || [];
             return {
                 ...getOperationResult(operation, previous.transitions || [], movements, false),
                 updatedProducts: products,
@@ -389,8 +385,8 @@ export async function applyInventoryOperationUnlocked(rawOperation, io = storage
     let kardexWriteApplied = false;
 
     try {
-        const products = await io.getItem(PRODUCTS_KEY, operation.productsFallback) || operation.productsFallback || [];
-        const kardex = await io.getItem(KARDEX_KEY, []) || [];
+        const products = await storageService.getItem(PRODUCTS_KEY, operation.productsFallback) || operation.productsFallback || [];
+        const kardex = await storageService.getItem(KARDEX_KEY, []) || [];
         originalProducts = products;
         originalKardex = kardex;
         const transitions = previous?.transitions?.length
@@ -428,19 +424,19 @@ export async function applyInventoryOperationUnlocked(rawOperation, io = storage
             transitions
         });
         await persistAndVerify(INVENTORY_OPERATIONS_KEY, operations);
-        await persistSaleInventoryTrace(operation, transitions, io);
+        await persistSaleInventoryTrace(operation, transitions);
 
-        auditAfterCommit('INVENTARIO', 'OPERACION_APLICADA',
+        logEvent('INVENTARIO', 'OPERACION_APLICADA',
             `${operation.source}: ${operation.reason} (${transitions.length} producto(s))`,
             operation.actor,
             { operationId: operation.operationId, movementIds: movements.map(movement => movement.id) }
         );
 
-        afterCommit(() => { if (typeof window !== 'undefined') {
+        if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('inventory_operation_applied', {
                 detail: { operationId: operation.operationId, transitions, movements }
             }));
-        } });
+        }
 
         return {
             ...getOperationResult(operation, transitions, movements),
@@ -448,7 +444,6 @@ export async function applyInventoryOperationUnlocked(rawOperation, io = storage
             updatedKardex
         };
     } catch (error) {
-        if (io.transactional) throw error;
         // Si una escritura intermedia falla, volver al snapshot anterior evita
         // dejar catálogo y Kardex en estados distintos. La operación fallida se
         // conserva como outbox para que el siguiente arranque la reintente.

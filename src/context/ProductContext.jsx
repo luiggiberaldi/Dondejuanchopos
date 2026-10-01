@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { localStore } from '../utils/localStore';
+import localforage from 'localforage';
 import { storageService } from '../utils/storageService';
 import { withLock } from '../utils/withLock';
 import { BODEGA_CATEGORIES } from '../config/categories';
@@ -390,26 +390,17 @@ export function ProductProvider({ children, rates }) {
                 }
             }));
             savePromises.push(storageService.setItem('my_categories_v1', categories));
-            // Esperar AMBOS guardados incluso si uno falla: no liberar la
-            // barrera mientras el otro sigue escribiendo ni dejar un rechazo suelto.
-            Promise.allSettled(savePromises).then(results => {
-                const failed = results.filter(result => result.status === 'rejected');
-                if (failed.length) {
-                    console.error('[Products] Autoguardado incompleto:', failed.map(result => result.reason));
-                    showToast('No se guardaron todos los cambios del catálogo. Conserva esta pantalla y revisa el almacenamiento.', 'error');
-                }
+            Promise.all(savePromises).finally(() => {
+                // Reset guard after microtask queue flushes
                 setTimeout(() => {
                     savingRef.current = false;
                     if (pendingStorageRefreshRef.current) {
                         pendingStorageRefreshRef.current = false;
-                        // No reemplazar el borrador visible por datos viejos tras
-                        // un guardado fallido. No reintentar snapshots a ciegas.
-                        if (failed.length) return;
                         storageService.getItem('bodega_products_v1', []).then(fresh => {
                             if (fresh && Array.isArray(fresh)) {
                                 setProducts(sanitizeProducts(fresh));
                             }
-                        }).catch(error => console.error('[Products] No se pudo refrescar el catálogo:', error));
+                        });
                     }
                 }, 50);
             });
@@ -751,7 +742,7 @@ export function ProductProvider({ children, rates }) {
     // Restauración de Copia de Sombra de Emergencia
     const restoreShadowBackup = useCallback(async () => {
         try {
-            const shadow = await localStore.getItem('bodega_products_shadow_backup_v1');
+            const shadow = await localforage.getItem('bodega_products_shadow_backup_v1');
             if (Array.isArray(shadow) && shadow.length > 0) {
                 localStorage.setItem('confirm_bulk_delete_catalog_flag', 'true');
                 localStorage.setItem('confirm_bulk_delete_catalog_ts', Date.now().toString());

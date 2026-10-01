@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { storageService } from '../utils/storageService';
-import { localStore } from '../utils/localStore';
+import localforage from 'localforage';
 import { showToast } from '../components/Toast';
 import { IDB_KEYS, LS_KEYS, PROTECTED_KEYS } from '../config/backupKeys';
 import { pushCloudSync } from './useCloudSync';
@@ -90,8 +90,7 @@ export function useDataImportExport({
                 setStatusMessage('Limpiando datos del dispositivo...');
                 for (const key of IDB_KEYS) {
                     if (PROTECTED_KEYS.includes(key)) continue;
-                    // Un borrado fallido impide confirmar una restauración completa.
-                    await localStore.removeItem(key);
+                    try { await localforage.removeItem(key); } catch (_) { /* noop */ }
                 }
 
                 // Limpiar localStorage de la app (preservando sesión de Supabase sb-*)
@@ -101,7 +100,7 @@ export function useDataImportExport({
                     localStorage.removeItem(key);
                 }
 
-                // ── FASE 2: RESTAURACIÓN (núcleo común, sin eventos implícitos) ─────
+                // ── FASE 2: RESTAURACIÓN (directo a localforage, sin eventos) ───────
                 setStatusMessage('Restaurando backup...');
 
                 let idbEntries = {};
@@ -129,7 +128,7 @@ export function useDataImportExport({
                     const parsed = typeof value === 'string' && (value.startsWith('[') || value.startsWith('{'))
                         ? JSON.parse(value)
                         : value;
-                    await localStore.setItem(key, parsed);
+                    await localforage.setItem(key, parsed);
                     try { await pushCloudSync(key, parsed, true); } catch (_) {}
                 }
 

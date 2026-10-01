@@ -369,13 +369,6 @@ export async function processSaleTransaction({
     // FIN-007: withLock reemplaza navigator.locks.request directo (feature detection + fallback).
     const lockResult = await withLock('pos_write_lock', async () => {
         const existingSales = await storageService.getItem(SALES_KEY, []);
-        // La reserva remota precede a la transacción física; no retiene el lock
-        // compartido de almacenamiento ni deja saldos parcialmente escritos.
-        const allocation = existingSales.some(s => checkoutOperationId && s.checkoutOperationId === checkoutOperationId)
-            ? null : await allocateSaleNumber(deviceId, { localSales: existingSales });
-        return storageService.transaction(async (storageService) => {
-        const auditAfterCommit = (...args) => storageService.afterCommit(() => logEvent(...args));
-        const existingSales = await storageService.getItem(SALES_KEY, []);
         if (checkoutOperationId) {
             const duplicate = existingSales.find(s => s.checkoutOperationId === checkoutOperationId);
             if (duplicate) {
@@ -396,7 +389,7 @@ export async function processSaleTransaction({
         // FASE 3B: el saleNumber se asigna desde la NUBE (claim atómico + compactación
         // determinista) con fallback offline marcado provisional. Nunca max(local)+1
         // como fuente primaria — esa era la causa de los saleNumber duplicados.
-        if (!allocation) throw new Error('La venta cambió mientras se preparaba la numeración; vuelve a revisar el historial.');
+        const allocation = await allocateSaleNumber(deviceId, { localSales: existingSales });
         const saleNumber = allocation.saleNumber;
 
         // Capturar la composición física con el catálogo vigente antes de
@@ -420,7 +413,7 @@ export async function processSaleTransaction({
         // Audit log
         const user = useAuthStore.getState().usuarioActivo;
         const tipo = casheaUsd > 0 ? 'VENTA_CASHEA' : (fiadoAmountUsd > 0 ? 'VENTA_FIADA' : 'VENTA_COMPLETADA');
-        auditAfterCommit('VENTA', tipo,
+        logEvent('VENTA', tipo,
             `Venta #${saleNumber} - $${round2(cartTotalUsd)} - ${cart.length} items - ${selectedCustomer?.name || 'Consumidor Final'}`,
             user,
             {
@@ -450,13 +443,11 @@ export async function processSaleTransaction({
             if (deferredItems.length > 0) {
                 const { createSessionFromSaleUnlocked } = await import('../services/consumptionSessionService');
                 for (const dItem of deferredItems) {
-                    const session = await createSessionFromSaleUnlocked(finalPersistedSale, dItem, storageService);
-                    if (!session) throw new Error('No se pudo preparar la ficha de consumo');
+                    await createSessionFromSaleUnlocked(finalPersistedSale, dItem);
                 }
             }
         } catch (deferredErr) {
-            console.error('[checkoutProcessor] Ficha no preparada; se aborta la transacción:', deferredErr);
-            throw deferredErr;
+            console.error('[checkoutProcessor] Error al crear Fichas de Consumo Diferido:', deferredErr);
         }
 
         // ── Deducir stock con precisión ──
@@ -468,7 +459,7 @@ export async function processSaleTransaction({
         let negativeStockUsed = false;
         const negativeItems = [];
         if (expanded.anomalies.length > 0) {
-            auditAfterCommit('INVENTARIO', 'ANOMALIA_MOVIMIENTO',
+            logEvent('INVENTARIO', 'ANOMALIA_MOVIMIENTO',
                 `Venta #${saleNumber} contiene ${expanded.anomalies.length} anomalía(s) de expansión física`,
                 useAuthStore.getState().usuarioActivo,
                 { saleId: finalPersistedSale.id, anomalies: expanded.anomalies }
@@ -497,11 +488,10 @@ export async function processSaleTransaction({
             console.warn('[checkoutProcessor] Error al escribir en Sales WAL Journal:', walErr);
         }
 
-        const applyInventory = operation => applyInventoryOperationUnlocked(operation, storageService);
         let updatedProducts = productsAfterDeferred;
         let inventoryOperation = { success: true, pending: false, transitions: [], movements: [] };
         if (physicalDeductions.length > 0) {
-            inventoryOperation = await applyInventory({
+            inventoryOperation = await applyInventoryOperationUnlocked({
                 operationId: `sale_${finalPersistedSale.id}`,
                 referenceId: finalPersistedSale.id,
                 referenceType: 'VENTA',
@@ -523,7 +513,6 @@ export async function processSaleTransaction({
                     checkoutOperationId: checkoutOperationId || null
                 }
             });
-            if (!inventoryOperation.success || inventoryOperation.pending) throw new Error(inventoryOperation.error || 'Inventario no confirmado');
             updatedProducts = inventoryOperation.updatedProducts || freshProducts;
         }
 
@@ -590,7 +579,7 @@ export async function processSaleTransaction({
 
         if (negativeStockUsed) {
             const user = useAuthStore.getState().usuarioActivo;
-            auditAfterCommit('CONFIG', 'NEGATIVE_STOCK_USED',
+            logEvent('CONFIG', 'NEGATIVE_STOCK_USED',
                 `Venta #${saleNumber} usó stock negativo en ${negativeItems.length} producto(s)`,
                 user,
                 { saleId: finalPersistedSale.id, items: negativeItems }
@@ -639,7 +628,6 @@ export async function processSaleTransaction({
             inventoryError: inventoryOperation.error || null,
             inventoryOperationId: inventoryOperation.operationId || null
         };
-        });
     });
 
     return lockResult;

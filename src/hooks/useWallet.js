@@ -1,13 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { storageService } from '../utils/storageService';
-import { showToast } from '../components/Toast';
 
 const STORAGE_KEY = 'bodega_accounts_v2';
 
 export function useWallet() {
   const [accounts, setAccounts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [saveError, setSaveError] = useState(null);
   const hasLoaded = useRef(false);
 
   // 1. Cargar datos iniciales asíncronamente
@@ -41,20 +39,9 @@ export function useWallet() {
 
   // 2. Guardar automáticamente cada vez que cambien (sólo si ya cargó)
   useEffect(() => {
-    let current = true;
     if (!isLoading && hasLoaded.current) {
-      storageService.setItem(STORAGE_KEY, accounts).then(() => {
-        if (current) setSaveError(null);
-      }).catch(error => {
-        console.error('[Wallet] Guardado de cuentas no confirmado:', error);
-        if (current) {
-          const message = 'No se guardaron los cambios de las cuentas. Revisa el almacenamiento antes de continuar.';
-          setSaveError(message);
-          showToast(message, 'error');
-        }
-      });
+      storageService.setItem(STORAGE_KEY, accounts);
     }
-    return () => { current = false; };
   }, [accounts, isLoading]);
 
   // --- ACCIONES ---
@@ -93,7 +80,6 @@ export function useWallet() {
   return {
     accounts,
     isLoading,
-    saveError,
     addAccount,
     removeAccount,
     updateAccount
