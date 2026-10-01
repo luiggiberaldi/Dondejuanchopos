@@ -11,11 +11,13 @@ vi.mock('../src/config/supabaseCloud', () => ({ supabaseCloud: {
     removeChannel: vi.fn(async () => undefined),
 } }));
 vi.mock('localforage', () => ({ default: {
-    createInstance: () => ({ getItem: async key => m.store.get(key) ?? null }),
+    config: vi.fn(),
+    getItem: async key => m.store.get(key) ?? null,
+    createInstance: () => ({ getItem: async () => null }),
 } }));
 vi.mock('../src/hooks/useSupervisorCommands', () => ({ useSupervisorCommands: m.commands }));
 vi.mock('../src/hooks/store/useAuthStore', () => ({ useAuthStore: { getState: () => ({}) } }));
-vi.mock('../src/config/backupKeys', () => ({ IDB_KEYS: ['bodega_sales_v1'], LS_KEYS: [] }));
+vi.mock('../src/config/backupKeys', () => ({ IDB_KEYS: ['bodega_sales_v1'], LS_KEYS: [], PROTECTED_KEYS: [] }));
 vi.mock('../src/utils/syncFlags', () => ({ registerCloudSyncSetter: vi.fn() }));
 vi.mock('../src/utils/salesPushMerge', () => ({ prepareSalesPushPayload: vi.fn(), fetchCloudSalesReference: vi.fn() }));
 vi.mock('../src/utils/customerSyncGuard', () => ({ validateCustomerSyncPayload: vi.fn(), mergeCloudCustomers: vi.fn() }));
@@ -159,5 +161,39 @@ describe('Presencia POS: fallo de transporte independiente del cobro', () => {
         await mount(); expect(heartbeatCalls()).toHaveLength(1);
         await expect(pushCloudSync('bodega_sales_v1', [{ id: 'not-pushed' }], true)).resolves.toBe(false);
         expect(registrations()).toHaveLength(0);
+    });
+    it('pausa escrituras tras un 401/RLS y permite reanudar al expirar el cooldown', async () => {
+        await mount();
+        m.rpc.mockClear();
+        vi.spyOn(Math, 'random').mockReturnValue(0.5);
+        m.rpc.mockImplementation(name => request(Promise.resolve(
+            name === 'touch_pos_heartbeat'
+                ? success()
+                : { data: null, error: { code: '42501', status: 401, message: 'permission denied' }, status: 401 },
+        )));
+
+        const sale = [{ id: 'retry-protected-sale' }];
+        await expect(pushCloudSync('bodega_sales_v1', sale, true)).resolves.toBe(false);
+        const writeCountAfterFailure = m.rpc.mock.calls.filter(([name]) => name === 'write_paired_sync_document').length;
+        expect(writeCountAfterFailure).toBe(1);
+        expect(await pushCloudSync('bodega_sales_v1', sale, true)).toBe(false);
+        expect(m.rpc.mock.calls.filter(([name]) => name === 'write_paired_sync_document')).toHaveLength(1);
+
+        const retryKey = `dj_cloud_retry_v1:${encodeURIComponent(`sync:${device}`)}`;
+        const documentRetryKey = `dj_cloud_retry_v1:${encodeURIComponent(`sync:${device}:bodega_sales_v1`)}`;
+        const retryState = JSON.parse(localStorage.getItem(retryKey));
+        const documentRetryState = JSON.parse(localStorage.getItem(documentRetryKey));
+        expect(retryState).toMatchObject({ permanent: true, lastStatus: 401, lastCode: '42501' });
+        expect(documentRetryState).toMatchObject({ permanent: true, lastStatus: 401, lastCode: '42501' });
+        localStorage.setItem(retryKey, JSON.stringify({ ...retryState, nextRetryAt: Date.now() - 1 }));
+        localStorage.setItem(documentRetryKey, JSON.stringify({ ...documentRetryState, nextRetryAt: Date.now() - 1 }));
+        m.rpc.mockImplementation(name => request(Promise.resolve(
+            name === 'touch_pos_heartbeat' ? success() : { data: { success: true }, error: null, status: 200 },
+        )));
+
+        await expect(pushCloudSync('bodega_sales_v1', sale, true)).resolves.toBe(true);
+        expect(localStorage.getItem(retryKey)).toBeNull();
+        expect(localStorage.getItem(documentRetryKey)).toBeNull();
+        expect(m.rpc.mock.calls.filter(([name]) => name === 'write_paired_sync_document')).toHaveLength(2);
     });
 });

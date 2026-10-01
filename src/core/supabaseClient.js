@@ -14,6 +14,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { instrumentSupabaseFetch } from '../utils/egressMeter';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -41,6 +42,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 // que rechaza todas las llamadas con un error claro (mejor que 401s misteriosos).
 export const supabase = (supabaseUrl && supabaseAnonKey)
     ? createClient(supabaseUrl, supabaseAnonKey, {
+        global: { fetch: instrumentSupabaseFetch('licensing') },
         auth: {
             persistSession: false,
             autoRefreshToken: false,

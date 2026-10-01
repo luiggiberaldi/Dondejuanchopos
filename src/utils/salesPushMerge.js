@@ -18,6 +18,76 @@
 
 import { mergeSalesArrays } from './salesMerge';
 import { supabaseCloud } from '../config/supabaseCloud';
+import { applySalesArchiveMarker, getSalesArchiveItemCount, isArchivedSalesPayload } from './salesCompactor';
+
+const SALES_DETAIL_FIELDS = new Set([
+    'items', 'inventoryDeductionsApplied', 'changeLedger', 'inventoryDeductions', 'inventoryAnomalies',
+    'itemCount', 'isArchived', 'archiveVersion',
+]);
+
+function stableArchiveHeader(value) {
+    if (Array.isArray(value)) return value.map(stableArchiveHeader);
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(Object.keys(value)
+        .filter(key => !SALES_DETAIL_FIELDS.has(key) && value[key] !== undefined)
+        .sort()
+        .map(key => [key, stableArchiveHeader(value[key])]));
+}
+
+function isCloudDetailSubsetOfSource(cloudDetail, sourceDetail) {
+    if (Array.isArray(cloudDetail)) {
+        return Array.isArray(sourceDetail)
+            && cloudDetail.length === sourceDetail.length
+            && cloudDetail.every((entry, index) => isCloudDetailSubsetOfSource(entry, sourceDetail[index]));
+    }
+    if (cloudDetail && typeof cloudDetail === 'object') {
+        if (!sourceDetail || typeof sourceDetail !== 'object' || Array.isArray(sourceDetail)) return false;
+        return Object.keys(cloudDetail).every(key => Object.prototype.hasOwnProperty.call(sourceDetail, key)
+            && isCloudDetailSubsetOfSource(cloudDetail[key], sourceDetail[key]));
+    }
+    return cloudDetail === sourceDetail;
+}
+
+function hasSameArchiveHeader(localSale, cloudSale) {
+    if (!localSale || !cloudSale || localSale.id !== cloudSale.id) return false;
+    const sameHeader = JSON.stringify(stableArchiveHeader(localSale)) === JSON.stringify(stableArchiveHeader(cloudSale));
+    if (!sameHeader) return false;
+    if (isArchivedSalesPayload(cloudSale)) return true;
+    return Array.isArray(localSale.items)
+        && Array.isArray(cloudSale.items)
+        && isCloudDetailSubsetOfSource(cloudSale.items, localSale.items);
+}
+
+function applyVerifiedArchiveMarkers(mergedSales, compactedLocal, archiveBaselineSales, cloudReference) {
+    const compactedById = new Map(compactedLocal
+        .filter(sale => sale && sale.id && isArchivedSalesPayload(sale))
+        .map(sale => [sale.id, sale]));
+    const baselineById = new Map(archiveBaselineSales.filter(sale => sale && sale.id).map(sale => [sale.id, sale]));
+    const cloudById = new Map(cloudReference.filter(sale => sale && sale.id).map(sale => [sale.id, sale]));
+    return mergedSales.map(sale => {
+        const marker = compactedById.get(sale?.id);
+        const baseline = baselineById.get(sale?.id);
+        const cloudSale = cloudById.get(sale?.id);
+        if (marker && baseline && cloudSale && hasSameArchiveHeader(baseline, cloudSale)) {
+            const baselineCount = getSalesArchiveItemCount(baseline);
+            const markerCount = getSalesArchiveItemCount(marker);
+            if (baselineCount === markerCount) {
+                return applySalesArchiveMarker(sale, markerCount);
+            }
+            if (!isArchivedSalesPayload(sale) && Array.isArray(cloudSale.items)) {
+                return { ...sale, items: cloudSale.items };
+            }
+        }
+
+        // Nunca aceptar un marcador local no verificado si la nube todavía tiene
+        // el detalle. Reponerlo en el payload combinado en lugar de perder datos.
+        if (isArchivedSalesPayload(sale) && Array.isArray(cloudSale?.items)) {
+            const { isArchived, archiveVersion, itemCount, items, ...unarchived } = sale;
+            return { ...unarchived, items: cloudSale.items };
+        }
+        return sale;
+    });
+}
 
 /** Doc canónico de ventas en la nube. */
 export const SALES_CLOUD_CACHE_KEY = 'bodega_sales_v1';
@@ -34,8 +104,9 @@ const MONITOR_ID_CACHE_KEY = 'dj_cloud_merge_monitor_id';
 /** TTL de la referencia cloud: coalesce ráfagas sin permitir divergencia larga. */
 const SALES_REF_TTL_MS = 15000;
 
-let _inFlightRef = null;
-let _refCache = { payload: null, ts: 0 };
+const _inFlightRefs = new Map();
+const _latestRefRequestTokens = new Map();
+let _refCache = { payload: null, ts: 0, deviceId: null };
 
 /**
  * Resuelve el monitor vinculado a este POS. La tabla device_pairings es legible
@@ -44,7 +115,8 @@ let _refCache = { payload: null, ts: 0 };
  */
 async function resolveMonitorDeviceId(deviceId, client) {
     try {
-        const cached = localStorage.getItem(MONITOR_ID_CACHE_KEY);
+        const cacheKey = `${MONITOR_ID_CACHE_KEY}_${deviceId}`;
+        const cached = localStorage.getItem(cacheKey);
         if (cached) return cached;
         const { data, error } = await client
             .from('device_pairings')
@@ -52,7 +124,7 @@ async function resolveMonitorDeviceId(deviceId, client) {
             .eq('primary_device_id', deviceId)
             .maybeSingle();
         if (error || !data?.monitor_device_id) return null;
-        localStorage.setItem(MONITOR_ID_CACHE_KEY, data.monitor_device_id);
+        localStorage.setItem(cacheKey, data.monitor_device_id);
         return data.monitor_device_id;
     } catch {
         return null;
@@ -61,14 +133,15 @@ async function resolveMonitorDeviceId(deviceId, client) {
 
 /**
  * Lee la copia canónica del Doc 60 para usarla como base del merge-on-push.
- * Devuelve un Array o null (cualquier fallo → null → el caller hace passthrough
- * y el circuit breaker clásico sigue protegiendo, sin regresión).
+ * Devuelve un Array no vacío o null. El caller trata null como error seguro y
+ * pospone el push; el circuit breaker clásico sigue protegiendo además por conteo.
  *
- * Con TTL de 15s + single-flight: ráfagas de ventas comparten una sola lectura.
+ * Con TTL de 15s + single-flight por dispositivo: ráfagas de ventas del mismo POS
+ * comparten una sola lectura sin cruzar referencias entre identidades.
  * Compromiso conocido: si otro escritor legítimo actualizara el Doc 60 dentro de
  * esa ventana, el push fusionado podría no incluir ese cambio en el documento
- * resultante. Hoy el único escritor de ventas es el propio POS (el Monitor es
- * read-only), así que la ventana es inocua; FASE 3A/3B la elimina del todo.
+ * resultante. Actualmente se asume un solo escritor POS; validar el modelo de
+ * propiedad y la consistencia antes de habilitar el opt-in en producción.
  *
  * @param {string} deviceId - device_id de ESTE dispositivo (el dueño del doc).
  * @param {object} [client] - cliente Supabase inyectable para tests.
@@ -80,12 +153,15 @@ export async function fetchCloudSalesReference(deviceId, client = supabaseCloud,
     if (!client || !deviceId) return null;
     try {
         const now = Date.now();
-        if (!fresh && _refCache.payload && now - _refCache.ts < SALES_REF_TTL_MS) {
+        if (!fresh && _refCache.deviceId === deviceId && _refCache.payload && now - _refCache.ts < SALES_REF_TTL_MS) {
             return _refCache.payload;
         }
-        if (_inFlightRef) return _inFlightRef;
+        const inFlightRef = fresh ? null : _inFlightRefs.get(deviceId);
+        if (inFlightRef) return await inFlightRef;
 
-        _inFlightRef = (async () => {
+        const requestToken = Symbol(deviceId);
+        _latestRefRequestTokens.set(deviceId, requestToken);
+        const refPromise = (async () => {
             const monitorDeviceId = await resolveMonitorDeviceId(deviceId, client);
             if (!monitorDeviceId) return null;
 
@@ -97,24 +173,29 @@ export async function fetchCloudSalesReference(deviceId, client = supabaseCloud,
             if (error || !Array.isArray(data) || data.length === 0) return null;
 
             const payload = data[0]?.data?.payload;
-            if (!Array.isArray(payload)) return null;
+            if (!Array.isArray(payload) || payload.length === 0) return null;
 
-            _refCache = { payload, ts: Date.now() };
+            if (_latestRefRequestTokens.get(deviceId) === requestToken) {
+                _refCache = { payload, ts: Date.now(), deviceId };
+            }
             return payload;
         })();
-
-        return await _inFlightRef;
+        _inFlightRefs.set(deviceId, refPromise);
+        try {
+            return await refPromise;
+        } finally {
+            if (_inFlightRefs.get(deviceId) === refPromise) _inFlightRefs.delete(deviceId);
+        }
     } catch {
         return null;
-    } finally {
-        _inFlightRef = null;
     }
 }
 
 /** Reservado para tests: invalida la caché de referencia cloud. */
 export function resetCloudSalesReferenceCacheForTests() {
-    _refCache = { payload: null, ts: 0 };
-    _inFlightRef = null;
+    _refCache = { payload: null, ts: 0, deviceId: null };
+    _inFlightRefs.clear();
+    _latestRefRequestTokens.clear();
 }
 
 /**
@@ -124,23 +205,31 @@ export function resetCloudSalesReferenceCacheForTests() {
  * @param {Array|null} cloudReference - Copia canónica del Doc 60 (o null).
  * @returns {{ payload: Array, strategy: 'union-merge'|'passthrough', vetoed: boolean, reason?: string }}
  */
-export function prepareSalesPushPayload(localSales, cloudReference) {
+export function prepareSalesPushPayload(localSales, cloudReference, { sourceSales = localSales, archiveBaselineSales = sourceSales } = {}) {
     const isLocalArray = Array.isArray(localSales);
+    const fullSourceSales = Array.isArray(sourceSales) ? sourceSales : localSales;
+    const sourceBaseline = Array.isArray(archiveBaselineSales) ? archiveBaselineSales : fullSourceSales;
 
-    // Sin base de referencia cloud no hay nada que fusionar: passthrough tal cual
-    // (el circuit breaker existente sigue aplicando aguas abajo).
-    if (!Array.isArray(cloudReference) || cloudReference.length === 0) {
+    // `null`/fallo queda fuera de esta función: el caller conserva el historial
+    // en cola. La referencia vacía es ambigua y no debe autorizar un reemplazo.
+    if (!Array.isArray(cloudReference)) {
         return { payload: isLocalArray ? localSales : [], strategy: 'passthrough', vetoed: false };
     }
     if (!isLocalArray) {
         // Payload local corrupto: jamás sustituir la nube por basura.
         return { payload: cloudReference, strategy: 'union-merge', vetoed: false, reason: 'local-no-array' };
     }
+    if (cloudReference.length === 0) {
+        // Una referencia vacía no permite asegurar que la nube no contenga
+        // historial fuera del alcance del RPC; el caller debe detener el push.
+        return { payload: localSales, strategy: 'passthrough', vetoed: true, reason: 'empty-cloud-reference' };
+    }
 
     // ── UNIÓN POR ID, CON LA NUBE COMO LADO QUE GANA EMPATES ──
-    // Convención de mergeSalesArrays(incoming, local): `incoming` gana empates de
-    // updatedAt. Pasamos (cloud, local) para acercarnos a I5.
-    const merged = mergeSalesArrays(cloudReference, localSales);
+    // Se fusiona siempre el historial local completo. El payload compactado solo
+    // autoriza quitar el detalle tras comparar la cabecera con la nube.
+    const mergedFull = mergeSalesArrays(cloudReference, fullSourceSales);
+    const merged = applyVerifiedArchiveMarkers(mergedFull, localSales, sourceBaseline, cloudReference);
 
     // ── CANONIZACIÓN DE SELLADOS (I5 estricta) ──
     // "Regla de Oro 5" de salesMerge.js deja ganar el segundo lado para summaries de

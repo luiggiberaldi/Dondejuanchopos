@@ -26,7 +26,8 @@ export async function processCustomerTransaction({
     copEnabled,
     activePaymentMethods = [],
     isFullPayment = false,
-    isExplicitHighAmount = false
+    isExplicitHighAmount = false,
+    operationId = null
 }) {
     if (!customer?.id) return { error: 'Cliente inválido' };
     if (!['ABONO', 'CREDITO'].includes(type)) return { error: 'Tipo de operación inválido' };
@@ -59,7 +60,7 @@ export async function processCustomerTransaction({
     }
 
     // Guardarraíl de cordura comercial: ningún abono/deuda desatendido > $1,000 USD
-    if (amountUsd > 1000 && !isExplicitHighAmount) {
+    if (amountUsd > 1000 && isExplicitHighAmount !== true) {
         return { error: 'El monto excede el límite de seguridad ($1,000 USD). Verifique si el monto corresponde a Bolívares o confirme explícitamente.' };
     }
 
@@ -87,8 +88,24 @@ export async function processCustomerTransaction({
 
     // FIN-006: envolver TODO el read-modify-write en withLock para evitar race conditions.
     const result = await withLock('pos_write_lock', async () => {
+        const sales = await storageService.getItem('bodega_sales_v1', []);
+        const allocation = sales.some(s => operationId && s.customerTransactionId === operationId)
+            ? null : await allocateSaleNumber(deviceId, { localSales: sales });
+        return storageService.transaction(async (storageService) => {
+        const auditAfterCommit = (...args) => storageService.afterCommit(() => logEvent(...args));
         // 3. Update customer storage from the fresh snapshot.
         const customers = await storageService.getItem('bodega_customers_v1', []);
+        if (operationId) {
+            const history = await storageService.getItem('bodega_sales_v1', []);
+            const existing = history.find(s => s.customerTransactionId === operationId);
+            if (existing) {
+                if (existing.customerId !== customer.id || existing.customerTransactionType !== type
+                    || existing.customerTransactionRawAmount !== rawAmount || existing.customerTransactionCurrency !== currencyMode) {
+                    return { error: 'Este identificador ya corresponde a otra operación.' };
+                }
+                return { updatedCustomer: customers.find(c => c.id === customer.id), newCustomers: customers, duplicate: true };
+            }
+        }
         const currentCustomer = customers.length === 0
             ? customer
             : customers.find(c => c.id === customer.id);
@@ -112,9 +129,20 @@ export async function processCustomerTransaction({
         }
 
         const baseUpdatedCustomer = procesarImpactoCliente(currentCustomer, finalTransaccionOpts);
+        if (!Number.isFinite(appliedUsd) || appliedUsd <= 0) return { error: 'Monto final inválido' };
+        if ((appliedUsd > 1000 || Number(baseUpdatedCustomer.favor) > 300 || Number(baseUpdatedCustomer.deuda) > 2500)
+            && isExplicitHighAmount !== true) {
+            return { error: 'El movimiento o saldo resultante requiere confirmación explícita. Revisa el importe y la moneda.' };
+        }
         const updatedCustomer = {
             ...baseUpdatedCustomer,
             updatedAt: transactionTimestamp,
+            isExplicitHighAmount: isExplicitHighAmount === true,
+            highAmountApproval: isExplicitHighAmount === true ? {
+                favor: baseUpdatedCustomer.favor, deuda: baseUpdatedCustomer.deuda,
+                amountUsd: appliedUsd, requestedAmount: rawAmount, currency: currencyMode,
+                actorId: activeUser?.id || null, approvedAt: transactionTimestamp, operationId,
+            } : null,
         };
         const customerRecords = customers.length === 0 ? [customer] : customers;
         const newCustomers = customerRecords.map(c => c.id === customer.id ? updatedCustomer : c);
@@ -123,7 +151,7 @@ export async function processCustomerTransaction({
         // 4. Update sales storage
         const sales = await storageService.getItem('bodega_sales_v1', []);
         // FASE 3B: número asignado desde la NUBE; fallback offline = provisional.
-        const allocation = await allocateSaleNumber(deviceId, { localSales: sales });
+        if (!allocation) throw new Error('El historial cambió antes del commit; revisa la operación.');
         const nextSaleNumber = allocation.saleNumber;
         const totalEnBs = currencyMode === 'BS' ? rawAmount : mulR(appliedUsd, safeBcvRate);
         const totalEnUsd = appliedUsd;
@@ -132,6 +160,10 @@ export async function processCustomerTransaction({
         if (type === 'ABONO') {
             const cobroRecord = {
                 id: crypto.randomUUID(),
+                customerTransactionId: operationId,
+                customerTransactionType: type,
+                customerTransactionRawAmount: rawAmount,
+                customerTransactionCurrency: currencyMode,
                 timestamp: transactionTimestamp,
                 createdAt: transactionTimestamp,
                 updatedAt: transactionTimestamp,
@@ -171,6 +203,10 @@ export async function processCustomerTransaction({
         } else if (type === 'CREDITO') {
             const fiadoRecord = {
                 id: crypto.randomUUID(),
+                customerTransactionId: operationId,
+                customerTransactionType: type,
+                customerTransactionRawAmount: rawAmount,
+                customerTransactionCurrency: currencyMode,
                 timestamp: transactionTimestamp,
                 createdAt: transactionTimestamp,
                 updatedAt: transactionTimestamp,
@@ -207,14 +243,14 @@ export async function processCustomerTransaction({
             console.warn('[customerTransactionProcessor] Error al guardar en sales mirror:', mirrorErr);
         }
 
-        if (typeof window !== 'undefined') {
+        storageService.afterCommit(() => { if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('sales-updated'));
             window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_customers_v1' } }));
             window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_sales_v1' } }));
-        }
+        } });
 
         const savedRecord = sales[0];
-        logEvent(
+        auditAfterCommit(
             'VENTA',
             type === 'ABONO' ? 'COBRO_DEUDA_REGISTRADO' : 'VENTA_FIADA_REGISTRADA',
             `${type === 'ABONO' ? 'Abono' : 'Crédito'} de $${appliedUsd} para ${customer.name}`,
@@ -226,6 +262,7 @@ export async function processCustomerTransaction({
         deepFreeze(newCustomers);
 
         return { updatedCustomer, newCustomers };
+        });
     });
 
     return result;

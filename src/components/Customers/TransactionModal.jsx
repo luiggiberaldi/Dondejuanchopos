@@ -21,17 +21,18 @@ export default function TransactionModal({
     copPrimary,
     handleTransaction
 }) {
-    if (!transactionModal.isOpen || !transactionModal.customer) return null;
-
     const [isFullPayment, setIsFullPayment] = useState(false);
     const [showConfirmation, setShowConfirmation] = useState(false);
     const [explicitHighAmountConfirmed, setExplicitHighAmountConfirmed] = useState(false);
 
-    // Resetear confirmación al cambiar de cliente, tipo o visibilidad
+    // Approval applies only to the currently reviewed amount, currency, rates and balances.
     useEffect(() => {
         setShowConfirmation(false);
         setExplicitHighAmountConfirmed(false);
-    }, [transactionModal.isOpen, transactionModal.customer?.id, transactionModal.type, transactionAmount]);
+    }, [transactionModal.isOpen, transactionModal.customer?.id, transactionModal.type, transactionAmount,
+        currencyMode, bcvRate, tasaCop, isFullPayment, transactionModal.customer?.favor, transactionModal.customer?.deuda]);
+
+    if (!transactionModal.isOpen || !transactionModal.customer) return null;
 
     // Calcular preview del saldo resultante en tiempo real
     const rawAmt = parseFloat(transactionAmount) || 0;
@@ -55,6 +56,9 @@ export default function TransactionModal({
             : { esCredito: true, deudaGenerada: appliedUsd };
         previewCustomer = procesarImpactoCliente(currentCustomer, opts);
     }
+
+    const requiresHighCheck = (currencyMode === 'USD' && rawAmt >= 300)
+        || appliedUsd > 1000 || Number(previewCustomer?.favor) > 300 || Number(previewCustomer?.deuda) > 2500;
 
     // Saldo actual legible
     const saldoActualUsd = (currentCustomer.favor || 0) - (currentCustomer.deuda || 0);
@@ -206,14 +210,14 @@ export default function TransactionModal({
                     </div>
 
                     {/* Alerta y Confirmación de Seguridad para montos altos en USD */}
-                    {currencyMode === 'USD' && rawAmt >= 300 && (
+                    {requiresHighCheck && (
                         <div className="mx-5 mb-2 p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-xl space-y-2">
                             <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300">
                                 <AlertTriangle size={18} className="shrink-0" />
                                 <span className="text-xs font-black uppercase tracking-wide">Confirmación de Seguridad</span>
                             </div>
                             <p className="text-xs text-amber-900 dark:text-amber-200">
-                                El monto indicado es de <strong className="font-black">${formatUsd(rawAmt)} USD</strong>. Confirme que no se trata de una cifra en Bolívares antes de proceder.
+                                El monto indicado es <strong className="font-black">{displayAmount}</strong>, con aplicación de ${formatUsd(appliedUsd)} USD. Revise la moneda y el saldo resultante antes de proceder.
                             </p>
                             <label className="flex items-start gap-2.5 pt-1 cursor-pointer select-none">
                                 <input
@@ -223,14 +227,13 @@ export default function TransactionModal({
                                     className="mt-0.5 w-4 h-4 rounded text-brand focus:ring-brand dark:bg-slate-800"
                                 />
                                 <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 leading-tight">
-                                    Confirmo que este movimiento es de ${formatUsd(rawAmt)} DÓLARES en efectivo o transferencia, no en Bolívares.
+                                    Confirmo {displayAmount} en {currencyMode}, su equivalente de ${formatUsd(appliedUsd)} USD y el nuevo saldo mostrado.
                                 </span>
                             </label>
                         </div>
                     )}
 
                     {(() => {
-                        const requiresHighCheck = currencyMode === 'USD' && rawAmt >= 300;
                         const isConfirmDisabled = requiresHighCheck && !explicitHighAmountConfirmed;
 
                         return (

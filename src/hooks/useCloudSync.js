@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import localforage from 'localforage';
+import { localStore } from '../utils/localStore';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { useAuthStore } from './store/useAuthStore';
 import { useSupervisorCommands } from './useSupervisorCommands';
@@ -8,8 +8,15 @@ import { registerCloudSyncSetter } from '../utils/syncFlags';
 import { createAsyncKeyQueue } from '../utils/asyncKeyQueue';
 import { mergeCloudProductImages } from '../utils/productImageRecovery';
 import { compactSalesPayload } from '../utils/salesCompactor';
+import { compactKardexPayload } from '../utils/kardexScope';
 import { prepareSalesPushPayload, fetchCloudSalesReference } from '../utils/salesPushMerge';
 import { validateCustomerSyncPayload, mergeCloudCustomers } from '../utils/customerSyncGuard';
+import {
+    clearCloudRetryFailure,
+    getCloudRetryState,
+    isGlobalCloudFailure,
+    recordCloudRetryFailure,
+} from '../utils/cloudRetry';
 
 // EGRESS: claves que se respaldan pero NO se sincronizan a la nube.
 // Cada upsert a sync_documents se retransmite por Realtime a CADA monitor
@@ -41,6 +48,30 @@ function quickHash(value) {
 }
 
 const LAST_PUSH_HASH_PREFIX = 'bodega_last_periodic_push_hash_';
+const LAST_SOURCE_PUSH_HASH_PREFIX = 'bodega_last_source_push_hash_';
+// No publicar ventas archivadas ni resúmenes de Kardex hasta validar en entorno
+// aislado sus efectos sobre informes, pulls del monitor y restauración.
+const SALES_ARCHIVE_ENABLED = false;
+const KARDEX_EGRESS_COMPACTION_ENABLED = false;
+
+const PAYLOAD_TRANSFORM_VERSIONS = {
+    bodega_sales_v1: 'sales-archive-disabled-v1',
+    bodega_kardex_v1: 'kardex-snapshot-disabled-v1',
+};
+
+function sourcePushHash(key, value) {
+    return quickHash({ version: PAYLOAD_TRANSFORM_VERSIONS[key], value });
+}
+
+function hasSuccessfulSourcePush(key, value) {
+    const outboundHash = localStorage.getItem(LAST_PUSH_HASH_PREFIX + key);
+    const valueHash = quickHash(value);
+    if (PAYLOAD_TRANSFORM_VERSIONS[key] && Array.isArray(value)) {
+        const sourceHash = localStorage.getItem(LAST_SOURCE_PUSH_HASH_PREFIX + key);
+        return sourceHash === sourcePushHash(key, value) || outboundHash === valueHash;
+    }
+    return outboundHash === valueHash;
+}
 
 // ─── Estado Global del Motor ───────────────────────────────────────────────
 let globalSubscription = null;
@@ -113,6 +144,9 @@ function sanitizePayloadForSync(key, value) {
     if (key === 'bodega_sales_v1' && Array.isArray(value)) {
         return compactSalesPayload(value);
     }
+    if (key === 'bodega_kardex_v1' && Array.isArray(value) && KARDEX_EGRESS_COMPACTION_ENABLED) {
+        return compactKardexPayload(value);
+    }
     return value;
 }
 
@@ -141,6 +175,11 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
     const generation = cloudSyncGeneration;
     if (!isCurrentPosIdentity(activeDeviceId, generation)) return false;
 
+    const globalRetry = getCloudRetryState(`sync:${activeDeviceId}`);
+    if (globalRetry.coolingDown) return false;
+    const documentRetryOperation = `sync:${activeDeviceId}:${key}`;
+    if (getCloudRetryState(documentRetryOperation).coolingDown) return false;
+
     // El POS funciona sin una sesión Auth de Supabase. La autorización de
     // escritura la aplica el RPC por pairing y whitelist; si existe una sesión,
     // nunca permitimos que una identidad distinta escriba documentos de la caja.
@@ -154,16 +193,20 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
     // SEC-002: jamás empujar `abasto-auth-storage` aunque accidentalmente lo pidan.
     if (key === 'abasto-auth-storage') return false;
 
+    if (PAYLOAD_TRANSFORM_VERSIONS[key] && !forceUnconditional && Array.isArray(value) && hasSuccessfulSourcePush(key, value)) return true;
+
     let payloadToUpload = sanitizePayloadForSync(key, value);
 
     // ── BLINDAJE DE INTEGRIDAD DE SALDOS DE CLIENTES (ANTI-ANOMALÍAS Y ANTI-REVERSIÓN) ──
-    if (key === 'bodega_customers_v1' && Array.isArray(payloadToUpload)) {
-        const { valid, sanitized, anomalies } = validateCustomerSyncPayload(payloadToUpload);
+    if (key === 'bodega_customers_v1') {
+        const { valid, anomalies } = validateCustomerSyncPayload(payloadToUpload);
         if (!valid) {
-            console.warn(`[CIRCUIT BREAKER CLOUD SYNC] Detectada(s) ${anomalies.length} anomalía(s) en saldos de clientes. Sanitizando antes de subir a la nube:`, anomalies);
-            payloadToUpload = sanitized;
+            console.warn(`[CIRCUIT BREAKER CLOUD SYNC] Customer push quarantined: ${anomalies.length} anomaly/anomalies. Original balances preserved.`, anomalies);
+            return false;
         }
     }
+
+    const sourceSalesPayload = key === 'bodega_sales_v1' && Array.isArray(value) ? value : null;
 
     // ── BLINDAJE INMUTABLE DE HISTORIAL DE VENTAS Y CIERRES (ANTI-REGRESIÓN) ──
     // FASE 1 (merge-on-push): si el flag está activo, el payload se FUSIONA con el
@@ -184,19 +227,31 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
         localStorage.getItem('dj_sales_push_merge_v1') === 'true' &&
         activeDeviceId === 'PDA-V2-ED46F23C375734BF8DF4CC7DC4A4D39F';
     if (key === 'bodega_sales_v1' && Array.isArray(payloadToUpload) && salesMergeEnabled) {
-        const cloudReference = await fetchCloudSalesReference(activeDeviceId);
+        const archiveCandidate = compactSalesPayload(sourceSalesPayload, undefined, {
+            allowArchiving: SALES_ARCHIVE_ENABLED,
+        });
+        const needsArchiveAuthorization = archiveCandidate.some(sale => sale?.isArchived === true && sale.archiveVersion === 1);
+        const cloudReference = await fetchCloudSalesReference(activeDeviceId, undefined, { fresh: needsArchiveAuthorization });
         if (!isCurrentPosIdentity(activeDeviceId, generation)) return false;
-        if (cloudReference) {
-            const { payload: mergedSales, strategy, vetoed, reason } = prepareSalesPushPayload(payloadToUpload, cloudReference);
-            if (strategy === 'union-merge') {
-                if (vetoed) {
-                    console.warn(`[SALES PUSH MERGE] Vetado: ${reason}. Se sube la referencia cloud intacta.`);
-                }
-                payloadToUpload = mergedSales;
-            }
+        if (!Array.isArray(cloudReference)) {
+            console.warn('[SALES PUSH MERGE] Referencia cloud no disponible; se pospone el push para no sobrescribir historial no verificado.');
+            return false;
         }
-        // Sin referencia cloud (RPC falló / sin pairing) → passthrough: el breaker
-        // clásico de abajo actúa igual que siempre. Cero regresión.
+
+        const { payload: mergedSales, strategy, vetoed, reason } = prepareSalesPushPayload(
+            archiveCandidate,
+            cloudReference,
+            { sourceSales: sourceSalesPayload, archiveBaselineSales: sourceSalesPayload },
+        );
+        if (strategy === 'union-merge') {
+            if (vetoed) {
+                console.warn(`[SALES PUSH MERGE] Vetado: ${reason}. Se sube la referencia cloud intacta.`);
+            }
+            payloadToUpload = mergedSales;
+        } else if (vetoed) {
+            console.warn(`[SALES PUSH MERGE] Referencia no válida para fusión (${reason}); se pospone la escritura.`);
+            return false;
+        }
     }
 
     if (key === 'bodega_sales_v1' && Array.isArray(payloadToUpload)) {
@@ -223,11 +278,16 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
     }
 
     // E2: tope duro de egress por documento (8 MB, alineado con REMOTE_BACKUP_MAX_BYTES).
-    // Con el compactador inteligente proactivo (compactSalesPayload), los payloads se
-    // mantienen compactos (~1MB) y nunca alcanzan este umbral.
+    // Este límite evita publicar documentos sobredimensionados; no garantiza un tamaño
+    // objetivo, porque el detalle de ventas y el historial reciente de Kardex se conservan.
     const MAX_DOC_BYTES = 8 * 1024 * 1024;
     try {
-        const approxBytes = JSON.stringify(payloadToUpload)?.length ?? 0;
+        const serializedPayload = JSON.stringify(payloadToUpload) ?? '';
+
+        const approxBytes = typeof TextEncoder !== 'undefined'
+            ? new TextEncoder().encode(serializedPayload).length
+            : serializedPayload.length * 2;
+
         if (approxBytes > MAX_DOC_BYTES) {
             console.error(
                 `[CloudSync] E2: documento '${key}' de ${(approxBytes / 1048576).toFixed(2)} MB ` +
@@ -264,24 +324,34 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
         if (!isCurrentPosIdentity(activeDeviceId, generation)) return false;
 
         if (error) {
-            if (error.code === '42501' || error.status === 401) {
-                // RLS rechazó el upsert porque el dispositivo no está registrado en device_pairings ni autenticado.
-                // Pausar sync activo para evitar peticiones fallidas repetitivas.
-                isCloudSyncActive = false;
-            } else {
-                console.warn(`[CloudSync] Error ${error.code || error.status} al subir ${key}:`, error.message);
+            const failure = recordCloudRetryFailure(documentRetryOperation, error);
+            if (isGlobalCloudFailure(error)) {
+                recordCloudRetryFailure(`sync:${activeDeviceId}`, error);
             }
-            return false; // No guardar hash para reintentar cuando Supabase responda
+            console.warn(`[CloudSync] Error ${error.code || error.status} al subir ${key}; reintento en ${Math.ceil(failure.delayMs / 1000)}s:`, error.message);
+            return false; // Sin hash: el documento queda pendiente para el reintento autorizado
+        }
+
+        clearCloudRetryFailure(documentRetryOperation);
+        if (!getCloudRetryState(`sync:${activeDeviceId}`).coolingDown) {
+            clearCloudRetryFailure(`sync:${activeDeviceId}`);
         }
 
         // D1: `pushCloudSync` es el ÚNICO punto que escribe el hash de egress.
         // Los llamadores NO deben escribirlo: si lo hacen, una subida fallida
         // queda marcada como completada y esa clave no se reintenta nunca más.
         localStorage.setItem(hashKey, currentHash);
+        if (PAYLOAD_TRANSFORM_VERSIONS[key] && Array.isArray(value)) {
+            localStorage.setItem(LAST_SOURCE_PUSH_HASH_PREFIX + key, sourcePushHash(key, value));
+        }
         return true;
 
     } catch (e) {
-        // Silencioso en producción
+        const failure = recordCloudRetryFailure(documentRetryOperation, e);
+        if (isGlobalCloudFailure(e)) {
+            recordCloudRetryFailure(`sync:${activeDeviceId}`, e);
+        }
+        console.warn(`[CloudSync] Fallo de transporte al subir ${key}; reintento en ${Math.ceil(failure.delayMs / 1000)}s.`);
         return false;
     }
 };
@@ -327,7 +397,7 @@ export const forceSyncAllPOSData = async (overrideDeviceId, forceUnconditional =
 
     try {
         let allSucceeded = true;
-        const lf = localforage.createInstance({ name: 'BodegaApp', storeName: 'bodega_app_data' });
+        const lf = localStore; // mismo almacén y cola, sin eventos ni eco implícito
         
         for (const key of IDB_KEYS) {
             if (CLOUD_SYNC_EXCLUDE.includes(key)) continue;
@@ -335,8 +405,7 @@ export const forceSyncAllPOSData = async (overrideDeviceId, forceUnconditional =
             if (!isCurrentPosIdentity(activeDeviceId, generation)) return false;
             if (val !== null) {
                 const hashKey = LAST_PUSH_HASH_PREFIX + key;
-                const currentHash = quickHash(val);
-                if (!forceUnconditional && localStorage.getItem(hashKey) === currentHash) continue;
+                if (!forceUnconditional && hasSuccessfulSourcePush(key, val)) continue;
                 // D1: el hash lo escribe pushCloudSync solo si el upsert tuvo éxito.
                 const pushed = await pushCloudSync(key, val, forceUnconditional);
                 allSucceeded = pushed && allSucceeded;
@@ -348,8 +417,7 @@ export const forceSyncAllPOSData = async (overrideDeviceId, forceUnconditional =
             const val = localStorage.getItem(key);
             if (val !== null) {
                 const hashKey = LAST_PUSH_HASH_PREFIX + key;
-                const currentHash = quickHash(val);
-                if (!forceUnconditional && localStorage.getItem(hashKey) === currentHash) continue;
+                if (!forceUnconditional && hasSuccessfulSourcePush(key, val)) continue;
                 let parsed = val;
                 try { parsed = JSON.parse(val); } catch {}
                 // D1: el hash lo escribe pushCloudSync solo si el upsert tuvo éxito.
@@ -426,7 +494,7 @@ async function _applyFromCloud(docId, collection, payload) {
             window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: docId } }));
         } else {
             // Colección 'store' → IndexedDB directo, sin pasar por storageService.setItem
-            const lf = localforage.createInstance({ name: 'BodegaApp', storeName: 'bodega_app_data' });
+            const lf = localStore; // mismo almacén y cola, sin eventos ni eco implícito
             let payloadToApply = payload;
             if (docId === 'bodega_products_v1' && Array.isArray(payload)) {
                 const localProducts = await lf.getItem(docId);
@@ -476,11 +544,9 @@ export function useCloudSync(deviceId) {
             try {
                 if (!isCurrent()) return;
 
-                // D1/E1: las versiones anteriores escribían el hash de egress aunque el
-                // upsert hubiese fallado, dejando claves marcadas como "ya subidas" que en
-                // realidad nunca llegaron. Se purgan una única vez para forzar una
-                // reconciliación completa. La marca evita repetirlo en cada arranque.
-                const HASH_PURGE_FLAG = 'dj_egress_hash_purge_v2';
+                // D1/E1: borrar una sola vez los hashes outbound heredados para
+                // forzar reconciliación tras cambiar su propiedad/semántica.
+                const HASH_PURGE_FLAG = 'dj_egress_hash_purge_v3';
                 if (!localStorage.getItem(HASH_PURGE_FLAG)) {
                     try {
                         const stale = [];
@@ -490,9 +556,27 @@ export function useCloudSync(deviceId) {
                         }
                         stale.forEach(k => localStorage.removeItem(k));
                         localStorage.setItem(HASH_PURGE_FLAG, '1');
-                        console.log(`[CloudSync] Purga única de ${stale.length} hashes de egress envenenados por migración de nube (v2).`);
+                        console.log(`[CloudSync] Purga única de ${stale.length} hashes de egress heredados para reconciliar (v3).`);
                     } catch (e) {
                         console.warn('[CloudSync] No se pudo purgar los hashes de egress:', e);
+                    }
+                }
+
+                // Los hashes de fuente pertenecen a la optimización transformada.
+                // Migrarlos invalida solo el guard de ventas/Kardex versionado; los
+                // hashes outbound permanecen para no re-subir todas las demás claves.
+                const SOURCE_HASH_PURGE_FLAG = 'dj_source_push_hash_purge_v2';
+                if (!localStorage.getItem(SOURCE_HASH_PURGE_FLAG)) {
+                    try {
+                        const staleSourceHashes = [];
+                        for (let i = 0; i < localStorage.length; i++) {
+                            const k = localStorage.key(i);
+                            if (k && k.startsWith(LAST_SOURCE_PUSH_HASH_PREFIX)) staleSourceHashes.push(k);
+                        }
+                        staleSourceHashes.forEach(k => localStorage.removeItem(k));
+                        localStorage.setItem(SOURCE_HASH_PURGE_FLAG, '1');
+                    } catch (e) {
+                        console.warn('[CloudSync] No se pudieron migrar los hashes de fuente:', e);
                     }
                 }
 
@@ -512,18 +596,19 @@ export function useCloudSync(deviceId) {
                 isCloudSyncActive = true;
                 isInitialized.current = true;
 
-                // Sincronizar automáticamente todos los datos del POS a la nube en segundo plano (forzado incondicional)
-                forceSyncAllPOSData(deviceId, true).catch(() => {});
+                // Reconciliar al iniciar, pero respetar los hashes de payload ya enviados.
+                forceSyncAllPOSData(deviceId, false).catch(() => {});
 
                 // ── Pull Inicial / Sincronización de Importación ──
                 const backupImported = localStorage.getItem('dj_backup_imported_flag') === 'true';
                 
                 if (backupImported) {
                     console.log('[CloudSync] Detectado backup importado localmente. Subiendo datos locales a la nube...');
-                    const lf = localforage.createInstance({ name: 'BodegaApp', storeName: 'bodega_app_data' });
+                    const lf = localStore; // mismo almacén y cola, sin eventos ni eco implícito
                     
                     // Subir datos de IndexedDB con empuje incondicional
                     for (const key of IDB_KEYS) {
+                        if (CLOUD_SYNC_EXCLUDE.includes(key)) continue;
                         const localValue = await lf.getItem(key);
                         if (!isCurrent()) return;
                         if (localValue !== null) {
@@ -535,6 +620,7 @@ export function useCloudSync(deviceId) {
                     // Subir datos de localStorage con empuje incondicional
                     for (const key of LOCAL_KEYS) {
                         if (!isCurrent()) return;
+                        if (CLOUD_SYNC_EXCLUDE.includes(key)) continue;
                         const localVal = localStorage.getItem(key);
                         if (localVal !== null) {
                             let parsed = localVal;
@@ -557,17 +643,16 @@ export function useCloudSync(deviceId) {
                 // Solo si cambiaron desde el último push (mismo hash-guard que forcePushLocalData,
                 // para no re-subir todo en cada arranque/reconexión sin necesidad).
                 try {
-                    const lf = localforage.createInstance({ name: 'BodegaApp', storeName: 'bodega_app_data' });
+                    const lf = localStore; // mismo almacén y cola, sin eventos ni eco implícito
                     
                     // Procesar IndexedDB
                     for (const key of IDB_KEYS) {
+                        if (CLOUD_SYNC_EXCLUDE.includes(key)) continue;
                         const localValue = await lf.getItem(key);
                         if (!isCurrent()) return;
                         if (!localValue) continue;
 
-                        const hashKey = LAST_PUSH_HASH_PREFIX + key;
-                        const currentHash = quickHash(localValue);
-                        if (localStorage.getItem(hashKey) === currentHash) continue;
+                        if (hasSuccessfulSourcePush(key, localValue)) continue;
 
                         // D1: el hash lo escribe pushCloudSync solo si el upsert tuvo éxito.
                         await pushCloudSync(key, localValue);
@@ -576,12 +661,11 @@ export function useCloudSync(deviceId) {
                     // Procesar localStorage
                     for (const key of LOCAL_KEYS) {
                         if (!isCurrent()) return;
+                        if (CLOUD_SYNC_EXCLUDE.includes(key)) continue;
                         const localVal = localStorage.getItem(key);
                         if (localVal === null) continue;
 
-                        const hashKey = LAST_PUSH_HASH_PREFIX + key;
-                        const currentHash = quickHash(localVal);
-                        if (localStorage.getItem(hashKey) === currentHash) continue;
+                        if (hasSuccessfulSourcePush(key, localVal)) continue;
 
                         let parsed = localVal;
                         try { parsed = JSON.parse(localVal); } catch {}
@@ -624,17 +708,16 @@ export function useCloudSync(deviceId) {
         const forcePushLocalData = async () => {
             if (isSyncingFromCloud || !isCurrent() || !isCloudSyncActive || !navigator.onLine) return;
             try {
-                const lf = localforage.createInstance({ name: 'BodegaApp', storeName: 'bodega_app_data' });
+                const lf = localStore; // mismo almacén y cola, sin eventos ni eco implícito
                 
                 // Procesar IndexedDB
                 for (const key of IDB_KEYS) {
+                    if (CLOUD_SYNC_EXCLUDE.includes(key)) continue;
                     const localValue = await lf.getItem(key);
                     if (!isCurrent()) return;
                     if (!localValue) continue;
 
-                    const hashKey = LAST_PUSH_HASH_PREFIX + key;
-                    const currentHash = quickHash(localValue);
-                    if (localStorage.getItem(hashKey) === currentHash) continue;
+                    if (hasSuccessfulSourcePush(key, localValue)) continue;
 
                     // D1: el hash lo escribe pushCloudSync solo si el upsert tuvo éxito.
                     await pushCloudSync(key, localValue);
@@ -643,12 +726,11 @@ export function useCloudSync(deviceId) {
                 // Procesar localStorage
                 for (const key of LOCAL_KEYS) {
                     if (!isCurrent()) return;
+                    if (CLOUD_SYNC_EXCLUDE.includes(key)) continue;
                     const localVal = localStorage.getItem(key);
                     if (localVal === null) continue;
 
-                    const hashKey = LAST_PUSH_HASH_PREFIX + key;
-                    const currentHash = quickHash(localVal);
-                    if (localStorage.getItem(hashKey) === currentHash) continue;
+                    if (hasSuccessfulSourcePush(key, localVal)) continue;
 
                     let parsed = localVal;
                     try { parsed = JSON.parse(localVal); } catch {}

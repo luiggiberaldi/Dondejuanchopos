@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import localforage from 'localforage';
+import { localStore } from '../utils/localStore';
 import { storageService } from '../utils/storageService';
 import { showToast } from '../components/Toast';
 import { supabaseCloud } from '../config/supabaseCloud';
@@ -8,6 +8,7 @@ import { runWithoutEco } from '../utils/syncFlags';
 import { compressString, decompressString, isCompressionSupported } from '../utils/compression';
 import { uploadProductImage } from '../utils/imageUpload';
 import { mergeMissingProductImages } from '../utils/productImageRecovery';
+import { runCloudUploadWithBackoff } from '../utils/cloudRetry';
 
 
 /**
@@ -97,7 +98,7 @@ export function useCloudBackup({
 
         const sources = [];
         const sourceLabels = [];
-        const shadow = await localforage.getItem('bodega_products_shadow_backup_v1');
+        const shadow = await localStore.getItem('bodega_products_shadow_backup_v1');
         if (Array.isArray(shadow)) {
             sources.push(shadow);
             sourceLabels.push('copia de sombra local');
@@ -188,7 +189,7 @@ export function useCloudBackup({
 
         // Escritura directa: solo cambia las propiedades image recuperadas y no
         // dispara una publicación cloud potencialmente incompleta.
-        await localforage.setItem('bodega_products_v1', updatedProducts);
+        await localStore.setItem('bodega_products_v1', updatedProducts);
         window.dispatchEvent(new CustomEvent('app_storage_update', {
             detail: { key: 'bodega_products_v1', source: 'image-recovery', payload: updatedProducts }
         }));
@@ -242,15 +243,22 @@ export function useCloudBackup({
             }
         }
 
-        // 1. Backup blob completo
-        const { error } = await supabaseCloud
-            .from('cloud_backups')
-            .upsert({
-                device_id: deviceId,
-                backup_data: payloadToUpload,
-                updated_at: new Date().toISOString()
-            }, { onConflict: 'device_id' });
-        if (error) throw error;
+        // 1. Backup blob completo: respetar errores PostgREST y reintentar con backoff.
+        const uploadResult = await runCloudUploadWithBackoff(`manual-backup:${deviceId}`, () =>
+            supabaseCloud
+                .from('cloud_backups')
+                .upsert({
+                    device_id: deviceId,
+                    backup_data: payloadToUpload,
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'device_id' }),
+        );
+        if (!uploadResult.success) {
+            if (uploadResult.skipped) {
+                throw new Error(`Subida pausada por backoff; reintentar en ${Math.ceil(uploadResult.retryInMs / 1000)}s.`);
+            }
+            throw uploadResult.error;
+        }
 
         // 2. Inyección inicial en sync_documents para P2P
         try {
@@ -274,7 +282,15 @@ export function useCloudBackup({
                 });
             }
             if (syncPayloads.length > 0) {
-                await supabaseCloud.from('sync_documents').upsert(syncPayloads, { onConflict: 'device_id,collection,doc_id' });
+                const syncResult = await runCloudUploadWithBackoff(`manual-sync-documents:${deviceId}`, () =>
+                    supabaseCloud.from('sync_documents').upsert(syncPayloads, { onConflict: 'device_id,collection,doc_id' }),
+                );
+                if (!syncResult.success) {
+                    console.warn('[CloudBackup] Backup guardado; inicialización de sync_documents pendiente por fallo/backoff.', {
+                        error: syncResult.error?.message,
+                        retryInMs: syncResult.retryInMs,
+                    });
+                }
             }
         } catch (syncErr) {
             console.warn('[CloudBackup] Fallo inicializando sync_documents:', syncErr);

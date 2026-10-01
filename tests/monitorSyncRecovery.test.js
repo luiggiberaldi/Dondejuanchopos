@@ -32,6 +32,7 @@ vi.mock('localforage', () => ({ default: {
     config: vi.fn(),
     getItem: async key => mocks.store.get(key),
     setItem: mocks.setItem,
+    createInstance: () => ({ getItem: async () => null }),
 } }));
 vi.mock('../src/utils/syncFlags', () => ({ runWithoutEco: async fn => fn() }));
 import { useMonitorSync } from '../src/hooks/useMonitorSync';
@@ -81,9 +82,29 @@ describe('Supervisor monitor catch-up recovery', () => {
         await mount();
         await act(async () => mocks.channels[0].status('SUBSCRIBED'));
         mocks.fetch.mockResolvedValue(result([doc('bodega_sales_v1', T2, [{ id: 'new-sale' }])]));
-        await tick();
+        await tick(180000);
         expect(mocks.fetch.mock.calls.length).toBeGreaterThan(1);
         expect(mocks.store.get('bodega_sales_v1')[0].id).toBe('new-sale');
+    });
+
+    it('uses a three-minute catch-up interval when the websocket is healthy', async () => {
+        mocks.fetch.mockResolvedValueOnce(result([doc('bodega_sales_v1', T1)]));
+        await mount();
+        await act(async () => mocks.channels[0].status('SUBSCRIBED'));
+        const initialCalls = mocks.fetch.mock.calls.length;
+        await tick(30000);
+        expect(mocks.fetch.mock.calls).toHaveLength(initialCalls);
+        await tick(150000);
+        expect(mocks.fetch.mock.calls.length).toBeGreaterThan(initialCalls);
+    });
+
+    it('recovers immediately on a timer when the websocket is unhealthy', async () => {
+        mocks.fetch.mockResolvedValueOnce(result([doc('bodega_sales_v1', T1)]));
+        await mount();
+        await act(async () => mocks.channels[0].status('CHANNEL_ERROR'));
+        const initialCalls = mocks.fetch.mock.calls.length;
+        await tick(10000);
+        expect(mocks.fetch.mock.calls.length).toBeGreaterThan(initialCalls);
     });
 
     it('never advances the catch-up cursor from a single realtime document', async () => {
@@ -102,8 +123,8 @@ describe('Supervisor monitor catch-up recovery', () => {
             doc('bodega_customers_v1', T2, [{ id: 'customer' }]), doc('bodega_products_v1', T3),
         ]));
         mocks.setItem.mockImplementationOnce(async () => { throw new Error('storage unavailable'); });
-        await tick();
-        await tick();
+        await tick(180000);
+        await tick(30000);
         expect(mocks.fetch.mock.calls[2][3].updatedAfter).toBe(T1);
         expect(mocks.store.get('bodega_customers_v1')).toEqual([{ id: 'customer' }]);
     });
@@ -120,7 +141,7 @@ describe('Supervisor monitor catch-up recovery', () => {
         await mount();
         await emit(doc('bodega_sales_v1', T3, [{ id: 'fresh' }]));
         mocks.fetch.mockResolvedValue(result([doc('bodega_sales_v1', T2, [{ id: 'old' }])]));
-        await tick();
+        await tick(180000);
         expect(mocks.store.get('bodega_sales_v1')[0].id).toBe('fresh');
     });
 
@@ -140,7 +161,7 @@ describe('Supervisor monitor catch-up recovery', () => {
         await mount();
         let resolvePull;
         mocks.fetch.mockImplementationOnce(() => new Promise(resolve => { resolvePull = resolve; }));
-        await tick();
+        await tick(180000);
         const previousCount = mocks.fetch.mock.calls.length;
         await act(async () => window.dispatchEvent(new CustomEvent('supervisor_sync_requested')));
         expect(mocks.fetch.mock.calls.length).toBe(previousCount);
@@ -182,6 +203,57 @@ describe('Supervisor monitor catch-up recovery', () => {
         } finally { window.removeEventListener('app_storage_update', onUpdate); }
         expect(JSON.parse(localStorage.getItem(pendingKey))).toEqual(newer);
         expect(localStorage.getItem('bodega_custom_rate')).toBe('200');
+    });
+
+    it('conserva imagen guardada solo en LS al adoptar catálogo remoto', async () => {
+        localStorage.setItem('bodega_products_v1', JSON.stringify([{ id: 'p', image: 'data:image/png;base64,fixture' }]));
+        mocks.fetch.mockResolvedValueOnce(result([doc('bodega_products_v1', T1, [{ id: 'p', name: 'Fresh', stock: 7 }])]));
+        await mount();
+        expect(mocks.store.get('bodega_products_v1')[0]).toMatchObject({ id: 'p', stock: 7, image: 'data:image/png;base64,fixture' });
+        expect(localStorage.getItem('bodega_products_v1')).toBeNull();
+    });
+
+    it('reemplaza snapshot vacío sin restaurar ventas desde shadow o guardias', async () => {
+        mocks.store.set('bodega_sales_v1', [{ id: 'old', tipo: 'REGISTRO_CIERRE' }]);
+        mocks.store.set('bodega_sales_shadow_backup_v1', [{ id: 'old', tipo: 'REGISTRO_CIERRE' }]);
+        mocks.fetch.mockResolvedValueOnce(result([doc('bodega_sales_v1', T1, [])]));
+        await mount();
+        expect(mocks.store.get('bodega_sales_v1')).toEqual([]);
+    });
+
+    it('fallo de IDB no avanza versión usando fallback silencioso ni emite éxito', async () => {
+        const updates = [];
+        const handler = e => { if (e.detail?.source === 'monitor-sync') updates.push(e.detail); };
+        window.addEventListener('app_storage_update', handler);
+        mocks.setItem.mockRejectedValueOnce(new Error('quota'));
+        mocks.fetch.mockResolvedValueOnce(result([doc('bodega_sales_v1', T1, [{ id: 'new' }])]));
+        try {
+            await mount();
+            expect(localStorage.getItem('bodega_sales_v1')).toBeNull();
+            expect(localStorage.getItem('dj_monitor_sync_versions_v1')).toBeNull();
+            expect(updates).toHaveLength(0);
+        } finally { window.removeEventListener('app_storage_update', handler); }
+    });
+
+    it('descarta snapshot en cola compartida si cambia la vinculación antes del commit', async () => {
+        await mount();
+        const { localStore } = await import('../src/utils/localStore');
+        let release, entered;
+        const held = new Promise(resolve => { release = resolve; });
+        const started = new Promise(resolve => { entered = resolve; });
+        mocks.setItem.mockImplementationOnce(async (k, v) => { entered(); await held; mocks.store.set(k, v); });
+        const first = localStore.setItem('bodega_sales_v1', [{ id: 'earlier' }]); await started;
+        // Callback realtime captura la vinculación antes de esperar el núcleo.
+        await act(async () => {
+            mocks.channels.at(-1).event({ eventType: 'UPDATE', new: {
+                ...doc('bodega_sales_v1', T3), data: { payload: [{ id: 'stale-monitor' }] },
+            } });
+            await Promise.resolve(); await Promise.resolve();
+        });
+        localStorage.setItem('dj_paired_device_id', 'register-b');
+        await act(async () => { release(); await first; await vi.advanceTimersByTimeAsync(1); });
+        expect(mocks.store.get('bodega_sales_v1')).toEqual([{ id: 'earlier' }]);
+        expect(localStorage.getItem('dj_monitor_sync_versions_v1')).toBeNull();
     });
 
     it('does not use the client clock as a cursor after an empty first pull', async () => {

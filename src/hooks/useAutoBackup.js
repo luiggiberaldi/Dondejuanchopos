@@ -3,6 +3,11 @@ import { storageService } from '../utils/storageService';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { IDB_KEYS, LS_KEYS } from '../config/backupKeys';
 import { compressString, isCompressionSupported } from '../utils/compression';
+import {
+    clearCloudRetryFailure,
+    getCloudRetryState,
+    recordCloudRetryFailure,
+} from '../utils/cloudRetry';
 
 
 // ─── Configuración optimizada ───────────────────────────────────────────────
@@ -28,6 +33,8 @@ export function useAutoBackup(isPremium, isDemo, deviceId) {
     const initialTimerRef = useRef(null);
     // Ref para que el handler de Realtime pueda llamar a performBackup
     const performBackupRef = useRef(null);
+    const retryTimerRef = useRef(null);
+    const backupInFlightRef = useRef(false);
 
     // HOOK-043: Separar la config (isPremium/isDemo/deviceId) en un ref para que
     // el `useEffect` del intervalo NO se re-cree en cada cambio de isPremium/isDemo
@@ -41,6 +48,8 @@ export function useAutoBackup(isPremium, isDemo, deviceId) {
 
     useEffect(() => {
         const performBackup = async (forceUpload = false) => {
+            if (backupInFlightRef.current) return false;
+            backupInFlightRef.current = true;
             const { isPremium: premium, isDemo: demo, deviceId: devId } = configRef.current;
             try {
                 // ── Recolectar IndexedDB ────────────────────────────────
@@ -51,7 +60,7 @@ export function useAutoBackup(isPremium, isDemo, deviceId) {
                     if (val !== null) { idbData[key] = val; hasData = true; }
                 }
 
-                if (!hasData) return;
+                if (!hasData) return false;
 
                 // ── Recolectar localStorage ────────────────────────────
                 const lsData = {};
@@ -73,7 +82,21 @@ export function useAutoBackup(isPremium, isDemo, deviceId) {
                 await storageService.setItem(BACKUP_KEY, fullBackup);
 
                 // Subir a la nube si hay sesión activa (para evitar 401 en consola)
-                if (devId && supabaseCloud) {
+                if (!devId || !supabaseCloud) return true;
+                const retryOperation = `backup:${devId}`;
+                const retryState = getCloudRetryState(retryOperation);
+                if (retryState.coolingDown) {
+                    console.info(`[AutoBackup] Upload en pausa por backoff (${Math.ceil(retryState.remainingMs / 1000)}s restantes).`);
+                    if (!retryTimerRef.current) {
+                        retryTimerRef.current = setTimeout(() => {
+                            retryTimerRef.current = null;
+                            performBackupRef.current?.(true);
+                        }, retryState.remainingMs);
+                    }
+                    return false;
+                }
+
+                {
                     let hasAuth = false;
                     try {
                         const { data: { session } } = await supabaseCloud.auth.getSession();
@@ -82,19 +105,19 @@ export function useAutoBackup(isPremium, isDemo, deviceId) {
                         hasAuth = false;
                     }
 
-                    if (!hasAuth) return; // Omitir subida cloud si no está logueado
+                    if (!hasAuth) return false; // Omitir subida cloud si no está logueado
 
                     const todayStr = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
                     const lastDailyBackup = localStorage.getItem('bodega_last_daily_backup_date');
 
                     // Si no es premium y ya respaldó hoy, omitir para evitar peticiones redundantes
-                    if (!premium && lastDailyBackup === todayStr && !forceUpload) return;
+                    if (!premium && lastDailyBackup === todayStr && !forceUpload) return true;
 
                     const currentHash = quickHash(idbData);
                     const lastHash = localStorage.getItem(LAST_UPLOAD_HASH_KEY);
 
                     // forceUpload=true omite la verificación de hash (solicitud manual)
-                    if (!forceUpload && currentHash === lastHash) return;
+                    if (!forceUpload && currentHash === lastHash) return true;
 
                     let payloadToUpload = fullBackup;
                     if (isCompressionSupported()) {
@@ -120,22 +143,52 @@ export function useAutoBackup(isPremium, isDemo, deviceId) {
                     const customerCount = Array.isArray(idbData.bodega_customers_v1) ? idbData.bodega_customers_v1.length : 0;
                     const sizeBytes = JSON.stringify(payloadToUpload).length;
 
-                    await supabaseCloud.from('cloud_backups').upsert({
-                        device_id: devId,
-                        backup_data: payloadToUpload,
-                        size_bytes: sizeBytes,
-                        product_count: productCount,
-                        sales_count: salesCount,
-                        customer_count: customerCount,
-                        updated_at: new Date().toISOString()
-                    }, { onConflict: 'device_id' });
+                    try {
+                        const { error } = await supabaseCloud.from('cloud_backups').upsert({
+                            device_id: devId,
+                            backup_data: payloadToUpload,
+                            size_bytes: sizeBytes,
+                            product_count: productCount,
+                            sales_count: salesCount,
+                            customer_count: customerCount,
+                            updated_at: new Date().toISOString()
+                        }, { onConflict: 'device_id' });
+                        if (error) {
+                            const failure = recordCloudRetryFailure(retryOperation, error);
+                            console.warn(`[AutoBackup] Supabase rechazó el backup; reintento en ${Math.ceil(failure.delayMs / 1000)}s.`, error.message);
+                            if (!retryTimerRef.current) {
+                                retryTimerRef.current = setTimeout(() => {
+                                    retryTimerRef.current = null;
+                                    performBackupRef.current?.(true);
+                                }, failure.delayMs);
+                            }
+                            return false;
+                        }
+                    } catch (error) {
+                        const failure = recordCloudRetryFailure(retryOperation, error);
+                        console.warn(`[AutoBackup] Error de red al subir; reintento en ${Math.ceil(failure.delayMs / 1000)}s.`);
+                        if (!retryTimerRef.current) {
+                            retryTimerRef.current = setTimeout(() => {
+                                retryTimerRef.current = null;
+                                performBackupRef.current?.(true);
+                            }, failure.delayMs);
+                        }
+                        return false;
+                    }
 
+                    clearCloudRetryFailure(retryOperation);
+                    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+                    retryTimerRef.current = null;
                     localStorage.setItem(LAST_UPLOAD_HASH_KEY, currentHash);
                     localStorage.setItem('bodega_last_daily_backup_date', todayStr);
+                    return true;
                 }
 
             } catch (e) {
                 console.error('[AutoBackup] Error:', e);
+                return false;
+            } finally {
+                backupInFlightRef.current = false;
             }
         };
 
@@ -150,6 +203,8 @@ export function useAutoBackup(isPremium, isDemo, deviceId) {
         return () => {
             if (initialTimerRef.current) clearTimeout(initialTimerRef.current);
             if (intervalRef.current) clearInterval(intervalRef.current);
+            if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+            performBackupRef.current = null;
         };
         // HOOK-043: deps vacíos — el intervalo se monta una sola vez por app lifetime.
         // `configRef` mantiene los valores actuales sin re-crear el effect.
@@ -163,6 +218,7 @@ export function useAutoBackup(isPremium, isDemo, deviceId) {
         if (!deviceId || !supabaseCloud || !isPremium) return;
 
         let channel = null;
+        let requestInFlight = false;
 
         // Suscribirse al canal en tiempo real de forma anónima
         channel = supabaseCloud
@@ -174,13 +230,30 @@ export function useAutoBackup(isPremium, isDemo, deviceId) {
                 filter: `device_id=eq.${deviceId}`
             }, async (payload) => {
                 if (payload.new?.status === 'pending') {
+                    if (requestInFlight) return;
+                    requestInFlight = true;
                     console.log('[AutoBackup] Solicitud de backup recibida. Ejecutando...');
-                    await performBackupRef.current?.(true); // forzar subida
-                    await supabaseCloud.from('backup_requests').update({
-                        status: 'completed',
-                        completed_at: new Date().toISOString()
-                    }).eq('device_id', deviceId);
-                    console.log('[AutoBackup] Backup en tiempo real completado.');
+                    try {
+                        const uploaded = await performBackupRef.current?.(true); // forzar subida
+                        if (!uploaded) {
+                            console.warn('[AutoBackup] Solicitud remota no se marca completada: el backup no se confirmó.');
+                            const { error } = await supabaseCloud.from('backup_requests')
+                                .update({ status: 'error' })
+                                .eq('device_id', deviceId);
+                            if (error) console.warn('[AutoBackup] No se pudo informar el fallo de backup:', error.message);
+                            return;
+                        }
+                        const { error } = await supabaseCloud.from('backup_requests').update({
+                            status: 'completed',
+                            completed_at: new Date().toISOString()
+                        }).eq('device_id', deviceId);
+                        if (error) throw error;
+                        console.log('[AutoBackup] Backup en tiempo real completado.');
+                    } catch (error) {
+                        console.error('[AutoBackup] Error resolviendo solicitud remota:', error);
+                    } finally {
+                        requestInFlight = false;
+                    }
                 }
             })
             .subscribe();

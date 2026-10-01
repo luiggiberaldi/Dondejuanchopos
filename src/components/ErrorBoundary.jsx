@@ -1,5 +1,5 @@
 import React from 'react';
-import localforage from 'localforage';
+import { localStore } from '../utils/localStore';
 
 /**
  * HOOK-026: ErrorBoundary con recuperación efectiva.
@@ -48,20 +48,16 @@ class ErrorBoundary extends React.Component {
 
     this.setState({ clearing: true, clearMsg: 'Borrando datos críticos...' });
     try {
-      // Usar localforage estático
-      localforage.config({ name: 'BodegaApp', storeName: 'bodega_app_data' });
-      await localforage.removeItem('bodega_products_v1');
-      await localforage.removeItem('bodega_sales_v1');
-      // También purgar de localStorage por si estaban ahí como fallback.
-      localStorage.removeItem('bodega_products_v1');
-      localStorage.removeItem('bodega_sales_v1');
+      // Mismo núcleo que los writers: elimina también fallbacks/reintentos.
+      await localStore.removeItem('bodega_products_v1');
+      await localStore.removeItem('bodega_sales_v1');
       this.setState({ clearMsg: 'Datos borrados. Recargando...' });
       setTimeout(() => window.location.reload(), 600);
     } catch (e) {
       console.error('[ErrorBoundary] Fallo limpiando datos críticos:', e);
       this.setState({
         clearing: false,
-        clearMsg: 'No se pudo limpiar automáticamente. Usa la consola: localforage.removeItem("bodega_products_v1")',
+        clearMsg: 'No se pudo completar la limpieza. Conserva los datos y solicita revisión antes de repetirla.',
       });
     }
   };

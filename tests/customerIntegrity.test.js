@@ -8,6 +8,10 @@ const _memoryStore = new Map();
 
 vi.mock('../src/utils/storageService', () => ({
     storageService: {
+        async transaction(callback) {
+            const { runLegacyUnitTransaction } = await import('./legacyUnitTransaction');
+            return runLegacyUnitTransaction(this, callback);
+        },
         getItem: vi.fn(async (key, defaultValue = null) => {
             if (_memoryStore.has(key)) return _memoryStore.get(key);
             return defaultValue;
@@ -201,6 +205,29 @@ describe('Customer Integrity & Golden Rule Normalization', () => {
         expect(updatedCust.deuda).toBe(0);
         expect(updatedCust.favor).toBe(0);
         expect(result.updatedSales.find(s => s.id === sale.id).status).toBe('ANULADA');
+    });
+
+    it('un fallo del espejo no interrumpe la reversión del cliente al anular', async () => {
+        const customer = { id: 'customer-mirror-error', name: 'Fixture', deuda: 10, favor: 0 };
+        const sale = {
+            id: 'sale-mirror-error', tipo: 'VENTA_FIADA', status: 'COMPLETADA',
+            customerId: customer.id, totalUsd: 10, fiadoUsd: 10, items: [], payments: [],
+            timestamp: '2026-09-13T12:00:00Z',
+        };
+        await storageService.setItem('bodega_customers_v1', [customer]);
+        await storageService.setItem('bodega_sales_v1', [sale]);
+        const original = storageService.setItem.getMockImplementation();
+        storageService.setItem.mockImplementation(async (key, value) => {
+            if (key === 'bodega_sales_mirror_v1') throw new Error('mirror quota');
+            return original(key, value);
+        });
+        try {
+            const result = await processVoidSale(sale, [sale], []);
+            expect(result.mirrorPending).toBe(true);
+            expect(result.updatedCustomers[0].deuda).toBe(0);
+            expect((await storageService.getItem('bodega_customers_v1'))[0].deuda).toBe(0);
+            expect((await storageService.getItem('bodega_sales_v1'))[0].status).toBe('ANULADA');
+        } finally { storageService.setItem.mockImplementation(original); }
     });
 
     it('voiding an abono whose excess favor was already spent converts deficit to debt', async () => {

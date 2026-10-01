@@ -1,0 +1,14 @@
+import { act, createElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import { beforeEach, afterEach, it, expect, vi } from 'vitest';
+import TransactionModal from '../src/components/Customers/TransactionModal';
+let host, root, props;
+beforeEach(()=>{ globalThis.IS_REACT_ACT_ENVIRONMENT=true;host=document.createElement('div');document.body.appendChild(host);root=createRoot(host);props={transactionModal:{isOpen:true,type:'ABONO',customer:{id:'c',name:'Fixture',favor:0,deuda:0}},setTransactionModal:vi.fn(),transactionAmount:'1500',setTransactionAmount:vi.fn(),currencyMode:'USD',setCurrencyMode:vi.fn(),paymentMethod:'cash',setPaymentMethod:vi.fn(),activePaymentMethods:[],bcvRate:40,tasaCop:4000,copEnabled:true,handleTransaction:vi.fn()};});
+afterEach(async()=>{await act(async()=>root.unmount());host.remove();delete globalThis.IS_REACT_ACT_ENVIRONMENT;});
+async function render(){await act(async()=>root.render(createElement(TransactionModal,props)));}
+async function openSummary(){const buttons=[...host.querySelectorAll('button')];const review=buttons.find(b=>/revisar|continuar|registrar|abonar|confirmar/i.test(b.textContent));expect(review).toBeTruthy();await act(async()=>review.click());}
+function confirmButton(){return [...host.querySelectorAll('button')].find(b=>/Confirmar Abono|Confirmar Deuda/.test(b.textContent));}
+it('abre y cierra sin violar el orden de hooks',async()=>{props.transactionModal={isOpen:false,customer:null};await render();props.transactionModal={isOpen:true,type:'ABONO',customer:{id:'c',name:'Fixture',favor:0,deuda:0}};await render();expect(host.textContent).toContain('Fixture');props.transactionModal={isOpen:false,customer:null};await render();expect(host.textContent).toBe('');});
+it.each([['BS','60000'],['COP','6000000'],['USD','1500']])('confirma equivalencia alta en %s',async(currency,amount)=>{props.currencyMode=currency;props.transactionAmount=amount;await render();await openSummary();const cb=host.querySelector('input[type="checkbox"]');expect(cb).toBeTruthy();expect(confirmButton().disabled).toBe(true);await act(async()=>cb.click());expect(confirmButton().disabled).toBe(false);await act(async()=>confirmButton().click());expect(props.handleTransaction).toHaveBeenCalledWith(false,true);});
+it('abono menor que supera saldo 300 exige nueva aprobación',async()=>{props.transactionAmount='20';props.transactionModal.customer.favor=290;await render();await openSummary();expect(host.querySelector('input[type="checkbox"]')).toBeTruthy();expect(confirmButton().disabled).toBe(true);});
+it('cambiar moneda o monto invalida aprobación anterior',async()=>{await render();await openSummary();await act(async()=>host.querySelector('input[type="checkbox"]').click());props.currencyMode='BS';props.transactionAmount='60000';await render();await openSummary();expect(host.querySelector('input[type="checkbox"]').checked).toBe(false);expect(confirmButton().disabled).toBe(true);});

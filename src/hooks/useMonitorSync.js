@@ -1,15 +1,14 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { runWithoutEco } from '../utils/syncFlags';
-import localforage from 'localforage';
+import { localStore } from '../utils/localStore';
 import { shouldApplySyncVersion } from '../utils/syncVersionGuard';
 import { mergeCloudProductImages } from '../utils/productImageRecovery';
 import { normalizeHistoricalSale } from '../utils/salesMerge';
 import { fetchRemoteDocuments, REMOTE_MONITOR_DOC_IDS } from '../services/remoteAuditService';
 import { SUPERVISOR_RATE_PENDING_KEY } from '../utils/supervisorCommandModel';
 
-// Configurar localforage a nivel de módulo
-localforage.config({ name: 'BodegaApp', storeName: 'bodega_app_data' });
+// localStore configura BodegaApp una vez y comparte cola con los writers POS.
 
 // Documentos que el Monitor consume activamente para renderizar métricas, inventario, ventas y usuarios
 const RATE_CONFIG_DOC_IDS = Object.freeze([
@@ -17,6 +16,8 @@ const RATE_CONFIG_DOC_IDS = Object.freeze([
     'bodega_use_auto_rate',
     'bodega_custom_rate',
 ]);
+
+const MONITOR_HEALTHY_PULL_INTERVAL_MS = 3 * 60 * 1000;
 
 const MONITOR_DOC_IDS = [
     'bodega_products_v1',
@@ -73,6 +74,7 @@ export function useMonitorSync(pairedDeviceId) {
     // Only a fully applied RPC batch may advance this cursor. Realtime events
     // are partial and must never hide missed documents from the next catch-up.
     const pullCursorRef = useRef(null);
+    const lastHealthyPullAtRef = useRef(0);
     const oversizePullTimerRef = useRef(null);
     const lifecycleRef = useRef(0);
     const fullPullRequestedRef = useRef(0);
@@ -158,7 +160,8 @@ export function useMonitorSync(pairedDeviceId) {
         }
     }, [pairedDeviceId]);
 
-    const persistDocToLocal = async (docId, collection, payload, syncVersion = null, source = 'unknown') => {
+    const persistDocToLocal = async (docId, collection, payload, syncVersion = null, source = 'unknown', assertCurrent = () => {}) => {
+        assertCurrent();
         // `null` es un valor válido para bodega_custom_rate cuando se cambia
         // desde manual a BCV/USDT. Los demás documentos nulos siguen siendo
         // inválidos y no deben borrar datos locales.
@@ -225,6 +228,7 @@ export function useMonitorSync(pairedDeviceId) {
                     rateInterrupted = true;
                     return;
                 }
+                assertCurrent();
                 if (payload == null) {
                     localStorage.removeItem(docId);
                     stringPayload = null;
@@ -239,14 +243,19 @@ export function useMonitorSync(pairedDeviceId) {
                 window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: docId } }));
                 } else {
                     let payloadToApply = payload;
-                    if (docId === 'bodega_products_v1' && Array.isArray(payload)) {
-                        const localProducts = await localforage.getItem(docId);
-                        payloadToApply = mergeCloudProductImages(payload, localProducts);
-                    } else if (docId === 'bodega_sales_v1' && Array.isArray(payload)) {
-                        // El monitor es un visor remoto: adopta fielmente el estado canónico de la caja
-                        payloadToApply = payload.map(normalizeHistoricalSale);
-                    }
-                    await localforage.setItem(docId, payloadToApply);
+                    await localStore.setItem(docId, payload, {
+                        assertCurrent,
+                        prepare: async (incoming, io) => {
+                            if (docId === 'bodega_products_v1' && Array.isArray(incoming)) {
+                                payloadToApply = mergeCloudProductImages(incoming, await io.getItem(docId));
+                            } else if (docId === 'bodega_sales_v1' && Array.isArray(incoming)) {
+                                // Snapshot canónico, sin auto-merge ni guardias de caja.
+                                payloadToApply = incoming.map(normalizeHistoricalSale);
+                            }
+                            return payloadToApply;
+                        },
+                    });
+                    assertCurrent();
                     window.dispatchEvent(new CustomEvent('app_storage_update', {
                         detail: {
                             key: docId,
@@ -259,6 +268,7 @@ export function useMonitorSync(pairedDeviceId) {
         });
 
         if (rateInterrupted) return false;
+        assertCurrent();
         if (syncVersion) {
             appliedVersionsRef.current.set(versionKey, syncVersion);
             persistAppliedVersion(versionKey, syncVersion);
@@ -295,9 +305,16 @@ export function useMonitorSync(pairedDeviceId) {
         if (payload == null && !RATE_CONFIG_DOC_IDS.includes(docId)) return Promise.resolve();
         const versionKey = getVersionKey(docId);
         const previous = applyDocQueueRef.current.get(versionKey) || Promise.resolve();
+        const lifecycle = lifecycleRef.current;
+        const pairedAtEnqueue = localStorage.getItem('dj_paired_device_id');
+        const assertCurrent = () => {
+            if (lifecycle !== lifecycleRef.current || localStorage.getItem('dj_paired_device_id') !== pairedAtEnqueue) {
+                throw new Error('La vinculación cambió antes de aplicar el documento.');
+            }
+        };
         const current = previous
             .catch(() => undefined)
-            .then(() => persistDocToLocal(docId, collection, payload, syncVersion, source));
+            .then(() => persistDocToLocal(docId, collection, payload, syncVersion, source, assertCurrent));
 
         applyDocQueueRef.current.set(versionKey, current);
         current.then(
@@ -404,6 +421,7 @@ export function useMonitorSync(pairedDeviceId) {
                 }
 
                 batchFailed = failedCount > 0;
+                if (!batchFailed) lastHealthyPullAtRef.current = Date.now();
                 if (batchFailed) {
                     console.warn(`[useMonitorSync] Pull parcial: ${appliedCount} aplicados, ${failedCount} fallidos.`);
                 }
@@ -436,6 +454,7 @@ export function useMonitorSync(pairedDeviceId) {
                 // D6: lote vacío = ya estamos al día. Marcar la sincronización como
                 // exitosa evita que el health-check la interprete como "sin datos"
                 // y dispare pulls completos repetidos.
+                lastHealthyPullAtRef.current = Date.now();
                 setLastSync(prev => prev || new Date());
             }
 
@@ -613,7 +632,7 @@ export function useMonitorSync(pairedDeviceId) {
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
         const checkCounterRef = { current: 0 };
-        // 3. Health-check en segundo plano: 30s con canal sano, 10s cuando está caído (FX9)
+        // Health-check de presencia cada 30s; el catch-up sano es independiente y cada 3 min.
         const reconnectTimer = setInterval(() => {
             if (!navigator.onLine) return;
             tickRef.current++;
@@ -627,9 +646,11 @@ export function useMonitorSync(pairedDeviceId) {
                 checkPosPresence();
             }
 
-            // SUBSCRIBED does not guarantee row delivery (RLS or a lost event).
-            // Recover through the protected RPC every 30s even with a live socket.
-            if (!isHealthy || checkCounterRef.current % 3 === 0) {
+            // SUBSCRIBED no garantiza entrega de filas (RLS o eventos perdidos).
+            // El catch-up incremental corre cada 3 min con canal sano, o de inmediato
+            // cuando la conexión está caída; al volver online se recupera antes.
+            const healthyPullDue = Date.now() - lastHealthyPullAtRef.current >= MONITOR_HEALTHY_PULL_INTERVAL_MS;
+            if (!isHealthy || healthyPullDue) {
                 initMonitor(true);
             }
         }, 10000);

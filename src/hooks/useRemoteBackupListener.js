@@ -3,6 +3,7 @@ import { supabaseCloud } from '../config/supabaseCloud';
 import { storageService } from '../utils/storageService';
 import { IDB_KEYS, LS_KEYS } from '../config/backupKeys';
 import { compressString, isCompressionSupported } from '../utils/compression';
+import { runCloudUploadWithBackoff } from '../utils/cloudRetry';
 
 async function collectAndUpload(deviceId) {
     // Recolectar datos locales
@@ -40,12 +41,19 @@ async function collectAndUpload(deviceId) {
         }
     }
 
-    // Subir a cloud_backups
-    const { error } = await supabaseCloud
-        .from('cloud_backups')
-        .upsert({ device_id: deviceId, backup_data: payloadToUpload, updated_at: new Date().toISOString() },
-            { onConflict: 'device_id' });
-    if (error) throw error;
+    // Subir a cloud_backups. Un 401/RLS/schema mismatch no debe repetirse
+    // cada vez que realtime vuelva a anunciar la misma solicitud pendiente.
+    const uploadResult = await runCloudUploadWithBackoff(`remote-backup:${deviceId}`, () =>
+        supabaseCloud
+            .from('cloud_backups')
+            .upsert({ device_id: deviceId, backup_data: payloadToUpload, updated_at: new Date().toISOString() },
+                { onConflict: 'device_id' }),
+    );
+    if (!uploadResult.success) {                const uploadError = uploadResult.error || new Error(`Subida pausada por backoff (${Math.ceil(uploadResult.retryInMs / 1000)}s).`);
+                uploadError.retryInMs = uploadResult.retryInMs;
+                throw uploadError;
+
+    }
 }
 
 /**
@@ -57,24 +65,35 @@ export function useRemoteBackupListener(deviceId) {
         if (!supabaseCloud || !deviceId) return;
 
         const handleRequest = async () => {
+            if (requestInFlight) return;
+            requestInFlight = true;
             try {
                 await collectAndUpload(deviceId);
-                await supabaseCloud
+                const { error } = await supabaseCloud
                     .from('backup_requests')
                     .update({ status: 'completed', completed_at: new Date().toISOString() })
                     .eq('device_id', deviceId);
+                if (error) throw error;
                 console.log('[RemoteBackup] Backup enviado al admin.');
             } catch (err) {
                 console.error('[RemoteBackup] Error al responder solicitud:', err);
-                await supabaseCloud
-                    .from('backup_requests')
-                    .update({ status: 'error' })
-                    .eq('device_id', deviceId)
-                    .catch(() => {});
+                // Mantener la solicitud pendiente para que recupere el backup; el backoff
+                // persistente evita retries inmediatos también si la app se reinicia.
+                const retryInMs = Math.max(Number(err?.retryInMs) || 0, 15_000);
+                if (retryTimer) clearTimeout(retryTimer);
+                retryTimer = setTimeout(() => {
+                    retryTimer = null;
+                    if (!disposed) handleRequest();
+                }, retryInMs);
+            } finally {
+                requestInFlight = false;
             }
         };
 
         let channel = null;
+        let requestInFlight = false;
+        let retryTimer = null;
+        let disposed = false;
 
         // Verificar si hay una solicitud pendiente al conectar
         supabaseCloud
@@ -99,6 +118,8 @@ export function useRemoteBackupListener(deviceId) {
             .subscribe();
 
         return () => {
+            disposed = true;
+            if (retryTimer) clearTimeout(retryTimer);
             if (channel) {
                 supabaseCloud.removeChannel(channel).catch(() => {});
             }

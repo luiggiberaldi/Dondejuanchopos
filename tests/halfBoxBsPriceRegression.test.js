@@ -4,6 +4,10 @@ const memoryStore = new Map();
 
 vi.mock('../src/utils/storageService', () => ({
     storageService: {
+        async transaction(callback) {
+            const { runLegacyUnitTransaction } = await import('./legacyUnitTransaction');
+            return runLegacyUnitTransaction(this, callback);
+        },
         getItem: vi.fn(async (key, defaultValue = null) => memoryStore.has(key) ? memoryStore.get(key) : defaultValue),
         setItem: vi.fn(async (key, value) => {
             memoryStore.set(key, JSON.parse(JSON.stringify(value)));

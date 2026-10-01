@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { Upload, Download, AlertTriangle, Check, X, Database, Share2, Fingerprint, Copy, Store } from 'lucide-react';
 import { storageService } from '../utils/storageService';
-import localforage from 'localforage';
+import { localStore } from '../utils/localStore';
+import { LS_KEYS } from '../config/backupKeys';
 import { showToast } from '../components/Toast';
 import PaymentMethodsManager from './Settings/PaymentMethodsManager';
 
@@ -121,14 +122,18 @@ export default function SettingsModal({ isOpen, onClose, products, onImport, tri
                 if (json.data?.idb || json.data?.ls) {
                     idbEntries = json.data.idb || {};
                     lsEntries = json.data.ls || {};
-                } else if (json.data) {
-                    idbEntries = json.data;
                 } else {
-                    idbEntries = json;
+                    // El exportador v1 mezcla datos IDB y preferencias LS.
+                    // Separarlas evita que el núcleo elimine una preferencia LS
+                    // al confundirla con un fallback antiguo del mismo nombre.
+                    for (const [key, value] of Object.entries(json.data || json)) {
+                        if (LS_KEYS.includes(key)) lsEntries[key] = value;
+                        else idbEntries[key] = value;
+                    }
                 }
 
                 // Bypass storageService completely to prevent app_storage_update events from firing.
-                const lf = localforage.createInstance({ name: 'BodegaApp', storeName: 'bodega_app_data' });
+                const lf = localStore; // reemplazo sin guardias comerciales ni eco implícito
 
                 for (const [key, value] of Object.entries(idbEntries)) {
                     if (value == null || key === 'idb' || key === 'ls') continue;
