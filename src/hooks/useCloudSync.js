@@ -8,6 +8,7 @@ import { registerCloudSyncSetter } from '../utils/syncFlags';
 import { createAsyncKeyQueue } from '../utils/asyncKeyQueue';
 import { mergeCloudProductImages } from '../utils/productImageRecovery';
 import { compactSalesPayload } from '../utils/salesCompactor';
+import { salesDayString, salesDeltaKeyForDate, buildSalesDeltaPayload, isValidSalesDelta, saleTimeMs } from '../utils/salesDelta';
 import { prepareSalesPushPayload, fetchCloudSalesReference } from '../utils/salesPushMerge';
 import { validateCustomerSyncPayload, mergeCloudCustomers } from '../utils/customerSyncGuard';
 
@@ -35,6 +36,17 @@ const KARDEX_THROTTLE_KEYS = ['bodega_kardex_v1', 'bodega_inventory_operations_v
 const KARDEX_PUSH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const LAST_KARDEX_PUSH_PREFIX = 'bodega_last_kardex_push_';
 const KARDEX_THROTTLE_OFF_FLAG = 'dj_kardex_throttle_off_v1';
+
+// EGRESS FASE 2: ventas por delta (ver src/utils/salesDelta.js).
+// En cada venta solo viaja el delta del día (~KB); la ventana completa
+// (`bodega_sales_v1`) sigue el camino normal pero throttled cada 6 h para
+// bootstrap de monitores. Kill-switch sin redeploy:
+// localStorage 'dj_sales_delta_off_v1' = 'true' (vuelve al push completo
+// por venta, como antes).
+const SALES_DELTA_OFF_FLAG = 'dj_sales_delta_off_v1';
+const SALES_WINDOW_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const LAST_SALES_WINDOW_PUSH_PREFIX = 'bodega_last_sales_window_push_';
+const MAX_PENDING_DELTA_DAYS = 7;
 
 // Unión de catálogos canónicos más bodega_rate_mode y bodega_users_catalog_v1 (excluyendo claves no sincronizables)
 const SYNC_KEYS = [...new Set([...IDB_KEYS, ...LS_KEYS, 'bodega_rate_mode', 'bodega_users_catalog_v1'])].filter(k => !CLOUD_SYNC_EXCLUDE.includes(k));
@@ -170,6 +182,22 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
     if (key === 'abasto-auth-storage') return false;
 
     let payloadToUpload = sanitizePayloadForSync(key, value);
+
+    // EGRESS FASE 2: ventas por delta. El delta es aditivo por diseño: NO pasa
+    // por el circuit breaker de cierres (un delta de 1 venta jamás tendría 39
+    // cierres) ni necesita el compactador (los tickets del día viajan con
+    // detalle completo). Los pushes deliberados (forceUnconditional: voids,
+    // imports, comandos) siguen el camino completo de abajo para consistencia
+    // fuerte inmediata.
+    if (key === 'bodega_sales_v1' && Array.isArray(payloadToUpload)
+        && !forceUnconditional && localStorage.getItem(SALES_DELTA_OFF_FLAG) !== 'true') {
+        await pushSalesDeltas(payloadToUpload, activeDeviceId, generation);
+        if (!isCurrentPosIdentity(activeDeviceId, generation)) return false;
+        const lastWindow = parseInt(localStorage.getItem(LAST_SALES_WINDOW_PUSH_PREFIX + key) || '0', 10);
+        if (Date.now() - lastWindow < SALES_WINDOW_INTERVAL_MS) return true;
+        // Ventana vencida: sigue abajo por el push completo (merge flag,
+        // circuit breaker y tope 8 MB intactos).
+    }
 
     // ── BLINDAJE DE INTEGRIDAD DE SALDOS DE CLIENTES (ANTI-ANOMALÍAS Y ANTI-REVERSIÓN) ──
     if (key === 'bodega_customers_v1' && Array.isArray(payloadToUpload)) {
@@ -309,12 +337,78 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
         if (KARDEX_THROTTLE_KEYS.includes(key)) {
             try { localStorage.setItem(LAST_KARDEX_PUSH_PREFIX + key, String(Date.now())); } catch {}
         }
+        // EGRESS FASE 2: registrar la ventana completa de ventas (bootstrap).
+        if (key === 'bodega_sales_v1' && localStorage.getItem(SALES_DELTA_OFF_FLAG) !== 'true') {
+            try { localStorage.setItem(LAST_SALES_WINDOW_PUSH_PREFIX + key, String(Date.now())); } catch {}
+        }
         return true;
 
     } catch (e) {
         // Silencioso en producción
         return false;
     }
+};
+
+/**
+ * EGRESS FASE 2: sube el delta de un día (~KB) con hash-gating propio por día.
+ * Requiere la migración supabase_sales_delta_setup.sql (whitelist del RPC).
+ */
+const pushSingleSalesDelta = async (salesArray, dayStr, activeDeviceId, generation, forceUnconditional = false) => {
+    const deltaKey = salesDeltaKeyForDate(dayStr);
+    const payload = buildSalesDeltaPayload(salesArray, dayStr);
+    if (!isValidSalesDelta(payload)) return false;
+    const hashKey = LAST_PUSH_HASH_PREFIX + deltaKey;
+    const currentHash = quickHash(payload);
+    if (!forceUnconditional && localStorage.getItem(hashKey) === currentHash) return true;
+    try {
+        if ((JSON.stringify(payload)?.length ?? 0) > 8 * 1024 * 1024) {
+            console.error(`[CloudSync] Delta de ventas del ${dayStr} supera 8 MB; no se sube.`);
+            return false;
+        }
+    } catch { return false; }
+    try {
+        if (!isCurrentPosIdentity(activeDeviceId, generation) || !isCloudSyncActive) return false;
+        const { error } = await supabaseCloud.rpc('write_paired_sync_document', {
+            p_device_id: activeDeviceId,
+            p_collection: 'store',
+            p_doc_id: deltaKey,
+            p_data: { payload },
+        });
+        if (error) {
+            console.warn(`[CloudSync] Error al subir delta de ventas ${dayStr}:`, error.message);
+            return false;
+        }
+        localStorage.setItem(hashKey, currentHash);
+        return true;
+    } catch { return false; }
+};
+
+/**
+ * EGRESS FASE 2: catch-up offline. Si el equipo vendió sin conexión días
+ * previos, sus deltas nunca se empujaron: re-empujar los pendientes
+ * (fire-and-forget, máx MAX_PENDING_DELTA_DAYS por ciclo). Cada día tiene
+ * hash-gating propio, así que los ya subidos se saltan sin tráfico.
+ */
+const pushPendingSalesDeltas = async (salesArray, activeDeviceId, generation) => {
+    const today = salesDayString();
+    const cutoff = Date.now() - MAX_PENDING_DELTA_DAYS * 24 * 60 * 60 * 1000;
+    const days = new Set();
+    for (const s of (Array.isArray(salesArray) ? salesArray : [])) {
+        const ts = saleTimeMs(s);
+        if (!ts || ts < cutoff) continue;
+        const day = salesDayString(new Date(ts));
+        if (day !== today) days.add(day);
+    }
+    for (const day of days) {
+        await pushSingleSalesDelta(salesArray, day, activeDeviceId, generation, false);
+        if (!isCurrentPosIdentity(activeDeviceId, generation)) return;
+    }
+};
+
+/** EGRESS FASE 2: delta de hoy + catch-up de días previos. */
+const pushSalesDeltas = async (salesArray, activeDeviceId, generation) => {
+    await pushSingleSalesDelta(salesArray, salesDayString(), activeDeviceId, generation, false);
+    pushPendingSalesDeltas(salesArray, activeDeviceId, generation).catch(() => {});
 };
 
 /**

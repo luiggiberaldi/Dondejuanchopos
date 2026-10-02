@@ -1,5 +1,6 @@
 import { supabaseCloud } from '../config/supabaseCloud';
 import { IDB_KEYS, LS_KEYS } from '../config/backupKeys';
+import { isSalesDeltaKey } from '../utils/salesDelta';
 
 export const REMOTE_BACKUP_EXCLUDED_KEYS = Object.freeze([
     'premium_token',
@@ -96,7 +97,9 @@ function normalizeDocIds(docIds, allowedDocIds) {
 
     const requested = [...new Set(docIds)];
     const allowed = new Set(allowedDocIds);
-    const invalid = requested.filter(docId => !allowed.has(docId));
+    // EGRESS FASE 2: los deltas diarios de ventas (`bodega_sales_delta_YYYY-MM-DD`)
+    // son doc_ids dinámicos; se aceptan por prefijo en vez de lista fija.
+    const invalid = requested.filter(docId => !allowed.has(docId) && !isSalesDeltaKey(docId));
     if (invalid.length > 0) {
         return errorResult(
             'REMOTE_DOC_ID_NOT_ALLOWED',

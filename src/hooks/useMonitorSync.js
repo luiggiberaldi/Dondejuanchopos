@@ -4,7 +4,8 @@ import { runWithoutEco } from '../utils/syncFlags';
 import localforage from 'localforage';
 import { shouldApplySyncVersion } from '../utils/syncVersionGuard';
 import { mergeCloudProductImages } from '../utils/productImageRecovery';
-import { normalizeHistoricalSale } from '../utils/salesMerge';
+import { normalizeHistoricalSale, mergeSalesArrays } from '../utils/salesMerge';
+import { isSalesDeltaKey, salesDeltaTickets, salesDeltaKeysForLastNDays } from '../utils/salesDelta';
 import { fetchRemoteDocuments, REMOTE_MONITOR_DOC_IDS } from '../services/remoteAuditService';
 import { SUPERVISOR_RATE_PENDING_KEY } from '../utils/supervisorCommandModel';
 
@@ -210,6 +211,28 @@ export function useMonitorSync(pairedDeviceId) {
             return false;
         }
 
+        // EGRESS FASE 2: delta diario de ventas — fusionar por id en el
+        // historial local en vez de reemplazar el documento. mergeSalesArrays
+        // es idempotente y no destructivo (una venta anulada jamás "resucita").
+        if (isSalesDeltaKey(docId)) {
+            const tickets = salesDeltaTickets(payload).map(normalizeHistoricalSale);
+            if (tickets.length > 0) {
+                await runWithoutEco(async () => {
+                    const localSales = (await localforage.getItem('bodega_sales_v1')) || [];
+                    const merged = mergeSalesArrays(tickets, Array.isArray(localSales) ? localSales : []);
+                    await localforage.setItem('bodega_sales_v1', merged);
+                });
+                window.dispatchEvent(new CustomEvent('app_storage_update', {
+                    detail: { key: 'bodega_sales_v1', source: 'monitor-sync-delta', syncVersion },
+                }));
+            }
+            if (syncVersion) {
+                appliedVersionsRef.current.set(versionKey, syncVersion);
+                persistAppliedVersion(versionKey, syncVersion);
+            }
+            return true;
+        }
+
         // Usamos runWithoutEco para estar seguros de que no se gatille ningún eco de sincronización
         let rateInterrupted = false;
         await runWithoutEco(async () => {
@@ -359,9 +382,13 @@ export function useMonitorSync(pairedDeviceId) {
             // Use the protected RPC for both initial reads and incremental recovery.
             // Keep the original server timestamp, including sub-millisecond precision.
 
+            // EGRESS FASE 2: pedir también los deltas de los últimos días para
+            // que el bootstrap/catch-up no pierda las ventas posteriores al
+            // snapshot (la ventana completa se sube throttled cada 6 h).
+            const pullDocIds = [...REMOTE_MONITOR_DOC_IDS, ...salesDeltaKeysForLastNDays()];
             const remoteResult = await fetchRemoteDocuments(
                 activeDeviceId,
-                REMOTE_MONITOR_DOC_IDS,
+                pullDocIds,
                 supabaseCloud,
                 { updatedAfter },
             );
@@ -383,9 +410,14 @@ export function useMonitorSync(pairedDeviceId) {
                 // D2: try/catch por documento — igual que HOOK-023 en la caja.
                 // Un solo documento malformado no puede abortar los otros 20, y
                 // menos aún de forma permanente (el pull trae siempre el mismo lote).
+                // EGRESS FASE 2: el snapshot de ventas se aplica ANTES que los
+                // deltas; si no, un full pull pisaría los tickets fusionados
+                // que son más nuevos que el snapshot.
+                const orderedDocs = [...docs].sort((a, b) =>
+                    (isSalesDeltaKey(a?.doc_id) ? 1 : 0) - (isSalesDeltaKey(b?.doc_id) ? 1 : 0));
                 let appliedCount = 0;
                 let failedCount = 0;
-                for (const doc of docs) {
+                for (const doc of orderedDocs) {
                     if (!isCurrent()) return;
                     try {
                         if (!doc || doc.data == null) {
@@ -472,7 +504,9 @@ export function useMonitorSync(pairedDeviceId) {
                         }
 
                         if (!['store', 'local'].includes(doc.collection)) return;
-                        if (!MONITOR_DOC_IDS.includes(doc.doc_id)) return;
+                        // EGRESS FASE 2: además de los documentos del monitor,
+                        // aceptar deltas diarios de ventas (se fusionan por id).
+                        if (!MONITOR_DOC_IDS.includes(doc.doc_id) && !isSalesDeltaKey(doc.doc_id)) return;
                         try {
                             await applyDocToLocal(doc.doc_id, doc.collection, doc.data?.payload, doc.updated_at, 'realtime');
                         } catch (error) {
