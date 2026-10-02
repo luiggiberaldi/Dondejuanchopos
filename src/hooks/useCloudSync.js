@@ -21,6 +21,21 @@ import { validateCustomerSyncPayload, mergeCloudCustomers } from '../utils/custo
 //     reescrito en cada evento auditado. El monitor no lo renderiza.
 const CLOUD_SYNC_EXCLUDE = ['bodega_sales_mirror_v1', 'abasto_audit_log_v1', 'bodega_pos_heartbeat'];
 
+// EGRESS FASE 1: kardex y operaciones de inventario solo los lee el Supervisor
+// bajo demanda (RemoteKardexPanel), nunca el monitor en vivo vía Realtime.
+// Hoy se re-emiten íntegros en CADA venta (~1.98 MB medidos en producción) y el
+// monitor los descarta: es egress puro. Con este throttle se suben a la nube a
+// lo sumo cada KARDEX_PUSH_INTERVAL_MS aunque cambien con cada venta; el panel
+// de auditoría ya muestra "Última actualización recibida", así que la
+// frescura queda visible. Kill-switch sin redeploy:
+// localStorage 'dj_kardex_throttle_off_v1' = 'true'.
+// (No se meten en CLOUD_SYNC_EXCLUDE porque el panel los seguiría leyendo
+// congelados desde sync_documents.)
+const KARDEX_THROTTLE_KEYS = ['bodega_kardex_v1', 'bodega_inventory_operations_v1'];
+const KARDEX_PUSH_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const LAST_KARDEX_PUSH_PREFIX = 'bodega_last_kardex_push_';
+const KARDEX_THROTTLE_OFF_FLAG = 'dj_kardex_throttle_off_v1';
+
 // Unión de catálogos canónicos más bodega_rate_mode y bodega_users_catalog_v1 (excluyendo claves no sincronizables)
 const SYNC_KEYS = [...new Set([...IDB_KEYS, ...LS_KEYS, 'bodega_rate_mode', 'bodega_users_catalog_v1'])].filter(k => !CLOUD_SYNC_EXCLUDE.includes(k));
 
@@ -248,6 +263,18 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
         return true;
     }
 
+    // EGRESS FASE 1: throttle de kardex/operaciones (ver const arriba).
+    // Se difiere el push hasta que pasen 6 h desde el último exitoso; el hash
+    // NO se marca, así que el siguiente ciclo de 60 s o la próxima venta lo
+    // reintenta. Los pushes deliberados (forceUnconditional) no se throttlean.
+    if (!forceUnconditional && KARDEX_THROTTLE_KEYS.includes(key)
+        && localStorage.getItem(KARDEX_THROTTLE_OFF_FLAG) !== 'true') {
+        const lastKardexPush = parseInt(localStorage.getItem(LAST_KARDEX_PUSH_PREFIX + key) || '0', 10);
+        if (Date.now() - lastKardexPush < KARDEX_PUSH_INTERVAL_MS) {
+            return true;
+        }
+    }
+
     try {
         const collectionType = LOCAL_KEYS.includes(key) ? 'local' : 'store';
 
@@ -278,6 +305,10 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
         // Los llamadores NO deben escribirlo: si lo hacen, una subida fallida
         // queda marcada como completada y esa clave no se reintenta nunca más.
         localStorage.setItem(hashKey, currentHash);
+        // EGRESS FASE 1: registrar el push exitoso para el throttle de kardex.
+        if (KARDEX_THROTTLE_KEYS.includes(key)) {
+            try { localStorage.setItem(LAST_KARDEX_PUSH_PREFIX + key, String(Date.now())); } catch {}
+        }
         return true;
 
     } catch (e) {
