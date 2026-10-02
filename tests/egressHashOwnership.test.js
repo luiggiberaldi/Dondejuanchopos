@@ -6,10 +6,25 @@ const SRC = fs.readFileSync(
     path.resolve(__dirname, '../src/hooks/useCloudSync.js'), 'utf-8'
 );
 
-describe('D1 — pushCloudSync es el unico dueno del hash de egress', () => {
-    test('solo existe una escritura de localStorage.setItem(hashKey, ...)', () => {
+describe('D1 — el hash de egress solo lo escribe la función que hizo el upload', () => {
+    // Funciones que suben documentos a la nube y, tras éxito del RPC, registran
+    // su propio hash de egress. Ninguna otra función ni llamador puede hacerlo:
+    // marcar como "subido" algo que no se subió deja la clave sin reintento.
+    const UPLOADERS = ['pushCloudSyncNow', 'pushSingleSalesDelta'];
+
+    test('toda escritura de localStorage.setItem(hashKey, ...) vive en una función uploader', () => {
         const writes = [...SRC.matchAll(/localStorage\.setItem\(\s*hashKey\s*,/g)];
-        expect(writes).toHaveLength(1);
+        expect(writes.length).toBe(UPLOADERS.length);
+        for (const w of writes) {
+            const before = SRC.slice(0, w.index);
+            const spots = UPLOADERS.map((n) => ({ n, i: before.lastIndexOf(`const ${n}`) }));
+            const nearest = spots.reduce((a, b) => (b.i > a.i ? b : a));
+            expect(nearest.i).toBeGreaterThan(-1);
+            // Entre la declaración de la uploader y la escritura no puede haber
+            // otra declaración top-level: la escritura pertenece a esa función.
+            const between = SRC.slice(nearest.i, w.index);
+            expect(between).not.toMatch(/\n(?:export )?const \w+ =/);
+        }
     });
 
     test('esa escritura vive dentro de pushCloudSync', () => {
@@ -22,10 +37,10 @@ describe('D1 — pushCloudSync es el unico dueno del hash de egress', () => {
         expect(body).toMatch(/localStorage\.setItem\(\s*hashKey\s*,/);
     });
 
-    test('ningun await pushCloudSync va seguido de una escritura de hash', () => {
+    test('ningun await de subida va seguido de una escritura de hash', () => {
         const lines = SRC.split(/\r?\n/);
         for (let i = 0; i < lines.length; i++) {
-            if (!/await\s+pushCloudSync\(/.test(lines[i])) continue;
+            if (!/await\s+(pushCloudSync|pushSingleSalesDelta|pushSalesDeltas|pushPendingSalesDeltas)\(/.test(lines[i])) continue;
             const next = (lines[i + 1] || '') + (lines[i + 2] || '');
             expect(next).not.toMatch(/localStorage\.setItem\(\s*hashKey/);
         }

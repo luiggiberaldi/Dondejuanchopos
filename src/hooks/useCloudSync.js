@@ -401,8 +401,9 @@ const pushPendingSalesDeltas = async (salesArray, activeDeviceId, generation) =>
     }
     for (const day of days) {
         await pushSingleSalesDelta(salesArray, day, activeDeviceId, generation, false);
-        if (!isCurrentPosIdentity(activeDeviceId, generation)) return;
+        if (!isCurrentPosIdentity(activeDeviceId, generation)) return false;
     }
+    return true;
 };
 
 /** EGRESS FASE 2: delta de hoy + catch-up de días previos. */
