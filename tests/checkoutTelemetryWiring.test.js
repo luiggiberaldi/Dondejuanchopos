@@ -63,6 +63,29 @@ describe('useCheckoutFlow — cierre con estado (éxito, aborto, excepción)', (
     });
 });
 
+describe('checkoutProcessor — I/O mínimo de bodega_sales_v1 (PERF)', () => {
+    test('UNA sola lectura de SALES_KEY: la base del allocation sirve para duplicados y escritura', () => {
+        expect((CHECKOUT.match(/getItem\(SALES_KEY/g) || []).length).toBe(1);
+    });
+    test('sin releer antes de escribir: el write base es la lectura tomada dentro del lock', () => {
+        expect(CHECKOUT.includes('freshSalesList')).toBe(false);
+        const readIdx = CHECKOUT.indexOf('getItem(SALES_KEY');
+        const writeIdx = CHECKOUT.indexOf('setItem(SALES_KEY, updatedSales)');
+        expect(readIdx).toBeGreaterThan(-1);
+        expect(writeIdx).toBeGreaterThan(readIdx);
+    });
+    test('las dos escrituras permanecen: venta + espejo (atomicidad y espejo intactos)', () => {
+        expect(CHECKOUT).toContain('setItem(SALES_KEY, updatedSales)');
+        expect(CHECKOUT).toContain('setItem(MIRROR_KEY, updatedMirror)');
+    });
+    test('la única lectura ocurre dentro del pos_write_lock (la garantía de frescura)', () => {
+        const lockIdx = CHECKOUT.indexOf("withLock('pos_write_lock'");
+        const readIdx = CHECKOUT.indexOf('getItem(SALES_KEY');
+        expect(lockIdx).toBeGreaterThan(-1);
+        expect(readIdx).toBeGreaterThan(lockIdx);
+    });
+});
+
 describe('checkoutTelemetry — seguro por construcción', () => {
     test('nunca lanza ni toca red: sin fetch/XMLHttpRequest/sendBeacon', () => {
         expect(TELEMETRY.includes('fetch(')).toBe(false);

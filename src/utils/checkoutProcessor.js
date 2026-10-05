@@ -369,6 +369,13 @@ export async function processSaleTransaction({
 
     // FIN-007: withLock reemplaza navigator.locks.request directo (feature detection + fallback).
     const lockResult = await withLock('pos_write_lock', async () => {
+        // ÚNICA lectura de SALES_KEY por checkout (PERF): esta vista sirve para el
+        // guardia de duplicados, como localSales del allocation Y como base de la
+        // escritura final. Es la más fresca posible: TODOS los escritores de ventas
+        // toman pos_write_lock (auditado: checkout, abonos, void, cierres remotos
+        // 1027/1113/1335, aperturas, merges dashboard/salesData/gastos), y la
+        // transacción se serializa además en la capa de storage (withStorageWriteLock
+        // + commit atómico). Releer dentro de la tx era redundante.
         const existingSales = await storageService.getItem(SALES_KEY, []);
         // La reserva remota precede a la transacción física; no retiene el lock
         // compartido de almacenamiento ni deja saldos parcialmente escritos.
@@ -384,7 +391,7 @@ export async function processSaleTransaction({
         return storageService.transaction(async (storageService) => {
             checkoutTxBegin();
         const auditAfterCommit = (...args) => storageService.afterCommit(() => logEvent(...args));
-        const existingSales = await storageService.getItem(SALES_KEY, []);
+        // PERF: sin releer SALES_KEY — se usa `existingSales` del lock (ver arriba).
         if (checkoutOperationId) {
             const duplicate = existingSales.find(s => s.checkoutOperationId === checkoutOperationId);
             if (duplicate) {
@@ -557,9 +564,10 @@ export async function processSaleTransaction({
             inventoryOperationId: inventoryOperation.operationId || null
         });
 
-        // Releer lista fresca dentro del lock para evitar pisar cualquier operación concurrente
-        const freshSalesList = await storageService.getItem(SALES_KEY, existingSales) || existingSales;
-        const updatedSales = [saleForResult, ...freshSalesList.filter(item => item.id !== saleForResult.id)];
+        // PERF: write base = la única lectura del lock (ver arriba). Ni este filtro
+        // ni la escritura alteran la atomicidad: siguen dentro de la misma
+        // storageService.transaction y el espejo se mantiene intacto.
+        const updatedSales = [saleForResult, ...existingSales.filter(item => item.id !== saleForResult.id)];
         await storageService.setItem(SALES_KEY, updatedSales);
 
         try {
