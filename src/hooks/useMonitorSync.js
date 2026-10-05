@@ -17,7 +17,10 @@ const RATE_CONFIG_DOC_IDS = Object.freeze([
     'bodega_custom_rate',
 ]);
 
-const MONITOR_HEALTHY_PULL_INTERVAL_MS = 3 * 60 * 1000;
+// FASE 3: ventana de catch-up del monitor de 3 min a 30 s. Medido 5-oct con
+// sondeo de solo lectura: lectura incremental SIN cambios = 0 filas / ~0 KB
+// (HTTP 200, 248-766 ms) → 2.880 lecturas/día por monitor abierto ≈ 0,01 MB/día.
+const MONITOR_HEALTHY_PULL_INTERVAL_MS = 30 * 1000;
 
 const MONITOR_DOC_IDS = [
     'bodega_products_v1',

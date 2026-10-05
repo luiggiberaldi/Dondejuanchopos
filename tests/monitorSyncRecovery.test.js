@@ -87,14 +87,14 @@ describe('Supervisor monitor catch-up recovery', () => {
         expect(mocks.store.get('bodega_sales_v1')[0].id).toBe('new-sale');
     });
 
-    it('uses a three-minute catch-up interval when the websocket is healthy', async () => {
+    it('uses a 30-second catch-up interval when the websocket is healthy', async () => {
         mocks.fetch.mockResolvedValueOnce(result([doc('bodega_sales_v1', T1)]));
         await mount();
         await act(async () => mocks.channels[0].status('SUBSCRIBED'));
         const initialCalls = mocks.fetch.mock.calls.length;
-        await tick(30000);
+        await tick(10000); // FASE 3: dentro del primer tramo de 30 s no hay llamada prematura
         expect(mocks.fetch.mock.calls).toHaveLength(initialCalls);
-        await tick(150000);
+        await tick(30000); // al cruzar los 30 s sí hace catch-up
         expect(mocks.fetch.mock.calls.length).toBeGreaterThan(initialCalls);
     });
 

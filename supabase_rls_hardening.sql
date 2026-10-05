@@ -8,8 +8,8 @@
 -- Schema canónico para cloud_backups: ver supabase_cloud_schema.sql (INFRA-014).
 
 -- ─────────────────────────────────────────────────────────────────────────────────
--- A) EJECUTAR EN: Base de Datos de Sincronización (Proyecto sodgzkablshladvbtnes,
---    "preciosaldia rebranding" — refs viejos fgzwmwrugerptfqfrsjd / ewwszyzzvoweudholmbf obsoletos)
+-- A) EJECUTAR EN: Base de Datos de Sincronización (Proyecto kcananrtcmckovdstvao.supabase.co,
+--    configurado como VITE_SUPABASE_CLOUD_URL).
 -- ─────────────────────────────────────────────────────────────────────────────────
 -- Asegura que las tablas existan con el schema canónico antes de aplicar RLS.
 -- (Si ya existen con schema distinto, ejecutar migración manual.)

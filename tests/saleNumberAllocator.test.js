@@ -5,9 +5,10 @@ import { describe, test, expect, vi, beforeEach } from 'vitest';
 vi.mock('../src/config/supabaseCloud', () => ({ supabaseCloud: {} }));
 vi.mock('../src/utils/salesPushMerge', () => ({
     fetchCloudSalesReference: vi.fn(),
+    resolveMonitorDeviceId: vi.fn(),
 }));
 
-import { fetchCloudSalesReference } from '../src/utils/salesPushMerge';
+import { fetchCloudSalesReference, resolveMonitorDeviceId } from '../src/utils/salesPushMerge';
 import {
     maxSaleNumberOf,
     resolveClaims,
@@ -78,9 +79,15 @@ function mkClient({ pairings = [{ monitor_device_id: 'MON-1' }], insertError = n
 beforeEach(() => {
     vi.clearAllMocks();
     localStorage.setItem('dj_instance_id', 'test-instance');
-    // El caché del monitor vinculado persiste entre tests (jsdom) — limpiarlo
-    // para que cada prueba de fallback pruebe el camino SIN monitor.
+    // El caché del monitor vinculado persiste entre tests (jsdom) — limpiar AMBAS
+    // claves (con y sin sufijo) para que ninguna prueba lea un vínculo viejo.
     localStorage.removeItem('dj_cloud_merge_monitor_id');
+    localStorage.removeItem('dj_cloud_merge_monitor_id_DEV-1');
+    // FASE 2: el resolver unificado vive en salesPushMerge (mockeado arriba).
+    // Por defecto hay monitor ('MON-1', antes venía de device_pairings en
+    // mkClient); el test de fallback lo anula con mockResolvedValueOnce(null).
+    resolveMonitorDeviceId.mockReset();
+    resolveMonitorDeviceId.mockResolvedValue('MON-1');
 });
 
 describe('maxSaleNumberOf', () => {
@@ -234,6 +241,7 @@ describe('allocateSaleNumber — camino FALLBACK (offline)', () => {
     });
 
     test('sin monitor vinculado → fallback (no devuelve número sin reclamo)', async () => {
+        resolveMonitorDeviceId.mockResolvedValueOnce(null);
         fetchCloudSalesReference.mockResolvedValue([venta(829)]);
         const res = await allocateSaleNumber('DEV-1', {
             localSales: [venta(100)],

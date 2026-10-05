@@ -33,12 +33,16 @@
  */
 
 import { supabaseCloud } from '../config/supabaseCloud';
-import { fetchCloudSalesReference } from './salesPushMerge';
+import { fetchCloudSalesReference, resolveMonitorDeviceId } from './salesPushMerge';
 
 const CLAIM_ACTION = 'sale_number_claim';
 const CLAIM_MAX_AGE_MS = 24 * 60 * 60 * 1000; // los reclamos coordinan por 24h
 const ALLOC_TIMEOUT_MS = 4000;                // presupuesto total de la asignación
-const MONITOR_CACHE_KEY = 'dj_cloud_merge_monitor_id';
+// FASE 2: la caché de monitor ya NO se duplica aquí. Se consume la única
+// implementación (salesPushMerge.resolveMonitorDeviceId), que cachea bajo la
+// clave CON sufijo `dj_cloud_merge_monitor_id_${deviceId}`. La copia local
+// cacheaba SIN sufijo: al re-emparejar, este módulo seguía llamando con el
+// monitor viejo y la numeración caía en provisional.
 
 /** Máximo saleNumber de un array de registros (0 si no hay).
  *  Cuenta CUALQUIER registro con saleNumber numérico (VENTA, COBRO_DEUDA,
@@ -93,24 +97,6 @@ export function withProvisionalMark(sale, note) {
         saleNumberProvisional: true,
         saleNumberNote: String(note || '').slice(0, 200),
     };
-}
-
-/** Monitor vinculado (misma caché que FASE 1/3A). */
-async function resolveMonitorDeviceId(deviceId, client) {
-    try {
-        const cached = localStorage.getItem(MONITOR_CACHE_KEY);
-        if (cached) return cached;
-        const { data, error } = await client
-            .from('device_pairings')
-            .select('monitor_device_id')
-            .eq('primary_device_id', deviceId)
-            .maybeSingle();
-        if (error || !data?.monitor_device_id) return null;
-        localStorage.setItem(MONITOR_CACHE_KEY, data.monitor_device_id);
-        return data.monitor_device_id;
-    } catch {
-        return null;
-    }
 }
 
 function withTimeout(promise, ms) {

@@ -68,6 +68,6 @@ describe('cableado replace_sales_history en useSupervisorCommands.js', () => {
 describe('opción fresh en fetchCloudSalesReference (salesPushMerge.js)', () => {
     test('la opción fresh existe y omite la caché TTL', () => {
         expect(MERGE).toMatch(/\{ fresh = false \}/);
-        expect(MERGE).toMatch(/if \(!fresh && _refCache\.payload/);
+        expect(MERGE).toMatch(/if \(!fresh && .*_refCache\.payload/);
     });
 });

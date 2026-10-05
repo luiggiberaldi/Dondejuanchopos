@@ -10,7 +10,7 @@ import urllib.parse
 import time
 
 # --- CONFIGURATION ---
-SUPABASE_URL = "https://sodgzkablshladvbtnes.supabase.co"
+SUPABASE_URL = "https://kcananrtcmckovdstvao.supabase.co"
 SUPABASE_SERVICE_KEY = ""
 GROQ_API_KEYS = []
 

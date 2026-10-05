@@ -17,7 +17,7 @@ BACKUP_FILES = [
     r"C:\Users\luigg\Desktop\pisu_starter\projects\precios al dia\precios al dia rebranding\preciosaldia-bodega\backup_tasasaldia_completo_2026-07-11.json"
 ]
 
-SUPABASE_URL = "https://sodgzkablshladvbtnes.supabase.co"
+SUPABASE_URL = "https://kcananrtcmckovdstvao.supabase.co"
 SUPABASE_SERVICE_KEY = ""
 
 def load_env():

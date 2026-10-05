@@ -19,6 +19,7 @@
 import { mergeSalesArrays } from './salesMerge';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { applySalesArchiveMarker, getSalesArchiveItemCount, isArchivedSalesPayload } from './salesCompactor';
+import { isPairingLinkError } from './cloudRetry';
 
 const SALES_DETAIL_FIELDS = new Set([
     'items', 'inventoryDeductionsApplied', 'changeLedger', 'inventoryDeductions', 'inventoryAnomalies',
@@ -112,12 +113,16 @@ let _refCache = { payload: null, ts: 0, deviceId: null };
  * Resuelve el monitor vinculado a este POS. La tabla device_pairings es legible
  * por anon (solo expone ids de dispositivo, no datos de negocio). Se cachea en
  * localStorage porque el vínculo no cambia en caliente.
+ * FASE 2: `{ bypassCache: true }` fuerza la re-lectura de device_pairings tras
+ * una invalidación por vínculo desactualizado.
  */
-async function resolveMonitorDeviceId(deviceId, client) {
+export async function resolveMonitorDeviceId(deviceId, client, { bypassCache = false } = {}) {
     try {
         const cacheKey = `${MONITOR_ID_CACHE_KEY}_${deviceId}`;
-        const cached = localStorage.getItem(cacheKey);
-        if (cached) return cached;
+        if (!bypassCache) {
+            const cached = localStorage.getItem(cacheKey);
+            if (cached) return cached;
+        }
         const { data, error } = await client
             .from('device_pairings')
             .select('monitor_device_id')
@@ -128,6 +133,18 @@ async function resolveMonitorDeviceId(deviceId, client) {
         return data.monitor_device_id;
     } catch {
         return null;
+    }
+}
+
+/** FASE 2: invalida la caché del monitor en AMBAS claves — la canónica con
+ * sufijo y la histórica sin sufijo que dejó la copia duplicada de
+ * saleNumberAllocator — para que ninguna instancia lea un vínculo viejo. */
+export function invalidateMonitorDeviceCache(deviceId) {
+    try {
+        localStorage.removeItem(`${MONITOR_ID_CACHE_KEY}_${deviceId}`);
+        localStorage.removeItem(MONITOR_ID_CACHE_KEY);
+    } catch {
+        // Best-effort: sin localStorage la caché no existe.
     }
 }
 
@@ -170,7 +187,41 @@ export async function fetchCloudSalesReference(deviceId, client = supabaseCloud,
                 p_monitor_device_id: monitorDeviceId,
                 p_doc_ids: [SALES_CLOUD_CACHE_KEY],
             });
-            if (error || !Array.isArray(data) || data.length === 0) return null;
+            if (error) {
+                // FASE 2: auto-sanación. Un vínculo desactualizado en caché produce
+                // REMOTE_AUDIT_*; se invalida la caché y se reintenta UNA vez con el
+                // monitor recién leído de device_pairings. Errores de red/timeout NO
+                // tocan la caché. Sin auto-recuperación, la caja numeraría en
+                // provisional hasta que alguien limpiara localStorage a mano.
+                if (isPairingLinkError(error)) {
+                    console.warn('[SalesPushMerge] Vínculo desactualizado en caché. Re-resolviendo con device_pairings...');
+                    invalidateMonitorDeviceCache(deviceId);
+                    const freshMonitorId = await resolveMonitorDeviceId(deviceId, client, { bypassCache: true });
+                    if (freshMonitorId) {
+                        const retry = await client.rpc(READ_RPC, {
+                            p_primary_device_id: deviceId,
+                            p_monitor_device_id: freshMonitorId,
+                            p_doc_ids: [SALES_CLOUD_CACHE_KEY],
+                        });
+                        if (!retry.error && Array.isArray(retry.data) && retry.data.length > 0) {
+                            const retryPayload = retry.data[0]?.data?.payload;
+                            if (Array.isArray(retryPayload) && retryPayload.length > 0) {
+                                if (_latestRefRequestTokens.get(deviceId) === requestToken) {
+                                    _refCache = { payload: retryPayload, ts: Date.now(), deviceId };
+                                }
+                                return retryPayload;
+                            }
+                        }
+                        console.warn(`[SalesPushMerge] Reintento con vínculo fresco también falló (${retry.error?.code || retry.error?.message || 'sin datos'}).`);
+                    } else {
+                        console.warn('[SalesPushMerge] No se pudo re-resolver el monitor: sin emparejamiento activo en device_pairings.');
+                    }
+                    return null;
+                }
+                console.warn(`[SalesPushMerge] RPC error (${error.code || ''}):`, error.message);
+                return null;
+            }
+            if (!Array.isArray(data) || data.length === 0) return null;
 
             const payload = data[0]?.data?.payload;
             if (!Array.isArray(payload) || payload.length === 0) return null;

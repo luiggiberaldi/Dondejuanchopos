@@ -265,7 +265,7 @@ Copia `.env.example` a `.env` y rellena. **NUNCA commitear `.env`** (está en `.
 # Obligatorias
 VITE_SUPABASE_URL=https://tu-proyecto.supabase.co
 VITE_SUPABASE_ANON_KEY=eyJ... (anon key, RLS debe proteger)
-VITE_SUPABASE_CLOUD_URL=https://tu-cloud.supabase.co
+VITE_SUPABASE_CLOUD_URL=https://kcananrtcmckovdstvao.supabase.co
 VITE_SUPABASE_CLOUD_KEY=eyJ... (anon key cloud, RLS debe proteger)
 VITE_GOOGLE_SCRIPT_URL=https://script.google.com/.../exec?token=TU_TOKEN
 VITE_LICENSE_SALT=string_unico_por_tenant

@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { instrumentSupabaseFetch, instrumentSupabaseWebSocket } from '../utils/egressMeter';
 
-// DB Cloud/Sync P2P: proyecto "preciosaldia rebranding" (sodgzkablshladvbtnes).
+// DB Cloud/Sync P2P: proyecto kcananrtcmckovdstvao.supabase.co (host confirmado).
 // La URL/key reales vienen de VITE_SUPABASE_CLOUD_URL / _KEY en .env.
 // (Refs viejos fgzwmwrugerptfqfrsjd / ewwszyzzvoweudholmbf quedaron obsoletos.)
 const supabaseUrl = import.meta.env.VITE_SUPABASE_CLOUD_URL || '';

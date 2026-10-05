@@ -2954,7 +2954,7 @@ Estas afirmaciones se **verificaron** durante la auditoría. Son correctas. Modi
 
 ### 8.3 Diagnóstico previo (obligatorio)
 
-Ejecuta en el SQL Editor de Supabase (proyecto `sodgzkablshladvbtnes`) y **guarda la salida** antes de aplicar nada:
+Ejecuta en el SQL Editor de Supabase del proyecto `kcananrtcmckovdstvao` (Cloud/Sync) y **guarda la salida** antes de aplicar nada:
 
 ```sql
 -- (a) ¿updated_at admite nulos? Decide el orden de despliegue de FX10.

@@ -14,8 +14,10 @@ import { validateCustomerSyncPayload, mergeCloudCustomers } from '../utils/custo
 import {
     clearCloudRetryFailure,
     getCloudRetryState,
+    GLOBAL_LOCK_MAX_MS,
     isGlobalCloudFailure,
     recordCloudRetryFailure,
+    shouldCapGlobalLock,
 } from '../utils/cloudRetry';
 
 // EGRESS: claves que se respaldan pero NO se sincronizan a la nube.
@@ -326,7 +328,14 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
         if (error) {
             const failure = recordCloudRetryFailure(documentRetryOperation, error);
             if (isGlobalCloudFailure(error)) {
-                recordCloudRetryFailure(`sync:${activeDeviceId}`, error);
+                // FASE 1: el candado global de la caja se acota a un tick (60 s) salvo
+                // errores fatales (401/403/404/esquema): un 400 de vínculo desactualizado
+                // ya no congela TODAS las subidas 5 minutos.
+                recordCloudRetryFailure(
+                    `sync:${activeDeviceId}`,
+                    error,
+                    shouldCapGlobalLock(error) ? { maxDelayMs: GLOBAL_LOCK_MAX_MS } : {},
+                );
             }
             console.warn(`[CloudSync] Error ${error.code || error.status} al subir ${key}; reintento en ${Math.ceil(failure.delayMs / 1000)}s:`, error.message);
             return false; // Sin hash: el documento queda pendiente para el reintento autorizado
@@ -349,7 +358,12 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
     } catch (e) {
         const failure = recordCloudRetryFailure(documentRetryOperation, e);
         if (isGlobalCloudFailure(e)) {
-            recordCloudRetryFailure(`sync:${activeDeviceId}`, e);
+            // FASE 1: fallo de transporte (red) — candado global acotado a un tick.
+            recordCloudRetryFailure(
+                `sync:${activeDeviceId}`,
+                e,
+                shouldCapGlobalLock(e) ? { maxDelayMs: GLOBAL_LOCK_MAX_MS } : {},
+            );
         }
         console.warn(`[CloudSync] Fallo de transporte al subir ${key}; reintento en ${Math.ceil(failure.delayMs / 1000)}s.`);
         return false;
@@ -771,15 +785,27 @@ export function useCloudSync(deviceId) {
         const schedulePresence = delay => {
             if (presenceTimer !== null) clearTimeout(presenceTimer);
             presenceTimer = null;
-            if (!isCurrent() || !navigator.onLine) return;
-            nextPresenceAt = Date.now() + delay;
+            if (!isCurrent()) return;
+            // FASE 4 (Sunmi Kiosk Guard): si !navigator.onLine NO se abandona la
+            // cadena; se reprograma con piso de 30 s porque en estos terminales el
+            // evento `online` no siempre dispara al restablecerse la salida a
+            // internet y un kiosk a pantalla completa nunca pasa a segundo plano.
+            const effectiveDelay = !navigator.onLine ? Math.max(delay, 30000) : delay;
+            nextPresenceAt = Date.now() + effectiveDelay;
             presenceTimer = setTimeout(() => {
                 presenceTimer = null;
                 pingPosPresence();
-            }, delay);
+            }, effectiveDelay);
         };
         const pingPosPresence = async () => {
-            if (!navigator.onLine || !deviceId) return;
+            if (!deviceId) return;
+            // FASE 4: estar offline ya no mata la cadena — se reprograma (piso 30 s)
+            // y se espera al próximo tick SIN hacer fetch; `schedulePresence` ya
+            // valida `isCurrent()`, así que sesiones destruidas no reviven.
+            if (!navigator.onLine) {
+                schedulePresence(30000);
+                return;
+            }
             if (!isCurrent() || presenceController || Date.now() < nextPresenceAt) return;
             if (presenceTimer !== null) clearTimeout(presenceTimer);
             presenceTimer = null;
@@ -823,6 +849,10 @@ export function useCloudSync(deviceId) {
                     lastPresenceReason = null;
                     lastConfirmedAt = new Date().toISOString();
                     reportPresence('online', null, retryInMs);
+                    // FASE 1.3: latido confirmado = vínculo con la nube activo y sano.
+                    // Soltar de inmediato el candado global de subida para que el
+                    // siguiente tick vuelva a intentar los documentos pendientes.
+                    clearCloudRetryFailure(`sync:${deviceId}`);
                 } else {
                     reportPresence('unverified', hb?.registered === false ? 'unregistered' : 'invalid_response', retryInMs);
                 }

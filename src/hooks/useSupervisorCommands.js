@@ -82,6 +82,45 @@ function scheduleCloudProductsSync() {
     }, 400);
 }
 
+// FASE 5: reintentos de CONFIRMACIÓN acotados a errores transitorios (3s/6s/12s).
+// Nunca re-ejecutan el comando: solo reintentan la escritura del estado en la nube.
+const CONFIRM_RETRY_DELAYS_MS = [3000, 6000, 12000];
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isTransientConfirmError(error) {
+    const status = Number(error?.status ?? error?.statusCode);
+    if (!Number.isFinite(status)) return true; // red/transporte
+    if (status === 408 || status === 425 || status === 429) return true;
+    return status >= 500;
+}
+
+// FASE 5: el comando se aplicó localmente pero no se pudo confirmar en la nube.
+// NUNCA se re-ejecuta (evita doble abono/doble ajuste de saldo); se deja registro
+// persistente (sobrevive a recargas) y un evento para el Supervisor.
+const UNCONFIRMED_COMMANDS_KEY = 'dj_unconfirmed_commands_v1';
+function recordUnconfirmedCommand(command, reason) {
+    try {
+        const previous = JSON.parse(localStorage.getItem(UNCONFIRMED_COMMANDS_KEY));
+        const list = Array.isArray(previous) ? previous : [];
+        const entry = {
+            id: command.id,
+            type: command.command_type,
+            action: command.payload?.action || null,
+            at: new Date().toISOString(),
+        };
+        localStorage.setItem(UNCONFIRMED_COMMANDS_KEY, JSON.stringify(
+            [entry, ...list.filter(e => e?.id !== command.id)].slice(0, 50),
+        ));
+    } catch { /* best-effort: sin storage quedan el evento y el log */ }
+    console.error(`[SupervisorCommands] ${command.id} (${command.command_type}) quedó aplicado localmente pero SIN confirmar en la nube. ${reason}`);
+    window.dispatchEvent(new CustomEvent('supervisor_command_unconfirmed', {
+        detail: { commandId: command.id, commandType: command.command_type, action: command.payload?.action || null },
+    }));
+}
+
 async function updateCommandStatus(commandId, status, errorReason = null) {
     const fields = { status };
     if (status === COMMAND_STATUS.APPLIED || status === COMMAND_STATUS.APPLIED_WITH_WARNINGS) {
@@ -90,16 +129,39 @@ async function updateCommandStatus(commandId, status, errorReason = null) {
     if (errorReason) fields.error_reason = String(errorReason).slice(0, 500);
 
     try {
-        const { error } = await supabaseCloud
-            .from('supervisor_commands')
-            .update(fields)
-            .eq('id', commandId);
+        let lastError = null;
+        for (let attempt = 0; attempt <= CONFIRM_RETRY_DELAYS_MS.length; attempt += 1) {
+            let error = null;
+            try {
+                const { error: updateError } = await supabaseCloud
+                    .from('supervisor_commands')
+                    .update(fields)
+                    .eq('id', commandId);
+                error = updateError ?? null;
+            } catch (transportErr) {
+                // Fallo de red/timeout: supabase-js lanza en vez de devolver error.
+                if (attempt < CONFIRM_RETRY_DELAYS_MS.length) {
+                    console.warn(`[SupervisorCommands] Confirmación con fallo de transporte (intento ${attempt + 1}). Reintentando en ${CONFIRM_RETRY_DELAYS_MS[attempt] / 1000}s...`);
+                    await sleep(CONFIRM_RETRY_DELAYS_MS[attempt]);
+                    continue;
+                }
+                throw transportErr; // conserva el comportamiento previo del catch externo
+            }
 
-        if (!error) return true;
+            if (!error) return true;
+            lastError = error;
+
+            if (attempt < CONFIRM_RETRY_DELAYS_MS.length && isTransientConfirmError(error)) {
+                console.warn(`[SupervisorCommands] Confirmación transitoria falló (intento ${attempt + 1}: ${error.code || ''} ${error.message}). Reintentando en ${CONFIRM_RETRY_DELAYS_MS[attempt] / 1000}s...`);
+                await sleep(CONFIRM_RETRY_DELAYS_MS[attempt]);
+                continue;
+            }
+            break;
+        }
 
         // Guarda-rail: si falló con campos opcionales (applied_at / error_reason no existen en el schema)
         // o con cualquier otro error 4xx, reintentar SOLO con status.
-        console.warn(`[SupervisorCommands] Fallo al actualizar con campos completos (${error.code || error.message}). Reintentando solo con status...`);
+        console.warn(`[SupervisorCommands] Fallo al actualizar con campos completos (${lastError?.code || ''} ${lastError?.message || ''}). Reintentando solo con status...`);
         const { error: fallbackErr } = await supabaseCloud
             .from('supervisor_commands')
             .update({ status })
@@ -357,7 +419,11 @@ export function useSupervisorCommands(deviceId) {
                         if (savedCustomers) {
                             appliedIds.add(command.id);
                             markApplied(command.id);
-                            await updateCommandStatus(command.id, 'applied');
+                            // FASE 5: la confirmación NUNCA re-ejecuta el abono; si falla
+                            // se deja registro persistente y aviso, el saldo local queda intacto.
+                            if (!(await updateCommandStatus(command.id, 'applied'))) {
+                                recordUnconfirmedCommand(command, 'El saldo ya está aplicado en la caja.');
+                            }
                             window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_customers_v1', value: savedCustomers } }));
                             await pushCloudSync('bodega_customers_v1', savedCustomers, true);
                         } else {
@@ -399,7 +465,10 @@ export function useSupervisorCommands(deviceId) {
                         if (deleted) {
                             appliedIds.add(command.id);
                             markApplied(command.id);
-                            await updateCommandStatus(command.id, 'applied');
+                            // FASE 5: confirmación sin re-ejecución; fallo visible y persistente.
+                            if (!(await updateCommandStatus(command.id, 'applied'))) {
+                                recordUnconfirmedCommand(command, 'La eliminación ya está aplicada en la caja.');
+                            }
                         } else {
                             const customers = await (async () => {
                                 const { storageService } = await import('../utils/storageService');
@@ -710,6 +779,7 @@ export function useSupervisorCommands(deviceId) {
                                 appliedIds.delete(command.id);
                             } else {
                                 console.error(`[SupervisorCommands] ${command.id} se aplicó localmente pero no se pudo marcar, y no es re-aplicable: se deja marcado. Quedará 'pending' en la nube.`);
+                                recordUnconfirmedCommand(command, 'Inventario ya aplicado en la caja; no es re-aplicable.');
                             }
                         }
                         window.dispatchEvent(new CustomEvent('supervisor_inventory_applied', {
