@@ -7,6 +7,7 @@ import { CurrencyService } from '../services/CurrencyService'; // FIN-026: safeP
 import { SALES_KEY } from './useSalesData';
 import { useAuthStore } from './store/useAuthStore';
 import { sniperLog } from '../utils/sniperPayDiagnostic';
+import { checkoutEnd } from '../utils/checkoutTelemetry';
 import { findOpenApertura } from '../utils/shiftScope';
 
 export function useCheckoutFlow({
@@ -54,6 +55,8 @@ export function useCheckoutFlow({
         } catch (err) {
             sniperLog('2_PROCESS_EXCEPTION', 'Excepción en processSaleTransaction', { message: err?.message, stack: err?.stack });
             console.error('[checkout] Error inesperado en processSaleTransaction:', err);
+            // Telemetría: cierre con excepción de persistencia.
+            checkoutEnd({ ok: false, error: err?.message || 'excepción' });
             const message = 'No se confirmó la venta completa. Revisa el historial antes de repetir el cobro.';
             showToast(message, 'error');
             playError();
@@ -63,6 +66,8 @@ export function useCheckoutFlow({
         if (!result.success) {
             sniperLog('2_PROCESS_ABORTED', `Venta cancelada: ${result.error}`);
             console.error('Abortando venta:', result.error);
+            // Telemetría: cierre con error de negocio (no llegó al receipt).
+            checkoutEnd({ ok: false, error: result.error });
             showToast(result.error, result.error.includes('No se pueden') ? 'warning' : 'error');
             playError();
             return result;
@@ -72,6 +77,9 @@ export function useCheckoutFlow({
         if (result.updatedCustomers) setCustomers(result.updatedCustomers);
         setSalesData(prev => [result.sale, ...prev]);
 
+        // Telemetría: cierre exitoso justo antes de disparar los efectos del UI
+        // (receipt, sonidos, confetti, resets de carrito).
+        checkoutEnd({ ok: true, duplicate: result.duplicate === true });
         setShowReceipt(result.sale);
         playCheckout();
         setShowConfetti(true);

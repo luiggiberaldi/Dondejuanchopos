@@ -13,6 +13,7 @@ import { getChangeLedger, normalizeChangeCurrency } from './changeLedger';
 import { expandCartToPhysicalDeductions, aggregatePhysicalDeductions } from './inventoryMovementModel';
 import { applyInventoryOperationUnlocked } from '../services/inventoryOperationService';
 import { allocateSaleNumber } from './saleNumberAllocator'; // FASE 3B: numeración central
+import { checkoutStage, checkoutTxBegin, checkoutTxEnd } from './checkoutTelemetry';
 
 const SALES_KEY = 'bodega_sales_v1';
 const PRODUCTS_KEY = 'bodega_products_v1';
@@ -372,8 +373,16 @@ export async function processSaleTransaction({
         // La reserva remota precede a la transacción física; no retiene el lock
         // compartido de almacenamiento ni deja saldos parcialmente escritos.
         const allocation = existingSales.some(s => checkoutOperationId && s.checkoutOperationId === checkoutOperationId)
-            ? null : await allocateSaleNumber(deviceId, { localSales: existingSales });
+            ? null : await (async () => {
+                const t0 = performance.now();
+                try {
+                    return await allocateSaleNumber(deviceId, { localSales: existingSales });
+                } finally {
+                    checkoutStage('alloc', performance.now() - t0);
+                }
+            })();
         return storageService.transaction(async (storageService) => {
+            checkoutTxBegin();
         const auditAfterCommit = (...args) => storageService.afterCommit(() => logEvent(...args));
         const existingSales = await storageService.getItem(SALES_KEY, []);
         if (checkoutOperationId) {
@@ -641,6 +650,9 @@ export async function processSaleTransaction({
         };
         });
     });
+
+    // FIN: transacción local cerrada → registrar la fase 'tx' en la telemetría activa.
+    checkoutTxEnd();
 
     return lockResult;
 }

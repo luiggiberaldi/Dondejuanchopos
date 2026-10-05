@@ -270,3 +270,73 @@ describe('allocateSaleNumber — camino FALLBACK (offline)', () => {
         expect(res.provisional).toBe(true);
     });
 });
+
+describe('allocateSaleNumber — integración con caché TTL del Doc 60 (PERF)', () => {
+    const T1 = '2026-09-12T18:00:00.000Z';
+
+    // PERF: la línea base consume la caché TTL (15s) de fetchCloudSalesReference.
+    // Forzar `fresh: true` descargaba el historial completo en cada venta y era el
+    // principal cuello de botella al confirmar. La corrección de duplicados NO
+    // depende de la frescura: la unidad de carrera es el reclamo (capa 2).
+    test('NO fuerza fresh:true: consume la caché TTL de fetchCloudSalesReference', async () => {
+        fetchCloudSalesReference.mockResolvedValue([venta(829)]);
+        const client = mkClient();
+
+        await allocateSaleNumber('DEV-1', { localSales: [venta(823)], client, now: T1 });
+
+        // Llamada exacta (deviceId, client) SIN tercer argumento { fresh: true }.
+        expect(fetchCloudSalesReference).toHaveBeenCalledTimes(1);
+        expect(fetchCloudSalesReference).toHaveBeenCalledWith('DEV-1', client);
+    });
+
+    test('caché tibia (línea base vieja): la guardia monótona eleva el candidato con lo local sin empujar', async () => {
+        // La caché TTL puede traer una línea base desactualizada (max 100) mientras
+        // lo local sin empujar llega a 840: el candidato debe ser 841, nunca 101.
+        fetchCloudSalesReference.mockResolvedValue([venta(100)]);
+        const client = mkClient();
+
+        const res = await allocateSaleNumber('DEV-1', { localSales: [venta(840)], client, now: T1 });
+
+        expect(res).toEqual({ saleNumber: 841, provisional: false, source: 'cloud' });
+        expect(client._inserted[0].payload.candidate).toBe(841); // el reclamo lleva el candidato corregido
+    });
+
+    test('caché tibia: colisión con reclamo reciente → la compactación corre el número (sin duplicados)', async () => {
+        // Escenario clave de la optimización: la caché tibia produce el MISMO
+        // candidato (830) que un reclamo de otra venta reciente; la relectura de
+        // reclamos de 24h lo ve y la compactación asigna el siguiente (831).
+        fetchCloudSalesReference.mockResolvedValue([venta(829)]);
+        const client = mkClient({
+            extraClaims: [{ payload: { claimKey: 'venta-previa', candidate: 830, requestedAt: '2026-09-12T17:59:30.000Z' } }],
+        });
+
+        const res = await allocateSaleNumber('DEV-1', { localSales: [], client, now: T1 });
+
+        expect(res.saleNumber).toBe(831);
+        expect(res.provisional).toBe(false);
+        expect(res.source).toBe('cloud');
+    });
+
+    test('dos ventas consecutivas dentro de la ventana TTL comparten línea base y obtienen números distintos', async () => {
+        // Con caché tibia ambas ventas ven max(cloud)=829 → candidatan 830.
+        // La segunda ve el reclamo de la primera en la relectura → cede y toma 831.
+        fetchCloudSalesReference.mockResolvedValue([venta(829)]);
+
+        const clientA = mkClient();
+        const resA = await allocateSaleNumber('DEV-1', { localSales: [], client: clientA, now: T1 });
+
+        const clientB = mkClient({
+            // requestedAt ANTERIOR al de B: el reclamo de A es más viejo y la
+            // compactación le asigna 830 de forma DETERMINISTA (sin este override,
+            // el desempate cae a claimKey = UUID aleatorio → test lanzando moneda).
+            extraClaims: clientA._inserted.map((r) => ({ payload: { ...r.payload, requestedAt: '2026-09-12T17:59:00.000Z' } })),
+        });
+        const resB = await allocateSaleNumber('DEV-1', { localSales: [], client: clientB, now: T1 });
+
+        expect(resA.saleNumber).toBe(830);
+        expect(resB.saleNumber).toBe(831);
+        // Ninguna descarga fresca: ambas pasan por la caché TTL.
+        expect(fetchCloudSalesReference).toHaveBeenCalledTimes(2);
+        expect(fetchCloudSalesReference.mock.calls.every(([id, c]) => id === 'DEV-1' && (c === clientA || c === clientB))).toBe(true);
+    });
+});

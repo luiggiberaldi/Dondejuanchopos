@@ -11,6 +11,10 @@
  *  1. LÍNEA BASE — el Doc 60 canónico (bodega_sales_v1) ya está en la lista
  *     blanca de read_paired_audit_documents: candidato = max(saleNumber)+1.
  *     No requiere contador inicial: el bootstrap ES el estado de la nube.
+ *     La lectura consume la caché TTL (15s) de fetchCloudSalesReference, NO
+ *     una descarga fresca por venta: un cache tibio solo produce un candidato
+ *     BAJO, y ese caso lo corrigen la guardia monótona (max con localMax), la
+ *     relectura de reclamos de 24h y la compactación de la capa 2.
  *
  *  2. RECLAMO ATÓMICO — el candidato se reclama insertando una fila en
  *     supervisor_commands: {action:'sale_number_claim', candidate, instanceId}.
@@ -139,9 +143,17 @@ export async function allocateSaleNumber(deviceId, { localSales = null, client =
     try {
         if (!client || !deviceId) throw new Error('alloc-sin-cliente');
 
-        // ── Capa 1: línea base desde el Doc 60 (lectura fresca) ──
+        // ── Capa 1: línea base desde el Doc 60 (caché TTL 15s + single-flight) ──
+        // PERF: `fresh: true` descargaba el historial completo en CADA venta y era
+        // el principal cuello de botella al confirmar (RTT nube 0.1–1.7s medido).
+        // La frescura no es requisito de la corrección de duplicados: la unidad de
+        // carrera es el RECLAMO (capa 2), no la línea base. Con caché tibia el
+        // candidato puede salir bajo; entonces colisiona con un reclamo reciente y
+        // la compactación lo corre hacia arriba de forma determinista. La guardia
+        // monótona cubre además lo local aún sin empujar. `fresh: true` queda
+        // reservado para replace_sales_history (ahí la frescura sí es parte del fix).
         const cloudRef = await withTimeout(
-            fetchCloudSalesReference(deviceId, client, { fresh: true }),
+            fetchCloudSalesReference(deviceId, client),
             ALLOC_TIMEOUT_MS,
         );
         if (!Array.isArray(cloudRef) || cloudRef.length === 0) throw new Error('alloc-sin-referencia-cloud');

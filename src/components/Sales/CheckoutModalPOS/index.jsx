@@ -4,6 +4,7 @@ import { useProductContext } from '../../../context/ProductContext';
 import { round2, subR, mulR, divR, sumR } from '../../../utils/dinero';
 import { calculateChangeAllocation, calculateChangeInputUpdate } from '../../../core/CheckoutPaymentEngine';
 import { sniperLog } from '../../../utils/sniperPayDiagnostic';
+import { checkoutStart, checkoutRenderDone } from '../../../utils/checkoutTelemetry';
 
 // Hooks portados
 import { usePaymentState } from './hooks/usePaymentState';
@@ -406,6 +407,9 @@ export default function CheckoutModalPOS({
 
             setIsSubmitting(true);
             const checkoutOperationId = crypto.randomUUID();
+            // Telemetría: la fase 'render' mide validaciones + construcción de pagos
+            // desde el click hasta que arranca el procesador de la venta.
+            checkoutStart(checkoutOperationId);
 
             // Construir pagos finales en formato que onConfirmSale espera
             const payments = metodosNormalizados
@@ -540,6 +544,7 @@ export default function CheckoutModalPOS({
             // Total a REGISTRAR: los totales del carrito provienen directamente de
             // FinancialEngine.buildCartTotals (que respeta precios duales y manuales en Bs).
             // Pasar originalTotalUsd y originalTotalBs tal cual garantiza consistencia matemática 100%.
+            checkoutRenderDone();
             const result = await onConfirmSale(payments, {
                 changeUsdGiven: defaultChangeUsd,
                 changeBsGiven: defaultChangeBs,
