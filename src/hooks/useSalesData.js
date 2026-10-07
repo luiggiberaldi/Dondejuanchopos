@@ -643,7 +643,16 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
                         if (rawAnchor) {
                             const parsed = JSON.parse(rawAnchor);
                             if (parsed?.tipo === 'APERTURA_CAJA' && !parsed.cajaCerrada) {
-                                apertura = parsed;
+                                const apTs = new Date(parsed.timestamp || parsed.createdAt || 0).getTime();
+                                const hasLaterClose = savedSales.some(s =>
+                                    s.tipo === 'REGISTRO_CIERRE' &&
+                                    new Date(s.timestamp || s.createdAt || 0).getTime() >= apTs
+                                );
+                                if (!hasLaterClose) {
+                                    apertura = parsed;
+                                } else {
+                                    localStorage.removeItem('bodega_active_shift_anchor');
+                                }
                             }
                         }
                     } catch {}
@@ -681,7 +690,16 @@ export function useSalesData({ setCart, cartRef, setProducts, isActive }) {
                     if (rawAnchor) {
                         const parsed = JSON.parse(rawAnchor);
                         if (parsed?.tipo === 'APERTURA_CAJA' && !parsed.cajaCerrada) {
-                            apertura = parsed;
+                            const apTs = new Date(parsed.timestamp || parsed.createdAt || 0).getTime();
+                            const hasLaterClose = savedSales.some(s =>
+                                s.tipo === 'REGISTRO_CIERRE' &&
+                                new Date(s.timestamp || s.createdAt || 0).getTime() >= apTs
+                            );
+                            if (!hasLaterClose) {
+                                apertura = parsed;
+                            } else {
+                                localStorage.removeItem('bodega_active_shift_anchor');
+                            }
                         }
                     }
                 } catch {}
