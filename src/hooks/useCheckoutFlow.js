@@ -16,10 +16,25 @@ export function useCheckoutFlow({
     effectiveRate, tasaCop, copEnabled, discountData, useAutoRate, bcvRate,
     setSalesData, setShowReceipt, setShowCheckout, setSelectedCustomerId,
     setCart, setCartSelectedIndex, setShowConfetti, setTodayAperturaData, setIsAperturaOpen,
-    playCheckout, playError, notifyLowStock, notifySaleComplete, triggerHaptic, paymentMethods
+    playCheckout, playError, notifyLowStock, notifySaleComplete, triggerHaptic, paymentMethods,
+    todayAperturaData
 }) {
     const handleCheckout = async (payments, changeBreakdown, totalOverrides = null) => {
         triggerHaptic && triggerHaptic();
+
+        // GUARDA DE SEGURIDAD ESTRICTA: Impedir cobros si la caja está cerrada
+        if (!todayAperturaData) {
+            const localSales = await storageService.getItem(SALES_KEY, []);
+            const openAp = findOpenApertura(localSales);
+            if (!openAp) {
+                playError && playError();
+                showToast('No se puede procesar el cobro: la caja está cerrada. Debes aperturar la caja.', 'error');
+                setIsAperturaOpen && setIsAperturaOpen(true);
+                return { success: false, error: 'CAJA_CERRADA' };
+            }
+            setTodayAperturaData && setTodayAperturaData(openAp);
+        }
+
         sniperLog('2_HANDLE_CHECKOUT', 'Ejecutando handleCheckout', { paymentsCount: payments?.length, totalOverrides });
 
         // El checkout interno del POS es la fuente más reciente de selección.

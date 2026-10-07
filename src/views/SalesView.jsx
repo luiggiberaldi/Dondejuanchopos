@@ -154,6 +154,12 @@ export default function SalesView({ triggerHaptic, isActive }) {
 
     // Función para restaurar una venta en espera
     const handleRestoreHold = async (holdId) => {
+        if (!todayAperturaData) {
+            playError && playError();
+            showToast('Debes aperturar la caja antes de restaurar una venta en espera.', 'warning');
+            setIsAperturaOpen(true);
+            return;
+        }
         const hold = pendingCarts.find(h => h.id === holdId);
         if (!hold) return;
         if (cart.length > 0) {
@@ -245,7 +251,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
 
     // Paste Barcode Handler (Ctrl+V)
     const handlePasteBarcode = (pastedText) => {
-        if (showCheckout || showReceipt || showClearCartConfirm) return;
+        if (showCheckout || showReceipt || showClearCartConfirm || !todayAperturaData) return;
 
         // Intentar Pesa Electrónica
         if (pastedText.startsWith('21') && pastedText.length >= 13) {
@@ -423,7 +429,16 @@ export default function SalesView({ triggerHaptic, isActive }) {
     // Global keybinds (F9 = checkout, Escape = close modals)
     useEffect(() => {
         const handler = (e) => {
-            if (e.key === 'F9') { e.preventDefault(); if (cart.length > 0 && !showCheckout && !showReceipt) setShowCheckout(true); }
+            if (e.key === 'F9') {
+                e.preventDefault();
+                if (!todayAperturaData) {
+                    playError && playError();
+                    showToast('Debes aperturar la caja antes de cobrar.', 'warning');
+                    setIsAperturaOpen(true);
+                    return;
+                }
+                if (cart.length > 0 && !showCheckout && !showReceipt) setShowCheckout(true);
+            }
             if (e.key === 'Escape') {
                 if (showCheckout) { setShowCheckout(false); setSelectedCustomerId(''); }
                 else if (showReceipt) { setShowReceipt(null); setSelectedCustomerId(''); }
@@ -431,7 +446,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    }, [cart, showCheckout, showReceipt]);
+    }, [cart, showCheckout, showReceipt, todayAperturaData, playError]);
 
     // ── Checkout Flow Hook ──────────────────────────
     const { handleCheckout, handleCreateCustomer, handleSaveApertura } = useCheckoutFlow({
@@ -440,7 +455,8 @@ export default function SalesView({ triggerHaptic, isActive }) {
         effectiveRate, tasaCop, copEnabled, discountData, useAutoRate, bcvRate: rates?.bcv?.price || effectiveRate,
         setSalesData, setShowReceipt, setShowCheckout, setSelectedCustomerId,
         setCart, setCartSelectedIndex, setShowConfetti, setTodayAperturaData, setIsAperturaOpen,
-        playCheckout, playError, notifyLowStock, notifySaleComplete, triggerHaptic, paymentMethods
+        playCheckout, playError, notifyLowStock, notifySaleComplete, triggerHaptic, paymentMethods,
+        todayAperturaData
     });
 
     // ── Callbacks ─────────────────────────────────
@@ -498,6 +514,12 @@ export default function SalesView({ triggerHaptic, isActive }) {
     }, [products]);
 
     const addToCart = useCallback((product, qtyOverride = null, forceMode = null, isBarcodeSource = false) => {
+        if (!todayAperturaData) {
+            playError && playError();
+            showToast('La caja está cerrada. Debes aperturarla para vender.', 'warning');
+            setIsAperturaOpen(true);
+            return;
+        }
         triggerHaptic && triggerHaptic();
 
         // Intercepción: combo modular → abrir picker antes de agregar
@@ -627,7 +649,7 @@ export default function SalesView({ triggerHaptic, isActive }) {
                 setCartSelectedIndex(0); // Enfoca el ítem para +/- rápido
             }
         }, 50);
-    }, [triggerHaptic, effectiveRate, tasaCop]);
+    }, [triggerHaptic, effectiveRate, tasaCop, todayAperturaData, playError, setIsAperturaOpen]);
 
     // Recalculate priceUsd for cart items with priceCop when tasaCop changes
     useEffect(() => {
