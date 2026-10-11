@@ -51,6 +51,7 @@ import {
 } from '../utils/monitorSaleFormat';
 import { applyProjectedStock } from '../utils/supervisorStockProjection';
 import { getSupervisorCommandDetails, isDuplicateProductIdFailure } from '../utils/monitorCommandDetails';
+import IntercomWidget from '../components/IntercomWidget';
 
 // Re-exports para compatibilidad con tests que importan helpers desde la vista.
 export { applyProjectedStock } from '../utils/supervisorStockProjection';
@@ -116,6 +117,7 @@ const MAIN_SUPERVISOR_TABS = [
 
 export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) {
     const pairedDeviceId = localStorage.getItem('dj_paired_device_id');
+    const monitorDeviceId = localStorage.getItem('dj_device_id');
     const { products, setProducts, effectiveRate, copEnabled, copPrimary, tasaCop, rates, categories, isBsWizardOpen, openBsCongeladoWizard, closeBsCongeladoWizard, bsCongeladoAlert, previousRate, bsRoundingStep, rateMode } = useProductContext();
     const bcvRate = rates?.bcv?.price || effectiveRate;
     const { isConnected, lastSync, loading: syncLoading, triggerRefresh, posLastSeen, isPosOnline, presenceError } = useMonitorSync(pairedDeviceId);
@@ -696,6 +698,13 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     };
     return (
         <div className={`min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-sans transition-colors duration-300 overflow-x-hidden ${hasInventoryChanges && viewTab === 'inventario' ? 'pb-48 sm:pb-36' : 'pb-16'}`}>
+            <IntercomWidget
+                primaryDeviceId={pairedDeviceId}
+                deviceId={monitorDeviceId}
+                senderRole="monitor"
+                senderName={supervisorUser?.nombre || 'Supervisor'}
+                dark={theme === 'dark'}
+            />
             <MonitorHeader
                 mainTabs={MAIN_SUPERVISOR_TABS}
                 activeMainTabId={activeMainTabId}

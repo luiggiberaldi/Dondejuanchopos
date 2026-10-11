@@ -58,6 +58,7 @@ export default defineConfig(({ mode }) => {
         clientsClaim: true,
         // INFRA-006: cacheId estable basado en versión del package.json (no Date.now()).
         cacheId: `preciosaldia-bodega-v${APP_VERSION}`,
+        importScripts: ['/intercom-push-sw.js'],
         // Evitar que el SW intercepte peticiones de navegación POST (ej. Next.js Server Actions)
         navigateFallback: null,
         runtimeCaching: [

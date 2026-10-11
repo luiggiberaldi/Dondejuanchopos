@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, Suspense, lazy } from 'react';
+import { useState, useEffect, useRef, useMemo, Suspense, lazy } from 'react';
 import { Home, ShoppingCart, Store, Users, Download, FlaskConical, Moon, Sun, BarChart3, WifiOff, X, Settings, Clock, Layers } from 'lucide-react';
 
 import DashboardView from './views/DashboardView';
@@ -34,6 +34,7 @@ import SupervisorInventoryNotification from './components/SupervisorInventoryNot
 import BsCongeladoAlertBanner from './components/Products/BsCongeladoAlertBanner';
 import BsCongeladoWizardModal from './components/Products/BsCongeladoWizardModal';
 import { useProductContext } from './context/ProductContext';
+import IntercomWidget from './components/IntercomWidget';
 
 const OwnerMonitorView = lazy(() => import('./views/OwnerMonitorView'));
 import PairingScanScreen from './components/PairingScanScreen';
@@ -406,6 +407,13 @@ export default function App() {
 
       </main>
 
+      {!isMonitorMode && (!requireLogin || usuarioActivo) && <IntercomWidget
+        primaryDeviceId={deviceId}
+        deviceId={deviceId}
+        senderRole="pos"
+        senderName={usuarioActivo?.nombre || 'Caja'}
+        dark={theme === 'dark'}
+      />}
       <SupervisorRateNotification />
       <SupervisorInventoryNotification />
       </ProductProvider>
@@ -495,12 +503,27 @@ export default function App() {
               <button onClick={() => setShowAdminPanel(false)} className="text-slate-400 hover:text-white">✕</button>
             </div>
 
-            <button
-              onClick={() => { triggerHaptic(); setShowTester(true); setShowAdminPanel(false); }}
-              className="w-full bg-brand-dark hover:bg-brand text-white font-bold py-3 rounded-lg text-sm uppercase tracking-wider transition-colors"
-            >
-              🚀 Abrir Tester
-            </button>
+            <div className="space-y-3">
+              <button
+                onClick={() => { triggerHaptic(); setShowTester(true); setShowAdminPanel(false); }}
+                className="w-full bg-brand-dark hover:bg-brand text-white font-bold py-3 rounded-lg text-sm uppercase tracking-wider transition-colors"
+              >
+                🚀 Abrir Tester
+              </button>
+              {import.meta.env.DEV && (
+                <button
+                  onClick={() => {
+                    triggerHaptic();
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('recovery-lab', '1');
+                    window.location.assign(url.href);
+                  }}
+                  className="w-full bg-emerald-700 hover:bg-emerald-600 text-white font-bold py-3 rounded-lg text-sm uppercase tracking-wider transition-colors"
+                >
+                  🧪 Laboratorio de recuperación (sin Supabase)
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

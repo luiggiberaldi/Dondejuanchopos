@@ -38,6 +38,9 @@ dist-ssr
 api/*.local.js
 api/secrets.*
 
+# Claves privadas VAPID locales del intercomunicador
+.intercom-vapid-private.json
+
 # ── Archivos de datos sensibles y binarios (INFRA-023) ──
 # Nunca commitear backups, inventarios reales, PDFs de cierres, videos, etc.
 backup_*.json

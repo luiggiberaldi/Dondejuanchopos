@@ -1,0 +1,4 @@
+# Supabase Edge Function called by pg_net; the handler validates
+# x-intercom-webhook-secret itself, so platform JWT verification must be off.
+[functions.intercom-push]
+verify_jwt = false
