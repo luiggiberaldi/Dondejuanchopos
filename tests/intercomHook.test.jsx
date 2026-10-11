@@ -201,6 +201,7 @@ describe('useDeviceIntercom', () => {
         };
         const mockRegistration = {
             pushManager: mockPushManager,
+            active: {},
         };
 
         global.Notification = {

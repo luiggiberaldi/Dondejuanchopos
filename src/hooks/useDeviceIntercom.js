@@ -12,8 +12,14 @@ function pushSupported() {
 }
 
 function fromBase64Url(value) {
-    const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
-    return Uint8Array.from(window.atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')), character => character.charCodeAt(0));
+    const padding = '='.repeat((4 - (value.length % 4)) % 4);
+    const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
 }
 
 export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, senderName, onOpenPush, onIncomingMessage }) {
@@ -332,15 +338,20 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
                 return false;
             }
 
-            let registration = await navigator.serviceWorker.getRegistration().catch(() => null);
-            if (!registration) {
+            let registration = await Promise.race([
+                navigator.serviceWorker.ready,
+                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000))
+            ]).catch(() => null);
+
+            if (!registration || !registration.active) {
+                await navigator.serviceWorker.register('/sw.js').catch(() => null);
                 registration = await Promise.race([
                     navigator.serviceWorker.ready,
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000))
                 ]).catch(() => null);
             }
             if (!registration) {
-                registration = await navigator.serviceWorker.register('/sw.js').catch(() => null);
+                registration = await navigator.serviceWorker.getRegistration().catch(() => null);
             }
             if (!registration?.pushManager) {
                 throw new Error('PushManager no está listo en el navegador. Intenta recargar la página.');
@@ -348,10 +359,23 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
 
             let subscription = await registration.pushManager.getSubscription().catch(() => null);
             if (!subscription) {
-                subscription = await registration.pushManager.subscribe({
-                    userVisibleOnly: true,
-                    applicationServerKey: fromBase64Url(PUSH_PUBLIC_KEY),
-                });
+                const keyArray = fromBase64Url(PUSH_PUBLIC_KEY);
+                try {
+                    subscription = await registration.pushManager.subscribe({
+                        userVisibleOnly: true,
+                        applicationServerKey: keyArray,
+                    });
+                } catch (subErr) {
+                    console.warn('[Intercom] Error inicial en pushManager.subscribe:', subErr);
+                    const stale = await registration.pushManager.getSubscription().catch(() => null);
+                    if (stale) {
+                        await stale.unsubscribe().catch(() => null);
+                    }
+                    subscription = await registration.pushManager.subscribe({
+                        userVisibleOnly: true,
+                        applicationServerKey: keyArray,
+                    });
+                }
             }
             const json = subscription.toJSON();
             const { error: writeError } = await supabaseCloud.from(PUSH_TABLE).upsert({
@@ -368,7 +392,13 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
             setPushState('active');
             return true;
         } catch (pushError) {
-            setError(pushError.message || 'No se pudieron activar las notificaciones.');
+            console.error('[Intercom] Error en enablePush:', pushError);
+            const msg = pushError.message || 'No se pudieron activar las notificaciones.';
+            if (msg.includes('push service error') || msg.includes('Registration failed')) {
+                setError('Error en el servicio Push de Google. Recarga la página y desactiva el ahorro de batería en Chrome.');
+            } else {
+                setError(msg);
+            }
             setPushState('error');
             return false;
         } finally { setPushBusy(false); }
