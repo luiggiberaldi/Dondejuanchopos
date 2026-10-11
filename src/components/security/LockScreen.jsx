@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../../hooks/store/useAuthStore';
 import UserCard from './UserCard';
 import LoginPinModal from './LoginPinModal';
+import { APP_VERSION } from '../../config/version';
 
 export default function LockScreen({ onOpenPairing }) {
   const { usuarios, login } = useAuthStore();
@@ -59,6 +60,12 @@ export default function LockScreen({ onOpenPairing }) {
 
   return (
     <div className="fixed inset-0 z-[250] bg-slate-50 text-slate-800 font-sans overflow-y-auto flex flex-col">
+      {/* Badge de versión del sistema */}
+      <div className="absolute top-4 left-4 z-[280] inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200/60 dark:border-slate-800 rounded-2xl text-[10px] font-mono font-bold text-slate-500 dark:text-slate-400 shadow-sm select-none">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+        <span>v{APP_VERSION}</span>
+      </div>
+
       {/* Botón flotante para instalar PWA */}
       {deferredPrompt && (
         <button
@@ -120,6 +127,12 @@ export default function LockScreen({ onOpenPairing }) {
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-500"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
           Entrar en Modo Supervisor
         </button>
+
+        <div className="mt-2 flex items-center gap-1.5 text-[10px] font-mono text-slate-400 select-none">
+          <span>Donde Juancho POS</span>
+          <span>•</span>
+          <span className="font-bold text-slate-500">v{APP_VERSION}</span>
+        </div>
       </div>
 
       {/* PIN Modal */}

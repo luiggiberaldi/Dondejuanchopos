@@ -13,6 +13,7 @@ import { useSecurity } from '../hooks/useSecurity';
 import { useProductContext } from '../context/ProductContext';
 import ShareInventoryModal from '../components/ShareInventoryModal';
 import { useAudit } from '../hooks/useAudit';
+import { APP_VERSION } from '../config/version';
 import SettingsTabNegocio from '../components/Settings/tabs/SettingsTabNegocio';
 import SettingsTabVentas from '../components/Settings/tabs/SettingsTabVentas';
 import SettingsTabUsuarios from '../components/Settings/tabs/SettingsTabUsuarios';
@@ -376,7 +377,7 @@ export default function SettingsView({ onClose, theme, toggleTheme, triggerHapti
 
                         {/* Version footer */}
                         <div className="text-center py-4">
-                            <p className="text-[10px] text-slate-400 dark:text-slate-600 font-bold">PreciosAlDia Bodegas v1.0</p>
+                            <p className="text-[10px] text-slate-400 dark:text-slate-600 font-bold font-mono">Donde Juancho POS v{APP_VERSION}</p>
                         </div>
                     </div>
                 </div>

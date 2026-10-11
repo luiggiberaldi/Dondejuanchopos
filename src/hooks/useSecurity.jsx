@@ -6,8 +6,8 @@ import { generateFingerprint, verifyStoredFingerprint } from '../security/device
 import { useLicenseMonitoring } from './useLicenseMonitoring';
 import { useDemoCountdown } from './useDemoCountdown';
 import { LICENSE_POLICY } from '../utils/securityConstants';
+import { APP_VERSION } from '../config/version';
 
-const APP_VERSION = '1.1.0';
 const PRODUCT_ID = 'donde_juancho';
 
 const DEMO_DURATION_MS = 72 * 60 * 60 * 1000; // 72 horas (3 dias)

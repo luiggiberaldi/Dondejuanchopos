@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { X, Delete, Loader2 } from 'lucide-react';
 import LoginAvatar from './LoginAvatar';
 import { PIN_POLICY } from '../../utils/securityConstants';
+import { APP_VERSION } from '../../config/version';
 
 export default function LoginPinModal({ isOpen, onClose, user, onSubmit }) {
   // SEC-017: Todos los roles requieren PIN de MIN_LENGTH (6) dígitos.
@@ -147,6 +148,12 @@ export default function LoginPinModal({ isOpen, onClose, user, onSubmit }) {
           >
             <Delete size={22} />
           </button>
+        </div>
+
+        <div className="mt-5 text-center select-none">
+          <span className="text-[10px] font-mono font-bold text-slate-500/80 tracking-wider">
+            Donde Juancho POS v{APP_VERSION}
+          </span>
         </div>
 
         {processing && (
