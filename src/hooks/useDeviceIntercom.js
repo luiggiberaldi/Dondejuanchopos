@@ -344,7 +344,10 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
             ]).catch(() => null);
 
             if (!registration || !registration.active) {
-                await navigator.serviceWorker.register('/sw.js').catch(() => null);
+                const swReg = await navigator.serviceWorker.register('/sw.js').catch(() => null);
+                if (!swReg) {
+                    await navigator.serviceWorker.register('/intercom-push-sw.js').catch(() => null);
+                }
                 registration = await Promise.race([
                     navigator.serviceWorker.ready,
                     new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000))
@@ -354,7 +357,7 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
                 registration = await navigator.serviceWorker.getRegistration().catch(() => null);
             }
             if (!registration?.pushManager) {
-                throw new Error('PushManager no está listo en el navegador. Intenta recargar la página.');
+                throw new Error('El servicio de notificaciones Push (ServiceWorker) no está disponible en este entorno.');
             }
 
             let subscription = await registration.pushManager.getSubscription().catch(() => null);
@@ -435,10 +438,14 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
                 setPushState('denied');
                 return;
             }
-            const registration = await Promise.race([
+            let registration = await Promise.race([
                 navigator.serviceWorker.ready,
                 new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2500))
             ]).catch(() => null);
+
+            if (!registration) {
+                registration = await navigator.serviceWorker.getRegistration().catch(() => null);
+            }
 
             let subscription = null;
             if (registration?.pushManager) {

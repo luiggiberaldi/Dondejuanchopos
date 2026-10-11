@@ -1,4 +1,8 @@
-/* Loaded by Workbox's generated service worker through workbox.importScripts. */
+/* Loaded by Workbox's generated service worker through workbox.importScripts,
+   or directly as standalone push service worker in development/fallback environments. */
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
+
 self.addEventListener('push', event => {
     let payload = {};
     try {
