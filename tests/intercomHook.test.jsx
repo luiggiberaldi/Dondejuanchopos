@@ -178,4 +178,63 @@ describe('useDeviceIntercom', () => {
         expect(insertQuery.insert.mock.calls.map(call => call[0].id)).toEqual(['stable-id', 'stable-id']);
         expect(result.current.failedMessages).toHaveLength(0);
     });
+
+    it('subscribes to push notifications and saves to device_push_subscriptions table', async () => {
+        let pushQuery;
+        mockSupabase.from.mockImplementation(table => {
+            const query = queryResult();
+            if (table === 'device_push_subscriptions') pushQuery = query;
+            return query;
+        });
+
+        const mockSubscription = {
+            endpoint: 'https://push.example.com/sub/123',
+            toJSON: () => ({
+                endpoint: 'https://push.example.com/sub/123',
+                keys: { p256dh: 'mock-p256dh', auth: 'mock-auth' }
+            }),
+            unsubscribe: vi.fn().mockResolvedValue(true),
+        };
+        const mockPushManager = {
+            getSubscription: vi.fn().mockResolvedValue(null),
+            subscribe: vi.fn().mockResolvedValue(mockSubscription),
+        };
+        const mockRegistration = {
+            pushManager: mockPushManager,
+        };
+
+        global.Notification = {
+            permission: 'granted',
+            requestPermission: vi.fn().mockResolvedValue('granted'),
+        };
+        global.PushManager = function() {};
+        Object.defineProperty(navigator, 'serviceWorker', {
+            value: {
+                getRegistration: vi.fn().mockResolvedValue(mockRegistration),
+                ready: Promise.resolve(mockRegistration),
+                register: vi.fn().mockResolvedValue(mockRegistration),
+                addEventListener: vi.fn(),
+                removeEventListener: vi.fn(),
+            },
+            configurable: true,
+        });
+
+        const { result } = renderHook(() => useDeviceIntercom({ primaryDeviceId: 'pos-1', deviceId: 'monitor-1', senderRole: 'monitor', senderName: 'Ana' }));
+        await waitFor(() => expect(result.current.loading).toBe(false));
+
+        let success;
+        await act(async () => {
+            success = await result.current.enablePush();
+        });
+
+        expect(success).toBe(true);
+        expect(result.current.pushState).toBe('active');
+        expect(pushQuery.upsert).toHaveBeenCalledWith(expect.objectContaining({
+            device_id: 'monitor-1',
+            primary_device_id: 'pos-1',
+            endpoint: 'https://push.example.com/sub/123',
+            p256dh: 'mock-p256dh',
+            auth: 'mock-auth',
+        }), { onConflict: 'device_id' });
+    });
 });
