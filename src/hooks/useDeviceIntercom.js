@@ -366,15 +366,11 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
                         applicationServerKey: keyArray,
                     });
                 } catch (subErr) {
-                    console.warn('[Intercom] Error inicial en pushManager.subscribe:', subErr);
-                    const stale = await registration.pushManager.getSubscription().catch(() => null);
-                    if (stale) {
-                        await stale.unsubscribe().catch(() => null);
-                    }
-                    subscription = await registration.pushManager.subscribe({
-                        userVisibleOnly: true,
-                        applicationServerKey: keyArray,
-                    });
+                    console.warn('[Intercom] pushManager.subscribe falló; se comprobará si la suscripción se completó antes del error:', subErr);
+                    // Algunos navegadores pueden completar la suscripción y luego rechazar la promesa.
+                    // Reutiliza ese resultado si existe; no la canceles ni repitas subscribe a ciegas.
+                    subscription = await registration.pushManager.getSubscription().catch(() => null);
+                    if (!subscription) throw subErr;
                 }
             }
             const json = subscription.toJSON();
@@ -394,8 +390,8 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
         } catch (pushError) {
             console.error('[Intercom] Error en enablePush:', pushError);
             const msg = pushError.message || 'No se pudieron activar las notificaciones.';
-            if (msg.includes('push service error') || msg.includes('Registration failed')) {
-                setError('Error en el servicio Push de Google. Recarga la página y desactiva el ahorro de batería en Chrome.');
+            if (/push service error|registration failed/i.test(msg)) {
+                setError('El navegador no pudo crear la suscripción Push. El servicio puede estar temporalmente inaccesible o bloqueado por la red. Comprueba la conexión o VPN y vuelve a intentarlo más tarde.');
             } else {
                 setError(msg);
             }

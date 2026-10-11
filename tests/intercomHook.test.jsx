@@ -179,6 +179,45 @@ describe('useDeviceIntercom', () => {
         expect(result.current.failedMessages).toHaveLength(0);
     });
 
+    it('does not unsubscribe and blindly retry when push subscription fails', async () => {
+        const subError = new Error('Registration failed - push service error');
+        const mockPushManager = {
+            getSubscription: vi.fn().mockResolvedValue(null),
+            subscribe: vi.fn().mockRejectedValue(subError),
+        };
+        const mockRegistration = { pushManager: mockPushManager, active: {} };
+        global.Notification = { permission: 'granted', requestPermission: vi.fn().mockResolvedValue('granted') };
+        global.PushManager = function() {};
+        Object.defineProperty(navigator, 'serviceWorker', {
+            value: {
+                getRegistration: vi.fn().mockResolvedValue(mockRegistration),
+                ready: Promise.resolve(mockRegistration),
+                register: vi.fn().mockResolvedValue(mockRegistration),
+                addEventListener: vi.fn(),
+                removeEventListener: vi.fn(),
+            },
+            configurable: true,
+        });
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const { result } = renderHook(() => useDeviceIntercom({ primaryDeviceId: 'pos-1', deviceId: 'monitor-1', senderRole: 'monitor', senderName: 'Ana' }));
+        await waitFor(() => expect(result.current.loading).toBe(false));
+        mockPushManager.getSubscription.mockClear();
+
+        let success;
+        await act(async () => { success = await result.current.enablePush(); });
+
+        expect(success).toBe(false);
+        expect(mockPushManager.subscribe).toHaveBeenCalledTimes(1);
+        expect(mockPushManager.getSubscription).toHaveBeenCalledTimes(2);
+        expect(result.current.pushState).toBe('error');
+        expect(result.current.error).toContain('El navegador no pudo crear la suscripción Push');
+        expect(result.current.error).not.toContain('ahorro de batería');
+        expect(warn).toHaveBeenCalled();
+        warn.mockRestore();
+        error.mockRestore();
+    });
+
     it('subscribes to push notifications and saves to device_push_subscriptions table', async () => {
         let pushQuery;
         mockSupabase.from.mockImplementation(table => {
