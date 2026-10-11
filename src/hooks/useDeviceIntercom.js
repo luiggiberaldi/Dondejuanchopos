@@ -3,8 +3,8 @@ import { supabaseCloud } from '../config/supabaseCloud';
 import { getCatchupFilter, getInitialCursor, getMessageCursor, INTERCOM_HISTORY_LIMIT, mergeMessages, validateMessage } from '../utils/intercomModel';
 
 const READS_TABLE = 'device_message_reads';
-const PUSH_TABLE = 'device_push_subscriptions';
-const PUSH_PUBLIC_KEY = import.meta.env.VITE_INTERCOM_VAPID_PUBLIC_KEY || '';
+const DEFAULT_VAPID_PUBLIC_KEY = 'BKP1Pkm0qyReec6qaCLfgJJuJ5WXQ-VswT-GZ8MNVAsic99mmSTIBxkM8Al_kqUu6ig_IHuQzwNeQz4A_ex_-gk';
+const PUSH_PUBLIC_KEY = import.meta.env.VITE_INTERCOM_VAPID_PUBLIC_KEY || DEFAULT_VAPID_PUBLIC_KEY;
 
 function pushSupported() {
     return typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
