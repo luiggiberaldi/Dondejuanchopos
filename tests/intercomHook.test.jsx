@@ -5,6 +5,7 @@ const mockSupabase = vi.hoisted(() => ({
     channel: vi.fn(),
     removeChannel: vi.fn(),
     from: vi.fn(),
+    rpc: vi.fn(async () => ({ data: null, error: null })),
 }));
 vi.mock('../src/config/supabaseCloud', () => ({ supabaseCloud: mockSupabase }));
 
@@ -40,8 +41,41 @@ beforeEach(() => {
     mockSupabase.channel.mockReturnValue(channel);
     mockSupabase.removeChannel.mockResolvedValue('ok');
     mockSupabase.from.mockImplementation(() => queryResult());
+    mockSupabase.rpc.mockResolvedValue({ data: null, error: null });
     Object.defineProperty(navigator, 'serviceWorker', { value: undefined, configurable: true });
 });
+
+/** Entorno de navegador con permiso concedido, SW listo y una suscripción Push reutilizable. */
+function installPushEnvironment({ endpoint = 'https://fcm.googleapis.com/fcm/send/abc123' } = {}) {
+    const subscription = {
+        endpoint,
+        toJSON: () => ({ endpoint, keys: { p256dh: 'mock-p256dh', auth: 'mock-auth' } }),
+        unsubscribe: vi.fn().mockResolvedValue(true),
+    };
+    const pushManager = {
+        getSubscription: vi.fn().mockResolvedValue(null),
+        subscribe: vi.fn().mockResolvedValue(subscription),
+    };
+    const registration = { pushManager, active: {} };
+    global.Notification = { permission: 'granted', requestPermission: vi.fn().mockResolvedValue('granted') };
+    global.PushManager = function () {};
+    Object.defineProperty(navigator, 'serviceWorker', {
+        value: {
+            getRegistration: vi.fn().mockResolvedValue(registration),
+            ready: Promise.resolve(registration),
+            register: vi.fn().mockResolvedValue(registration),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+        },
+        configurable: true,
+    });
+    return subscription;
+}
+
+const ENDPOINT_UNIQUE_VIOLATION = {
+    code: '23505',
+    message: 'duplicate key value violates unique constraint "device_push_subscriptions_endpoint_key"',
+};
 
 describe('useDeviceIntercom', () => {
     it('subscribes before loading history and removes the realtime channel on unmount', async () => {
@@ -276,5 +310,65 @@ describe('useDeviceIntercom', () => {
             p256dh: 'mock-p256dh',
             auth: 'mock-auth',
         }), { onConflict: 'device_id' });
+    });
+
+    it('recovers when the browser endpoint is already registered under another device id', async () => {
+        // Caso real (captura del 11-10): el mismo navegador ya tenía la suscripción con
+        // otra identidad, así que el upsert choca contra `endpoint_key`.
+        const released = [];
+        const pushQuery = queryResult();
+        pushQuery.upsert
+            .mockResolvedValueOnce({ error: ENDPOINT_UNIQUE_VIOLATION })
+            .mockResolvedValueOnce({ error: null });
+        pushQuery.delete = vi.fn(() => ({
+            eq: vi.fn(async (column, value) => { released.push({ column, value }); return { error: null }; }),
+        }));
+        mockSupabase.from.mockImplementation(table => (table === 'device_push_subscriptions' ? pushQuery : queryResult()));
+        installPushEnvironment();
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        const { result } = renderHook(() => useDeviceIntercom({ primaryDeviceId: 'pos-1', deviceId: 'monitor-1', senderRole: 'monitor', senderName: 'Ana' }));
+        await waitFor(() => expect(result.current.loading).toBe(false));
+
+        let success;
+        await act(async () => { success = await result.current.enablePush(); });
+
+        expect(success).toBe(true);
+        expect(result.current.pushState).toBe('active');
+        expect(result.current.error).toBe('');
+        // El montaje limpia por `device_id` (no había suscripción aún); lo que debe
+        // ocurrir tras el conflicto es la liberación del ENDPOINT robado.
+        expect(released).toContainEqual({ column: 'endpoint', value: 'https://fcm.googleapis.com/fcm/send/abc123' });
+        expect(pushQuery.upsert).toHaveBeenCalledTimes(2);
+        error.mockRestore();
+    });
+
+    it('never shows the raw Postgres text when the stale endpoint cannot be released', async () => {
+        const pushQuery = queryResult();
+        // El `delete` no borra nada (la fila dueña es invisible por RLS) y el reintento
+        // vuelve a chocar; el RPC de reasignación todavía no existe en la base.
+        pushQuery.upsert.mockResolvedValue({ error: ENDPOINT_UNIQUE_VIOLATION });
+        pushQuery.delete = vi.fn(() => ({ eq: vi.fn(async () => ({ error: null })) }));
+        mockSupabase.from.mockImplementation(table => (table === 'device_push_subscriptions' ? pushQuery : queryResult()));
+        mockSupabase.rpc.mockResolvedValue({
+            data: null,
+            error: { code: 'PGRST202', message: 'Could not find the function public.intercom_register_push_subscription' },
+        });
+        installPushEnvironment();
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        const { result } = renderHook(() => useDeviceIntercom({ primaryDeviceId: 'pos-1', deviceId: 'monitor-1', senderRole: 'monitor', senderName: 'Ana' }));
+        await waitFor(() => expect(result.current.loading).toBe(false));
+
+        let success;
+        await act(async () => { success = await result.current.enablePush(); });
+
+        expect(success).toBe(false);
+        expect(result.current.pushState).toBe('error');
+        expect(result.current.error).not.toMatch(/duplicate key|constraint|PGRST/i);
+        expect(result.current.error).toContain('suscripción Push de otro vínculo');
+        // El detalle técnico queda en consola para poder diagnosticarlo.
+        expect(error).toHaveBeenCalled();
+        error.mockRestore();
     });
 });

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabaseCloud } from '../config/supabaseCloud';
 import { getCatchupFilter, getInitialCursor, getMessageCursor, INTERCOM_HISTORY_LIMIT, mergeMessages, validateMessage } from '../utils/intercomModel';
+import { buildPushRow, describePushRegistrationFailure, isRlsError, registerPushSubscription, PUSH_TABLE } from '../utils/intercomPush';
 
 const READS_TABLE = 'device_message_reads';
-const PUSH_TABLE = 'device_push_subscriptions';
 const DEFAULT_VAPID_PUBLIC_KEY = 'BKP1Pkm0qyReec6qaCLfgJJuJ5WXQ-VswT-GZ8MNVAsic99mmSTIBxkM8Al_kqUu6ig_IHuQzwNeQz4A_ex_-gk';
 const PUSH_PUBLIC_KEY = import.meta.env.VITE_INTERCOM_VAPID_PUBLIC_KEY || DEFAULT_VAPID_PUBLIC_KEY;
 
@@ -373,18 +373,21 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
                     if (!subscription) throw subErr;
                 }
             }
-            const json = subscription.toJSON();
-            const { error: writeError } = await supabaseCloud.from(PUSH_TABLE).upsert({
-                device_id: deviceId, primary_device_id: primaryDeviceId,
-                endpoint: json.endpoint, p256dh: json.keys?.p256dh, auth: json.keys?.auth,
-                updated_at: new Date().toISOString(), revoked_at: null,
-            }, { onConflict: 'device_id' });
-            if (writeError?.code === '42501' || writeError?.status === 401 || writeError?.status === 403) {
+            const row = buildPushRow({
+                primaryDeviceId,
+                deviceId,
+                subscriptionJson: subscription.toJSON(),
+            });
+            // El upsert puede chocar con `device_push_subscriptions_endpoint_key` cuando
+            // este navegador ya estaba registrado con OTRA identidad de dispositivo;
+            // `registerPushSubscription` libera el endpoint antes de reintentar.
+            const pushRegistration = await registerPushSubscription({ client: supabaseCloud, row });
+            if (!pushRegistration.ok) {
+                console.error('[Intercom] No se pudo registrar la suscripción Push:', pushRegistration.path, pushRegistration.error);
                 setPushState('error');
-                setError('Este dispositivo ya no pertenece a un vínculo activo. Vuelve a emparejarlo para activar Push.');
+                setError(describePushRegistrationFailure(pushRegistration));
                 return false;
             }
-            if (writeError) throw writeError;
             setPushState('active');
             return true;
         } catch (pushError) {
@@ -411,7 +414,7 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
             if (endpoint && supabaseCloud) {
                 const { error: removeError } = await supabaseCloud.from(PUSH_TABLE).delete()
                     .eq('device_id', deviceId).eq('endpoint', endpoint);
-                if (removeError?.code === '42501' || removeError?.status === 401 || removeError?.status === 403) {
+                if (isRlsError(removeError)) {
                     throw new Error('Este dispositivo ya no pertenece a un vínculo activo.');
                 }
                 if (removeError) throw removeError;
@@ -451,22 +454,13 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
                 setPushState(Notification.permission === 'denied' ? 'denied' : 'disabled');
                 return;
             }
-            const json = subscription.toJSON();
-            const { error: writeError } = await supabaseCloud.from(PUSH_TABLE).upsert({
-                device_id: deviceId,
-                primary_device_id: primaryDeviceId,
-                endpoint: json.endpoint,
-                p256dh: json.keys?.p256dh,
-                auth: json.keys?.auth,
-                updated_at: new Date().toISOString(),
-                revoked_at: null,
-            }, { onConflict: 'device_id' });
-            if (writeError?.code === '42501' || writeError?.status === 401 || writeError?.status === 403) {
-                setPushState('disabled');
-                return;
-            }
-            if (writeError) throw writeError;
-            setPushState('active');
+            const row = buildPushRow({
+                primaryDeviceId,
+                deviceId,
+                subscriptionJson: subscription.toJSON(),
+            });
+            const pushRegistration = await registerPushSubscription({ client: supabaseCloud, row });
+            setPushState(pushRegistration.ok ? 'active' : 'disabled');
         } catch { setPushState('disabled'); }
     }, [deviceId, primaryDeviceId]);
 

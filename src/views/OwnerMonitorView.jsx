@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useProductContext } from '../context/ProductContext';
 import { useMonitorSync } from '../hooks/useMonitorSync';
-import { usePcDivergenceCheck } from '../hooks/usePcDivergenceCheck'; // FASE 4: divergencia PC ↔ nube
+import { usePcDivergenceCheck, isPcDivergenceBannerEnabled } from '../hooks/usePcDivergenceCheck'; // FASE 4: divergencia PC ↔ nube
 import { useSupervisorCommandQueue } from '../hooks/useSupervisorCommandQueue';
 import { useMonitorShiftMetrics } from '../hooks/useMonitorShiftMetrics';
 import { useMonitorInventory } from '../hooks/useMonitorInventory';
@@ -538,7 +538,14 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
 
     // FASE 4: veredicto de divergencia PC ↔ nube (banner en pestaña Activo).
     // `sales` del Monitor ES el Doc 60 sincronizado → es el lado nube de la comparación.
-    const divergence = usePcDivergenceCheck(pairedDeviceId, Array.isArray(sales) ? sales.length : 0, { pcOnline: isPosOnline });
+    // OCULTO por defecto (kill-switch `dj_pc_divergence_banner_v1`): con el backup del
+    // PC congelado desde el 13-09 el veredicto no puede ser honesto. Ocultarlo también
+    // evita la descarga del backup pesado que dispara el auto-chequeo.
+    const showPcDivergenceBanner = isPcDivergenceBannerEnabled();
+    const divergence = usePcDivergenceCheck(pairedDeviceId, Array.isArray(sales) ? sales.length : 0, {
+        pcOnline: isPosOnline,
+        enabled: showPcDivergenceBanner,
+    });
 
     const monitorCtx = {
         ...queue,
@@ -635,7 +642,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         isConnected,
         isDuplicateProductIdFailure,
         isShiftActive,
-        divergence,
+        divergence: showPcDivergenceBanner ? divergence : null,
         loadingData,
         lowStockProducts,
         outOfStockProducts,

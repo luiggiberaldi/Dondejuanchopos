@@ -18,7 +18,29 @@ import { summarizeBackupSales, computeDivergence } from '../utils/divergenceAler
 const CACHE_KEY = 'dj_divergence_check_at';
 const AUTO_TTL_MS = 15 * 60 * 1000;
 
-export function usePcDivergenceCheck(pairedDeviceId, cloudSalesCount, { enabled = true, pcOnline = false } = {}) {
+/**
+ * Kill-switch del banner PC ↔ nube. **OCULTO por defecto** (2026-10-11).
+ *
+ * Motivo (ver `docs/` y el diagnóstico del 11-10): el backup completo del PC no se
+ * refresca desde el 13-09 porque TODAS las subidas fallan con `statement timeout`
+ * (`request_full_backup` failed el 17-09, 27-09, 05-10 ×2, 07-10 y 09-10). El
+ * veredicto compara entonces una foto de hace un mes contra la nube de hoy: grita
+ * "PC sin confirmación reciente" sobre una caja que está vendiendo y que sí empuja
+ * su Doc 60, y su aviso manda a revisar una conexión que no está rota.
+ *
+ * Reactivar sin redeploy: `localStorage.setItem('dj_pc_divergence_banner_v1','true')`.
+ */
+export const PC_DIVERGENCE_BANNER_FLAG = 'dj_pc_divergence_banner_v1';
+
+export function isPcDivergenceBannerEnabled() {
+    try {
+        return localStorage.getItem(PC_DIVERGENCE_BANNER_FLAG) === 'true';
+    } catch {
+        return false;
+    }
+}
+
+export function usePcDivergenceCheck(pairedDeviceId, cloudSalesCount, { enabled = isPcDivergenceBannerEnabled(), pcOnline = false } = {}) {
     const [pcStats, setPcStats] = useState(null); // { count, updatedAt } | null
     const [checking, setChecking] = useState(false);
     const [lastChecked, setLastChecked] = useState(null);
