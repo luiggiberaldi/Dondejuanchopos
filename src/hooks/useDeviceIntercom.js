@@ -356,11 +356,27 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
         if (!PUSH_PUBLIC_KEY) { setPushState('unconfigured'); return; }
         if (!supabaseCloud || !primaryDeviceId || !deviceId) return;
         try {
-            const registration = await navigator.serviceWorker.ready;
-            const subscription = await registration.pushManager.getSubscription();
+            if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
+                setPushState('denied');
+                return;
+            }
+            const registration = await Promise.race([
+                navigator.serviceWorker.ready,
+                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2500))
+            ]).catch(() => null);
+
+            let subscription = null;
+            if (registration?.pushManager) {
+                try {
+                    subscription = await registration.pushManager.getSubscription();
+                } catch { /* pushManager fallback */ }
+            }
+
             if (!subscription || Notification.permission !== 'granted') {
-                await supabaseCloud.from(PUSH_TABLE).delete().eq('device_id', deviceId);
-                setPushState('disabled');
+                try {
+                    await supabaseCloud.from(PUSH_TABLE).delete().eq('device_id', deviceId);
+                } catch {}
+                setPushState(Notification.permission === 'denied' ? 'denied' : 'disabled');
                 return;
             }
             const json = subscription.toJSON();
@@ -374,13 +390,12 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
                 revoked_at: null,
             }, { onConflict: 'device_id' });
             if (writeError?.code === '42501' || writeError?.status === 401 || writeError?.status === 403) {
-                setPushState('error');
-                setError('Este dispositivo ya no pertenece a un vínculo activo. Vuelve a emparejarlo para activar Push.');
+                setPushState('disabled');
                 return;
             }
             if (writeError) throw writeError;
             setPushState('active');
-        } catch { setPushState('error'); }
+        } catch { setPushState('disabled'); }
     }, [deviceId, primaryDeviceId]);
 
     useEffect(() => { syncPushState(); }, [syncPushState]);

@@ -131,7 +131,7 @@ export default function IntercomModal({
                     <div className={`text-xs ${muted}`} aria-live="polite">{pushState === 'active' ? 'Notificaciones de fondo activas' : pushState === 'unsupported' ? 'Push no disponible en este navegador' : pushState === 'unconfigured' ? 'Push pendiente de configurar' : pushState === 'denied' ? 'Permiso de notificaciones denegado' : 'Notificaciones de fondo desactivadas'}</div>
                     {pushState === 'active' ? (
                         <button type="button" onClick={disablePush} disabled={pushBusy} className={`flex items-center gap-1 text-xs font-bold ${muted}`}><BellOff size={14} /> Desactivar</button>
-                    ) : pushState === 'disabled' || pushState === 'denied' ? (
+                    ) : pushState === 'disabled' || pushState === 'denied' || pushState === 'error' ? (
                         <button type="button" onClick={enablePush} disabled={pushBusy} className="flex items-center gap-1 rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-bold text-white disabled:opacity-50">{pushBusy ? <LoaderCircle className="animate-spin" size={14} /> : <Bell size={14} />} Activar</button>
                     ) : null}
                 </div>
