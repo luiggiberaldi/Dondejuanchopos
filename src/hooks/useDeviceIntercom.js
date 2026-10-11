@@ -295,18 +295,63 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
     }, [failedMessages, persistMessage]);
 
     const enablePush = useCallback(async () => {
-        if (!pushSupported()) { setPushState('unsupported'); return false; }
-        if (!PUSH_PUBLIC_KEY) { setPushState('unconfigured'); return false; }
-        if (!supabaseCloud || !primaryDeviceId || !deviceId) return false;
+        if (!pushSupported()) {
+            setPushState('unsupported');
+            setError('Tu navegador no soporta notificaciones Push en este dispositivo.');
+            return false;
+        }
+        if (!PUSH_PUBLIC_KEY) {
+            setPushState('unconfigured');
+            setError('Falta la clave VAPID pública.');
+            return false;
+        }
+        if (!supabaseCloud || !primaryDeviceId || !deviceId) {
+            setError('Falta vincular este dispositivo a una caja antes de activar Push.');
+            return false;
+        }
         setPushBusy(true);
+        setError('');
         try {
-            const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
-            if (permission !== 'granted') { setPushState('denied'); return false; }
-            const registration = await navigator.serviceWorker.ready;
-            let subscription = await registration.pushManager.getSubscription();
-            if (!subscription) subscription = await registration.pushManager.subscribe({
-                userVisibleOnly: true, applicationServerKey: fromBase64Url(PUSH_PUBLIC_KEY),
-            });
+            let permission = typeof Notification !== 'undefined' ? Notification.permission : 'default';
+            if (permission !== 'granted') {
+                try {
+                    const req = Notification.requestPermission();
+                    if (req && typeof req.then === 'function') {
+                        permission = await req;
+                    } else {
+                        permission = await new Promise(resolve => Notification.requestPermission(resolve));
+                    }
+                } catch {
+                    permission = typeof Notification !== 'undefined' ? Notification.permission : 'default';
+                }
+            }
+            if (permission !== 'granted') {
+                setPushState('denied');
+                setError('Permiso denegado. Toca el candado o configuración del sitio en el navegador para permitir.');
+                return false;
+            }
+
+            let registration = await navigator.serviceWorker.getRegistration().catch(() => null);
+            if (!registration) {
+                registration = await Promise.race([
+                    navigator.serviceWorker.ready,
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+                ]).catch(() => null);
+            }
+            if (!registration) {
+                registration = await navigator.serviceWorker.register('/sw.js').catch(() => null);
+            }
+            if (!registration?.pushManager) {
+                throw new Error('PushManager no está listo en el navegador. Intenta recargar la página.');
+            }
+
+            let subscription = await registration.pushManager.getSubscription().catch(() => null);
+            if (!subscription) {
+                subscription = await registration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: fromBase64Url(PUSH_PUBLIC_KEY),
+                });
+            }
             const json = subscription.toJSON();
             const { error: writeError } = await supabaseCloud.from(PUSH_TABLE).upsert({
                 device_id: deviceId, primary_device_id: primaryDeviceId,
