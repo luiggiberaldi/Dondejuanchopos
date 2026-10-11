@@ -2,12 +2,14 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
     BookOpen, Search, User, Phone, MessageCircle, ChevronDown, ChevronUp,
     CheckCircle2, Wallet, ArrowUpRight, ArrowDownRight, X, RotateCcw,
-    ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Users
+    ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Users, Plus, CreditCard
 } from 'lucide-react';
 import { formatUsd, formatBs, formatCop } from '../../utils/calculatorUtils';
 import { supabaseCloud } from '../../config/supabaseCloud';
 import { showToast as defaultShowToast } from '../Toast';
 import { createSupervisorCommandId } from '../../utils/supervisorCommandModel';
+import SupervisorCustomerTransactionModal from './SupervisorCustomerTransactionModal';
+import { queueSupervisorCustomerTransaction } from '../../utils/supervisorCustomerCommandQueue';
 
 export default function MonitorDeudasTab({
     customers = [],
@@ -30,7 +32,9 @@ export default function MonitorDeudasTab({
     const [expandedCustomerId, setExpandedCustomerId] = useState(null);
     const [selectedCustomerForHistory, setSelectedCustomerForHistory] = useState(null);
     const [resetModalCustomer, setResetModalCustomer] = useState(null);
+    const [transactionModal, setTransactionModal] = useState(null);
     const [isResetting, setIsResetting] = useState(false);
+    const [isQueueingTransaction, setIsQueueingTransaction] = useState(false);
 
     // ── Paginación Inteligente ──
     const [currentPage, setCurrentPage] = useState(1);
@@ -195,6 +199,31 @@ export default function MonitorDeudasTab({
         return `https://wa.me/${clean}?text=${msg}`;
     };
 
+    const handleQueueCustomerTransaction = async payload => {
+        if (isQueueingTransaction) return;
+        const monitorDeviceId = typeof localStorage !== 'undefined' ? localStorage.getItem('dj_device_id') : null;
+        setIsQueueingTransaction(true);
+        try {
+            const result = await queueSupervisorCustomerTransaction({
+                supabase: supabaseCloud,
+                primaryDeviceId: pairedDeviceId,
+                monitorDeviceId,
+                payload,
+            });
+            const toast = propShowToast || defaultShowToast;
+            toast?.('Movimiento enviado; esperando confirmación de la caja.', 'info');
+            setTransactionModal(null);
+            window.dispatchEvent(new CustomEvent('supervisor_sync_requested'));
+            return result;
+        } catch (error) {
+            const toast = propShowToast || defaultShowToast;
+            toast?.(error.message || 'No se pudo enviar el movimiento.', 'error');
+            throw error;
+        } finally {
+            setIsQueueingTransaction(false);
+        }
+    };
+
     // Reiniciar saldo a $0 desde el Monitor de Supervisión
     const handleConfirmResetBalance = async () => {
         const customer = resetModalCustomer;
@@ -204,10 +233,10 @@ export default function MonitorDeudasTab({
 
         const toast = propShowToast || defaultShowToast;
         const targetPrimary = pairedDeviceId || (typeof localStorage !== 'undefined' ? localStorage.getItem('dj_paired_device_id') : null);
-        const myDeviceId = (typeof localStorage !== 'undefined' ? localStorage.getItem('dj_device_id') : null) || 'mon_supervisor_admin';
+        const myDeviceId = typeof localStorage !== 'undefined' ? localStorage.getItem('dj_device_id') : null;
 
-        if (!targetPrimary) {
-            toast && toast('No hay una caja emparejada para aplicar el comando.', 'error');
+        if (!supabaseCloud || !targetPrimary || !myDeviceId) {
+            (propShowToast || defaultShowToast)('Falta la conexión, la caja emparejada o la identidad del Supervisor.', 'error');
             setIsResetting(false);
             return;
         }
@@ -246,44 +275,15 @@ export default function MonitorDeudasTab({
                         }
                     });
 
-                if (cmdErr) {
-                    console.error('[MonitorDeudasTab] Error al encolar comando en Supabase:', cmdErr);
-                }
+                if (cmdErr) throw cmdErr;
             }
 
-            // 2. Actualizar optimistamente en el almacenamiento del monitor
-            const updatedCustomer = { ...customer, deuda: 0, favor: 0, casheaDeuda: 0, updatedAt: new Date().toISOString() };
-            const nextCustomers = customers.map(c => 
-                (c.id === customer.id || (customer.code && c.code === customer.code)) ? updatedCustomer : c
-            );
-
-            const { storageService } = await import('../../utils/storageService');
-            await storageService.setItem('bodega_customers_v1', nextCustomers);
-
-            // 3. Actualizar directamente sync_documents en la nube
-            if (supabaseCloud) {
-                try {
-                    await supabaseCloud
-                        .from('sync_documents')
-                        .update({
-                            data: { payload: nextCustomers },
-                            payload: { payload: nextCustomers },
-                            updated_at: new Date().toISOString()
-                        })
-                        .eq('device_id', targetPrimary)
-                        .eq('doc_id', 'bodega_customers_v1');
-                } catch (syncErr) {
-                    console.warn('[MonitorDeudasTab] No se pudo actualizar sync_documents directamente:', syncErr);
-                }
-            }
-
-            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_customers_v1' } }));
-
-            toast && toast(`Saldo reiniciado a $0.00 para ${customer.name || customer.code}`, 'success');
+            // El Supervisor es una vista: solo la caja principal escribe el saldo canónico.
+            toast && toast('Reinicio enviado; esperando confirmación de la caja.', 'info');
             setResetModalCustomer(null);
-            if (selectedCustomerForHistory && selectedCustomerForHistory.id === customer.id) {
-                setSelectedCustomerForHistory(updatedCustomer);
-            }
+            window.dispatchEvent(new CustomEvent('supervisor_sync_requested'));
+            return;
+
         } catch (err) {
             console.error('[MonitorDeudasTab] Error al reiniciar saldo:', err);
             toast && toast('Error al reiniciar saldo del cliente', 'error');
@@ -294,6 +294,17 @@ export default function MonitorDeudasTab({
 
     return (
         <div className="space-y-4 sm:space-y-6 animate-in fade-in pb-12 w-full max-w-full overflow-x-hidden">
+            {transactionModal && <SupervisorCustomerTransactionModal
+                customer={transactionModal.customer}
+                type={transactionModal.type}
+                bcvRate={bcvRate || activeRate}
+                tasaCop={tasaCop}
+                copEnabled={copEnabled}
+                supervisorUser={supervisorUser}
+                onClose={() => setTransactionModal(null)}
+                onSubmit={handleQueueCustomerTransaction}
+            />}
+
             {/* Header Principal */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 rounded-3xl shadow-sm">
                 <div>
@@ -581,8 +592,12 @@ export default function MonitorDeudasTab({
                                         </div>
 
                                         {/* Acciones de la Tarjeta Móvil */}
-                                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/60">
-                                            <div className="flex items-center gap-1.5">
+                                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/60">
+                                            <div className="flex flex-wrap items-center gap-1.5">
+                                                {pairedDeviceId && <>
+                                                    <button type="button" onClick={() => setTransactionModal({ customer: c, type: 'CREDITO' })} className="rounded-xl bg-rose-50 px-2.5 py-1.5 text-[11px] font-bold text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"><Plus size={13} className="inline" /> Agregar deuda</button>
+                                                    <button type="button" onClick={() => setTransactionModal({ customer: c, type: 'ABONO' })} className="rounded-xl bg-emerald-50 px-2.5 py-1.5 text-[11px] font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"><CreditCard size={13} className="inline" /> Recibir abono</button>
+                                                </>}
                                                 {waUrl && (
                                                     <a
                                                         href={waUrl}
@@ -748,7 +763,11 @@ export default function MonitorDeudasTab({
                                                 </td>
 
                                                 <td className="py-3 px-4 text-center whitespace-nowrap">
-                                                    <div className="flex items-center justify-center gap-1.5">
+                                                    <div className="flex flex-wrap items-center justify-center gap-1.5">
+                                                        {pairedDeviceId && <>
+                                                            <button type="button" onClick={() => setTransactionModal({ customer: c, type: 'CREDITO' })} className="rounded-xl bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">Agregar deuda</button>
+                                                            <button type="button" onClick={() => setTransactionModal({ customer: c, type: 'ABONO' })} className="rounded-xl bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">Recibir abono</button>
+                                                        </>}
                                                         {waUrl && (
                                                             <a
                                                                 href={waUrl}

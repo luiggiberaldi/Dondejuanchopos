@@ -491,66 +491,116 @@ export function useSupervisorCommands(deviceId) {
                     return;
                 }
                 if (command.payload?.action === 'register_customer_payment') {
+                    let appliedLocally = false;
                     try {
-                        const { cobro, creditos, customerId, customerCode, deuda, favor } = command.payload || {};
+                        const payload = command.payload || {};
+                        const { customerId, customerCode, record: contractRecord, transactionType } = payload;
+                        const cobro = payload.cobro || (transactionType === 'ABONO' ? contractRecord : null);
+                        const creditos = Array.isArray(payload.creditos) ? payload.creditos
+                            : transactionType === 'CREDITO' && contractRecord ? [contractRecord] : [];
+                        const { deuda, favor } = payload;
+                        const records = [cobro, ...creditos].filter(record => record && record.id);
+                        const supportedContract = Boolean(payload.transactionType && payload.operationId);
+                        const operationId = payload.operationId || command.id;
+                        if (!customerId || records.length === 0 || (supportedContract && records.some(record =>
+                            record.customerTransactionId !== operationId
+                            || (record.customerId || record.clienteId) !== customerId
+                            || record.customerTransactionType !== payload.transactionType))) {
+                            await updateCommandStatus(command.id, 'failed', 'Datos de transacción o cliente inválidos');
+                            return;
+                        }
                         const { storageService } = await import('../utils/storageService');
                         const { pushCloudSync } = await import('./useCloudSync');
                         const { withLock } = await import('../utils/withLock');
                         const { subR, round2 } = await import('../utils/dinero');
 
-                        // Acepta un cobro (ABONO) y/o un lote de ventas fiadas (CREDITO).
-                        const records = [cobro, ...(Array.isArray(creditos) ? creditos : [])].filter(r => r && r.id);
-                        if (records.length === 0) {
-                            await updateCommandStatus(command.id, 'failed', 'Datos de transacción inválidos');
-                            return;
-                        }
-
                         let savedCustomers = null;
                         await withLock('pos_write_lock', async () => {
                             const sales = await storageService.getItem('bodega_sales_v1', []) || [];
-                            // Idempotencia por id: solo inserta los registros que falten.
-                            const faltantes = records.filter(r => !sales.some(s => s.id === r.id));
-                            if (faltantes.length > 0) {
-                                const updatedSales = [...faltantes, ...sales];
-                                await storageService.setItem('bodega_sales_v1', updatedSales);
-                                try {
-                                    await storageService.setItem('bodega_sales_mirror_v1', updatedSales);
-                                } catch (_) {}
-                            }
-
                             const customers = await storageService.getItem('bodega_customers_v1', []) || [];
-                            const newCustomers = customers.map(c => {
-                                const isMatch = (customerId && (c.id === customerId || c._id === customerId)) ||
-                                                (customerCode && (c.code === customerCode || c.id === customerCode));
-                                if (!isMatch) return c;
-                                const rawDeuda = deuda !== undefined ? Number(deuda) : c.deuda;
-                                const rawFavor = favor !== undefined ? Number(favor) : c.favor;
-                                const saldoNeto = subR(rawFavor, rawDeuda);
-                                return {
-                                    ...c,
-                                    favor: saldoNeto > 0 ? round2(saldoNeto) : 0,
-                                    deuda: saldoNeto < 0 ? round2(Math.abs(saldoNeto)) : 0,
-                                    updatedAt: new Date().toISOString(),
-                                };
-                            });
-                            await storageService.setItem('bodega_customers_v1', newCustomers);
+                            const matches = customers.filter(c => (customerId && (c.id === customerId || c._id === customerId))
+                                || (customerCode && c.code === customerCode));
+                            if (matches.length !== 1) throw new Error(matches.length ? 'El cliente coincide con más de una ficha.' : 'Cliente no encontrado en la caja.');
+                            const targetCustomer = matches[0];
+                            if (supportedContract && customerCode && targetCustomer.code !== customerCode) {
+                                throw new Error('El código y el identificador pertenecen a clientes distintos.');
+                            }
+                            const existingOperation = sales.find(s => s.customerTransactionId === operationId);
+                            if (existingOperation) {
+                                if (existingOperation.customerId !== targetCustomer.id
+                                    || existingOperation.customerTransactionType !== payload.transactionType
+                                    || Number(existingOperation.customerTransactionRawAmount) !== Number(payload.rawAmount)
+                                    || existingOperation.customerTransactionCurrency !== payload.currency
+                                    || existingOperation.id !== records[0].id) {
+                                    throw new Error('El identificador del movimiento ya existe con otro contenido.');
+                                }
+                                savedCustomers = customers;
+                                return;
+                            }
+                            const { applySupervisorCustomerTransaction } = await import('../utils/supervisorCustomerTransaction');
+                            const updatedCustomer = supportedContract
+                                ? { ...applySupervisorCustomerTransaction(targetCustomer, payload), updatedAt: new Date().toISOString() }
+                                : (() => {
+                                    const rawDeuda = deuda !== undefined ? Number(deuda) : targetCustomer.deuda;
+                                    const rawFavor = favor !== undefined ? Number(favor) : targetCustomer.favor;
+                                    const saldoNeto = subR(rawFavor, rawDeuda);
+                                    return { ...targetCustomer, favor: saldoNeto > 0 ? round2(saldoNeto) : 0,
+                                        deuda: saldoNeto < 0 ? round2(Math.abs(saldoNeto)) : 0, updatedAt: new Date().toISOString() };
+                                })();
+                            const newCustomers = customers.map(c => c === targetCustomer ? updatedCustomer : c);
+                            const collisions = records.filter(record => sales.some(existing => existing.id === record.id
+                                && (existing.customerTransactionId !== operationId || existing.customerId !== targetCustomer.id
+                                    || existing.customerTransactionType !== record.customerTransactionType
+                                    || existing.customerTransactionRawAmount !== record.customerTransactionRawAmount
+                                    || existing.customerTransactionCurrency !== record.customerTransactionCurrency)));
+                            if (collisions.length) throw new Error('Un registro del movimiento ya existe con otro contenido.');
+                            const faltantes = records.filter(record => !sales.some(existing => existing.id === record.id));
+                            const updatedSales = faltantes.length ? [...faltantes, ...sales] : sales;
+                            const { StorageWriteError } = await import('../utils/storageService');
+                            try {
+                                await storageService.transaction(async store => {
+                                    await store.setItem('bodega_customers_v1', newCustomers);
+                                    if (faltantes.length) await store.setItem('bodega_sales_v1', updatedSales);
+                                });
+                            } catch (writeError) {
+                                if (writeError instanceof StorageWriteError || writeError?.code === 'STORAGE_WRITE_FAILED') throw writeError;
+                                throw writeError;
+                            }
+                            if (faltantes.length) {
+                                await storageService.setItem('bodega_sales_mirror_v1', updatedSales);
+                            }
+                            appliedLocally = true;
                             savedCustomers = newCustomers;
                         });
 
                         if (savedCustomers) {
                             appliedIds.add(command.id);
                             markApplied(command.id);
-                            await updateCommandStatus(command.id, 'applied');
-                            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_sales_v1' } }));
-                            window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_customers_v1', value: savedCustomers } }));
-                            await pushCloudSync('bodega_sales_v1', await storageService.getItem('bodega_sales_v1', []), true).catch(() => {});
-                            await pushCloudSync('bodega_customers_v1', savedCustomers, true);
+                            if (!(await updateCommandStatus(command.id, 'applied'))) {
+                                recordUnconfirmedCommand(command, 'El movimiento financiero ya está aplicado en la caja.');
+                            }
+                            if (appliedLocally) {
+                                window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_sales_v1' } }));
+                                window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_customers_v1', value: savedCustomers } }));
+                                await pushCloudSync('bodega_sales_v1', await storageService.getItem('bodega_sales_v1', []), true);
+                                await pushCloudSync('bodega_customers_v1', savedCustomers, true);
+                                await logEvent('CLIENTE', payload.transactionType === 'ABONO' ? 'ABONO_REGISTRADO' : 'CREDITO_REGISTRADO',
+                                    `${payload.transactionType === 'ABONO' ? 'Abono' : 'Crédito'} supervisor de $${payload.amountUsd} para ${savedCustomers.find(c => c.id === customerId)?.name || customerCode || customerId}`,
+                                    { id: payload.supervisorId || command.monitor_device_id, nombre: payload.supervisorName || 'Supervisor', rol: payload.supervisorRole || 'SUPERVISOR' },
+                                    { commandId: command.id, operationId, customerId, deviceId: command.monitor_device_id });
+                            }
                         } else {
                             await updateCommandStatus(command.id, 'failed', 'No se pudo registrar el abono');
                         }
                     } catch (err) {
-                        appliedIds.delete(command.id);
-                        unmarkApplied(command.id);
+                        if (!appliedLocally) {
+                            appliedIds.delete(command.id);
+                            unmarkApplied(command.id);
+                        } else {
+                            appliedIds.add(command.id);
+                            markApplied(command.id);
+                            recordUnconfirmedCommand(command, 'El movimiento fue aplicado localmente; falló una operación posterior.');
+                        }
                         console.error('[SupervisorCommands] Error al registrar abono de cliente:', err);
                         await updateCommandStatus(command.id, 'failed', err?.message);
                     }
