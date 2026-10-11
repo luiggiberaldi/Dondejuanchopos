@@ -962,6 +962,13 @@ export function useSupervisorCommands(deviceId) {
                     const freshProducts = await storageService.getItem('bodega_products_v1', []) || [];
 
                     const targetSale = freshSales.find(s => s.id === saleId);
+                    const customerMovementVoid = command.payload?.customerMovementVoid === true;
+                    if (targetSale?.status === 'ANULADA' && customerMovementVoid
+                        && (!command.payload?.reason
+                            || targetSale.voidCommandId !== command.id
+                            || (targetSale.voidReason && targetSale.voidReason !== command.payload.reason))) {
+                        throw new Error('El movimiento ya fue anulado con otro motivo o por otro comando.');
+                    }
                     if (!targetSale) {
                         await updateCommandStatus(command.id, 'failed', 'Venta no encontrada en la caja');
                     } else if (targetSale.status === 'ANULADA') {
@@ -969,11 +976,27 @@ export function useSupervisorCommands(deviceId) {
                         markApplied(command.id);
                         await updateCommandStatus(command.id, 'applied');
                     } else {
+                        if (customerMovementVoid) {
+                            const expectedCustomerId = command.payload?.customerId;
+                            const recordedCustomerId = targetSale.customerId || targetSale.clienteId;
+                            if (!['VENTA_FIADA', 'COBRO_DEUDA'].includes(targetSale.tipo)
+                                || !expectedCustomerId || recordedCustomerId !== expectedCustomerId) {
+                                throw new Error('El movimiento no coincide con el cliente indicado o no es un crédito/abono.');
+                            }
+                            if ((targetSale.customerTransactionId || null) !== (command.payload?.customerTransactionId || null)) {
+                                throw new Error('El identificador de la transacción no coincide.');
+                            }
+                            if (!String(command.payload?.reason || '').trim()) {
+                                throw new Error('La anulación requiere un motivo.');
+                            }
+                        }
                         const result = await processVoidSale(targetSale, freshSales, freshProducts, {
                             id: command.payload?.supervisorId,
                             nombre: command.payload?.supervisorName,
                             rol: command.payload?.supervisorRole,
                             commandId: command.id,
+                            reason: command.payload?.reason,
+                            deviceId: command.monitor_device_id,
                         });
                         appliedIds.add(command.id);
                         markApplied(command.id);

@@ -2,7 +2,8 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
     BookOpen, Search, User, Phone, MessageCircle, ChevronDown, ChevronUp,
     CheckCircle2, Wallet, ArrowUpRight, ArrowDownRight, X, RotateCcw,
-    ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Users, Plus, CreditCard
+    ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Users, Plus, CreditCard,
+    AlertTriangle, Loader2
 } from 'lucide-react';
 import { formatUsd, formatBs, formatCop } from '../../utils/calculatorUtils';
 import { supabaseCloud } from '../../config/supabaseCloud';
@@ -10,6 +11,7 @@ import { showToast as defaultShowToast } from '../Toast';
 import { createSupervisorCommandId } from '../../utils/supervisorCommandModel';
 import SupervisorCustomerTransactionModal from './SupervisorCustomerTransactionModal';
 import { queueSupervisorCustomerTransaction } from '../../utils/supervisorCustomerCommandQueue';
+import { queueSupervisorCustomerMovementVoid } from '../../utils/supervisorCustomerMovementVoid';
 
 export default function MonitorDeudasTab({
     customers = [],
@@ -19,6 +21,7 @@ export default function MonitorDeudasTab({
     tasaCop = 0,
     copEnabled = false,
     copPrimary = false,
+    allCloudCmds = [],
     triggerHaptic = () => {},
     pairedDeviceId = null,
     supervisorUser = null,
@@ -33,6 +36,10 @@ export default function MonitorDeudasTab({
     const [selectedCustomerForHistory, setSelectedCustomerForHistory] = useState(null);
     const [resetModalCustomer, setResetModalCustomer] = useState(null);
     const [transactionModal, setTransactionModal] = useState(null);
+    const [movementToVoid, setMovementToVoid] = useState(null);
+    const [voidReason, setVoidReason] = useState('');
+    const [voidingMovementId, setVoidingMovementId] = useState(null);
+    const [pendingMovementVoids, setPendingMovementVoids] = useState({});
     const [isResetting, setIsResetting] = useState(false);
     const [isQueueingTransaction, setIsQueueingTransaction] = useState(false);
 
@@ -173,7 +180,6 @@ export default function MonitorDeudasTab({
         ];
 
         return sales.filter(s => {
-            if (s.status === 'ANULADA') return false;
             if (EXCLUDED_VOID_IDS.includes(s.id)) return false;
             if (customerId && (s.customerId === customerId || s.clienteId === customerId || s.cliente === customerId)) return true;
             if (customerName) {
@@ -186,6 +192,68 @@ export default function MonitorDeudasTab({
             }
             return false;
         }).sort((a, b) => new Date(b.timestamp || b.date) - new Date(a.timestamp || a.date));
+    };
+
+    const getMovementVoidCommand = sale => (Array.isArray(allCloudCmds) ? allCloudCmds : []).find(command => (
+        command.command_type === 'void_sale'
+        && command.payload?.customerMovementVoid === true
+        && command.payload?.saleId === sale.id
+        && command.payload?.customerId === (sale.customerId || sale.clienteId)
+        && command.monitor_device_id === (typeof localStorage !== 'undefined' ? localStorage.getItem('dj_device_id') : null)
+        && ['pending', 'applied', 'applied_with_warnings'].includes(command.status)
+    ));
+
+    useEffect(() => {
+        for (const [saleId, commandId] of Object.entries(pendingMovementVoids)) {
+            const command = allCloudCmds.find(item => item.id === commandId);
+            if (!command || command.status === 'pending') continue;
+            if (['failed', 'cancelled'].includes(command.status)) {
+                setPendingMovementVoids(previous => {
+                    const next = { ...previous };
+                    delete next[saleId];
+                    return next;
+                });
+                (propShowToast || defaultShowToast)?.(`La caja no anuló el movimiento: ${command.error_reason || 'operación rechazada'}.`, 'error');
+                continue;
+            }
+            const savedMovement = sales.find(item => item.id === saleId);
+            if (['applied', 'applied_with_warnings'].includes(command.status) && savedMovement?.status === 'ANULADA') {
+                setPendingMovementVoids(previous => {
+                    const next = { ...previous };
+                    delete next[saleId];
+                    return next;
+                });
+                (propShowToast || defaultShowToast)?.('La caja confirmó la anulación del movimiento.', 'success');
+            }
+        }
+    }, [allCloudCmds, pendingMovementVoids, sales, propShowToast]);
+
+    const submitMovementVoid = async event => {
+        event.preventDefault();
+        const sale = movementToVoid;
+        if (!sale || voidingMovementId) return;
+        setVoidingMovementId(sale.id);
+        try {
+            const result = await queueSupervisorCustomerMovementVoid({
+                supabase: supabaseCloud,
+                primaryDeviceId: pairedDeviceId,
+                monitorDeviceId: typeof localStorage !== 'undefined' ? localStorage.getItem('dj_device_id') : null,
+                sale,
+                customerId: sale.customerId || sale.clienteId,
+                actor: supervisorUser,
+                reason: voidReason,
+                commandId: createSupervisorCommandId(),
+            });
+            setPendingMovementVoids(previous => ({ ...previous, [sale.id]: result.commandId }));
+            (propShowToast || defaultShowToast)?.('Anulación enviada; esperando confirmación de la caja.', 'info');
+            setMovementToVoid(null);
+            setVoidReason('');
+            window.dispatchEvent(new CustomEvent('supervisor_sync_requested'));
+        } catch (error) {
+            (propShowToast || defaultShowToast)?.(error.message || 'No se pudo enviar la anulación.', 'error');
+        } finally {
+            setVoidingMovementId(null);
+        }
     };
 
     // Formatear enlace de WhatsApp
@@ -304,6 +372,177 @@ export default function MonitorDeudasTab({
                 onClose={() => setTransactionModal(null)}
                 onSubmit={handleQueueCustomerTransaction}
             />}
+            {movementToVoid && (
+                <div
+                    className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200"
+                    role="presentation"
+                    onClick={() => {
+                        if (voidingMovementId !== movementToVoid.id) {
+                            setMovementToVoid(null);
+                            setVoidReason('');
+                        }
+                    }}
+                >
+                    <form
+                        onSubmit={submitMovementVoid}
+                        onClick={e => e.stopPropagation()}
+                        className="w-full max-w-md rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200"
+                        aria-label="Anular movimiento de cliente"
+                    >
+                        {/* Cabecera del Modal */}
+                        <div className="p-5 sm:p-6 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3 bg-rose-500/[0.03] dark:bg-rose-500/[0.06]">
+                            <div className="flex items-center gap-3">
+                                <div className="w-11 h-11 rounded-2xl bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0 shadow-sm">
+                                    <RotateCcw size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-black text-slate-900 dark:text-white leading-tight">
+                                        ¿Anular este movimiento?
+                                    </h3>
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                        La caja revertirá el saldo del cliente en la cuenta.
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                disabled={voidingMovementId === movementToVoid.id}
+                                onClick={() => { setMovementToVoid(null); setVoidReason(''); }}
+                                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors disabled:opacity-50 cursor-pointer shrink-0"
+                                aria-label="Cerrar modal"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        {/* Cuerpo del Modal */}
+                        <div className="p-5 sm:p-6 space-y-4">
+                            {/* Tarjeta de Resumen del Movimiento */}
+                            <div className="p-4 rounded-2xl bg-slate-50/90 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 space-y-3">
+                                <div className="flex items-center justify-between gap-2">
+                                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider ${
+                                        movementToVoid.tipo === 'COBRO_DEUDA'
+                                            ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/50 dark:border-emerald-800/50'
+                                            : 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200/50 dark:border-rose-800/50'
+                                    }`}>
+                                        {movementToVoid.tipo === 'COBRO_DEUDA' ? (
+                                            <>
+                                                <ArrowUpRight size={13} className="shrink-0" />
+                                                <span>Abono Recibido</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <ArrowDownRight size={13} className="shrink-0" />
+                                                <span>Venta Fiada</span>
+                                            </>
+                                        )}
+                                    </span>
+
+                                    {movementToVoid.saleNumber != null && (
+                                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-700/80 border border-slate-200/60 dark:border-slate-600/60">
+                                            #{movementToVoid.saleNumber}
+                                        </span>
+                                    )}
+                                </div>
+
+                                <div className="flex items-baseline justify-between gap-2 pt-1 border-t border-slate-200/60 dark:border-slate-700/50">
+                                    <div>
+                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                                            Monto a revertir
+                                        </p>
+                                        <p className="text-2xl font-black font-outfit text-slate-900 dark:text-white leading-tight mt-0.5">
+                                            ${formatUsd(movementToVoid.totalUsd || 0)} <span className="text-xs font-bold text-slate-400 font-sans">USD</span>
+                                        </p>
+                                    </div>
+                                    {activeRate > 0 && (
+                                        <div className="text-right">
+                                            <p className="text-[10px] font-bold text-slate-400">Equivalente</p>
+                                            <p className="text-xs font-bold font-mono text-slate-600 dark:text-slate-300">
+                                                {formatBs((Number(movementToVoid.totalUsd) || 0) * activeRate)} Bs
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Cliente Afectado */}
+                                <div className="flex items-center gap-2 pt-2 border-t border-slate-200/60 dark:border-slate-700/50 text-xs">
+                                    <div className="w-6 h-6 rounded-lg bg-white dark:bg-slate-700/60 border border-slate-200/60 dark:border-slate-600/60 flex items-center justify-center shrink-0 text-slate-400">
+                                        <User size={13} />
+                                    </div>
+                                    <span className="font-bold text-slate-700 dark:text-slate-200 truncate">
+                                        {movementToVoid.customerName || movementToVoid.clienteName || selectedCustomerForHistory?.name || selectedCustomerForHistory?.nombre || 'Cliente'}
+                                    </span>
+                                    {(selectedCustomerForHistory?.code || movementToVoid.customerCode) && (
+                                        <span className="text-[10px] font-mono font-bold text-slate-400 ml-auto shrink-0">
+                                            {selectedCustomerForHistory?.code || movementToVoid.customerCode}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Alerta de Auditoría */}
+                            <div className="flex items-start gap-2.5 p-3 rounded-2xl bg-amber-500/[0.07] border border-amber-200/60 dark:border-amber-900/40 text-amber-900 dark:text-amber-200 text-xs">
+                                <AlertTriangle size={16} className="shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                                <span className="text-[11px] leading-relaxed">
+                                    Esta acción emitirá un comando remoto a la caja principal y quedará registrada en el historial de auditoría.
+                                </span>
+                            </div>
+
+                            {/* Campo de Motivo Obligatorio */}
+                            <div className="space-y-1.5">
+                                <div className="flex items-center justify-between text-xs">
+                                    <label htmlFor="void-reason-textarea" className="font-bold text-slate-700 dark:text-slate-300">
+                                        Motivo obligatorio <span className="text-rose-500">*</span>
+                                    </label>
+                                    <span className={`text-[11px] font-mono font-bold ${voidReason.length > 220 ? 'text-amber-500' : 'text-slate-400'}`}>
+                                        {voidReason.length}/240
+                                    </span>
+                                </div>
+                                <textarea
+                                    id="void-reason-textarea"
+                                    autoFocus
+                                    required
+                                    maxLength={240}
+                                    rows={3}
+                                    value={voidReason}
+                                    onChange={event => setVoidReason(event.target.value)}
+                                    placeholder="Ej.: se registró el monto por error, duplicado, etc."
+                                    className="w-full resize-none rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/60 p-3.5 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:border-rose-500 focus:bg-white dark:focus:bg-slate-800 focus:ring-4 focus:ring-rose-500/10 transition-all shadow-inner"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Botones de Acción */}
+                        <div className="p-4 sm:p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 flex items-center gap-3">
+                            <button
+                                type="button"
+                                disabled={voidingMovementId === movementToVoid.id}
+                                onClick={() => { setMovementToVoid(null); setVoidReason(''); }}
+                                className="flex-1 py-3 px-4 rounded-2xl bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700/80 text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50"
+                            >
+                                Volver
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={voidingMovementId === movementToVoid.id || !voidReason.trim()}
+                                className="flex-[1.4] py-3 px-4 rounded-2xl text-xs sm:text-sm font-black text-white flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 dark:disabled:bg-slate-800 dark:disabled:text-slate-600 disabled:shadow-none bg-rose-600 hover:bg-rose-700 shadow-md shadow-rose-600/20"
+                            >
+                                {voidingMovementId === movementToVoid.id ? (
+                                    <>
+                                        <Loader2 size={16} className="animate-spin" />
+                                        <span>Enviando…</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <RotateCcw size={15} />
+                                        <span>Enviar anulación</span>
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            )}
 
             {/* Header Principal */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 rounded-3xl shadow-sm">
@@ -648,10 +887,15 @@ export default function MonitorDeudasTab({
                                                         {customerSales.map(s => {
                                                             const isFiada = s.tipo === 'VENTA_FIADA';
                                                             const isCobro = s.tipo === 'COBRO_DEUDA';
+                                                            const voidCommand = (isFiada || isCobro) ? getMovementVoidCommand(s) : null;
+                                                            const isVoided = s.status === 'ANULADA';
+                                                            const isPendingVoid = Boolean(pendingMovementVoids[s.id]
+                                                                || (['pending', 'applied', 'applied_with_warnings'].includes(voidCommand?.status) && !isVoided));
+                                                            const canVoidMovement = (isFiada || isCobro) && (s.customerId || s.clienteId) === (c.id || c._id);
                                                             const dateStr = s.timestamp ? new Date(s.timestamp).toLocaleDateString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
 
                                                             return (
-                                                                <div key={s.id} className="p-2 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/50 dark:border-slate-800 flex items-start justify-between gap-2 text-[11px]">
+                                                                <div key={s.id} className={`p-2 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/50 dark:border-slate-800 flex items-start justify-between gap-2 text-[11px] ${isVoided ? 'opacity-60' : ''}`}>
                                                                     <div className="min-w-0 flex-1">
                                                                         <div className="flex items-center gap-1.5 flex-wrap">
                                                                             <span className={`px-1.5 py-0.2 rounded text-[9px] font-black uppercase ${
@@ -659,7 +903,7 @@ export default function MonitorDeudasTab({
                                                                                 isCobro ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600' :
                                                                                 'bg-slate-100 text-slate-600'
                                                                             }`}>
-                                                                                {isFiada ? 'Venta Fiada' : isCobro ? 'Abono Recibido' : 'Venta Contado'}
+                                                                                {isVoided ? 'ANULADO · ' : ''}{isFiada ? 'Venta Fiada' : isCobro ? 'Abono Recibido' : 'Venta Contado'}
                                                                             </span>
                                                                             {s.saleNumber != null && (
                                                                                 <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-black text-slate-600 dark:text-slate-300 bg-slate-200/80 dark:bg-slate-700/80">
@@ -675,6 +919,7 @@ export default function MonitorDeudasTab({
                                                                                 {s.items.map(i => `${i.qty}x ${i.name || i.productName}`).join(', ')}
                                                                             </div>
                                                                         )}
+                                                                        {isVoided && s.voidReason && <div className="mt-1 text-[9px] text-rose-600 dark:text-rose-300">Motivo: {s.voidReason}</div>}
                                                                     </div>
 
                                                                     <div className="text-right shrink-0">
@@ -683,8 +928,9 @@ export default function MonitorDeudasTab({
                                                                             isCobro ? 'text-emerald-600 dark:text-emerald-400' :
                                                                             'text-slate-700 dark:text-slate-200'
                                                                         }`}>
-                                                                            {isFiada ? `-$${formatUsd(s.totalUsd)}` : `+$${formatUsd(s.totalUsd)}`}
+                                                                            {isVoided ? 'ANULADO' : isPendingVoid ? 'PENDIENTE' : isFiada ? `-$${formatUsd(s.totalUsd)}` : `+$${formatUsd(s.totalUsd)}`}
                                                                         </span>
+                                                                        {canVoidMovement && <button type="button" disabled={isVoided || isPendingVoid} onClick={() => { setMovementToVoid(s); setVoidReason(''); }} className="mt-1 block w-full rounded-lg bg-rose-50 px-2 py-1 text-[9px] font-black text-rose-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-rose-950/40 dark:text-rose-300">{isVoided ? 'Anulado' : isPendingVoid ? 'Esperando caja…' : 'Anular movimiento'}</button>}
                                                                     </div>
                                                                 </div>
                                                             );
@@ -931,10 +1177,15 @@ export default function MonitorDeudasTab({
                                 getCustomerSalesHistory(selectedCustomerForHistory.id).map(s => {
                                     const isFiada = s.tipo === 'VENTA_FIADA';
                                     const isCobro = s.tipo === 'COBRO_DEUDA';
+                                    const voidCommand = (isFiada || isCobro) ? getMovementVoidCommand(s) : null;
+                                    const isVoided = s.status === 'ANULADA';
+                                    const isPendingVoid = Boolean(pendingMovementVoids[s.id]
+                                        || (['pending', 'applied', 'applied_with_warnings'].includes(voidCommand?.status) && !isVoided));
+                                    const canVoidMovement = (isFiada || isCobro) && (s.customerId || s.clienteId) === (selectedCustomerForHistory.id || selectedCustomerForHistory._id);
                                     const dateStr = s.timestamp ? new Date(s.timestamp).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '';
 
                                     return (
-                                        <div key={s.id} className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 flex items-start justify-between gap-3 text-xs">
+                                        <div key={s.id} className={`p-3 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 flex items-start justify-between gap-3 text-xs ${isVoided ? 'opacity-60' : ''}`}>
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex items-center gap-1.5 flex-wrap">
                                                     <span className={`px-2 py-0.5 rounded-md text-[9.5px] font-black uppercase ${
@@ -942,7 +1193,7 @@ export default function MonitorDeudasTab({
                                                         isCobro ? 'bg-emerald-100 text-emerald-700' :
                                                         'bg-slate-200 text-slate-700'
                                                     }`}>
-                                                        {isFiada ? 'Venta Fiada' : isCobro ? 'Abono Recibido' : 'Venta Contado'}
+                                                        {isVoided ? 'ANULADO · ' : ''}{isFiada ? 'Venta Fiada' : isCobro ? 'Abono Recibido' : 'Venta Contado'}
                                                     </span>
                                                     {s.saleNumber != null && (
                                                         <span className="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-black text-slate-700 dark:text-slate-200 bg-slate-200/90 dark:bg-slate-700/90">
@@ -957,6 +1208,7 @@ export default function MonitorDeudasTab({
                                                         {s.items.map(i => `${i.qty}x ${i.name || i.productName} ($${formatUsd(i.priceUsd || 0)})`).join(', ')}
                                                     </div>
                                                 )}
+                                                {isVoided && s.voidReason && <div className="mt-1 text-[10px] text-rose-600 dark:text-rose-300">Motivo: {s.voidReason}</div>}
                                             </div>
 
                                             <div className="text-right shrink-0">
@@ -965,12 +1217,22 @@ export default function MonitorDeudasTab({
                                                     isCobro ? 'text-emerald-600 dark:text-emerald-400' :
                                                     'text-slate-800 dark:text-white'
                                                 }`}>
-                                                    {isFiada ? `-$${formatUsd(s.totalUsd)}` : `+$${formatUsd(s.totalUsd)}`}
+                                                    {isVoided ? 'ANULADO' : isPendingVoid ? 'PENDIENTE' : isFiada ? `-$${formatUsd(s.totalUsd)}` : `+$${formatUsd(s.totalUsd)}`}
                                                 </span>
                                                 {activeRate > 0 && (
                                                     <span className="text-[10px] font-bold text-slate-400 block">
                                                         {formatBs(s.totalBs || (s.totalUsd * activeRate))} Bs
                                                     </span>
+                                                )}
+                                                {canVoidMovement && (
+                                                    <button
+                                                        type="button"
+                                                        disabled={isVoided || isPendingVoid}
+                                                        onClick={() => { setMovementToVoid(s); setVoidReason(''); }}
+                                                        className="mt-1 block w-full rounded-lg bg-rose-50 px-2 py-1 text-[9px] font-black text-rose-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-rose-950/40 dark:text-rose-300"
+                                                    >
+                                                        {isVoided ? 'Anulado' : isPendingVoid ? 'Esperando caja…' : 'Anular movimiento'}
+                                                    </button>
                                                 )}
                                             </div>
                                         </div>

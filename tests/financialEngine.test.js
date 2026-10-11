@@ -369,7 +369,10 @@ describe('processVoidSale — FIN-001 revierte COBRO_DEUDA', () => {
         await storageService.setItem('bodega_customers_v1', [customer]);
         await storageService.setItem('bodega_products_v1', []);
 
-        await processVoidSale(sale, [sale], []);
+        await processVoidSale(sale, [sale], [], {
+            id: 'supervisor-1', nombre: 'Supervisor', rol: 'SUPERVISOR',
+            commandId: 'void-cmd-1', reason: 'Abono registrado por error',
+        });
 
         // Verificar que el cliente quedó con deuda 200 (reversión completa).
         const [updatedCustomer] = await storageService.getItem('bodega_customers_v1', []);
@@ -379,13 +382,25 @@ describe('processVoidSale — FIN-001 revierte COBRO_DEUDA', () => {
         // Verificar que la venta quedó ANULADA.
         const [updatedSale] = await storageService.getItem('bodega_sales_v1', []);
         expect(updatedSale.status).toBe('ANULADA');
+        expect(updatedSale).toMatchObject({
+            voidedById: 'supervisor-1',
+            voidedByName: 'Supervisor',
+            voidCommandId: 'void-cmd-1',
+            voidReason: 'Abono registrado por error',
+        });
 
         // FIN-032: el console.log fue reemplazado por logEvent.
         expect(logEvent).toHaveBeenCalledWith(
             'VENTA', 'VENTA_ANULADA',
             expect.any(String),
             expect.anything(),
-            expect.objectContaining({ saleId: 'cobro1', tipo: 'COBRO_DEUDA' })
+            expect.objectContaining({ saleId: 'cobro1', tipo: 'COBRO_DEUDA', reason: 'Abono registrado por error' })
+        );
+        expect(logEvent).toHaveBeenCalledWith(
+            'CLIENTE', 'MOVIMIENTO_CLIENTE_ANULADO',
+            expect.stringContaining('Abono registrado por error'),
+            expect.anything(),
+            expect.objectContaining({ saleId: 'cobro1', commandId: 'void-cmd-1', reason: 'Abono registrado por error' })
         );
     });
 

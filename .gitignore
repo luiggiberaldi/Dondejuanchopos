@@ -91,5 +91,5 @@ backups/
 scratch/
 outputs/
 .workbuddy-ai/
-
-.vercel
+recovery-lab-report.json
+supabase/.temp/

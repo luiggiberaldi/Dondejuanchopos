@@ -117,6 +117,7 @@ export async function processVoidSale(sale, currentSales, currentProducts, actor
                     ? { id: requestedBy.id || null, nombre: requestedBy.nombre || 'Supervisor', rol: requestedBy.rol || 'SUPERVISOR' }
                     : null,
                 voidCommandId: requestedBy?.commandId || null,
+                ...(requestedBy?.reason ? { voidReason: String(requestedBy.reason).trim().slice(0, 240) } : {}),
             };
         });
 
@@ -283,8 +284,23 @@ export async function processVoidSale(sale, currentSales, currentProducts, actor
                 totalUsd: sale.totalUsd,
                 executedBy: user ? { id: user.id || null, nombre: user.nombre || user.usuario || 'Sistema', rol: user.rol || 'SYSTEM' } : null,
                 commandId: requestedBy?.commandId || null,
+                ...(requestedBy?.reason ? { reason: String(requestedBy.reason).trim().slice(0, 240) } : {}),
             }
         );
+        if (requestedBy?.reason && ['VENTA_FIADA', 'COBRO_DEUDA'].includes(sale.tipo)) {
+            auditAfterCommit('CLIENTE', 'MOVIMIENTO_CLIENTE_ANULADO',
+                `Anulación de ${sale.tipo === 'COBRO_DEUDA' ? 'abono' : 'crédito'} por $${round2(sale.totalUsd || 0)}: ${String(requestedBy.reason).trim().slice(0, 240)}`,
+                auditActor,
+                {
+                    saleId: sale.id,
+                    customerId: sale.customerId || sale.clienteId || null,
+                    customerTransactionId: sale.customerTransactionId || null,
+                    commandId: requestedBy.commandId || null,
+                    reason: String(requestedBy.reason).trim().slice(0, 240),
+                    deviceId: requestedBy.deviceId || null,
+                }
+            );
+        }
 
         return { updatedSales, updatedProducts, updatedCustomers, mirrorPending };
     }));
