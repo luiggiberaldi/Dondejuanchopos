@@ -4,7 +4,8 @@ import { useReveal } from '../hooks/useReveal';
 import {
     ArrowLeft, Store, Printer, Coins, Package, CreditCard, Database,
     Palette, Fingerprint, Upload, Download, Share2, Check, X,
-    AlertTriangle, Copy, Sun, Moon, ChevronRight, Trash2, Users, FileText, Lock, Key, BriefcaseBusiness
+    AlertTriangle, Copy, Sun, Moon, ChevronRight, Trash2, Users, FileText, Lock, Key, BriefcaseBusiness,
+    LogOut
 } from 'lucide-react';
 import { showToast } from '../components/Toast';
 import PaymentMethodsManager from '../components/Settings/PaymentMethodsManager';
@@ -44,7 +45,7 @@ export default function SettingsView({ onClose, theme, toggleTheme, triggerHapti
         effectiveRate
     } = useProductContext();
 
-    const { requireLogin, setRequireLogin, usuarioActivo, blindModeEnabled, setBlindModeEnabled } = useAuthStore();
+    const { requireLogin, setRequireLogin, usuarioActivo, blindModeEnabled, setBlindModeEnabled, logout } = useAuthStore();
     const [autoLockMinutes, setAutoLockMinutes] = useState(() => localStorage.getItem('admin_auto_lock_minutes') || '3');
 
     const isAdmin = usuarioActivo ? usuarioActivo.rol === 'ADMIN' : !requireLogin;
@@ -373,6 +374,20 @@ export default function SettingsView({ onClose, theme, toggleTheme, triggerHapti
                         {/* ═══ TAB: CUENTAS ═══ */}
                         {activeTab === 'cuentas' && (
                             <WalletView rates={rates} />
+                        )}
+
+                        {/* Botón de Cerrar Sesión / Cambiar Usuario */}
+                        {requireLogin && usuarioActivo && (
+                            <div className="flex justify-center pb-1 pt-3">
+                                <button
+                                    type="button"
+                                    onClick={() => { triggerHaptic && triggerHaptic(); logout(); }}
+                                    className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 text-xs font-bold transition-all active:scale-95 border border-rose-200/60 dark:border-rose-900/40 cursor-pointer shadow-sm"
+                                >
+                                    <LogOut size={15} />
+                                    <span>Cerrar sesión ({usuarioActivo.nombre})</span>
+                                </button>
+                            </div>
                         )}
 
                         {/* Version footer */}

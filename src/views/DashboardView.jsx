@@ -51,6 +51,19 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
     // Auth actions
     const logout = useAuthStore(s => s.logout);
     const requireLogin = useAuthStore(s => s.requireLogin);
+    const lastTouchLogoutRef = useRef(0);
+
+    const handleLogout = (e) => {
+        const now = Date.now();
+        if (now - lastTouchLogoutRef.current < 500) return;
+        lastTouchLogoutRef.current = now;
+        if (e) {
+            e.preventDefault?.();
+            e.stopPropagation?.();
+        }
+        triggerHaptic && triggerHaptic();
+        logout();
+    };
 
     // Data loading
     const { sales, setSales, customers, setCustomers, isLoadingLocal, refreshData } = useDashboardData(isActive, requestPermission);
@@ -572,16 +585,21 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                     {/* Botón de Cerrar Sesión — izquierda absoluta en móvil (oculto en PC) */}
                     {requireLogin && usuarioActivo && (
                         <button
+                            type="button"
                             data-logout-btn
+                            onClick={handleLogout}
+                            onTouchStart={(e) => {
+                                e.stopPropagation();
+                            }}
+                            onTouchEnd={handleLogout}
                             onPointerDown={(e) => {
                                 e.stopPropagation();
-                                triggerHaptic && triggerHaptic();
-                                logout();
                             }}
-                            className="absolute left-0 top-1/2 -translate-y-1/2 z-30 md:hidden w-10 h-10 rounded-xl bg-slate-100/70 dark:bg-slate-800/60 border border-slate-200/50 dark:border-slate-700/50 flex items-center justify-center text-slate-500 dark:text-slate-400 shadow-sm active:scale-90 hover:bg-slate-200/50 dark:hover:bg-slate-800/80 transition-all cursor-pointer"
+                            className="absolute left-0 top-1/2 -translate-y-1/2 z-40 md:hidden w-11 h-11 rounded-2xl bg-white/90 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-center text-slate-600 dark:text-slate-300 shadow-sm active:scale-90 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 dark:hover:text-rose-400 transition-all cursor-pointer"
                             title={`Cerrar sesión (${usuarioActivo.nombre})`}
+                            aria-label={`Cerrar sesión (${usuarioActivo.nombre})`}
                         >
-                            <LogOut size={16} strokeWidth={2.5} className="text-slate-500 dark:text-slate-350 translate-x-[0.5px]" />
+                            <LogOut size={18} strokeWidth={2.2} className="text-slate-600 dark:text-slate-300 translate-x-[0.5px]" />
                         </button>
                     )}
 
@@ -664,9 +682,11 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                     {/* Botón de Cerrar Sesión en PC (izquierda de hora y fecha) */}
                     {requireLogin && usuarioActivo && (
                         <button
-                            onClick={() => { triggerHaptic && triggerHaptic(); logout(); }}
+                            type="button"
+                            onClick={handleLogout}
                             className="flex items-center justify-center p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors active:scale-95 cursor-pointer"
                             title={`Cerrar sesión (${usuarioActivo.nombre})`}
+                            aria-label={`Cerrar sesión (${usuarioActivo.nombre})`}
                         >
                             <LogOut size={18} strokeWidth={2} />
                         </button>

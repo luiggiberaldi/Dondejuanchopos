@@ -325,9 +325,9 @@ export default function App() {
         <GlobalBsCongeladoHandler triggerHaptic={triggerHaptic} />
         <main className={`flex-1 min-h-0 w-full max-w-full px-0 lg:px-6 xl:px-8 mx-auto relative ${isKeyboardOpen ? 'pb-4' : 'pb-24'} flex flex-col overflow-y-auto`}>
 
-          {/* Hidden Admin Trigger Area */}
+          {/* Hidden Admin Trigger Area (solo PC para no bloquear el botón de cerrar sesión móvil) */}
         <div
-          className="absolute top-0 left-0 w-20 h-20 z-50 cursor-pointer opacity-0"
+          className="hidden md:block absolute top-0 left-0 w-20 h-20 z-10 cursor-pointer opacity-0"
           onClick={handleLogoClick}
           title="Ssshh..."
         ></div>
