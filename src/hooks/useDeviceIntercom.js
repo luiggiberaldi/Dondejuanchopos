@@ -4,6 +4,8 @@ import { getCatchupFilter, getInitialCursor, getMessageCursor, INTERCOM_HISTORY_
 import { buildPushRow, describePushRegistrationFailure, isRlsError, registerPushSubscription, PUSH_TABLE } from '../utils/intercomPush';
 
 const READS_TABLE = 'device_message_reads';
+const CLEAR_RPC = 'intercom_clear_conversation';
+const RETENTION_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_VAPID_PUBLIC_KEY = 'BKP1Pkm0qyReec6qaCLfgJJuJ5WXQ-VswT-GZ8MNVAsic99mmSTIBxkM8Al_kqUu6ig_IHuQzwNeQz4A_ex_-gk';
 const PUSH_PUBLIC_KEY = import.meta.env.VITE_INTERCOM_VAPID_PUBLIC_KEY || DEFAULT_VAPID_PUBLIC_KEY;
 
@@ -59,6 +61,9 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
                 .order('created_at', { ascending: incremental })
                 .order('id', { ascending: incremental })
                 .limit(INTERCOM_HISTORY_LIMIT);
+            // Retención de 24 h: la purga del servidor corre cada hora, así que el cliente
+            // tampoco muestra mensajes más antiguos en la carga inicial.
+            if (!incremental) query = query.gte('created_at', new Date(Date.now() - RETENTION_MS).toISOString());
             if (incremental && next) query = query.or(getCatchupFilter(next));
             const { data, error: queryError } = await query;
             if (queryError) throw queryError;
@@ -165,6 +170,26 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
         await fetchLatest();
         await fetchUnreadCount();
     }, [fetchLatest, fetchUnreadCount]);
+
+    const clearConversation = useCallback(async () => {
+        if (!supabaseCloud || !primaryDeviceId || !deviceId) throw new Error('No hay conexión con el chat de Supabase.');
+        const { error: clearError } = await supabaseCloud.rpc(CLEAR_RPC, {
+            p_primary: primaryDeviceId,
+            p_device: deviceId,
+        });
+        if (isRlsError(clearError)) {
+            throw new Error('Este dispositivo ya no pertenece a un vínculo activo.');
+        }
+        if (clearError) throw clearError;
+        clearTimeout(readWriteTimerRef.current);
+        messagesRef.current = [];
+        readCursorRef.current = null;
+        setMessages([]);
+        setReadCursor(null);
+        setUnreadCount(0);
+        setFailedMessages([]);
+        setError('');
+    }, [deviceId, primaryDeviceId]);
 
     useEffect(() => {
         if (!supabaseCloud || !primaryDeviceId || !deviceId) {
@@ -476,6 +501,6 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
 
     return {
         messages, failedMessages, loading, sending, error, unreadCount, pushState, pushBusy,
-        refresh, markRead, markMessageRead, markMessagesReadThrough, sendMessage, retryMessage, enablePush, disablePush,
+        refresh, clearConversation, markRead, markMessageRead, markMessagesReadThrough, sendMessage, retryMessage, enablePush, disablePush,
     };
 }

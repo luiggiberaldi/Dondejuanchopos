@@ -134,6 +134,29 @@ AS $$
 $$;
 REVOKE ALL ON FUNCTION public.intercom_active_members(TEXT) FROM PUBLIC, anon, authenticated;    GRANT EXECUTE ON FUNCTION public.intercom_active_members(TEXT) TO service_role, postgres;
 
+-- Borrado manual de la conversación. Sólo un miembro activo del vínculo puede
+-- borrar; anon/authenticated no tienen DELETE directo sobre device_messages.
+CREATE OR REPLACE FUNCTION public.intercom_clear_conversation(p_primary TEXT, p_device TEXT)
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_deleted INTEGER;
+BEGIN
+    IF NOT public.intercom_is_active_member(p_primary, p_device) THEN
+        RAISE EXCEPTION 'intercom_clear_forbidden' USING ERRCODE = '42501';
+    END IF;
+    DELETE FROM public.device_message_reads WHERE primary_device_id = p_primary;
+    DELETE FROM public.device_messages WHERE primary_device_id = p_primary;
+    GET DIAGNOSTICS v_deleted = ROW_COUNT;
+    RETURN v_deleted;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.intercom_clear_conversation(TEXT, TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.intercom_clear_conversation(TEXT, TEXT) TO authenticated, service_role, postgres;
+
 -- Remove any older permissive policies from earlier drafts before adding member checks.
 DROP POLICY IF EXISTS intercom_messages_select_active_pair ON public.device_messages;
 DROP POLICY IF EXISTS intercom_messages_insert_active_pair ON public.device_messages;
@@ -204,7 +227,8 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
-    DELETE FROM public.device_messages WHERE created_at < now() - interval '48 hours';
+    -- Retención: los mensajes del intercomunicador caducan a las 24 horas.
+    DELETE FROM public.device_messages WHERE created_at < now() - interval '24 hours';
     DELETE FROM public.device_message_reads r
     WHERE NOT public.intercom_is_active_member(r.primary_device_id, r.reader_device_id);
     DELETE FROM public.device_push_subscriptions s
@@ -277,8 +301,8 @@ BEGIN
     IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron')
        AND to_regclass('cron.job') IS NOT NULL
        AND to_regclass('cron.job_run_details') IS NOT NULL THEN
-        PERFORM cron.unschedule(jobid) FROM cron.job WHERE jobname = 'intercom-purge-6h';
-        PERFORM cron.schedule('intercom-purge-6h', '0 */6 * * *', 'SELECT public.purge_intercom_data()');
+        PERFORM cron.unschedule(jobid) FROM cron.job WHERE jobname IN ('intercom-purge-6h', 'intercom-purge-hourly');
+        PERFORM cron.schedule('intercom-purge-hourly', '0 * * * *', 'SELECT public.purge_intercom_data()');
     ELSE
         RAISE NOTICE 'pg_cron is not enabled; schedule the intercom purge after enabling it.';
     END IF;

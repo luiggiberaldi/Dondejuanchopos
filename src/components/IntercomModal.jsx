@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bell, BellOff, Check, LoaderCircle, MessageCircle, RefreshCw, Send, X } from 'lucide-react';
+import { Bell, BellOff, Check, LoaderCircle, MessageCircle, RefreshCw, Send, Trash2, X } from 'lucide-react';
 import { countCodePoints, INTERCOM_MESSAGE_LIMIT, validateMessage } from '../utils/intercomModel';
 
 function formatTime(value) {
@@ -27,6 +27,8 @@ export default function IntercomModal({
 }) {
     const [draft, setDraft] = useState('');
     const [sendError, setSendError] = useState('');
+    const [confirmingClear, setConfirmingClear] = useState(false);
+    const [clearing, setClearing] = useState(false);
     const listRef = useRef(null);
     const bottomRef = useRef(null);
     const lastMessageRef = useRef(null);
@@ -34,7 +36,7 @@ export default function IntercomModal({
     const validation = validateMessage(draft);
     const count = countCodePoints(draft);
 
-    const { markMessageRead, markMessagesReadThrough, messages, pushState, pushBusy, error, loading, refresh, enablePush, disablePush, sending, sendMessage, retryMessage } = chat;
+    const { markMessageRead, markMessagesReadThrough, messages, pushState, pushBusy, error, loading, refresh, clearConversation, enablePush, disablePush, sending, sendMessage, retryMessage } = chat;
 
     useEffect(() => {
         if (!open) return undefined;
@@ -94,6 +96,19 @@ export default function IntercomModal({
         }
     };
 
+    const clearMessages = async () => {
+        setSendError('');
+        setClearing(true);
+        try {
+            await clearConversation();
+            setConfirmingClear(false);
+        } catch (clearError) {
+            setSendError(clearError.message || 'No se pudo borrar la conversación.');
+        } finally {
+            setClearing(false);
+        }
+    };
+
     const submit = async (event) => {
         event?.preventDefault();
         if (!validation.valid || sending) return;
@@ -122,6 +137,7 @@ export default function IntercomModal({
                         <p className={`text-xs ${muted}`}>{pairingAvailable ? 'Caja · Supervisores' : 'Chat de texto'}</p>
                     </div>
                     <div className="flex items-center gap-1">
+                        <button type="button" onClick={() => setConfirmingClear(true)} disabled={!pairingAvailable || clearing || messages.length === 0} className={`rounded-full p-2 hover:bg-slate-500/10 disabled:opacity-40 ${muted}`} aria-label="Borrar mensajes"><Trash2 size={18} /></button>
                         <button type="button" onClick={retrySync} className={`rounded-full p-2 hover:bg-slate-500/10 ${muted}`} aria-label="Sincronizar conversación"><RefreshCw size={18} /></button>
                         <button type="button" onClick={onClose} className={`rounded-full p-2 hover:bg-slate-500/10 ${muted}`} aria-label="Cerrar chat"><X size={20} /></button>
                     </div>
@@ -136,6 +152,15 @@ export default function IntercomModal({
                     ) : null}
                 </div>
 
+                {confirmingClear && (
+                    <div role="alertdialog" aria-labelledby="intercom-clear-title" className={`flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3 text-xs ${border} bg-rose-50 text-rose-800 dark:bg-rose-950/40 dark:text-rose-200`}>
+                        <span id="intercom-clear-title" className="font-bold">¿Borrar todos los mensajes de esta conversación? No se puede deshacer.</span>
+                        <span className="flex gap-2">
+                            <button type="button" onClick={() => setConfirmingClear(false)} disabled={clearing} className="rounded-lg px-2.5 py-1.5 font-bold hover:bg-slate-500/10 disabled:opacity-50">Cancelar</button>
+                            <button type="button" onClick={clearMessages} disabled={clearing} className="flex items-center gap-1 rounded-lg bg-rose-600 px-2.5 py-1.5 font-bold text-white disabled:opacity-50">{clearing && <LoaderCircle className="animate-spin" size={14} />} Borrar</button>
+                        </span>
+                    </div>
+                )}
                 {!pairingAvailable && <div className="bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">Falta vincular este dispositivo a una caja para intercambiar mensajes.</div>}
                 {error && <div className="flex items-center justify-between gap-2 bg-rose-50 px-4 py-2 text-xs text-rose-700 dark:bg-rose-950/40 dark:text-rose-200"><span>{error}</span><button type="button" onClick={retrySync} aria-label="Reintentar sincronización"><RefreshCw size={15} /></button></div>}
 

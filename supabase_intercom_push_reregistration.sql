@@ -50,9 +50,16 @@ BEGIN
 
     -- El endpoint pertenece a un navegador, no a un device_id: al reasignarlo se libera
     -- la fila anterior, esté activa, revocada o pertenezca a un vínculo viejo.
-    DELETE FROM public.device_push_subscriptions
-    WHERE endpoint = btrim(p_endpoint)
-      AND device_id <> btrim(p_device_id);
+    DELETE FROM public.device_push_subscriptions old
+    WHERE old.endpoint = btrim(p_endpoint)
+      AND old.device_id <> btrim(p_device_id)
+      -- No permitir que un miembro robe/quiebre la suscripción de otro negocio.
+      -- Un endpoint se puede reciclar dentro del mismo vínculo, o limpiar si su
+      -- antiguo propietario dejó de pertenecer a su vínculo anterior.
+      AND (
+          old.primary_device_id = btrim(p_primary_device_id)
+          OR NOT public.intercom_is_active_member(old.primary_device_id, old.device_id)
+      );
 
     INSERT INTO public.device_push_subscriptions
         (device_id, primary_device_id, endpoint, p256dh, auth, updated_at, revoked_at)

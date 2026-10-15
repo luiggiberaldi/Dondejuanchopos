@@ -23,6 +23,7 @@ function renderChat(overrides = {}) {
         sending: false,
         sendMessage: vi.fn(async () => ({ id: 'sent-id' })),
         retryMessage: vi.fn(async () => ({})),
+        clearConversation: vi.fn(async () => {}),
         ...overrides,
     };
     render(
@@ -70,6 +71,20 @@ describe('IntercomModal', () => {
         await waitFor(() => expect(chat.sendMessage).toHaveBeenCalledWith('Hola, caja'));
         await waitFor(() => expect(composer.value).toBe(''));
         expect(chat.markMessageRead).toHaveBeenCalledWith('sent-id');
+    });
+
+    it('asks for confirmation before clearing the conversation', async () => {
+        const chat = renderChat({
+            messages: [{ id: 'm1', sender_device_id: 'pos-1', sender_name: 'Caja', message: 'Hola', created_at: '2026-10-10T10:00:00Z' }],
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Borrar mensajes' }));
+        expect(chat.clearConversation).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+        expect(chat.clearConversation).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Borrar mensajes' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Borrar' }));
+        await waitFor(() => expect(chat.clearConversation).toHaveBeenCalledTimes(1));
     });
 
     it('shows a useful error if retrying chat synchronization fails', async () => {

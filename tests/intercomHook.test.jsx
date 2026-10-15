@@ -16,7 +16,7 @@ function queryResult(data = [], count = 0, error = null) {
         select: vi.fn((_columns, options) => { query.isCountQuery = Boolean(options?.head && options?.count); return query; }), eq: vi.fn(() => query), neq: vi.fn(() => query),
         is: vi.fn(() => query), order: vi.fn(() => query), limit: vi.fn(() => query),
         gt: vi.fn(() => query),
-        or: vi.fn(() => query), maybeSingle: vi.fn(async () => ({ data: null, error })),
+        or: vi.fn(() => query), gte: vi.fn(() => query), maybeSingle: vi.fn(async () => ({ data: null, error })),
         upsert: vi.fn(async () => ({ error })),
         update: vi.fn(() => query),
         insert: vi.fn(() => query), single: vi.fn(async () => ({ data: data[0] || null, error })),
