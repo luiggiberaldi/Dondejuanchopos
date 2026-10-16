@@ -166,12 +166,12 @@ export default function IntercomModal({
 
                 <div className="relative min-h-0 flex-1 flex flex-col overflow-hidden">
                     {/* Marca de agua con el logo principal en el fondo del intercomunicador */}
-                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-8 select-none z-0">
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4 select-none z-0">
                         <img
                             src={dark ? './logodark.png' : './logo.png'}
                             alt=""
                             aria-hidden="true"
-                            className="max-h-64 max-w-[65%] object-contain opacity-[0.08] dark:opacity-[0.10] filter grayscale-[15%]"
+                            className="w-[90%] max-w-[440px] max-h-[85%] object-contain opacity-[0.09] dark:opacity-[0.11] filter grayscale-[10%]"
                         />
                     </div>
 
