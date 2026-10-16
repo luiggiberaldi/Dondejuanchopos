@@ -164,23 +164,35 @@ export default function IntercomModal({
                 {!pairingAvailable && <div className="bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">Falta vincular este dispositivo a una caja para intercambiar mensajes.</div>}
                 {error && <div className="flex items-center justify-between gap-2 bg-rose-50 px-4 py-2 text-xs text-rose-700 dark:bg-rose-950/40 dark:text-rose-200"><span>{error}</span><button type="button" onClick={retrySync} aria-label="Reintentar sincronización"><RefreshCw size={15} /></button></div>}
 
-                <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4" aria-live="polite">
-                    {loading ? <div className={`flex h-full items-center justify-center gap-2 text-sm ${muted}`}><LoaderCircle className="animate-spin" size={18} /> Cargando conversación…</div> : messages.length === 0 ? <div className={`flex h-full flex-col items-center justify-center text-center ${muted}`}><MessageCircle size={28} className="mb-2 opacity-60" /><p className="font-bold">Todavía no hay mensajes</p><p className="mt-1 text-xs">Escribe para iniciar la conversación.</p></div> : (
-                        <div className="space-y-3">
-                            {messages.map((message, index) => {
-                                const own = message.sender_device_id === currentDeviceId;
-                                const isLatest = index === messages.length - 1;
-                                return <article key={message.id} ref={isLatest ? lastMessageRef : undefined} className={`flex ${own ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`max-w-[86%] rounded-2xl px-3.5 py-2.5 ${own ? 'rounded-br-md bg-indigo-600 text-white' : dark ? 'rounded-bl-md bg-slate-800 text-slate-100' : 'rounded-bl-md bg-slate-100 text-slate-900'}`}>
-                                        {!own && <div className="mb-1 text-[11px] font-black opacity-75">{message.sender_name || 'Supervisor'}</div>}
-                                        <p className="whitespace-pre-wrap break-words text-sm">{message.message}</p>
-                                        <div className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${own ? 'text-indigo-100' : muted}`}>{formatTime(message.created_at)}{own && (message.delivery_state === 'sending' ? <LoaderCircle className="animate-spin" size={12} /> : message.delivery_state === 'failed' ? <button type="button" onClick={() => retryMessage(message.id).catch(retryError => setSendError(retryError.message || 'No se pudo reintentar.'))} className="font-bold underline">Reintentar</button> : <Check size={12} />)}</div>
-                                    </div>
-                                </article>;
-                            })}
-                            <div ref={bottomRef} />
-                        </div>
-                    )}
+                <div className="relative min-h-0 flex-1 flex flex-col overflow-hidden">
+                    {/* Marca de agua con el logo principal en el fondo del intercomunicador */}
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-8 select-none z-0">
+                        <img
+                            src={dark ? './logodark.png' : './logo.png'}
+                            alt=""
+                            aria-hidden="true"
+                            className="max-h-64 max-w-[65%] object-contain opacity-[0.08] dark:opacity-[0.10] filter grayscale-[15%]"
+                        />
+                    </div>
+
+                    <div ref={listRef} className="relative z-10 min-h-0 flex-1 overflow-y-auto px-4 py-4" aria-live="polite">
+                        {loading ? <div className={`flex h-full items-center justify-center gap-2 text-sm ${muted}`}><LoaderCircle className="animate-spin" size={18} /> Cargando conversación…</div> : messages.length === 0 ? <div className={`flex h-full flex-col items-center justify-center text-center ${muted}`}><MessageCircle size={28} className="mb-2 opacity-60" /><p className="font-bold">Todavía no hay mensajes</p><p className="mt-1 text-xs">Escribe para iniciar la conversación.</p></div> : (
+                            <div className="space-y-3">
+                                {messages.map((message, index) => {
+                                    const own = message.sender_device_id === currentDeviceId;
+                                    const isLatest = index === messages.length - 1;
+                                    return <article key={message.id} ref={isLatest ? lastMessageRef : undefined} className={`flex ${own ? 'justify-end' : 'justify-start'}`}>
+                                        <div className={`max-w-[86%] rounded-2xl px-3.5 py-2.5 ${own ? 'rounded-br-md bg-indigo-600 text-white' : dark ? 'rounded-bl-md bg-slate-800 text-slate-100' : 'rounded-bl-md bg-slate-100 text-slate-900'}`}>
+                                            {!own && <div className="mb-1 text-[11px] font-black opacity-75">{message.sender_name || 'Supervisor'}</div>}
+                                            <p className="whitespace-pre-wrap break-words text-sm">{message.message}</p>
+                                            <div className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${own ? 'text-indigo-100' : muted}`}>{formatTime(message.created_at)}{own && (message.delivery_state === 'sending' ? <LoaderCircle className="animate-spin" size={12} /> : message.delivery_state === 'failed' ? <button type="button" onClick={() => retryMessage(message.id).catch(retryError => setSendError(retryError.message || 'No se pudo reintentar.'))} className="font-bold underline">Reintentar</button> : <Check size={12} />)}</div>
+                                        </div>
+                                    </article>;
+                                })}
+                                <div ref={bottomRef} />
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 <div className={`border-t px-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-3 ${border}`}>
