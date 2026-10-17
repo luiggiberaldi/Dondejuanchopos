@@ -44,6 +44,7 @@ api/secrets.*
 # ── Archivos de datos sensibles y binarios (INFRA-023) ──
 # Nunca commitear backups, inventarios reales, PDFs de cierres, videos, etc.
 backup_*.json
+backups_extracted/
 *.xls
 *.xlsx
 *.pdf

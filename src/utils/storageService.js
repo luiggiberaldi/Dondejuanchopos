@@ -2,7 +2,7 @@ import { localStore } from './localStore';
 import { queueCloudSync } from '../hooks/useCloudSync';
 import { mergeSalesArrays } from './salesMerge';
 import { isSyncingFromCloud } from './syncFlags';
-export { StorageWriteError } from './localStore';
+export { StorageWriteError, purgeBloatedLocalStorage, purgeBloatedFallbackSync } from './localStore';
 
 /**
  * Fachada de negocio: guardias, eventos y sync explícito después del commit.
@@ -56,6 +56,8 @@ export const storageService = {
     },
     getPendingRetries: () => localStore.getPendingRetries(),
     flushRetries: () => localStore.flushRetries(),
+    purgeBloatedLocalStorage: () => localStore.purgeBloatedLocalStorage(),
+    purgeBloatedFallbackSync: () => localStore.purgeBloatedFallbackSync(),
 };
 
 function markShadowSaved(io, key) {

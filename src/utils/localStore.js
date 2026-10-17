@@ -160,6 +160,7 @@ function cloneTransactionValue(value, seen = new Set()) {
     return clone;
 }
 function readRecord(key) {
+    if (isHeavyStorageKey(key)) return null;
     // Si no se puede leer esta autoridad, NO devolver IDB posiblemente viejo,
     // ni siquiera desde la fachada tolerante (evita autoguardados de defaults).
     try {
@@ -177,7 +178,10 @@ function recordKeys() {
     try {
         for (let index = 0; index < localStorage.length; index++) {
             const key = localStorage.key(index);
-            if (key?.startsWith(RECORD_PREFIX)) keys.push(key.slice(RECORD_PREFIX.length));
+            if (key?.startsWith(RECORD_PREFIX)) {
+                const subKey = key.slice(RECORD_PREFIX.length);
+                if (!isHeavyStorageKey(subKey)) keys.push(subKey);
+            }
         }
     } catch (error) { throw new StorageReadError(RECORD_PREFIX, [error]); }
     return keys;
@@ -207,9 +211,88 @@ function assertJsonValue(value, seen = new Set()) {
     }
     seen.delete(value);
 }
+// Claves cuyo volumen de datos (cientos de KB a varios MB) impide cualquier
+// fallback a localStorage de 5 MB. Estas son las que causaban QuotaExceededError
+// en el cobro de la cajera (ventas: 2.7 MB, kardex: 1.85 MB, etc.).
+// NO incluir claves pequeñas como bodega_customers_v1 o bodega_accounts_v2
+// que sí caben en LS y cuyo fallback es necesario para la recuperación.
+const HEAVY_KEYS = Object.freeze([
+    'bodega_products_v1',
+    'bodega_sales_v1',
+    'bodega_sales_mirror_v1',
+    'bodega_kardex_v1',
+    'bodega_kardex_snapshots_v1',
+    'bodega_inventory_operations_v1',
+    'abasto_audit_log_v1',
+    ...SHADOW_KEYS,
+    'bodega_autobackup_v1',
+]);
+
+export function isHeavyStorageKey(key) {
+    return HEAVY_KEYS.includes(key);
+}
+
+export function isQuotaExceeded(error) {
+    return Boolean(error && (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED'
+        || error.code === 22 || error.code === 1014 || /quota/i.test(error.message || '')));
+}
+
+export function purgeBloatedFallbackSync() {
+    if (typeof localStorage === 'undefined') return 0;
+    let count = 0;
+    try {
+        const toRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (!k) continue;
+            if (k.startsWith(RECORD_PREFIX)) {
+                const subKey = k.slice(RECORD_PREFIX.length);
+                if (isHeavyStorageKey(subKey)) toRemove.push(k);
+            } else if (isHeavyStorageKey(k)) {
+                toRemove.push(k);
+            }
+        }
+        for (const k of toRemove) {
+            localStorage.removeItem(k);
+            count++;
+        }
+        if (count > 0) {
+            console.info(`[StorageMaint] Purgadas ${count} clave(s) pesada(s) residuales de localStorage.`);
+        }
+    } catch (e) {
+        console.warn('[StorageMaint] Falló purga síncrona de localStorage:', e);
+    }
+    return count;
+}
+
+export async function purgeBloatedLocalStorage() {
+    try {
+        await localStore.flushRetries();
+    } catch (e) {
+        console.warn('[StorageMaint] Advertencia en flushRetries previo a purga:', e);
+    }
+    try {
+        purgeBloatedFallbackSync();
+    } catch (e) {
+        console.warn('[StorageMaint] Advertencia al purgar claves pesadas de localStorage:', e);
+    }
+}
+
 function writeRecord(key, value, kind = 'value') {
-    if (kind === 'value') assertJsonValue(value);
-    const serialized = JSON.stringify(kind === 'deleted' ? { version: 1, key, kind } : { version: 1, key, kind, value });
+    if (kind === 'value') {
+        assertJsonValue(value);
+        if (isHeavyStorageKey(key)) {
+            throw new Error(`[StorageGuard] Clave pesada ${key} delegada exclusivamente a IndexedDB; no admite fallback en localStorage`);
+        }
+        const serialized = JSON.stringify({ version: 1, key, kind, value });
+        if (serialized.length > 64 * 1024) {
+            throw new Error(`[StorageGuard] Clave ${key} (${(serialized.length / 1024).toFixed(0)} KB) excede cuota permitida para fallback en localStorage`);
+        }
+        localStorage.setItem(RECORD_PREFIX + key, serialized);
+        if (localStorage.getItem(RECORD_PREFIX + key) !== serialized) throw new Error('Sobre durable no verificable');
+        return { ...JSON.parse(serialized), serialized };
+    }
+    const serialized = JSON.stringify({ version: 1, key, kind });
     localStorage.setItem(RECORD_PREFIX + key, serialized);
     if (localStorage.getItem(RECORD_PREFIX + key) !== serialized) throw new Error('Sobre durable no verificable');
     return { ...JSON.parse(serialized), serialized };
@@ -340,7 +423,7 @@ async function commitValue(key, value, { allowFallback = false, onPersisted, onF
         assertCurrent?.();
     }
     let record = null;
-    if (previous && allowFallback) {
+    if (previous && allowFallback && !isHeavyStorageKey(key)) {
         try { record = writeRecord(key, value); } catch (error) {
             notify(onFallback, key, error); throw new StorageWriteError(key, error);
         }
@@ -350,12 +433,14 @@ async function commitValue(key, value, { allowFallback = false, onPersisted, onF
         await localforage.setItem(key, record ? record.value : value);
     } catch (primaryError) {
         if (!allowFallback) throw new StorageWriteError(key, primaryError);
-        if (!record) {
+        if (!record && !isHeavyStorageKey(key)) {
             try { record = writeRecord(key, value); } catch (fallbackError) {
                 notify(onFallback, key, fallbackError, primaryError);
                 throw new StorageWriteError(key, primaryError, fallbackError);
             }
             pendingRecord(key, record, onPersisted, true);
+        } else if (isHeavyStorageKey(key)) {
+            throw new StorageWriteError(key, primaryError);
         }
         notify(onFallback, key, primaryError);
         notify(onPersisted, key, record.value, false);
@@ -367,7 +452,13 @@ async function commitValue(key, value, { allowFallback = false, onPersisted, onF
             // negocio ni regresar al snapshot anterior por limpieza fallida.
             console.warn(`[Storage] Guardado confirmado; sobre pendiente para ${key}:`, error);
         }
-    } else { retries.delete(key); cleanupLegacy(key); }
+    } else {
+        retries.delete(key);
+        cleanupLegacy(key);
+        if (previous && isHeavyStorageKey(key)) {
+            try { localStorage.removeItem(RECORD_PREFIX + key); } catch {}
+        }
+    }
     notify(onPersisted, key, record ? record.value : value, true);
 }
 
@@ -422,13 +513,33 @@ export const localStore = {
                 // confirmado lo hace visible como commit. Sin puntero es huérfano.
                 await localforage.setItem(TRANSACTION_KEY, record);
                 raw = JSON.stringify({ version: 1, id: record.id, storage: 'idb' });
-            } catch {
-                raw = JSON.stringify(record); // contingencia atómica si cabe en LS
+            } catch (idbError) {
+                // Contingencia atómica en LS solo si el record es pequeño y no contiene colecciones pesadas.
+                // Si contiene claves pesadas (ventas, kardex, etc.) o excede 64KB, NUNCA meterlo en localStorage.
+                const hasHeavyKey = entries.some(e => isHeavyStorageKey(e.key));
+                const serialized = JSON.stringify(record);
+                if (hasHeavyKey || serialized.length > 64 * 1024) {
+                    throw new StorageWriteError(TRANSACTION_KEY, idbError);
+                }
+                raw = serialized;
             }
             try {
                 localStorage.setItem(TRANSACTION_KEY, raw);
                 if (localStorage.getItem(TRANSACTION_KEY) !== raw) throw new Error('Commit transaccional no verificable');
-            } catch (error) { throw new StorageWriteError(TRANSACTION_KEY, error); }
+            } catch (error) {
+                // Si localStorage está saturado de claves residuales de fallback, purgar de inmediato y reintentar
+                if (isQuotaExceeded(error)) {
+                    purgeBloatedFallbackSync();
+                    try {
+                        localStorage.setItem(TRANSACTION_KEY, raw);
+                        if (localStorage.getItem(TRANSACTION_KEY) !== raw) throw new Error('Commit transaccional no verificable');
+                    } catch (retryError) {
+                        throw new StorageWriteError(TRANSACTION_KEY, retryError);
+                    }
+                } else {
+                    throw new StorageWriteError(TRANSACTION_KEY, error);
+                }
+            }
             // Desde aquí ya hay commit lógico durable: no se permite volver a
             // ejecutar el negocio por un fallo materializando claves individuales.
             try { await recoverTransaction(); } catch (error) { console.warn('[Storage] Commit durable pendiente de materialización:', error); }
@@ -513,4 +624,10 @@ export const localStore = {
         }
         return count;
     },
+    purgeBloatedLocalStorage: () => purgeBloatedLocalStorage(),
+    purgeBloatedFallbackSync: () => purgeBloatedFallbackSync(),
 };
+
+if (typeof window !== 'undefined') {
+    window.purgeBloatedLocalStorage = purgeBloatedLocalStorage;
+}
