@@ -95,12 +95,15 @@ export function ToastProvider({ children }) {
                     return (
                         <div
                             key={toast.id}
+                            role={toast.type === 'error' ? 'alert' : 'status'}
+                            aria-live={toast.type === 'error' ? 'assertive' : 'polite'}
                             className={`pointer-events-auto flex items-start gap-2.5 px-3.5 py-3 rounded-xl border backdrop-blur-xl shadow-2xl shadow-black/40 animate-in slide-in-from-top-3 fade-in duration-300 ${colors.bg}`}
                         >
                             <IconComp size={18} className={`${colors.icon} shrink-0 mt-0.5`} />
-                            <p className="text-sm text-white/90 font-medium flex-1 leading-snug">{toast.message}</p>
+                            <p className="text-sm text-white/90 font-medium flex-1 leading-snug whitespace-pre-line">{toast.message}</p>
                             <button
                                 onClick={() => removeToast(toast.id)}
+                                aria-label="Cerrar notificación"
                                 className="text-white/30 hover:text-white/70 transition-colors shrink-0 mt-0.5"
                             >
                                 <X size={14} />

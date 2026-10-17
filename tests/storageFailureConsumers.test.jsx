@@ -1,12 +1,16 @@
 import { act, createElement, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, afterEach, it, expect, vi } from 'vitest';
 
 const m = vi.hoisted(() => ({ get: vi.fn(), write: vi.fn(), sale: vi.fn(), transaction: vi.fn(), toast: vi.fn(), log: vi.fn(), modal: null, wallet: null }));
 vi.mock('../src/utils/storageService', () => ({ storageService: { getItem: m.get, setItem: m.write } }));
 vi.mock('../src/utils/checkoutProcessor', () => ({ processSaleTransaction: m.sale }));
 vi.mock('../src/utils/customerTransactionProcessor', () => ({ processCustomerTransaction: m.transaction }));
-vi.mock('../src/components/Toast', () => ({ showToast: m.toast }));
+vi.mock('../src/components/Toast', async importOriginal => ({
+    ...(await importOriginal()),
+    showToast: m.toast,
+}));
 vi.mock('../src/hooks/useSalesData', () => ({ SALES_KEY: 'bodega_sales_v1' }));
 vi.mock('../src/utils/sniperPayDiagnostic', () => ({ sniperLog: vi.fn() }));
 vi.mock('../src/hooks/store/useAuthStore', () => ({ useAuthStore: Object.assign(selector => selector({ requireLogin: true, usuarioActivo: { id: 'admin', rol: 'ADMIN' } }), { getState: () => ({ usuarioActivo: { id: 'admin', rol: 'ADMIN' } }) }) }));
@@ -24,10 +28,13 @@ vi.mock('../src/components/Customers/TransactionModal', () => ({ default: functi
 import { useCheckoutFlow } from '../src/hooks/useCheckoutFlow';
 import { useWallet } from '../src/hooks/useWallet';
 import CustomersView from '../src/views/CustomersView';
+import { ToastProvider, useToast } from '../src/components/Toast';
 let root, host;
 beforeEach(() => {
     localStorage.clear(); vi.clearAllMocks(); m.modal = null; m.wallet = null;
-    m.get.mockImplementation(async (_key, fallback) => fallback ?? []);
+    m.get.mockImplementation(async (key, fallback) => key === 'bodega_sales_v1'
+        ? [{ id: 'open-shift', tipo: 'APERTURA_CAJA', timestamp: '2026-10-16T00:00:00.000Z', cajaCerrada: false }]
+        : fallback ?? []);
     m.write.mockResolvedValue(undefined);
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
@@ -36,17 +43,57 @@ afterEach(async () => {
     await act(async () => root.unmount()); host.remove(); delete globalThis.IS_REACT_ACT_ENVIRONMENT;
 });
 
-it('checkout conserva carrito y modal y no anuncia éxito tras excepción de persistencia', async () => {
+it('checkout conserva el carrito y no anuncia éxito tras excepción de persistencia', async () => {
     m.sale.mockRejectedValue(Object.assign(new Error('write failed'), { code: 'STORAGE_WRITE_FAILED' }));
     const success = { setProducts: vi.fn(), setSalesData: vi.fn(), setShowReceipt: vi.fn(), setShowCheckout: vi.fn(), setCart: vi.fn(), playCheckout: vi.fn(), setShowConfetti: vi.fn() };
     const flow = useCheckoutFlow({ ...success, cart: [{ id: 'p', qty: 1 }], playError: vi.fn() });
     const result = await flow.handleCheckout([], {}, { checkoutOperationId: 'op-retained' });
     expect(result.success).toBe(false);
+    expect(result.error).toContain('STORAGE_WRITE_FAILED');
+    expect(result.error).toContain('VTA-GUARDADO-01');
+    expect(result.diagnosticCode).toBe('VTA-GUARDADO-01');
     expect(result.error).toContain('Revisa el historial');
-    expect(result.error).not.toContain('Intenta de nuevo');
+    expect(m.toast).toHaveBeenCalledWith(expect.stringContaining('VTA-GUARDADO-01'), 'error', 0);
     for (const callback of Object.values(success)) expect(callback).not.toHaveBeenCalled();
     expect(m.sale).toHaveBeenCalledTimes(1);
     expect(m.sale.mock.calls[0][0].checkoutOperationId).toBe('op-retained');
+});
+
+it('checkout explica si el entorno no tiene Web Locks y no permite una escritura insegura', async () => {
+    m.sale.mockRejectedValue(Object.assign(new Error('Web Locks unavailable'), { code: 'STORAGE_LOCK_UNAVAILABLE' }));
+    const flow = useCheckoutFlow({
+        cart: [{ id: 'p', qty: 1 }],
+        playError: vi.fn(),
+        setCart: vi.fn(), setShowReceipt: vi.fn(), setShowCheckout: vi.fn(),
+    });
+    const result = await flow.handleCheckout([], {}, { checkoutOperationId: 'op-lock-unavailable' });
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('HTTPS o localhost');
+    expect(result.error).toContain('VTA-BLOQUEO-01');
+    expect(result.diagnosticCode).toBe('VTA-BLOQUEO-01');
+    expect(result.error).toContain('Revisa el historial');
+    expect(m.toast).toHaveBeenCalledWith(expect.stringContaining('VTA-BLOQUEO-01'), 'error', 0);
+    expect(m.sale).toHaveBeenCalledTimes(1);
+});
+
+function ToastProbe() {
+    const toast = useToast();
+    useEffect(() => {
+        toast('No se confirmó la venta.\nCódigo de diagnóstico: VTA-GUARDADO-01 (STORAGE_WRITE_FAILED)', 'error', 0);
+    }, [toast]);
+    return null;
+}
+
+it('el toast visible conserva el código de diagnóstico legible en una captura', async () => {
+    const view = render(createElement(ToastProvider, null, createElement(ToastProbe)));
+    const alert = view.container.querySelector('[role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert.textContent).toContain('VTA-GUARDADO-01');
+    expect(alert.textContent).toContain('STORAGE_WRITE_FAILED');
+    expect(alert.querySelector('p').className).toContain('whitespace-pre-line');
+    fireEvent.click(screen.getByRole('button', { name: 'Cerrar notificación' }));
+    expect(view.container.querySelector('[role="alert"]')).toBeNull();
+    cleanup();
 });
 
 it('el padre de abonos conserva importe/modal tras rechazo del procesador', async () => {

@@ -10,6 +10,13 @@ import { sniperLog } from '../utils/sniperPayDiagnostic';
 import { checkoutEnd } from '../utils/checkoutTelemetry';
 import { findOpenApertura } from '../utils/shiftScope';
 
+function getCheckoutDiagnosticCode(error) {
+    if (error?.code === 'STORAGE_LOCK_UNAVAILABLE') return 'VTA-BLOQUEO-01';
+    if (error?.code === 'STORAGE_LOCK_FAILED') return 'VTA-BLOQUEO-02';
+    if (error?.code === 'STORAGE_WRITE_FAILED') return 'VTA-GUARDADO-01';
+    return 'VTA-PROCESO-01';
+}
+
 export function useCheckoutFlow({
     cart, cartTotalUsd, cartTotalBs, cartSubtotalUsd,
     selectedCustomerId, customers, setCustomers, products, setProducts,
@@ -68,14 +75,34 @@ export function useCheckoutFlow({
             result = await processSaleTransaction(opts);
             sniperLog('2_PROCESS_RESULT', 'Resultado de processSaleTransaction', { success: result?.success, error: result?.error });
         } catch (err) {
-            sniperLog('2_PROCESS_EXCEPTION', 'Excepción en processSaleTransaction', { message: err?.message, stack: err?.stack });
-            console.error('[checkout] Error inesperado en processSaleTransaction:', err);
+            const storageCause = err?.cause || err?.primaryError || err?.fallbackError;
+            const causeLabel = [storageCause?.name, storageCause?.message]
+                .filter(Boolean)
+                .join(': ')
+                .slice(0, 120);
+            const diagnostic = {
+                code: err?.code || null,
+                message: err?.message || 'excepción',
+                cause: causeLabel || null,
+                stack: err?.stack,
+            };
+            sniperLog('2_PROCESS_EXCEPTION', 'Excepción en processSaleTransaction', diagnostic);
+            console.error('[checkout] Error inesperado en processSaleTransaction:', diagnostic);
             // Telemetría: cierre con excepción de persistencia.
-            checkoutEnd({ ok: false, error: err?.message || 'excepción' });
-            const message = 'No se confirmó la venta completa. Revisa el historial antes de repetir el cobro.';
-            showToast(message, 'error');
+            checkoutEnd({ ok: false, error: `${diagnostic.code || 'ERROR'}: ${diagnostic.message}` });
+            const diagnosticCode = getCheckoutDiagnosticCode(err);
+            const message = err?.code === 'STORAGE_LOCK_UNAVAILABLE'
+                ? 'Este equipo no permite coordinar guardados seguros. Abre el POS desde HTTPS o localhost en un navegador actualizado.'
+                : err?.code === 'STORAGE_LOCK_FAILED'
+                    ? 'No se pudo obtener el bloqueo de guardado en este equipo. Cierra otras pestañas del POS.'
+                    : err?.code === 'STORAGE_WRITE_FAILED'
+                        ? `Falló el guardado local de la venta${causeLabel ? ` — ${causeLabel}` : ''}.`
+                        : 'No se confirmó la venta completa.';
+            const userMessage = `${message} Revisa el historial antes de repetir el cobro.\nCódigo de diagnóstico: ${diagnosticCode}${err?.code ? ` (${err.code})` : ''}`;
+            // Error persistente hasta cerrar: el cajero debe poder sacar captura y compartir el código.
+            showToast(userMessage, 'error', 0);
             playError();
-            return { success: false, error: message };
+            return { success: false, error: userMessage, diagnosticCode };
         }
 
         if (!result.success) {

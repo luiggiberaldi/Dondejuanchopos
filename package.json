@@ -1,7 +1,7 @@
 {
   "name": "donde-juancho-pos",
   "private": true,
-  "version": "1.1.1",
+  "version": "1.1.2",
   "type": "module",
   "packageManager": "bun@1.1.0",
   "scripts": {

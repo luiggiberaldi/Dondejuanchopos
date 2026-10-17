@@ -13,20 +13,26 @@ vi.mock('localforage', () => ({
     }
 }));
 vi.mock('../src/hooks/useCloudSync', () => ({ queueCloudSync: vi.fn() }));
+// Esta prueba aísla el commit IndexedDB/localStorage; la asignación de número
+// remoto se cubre por separado en saleNumberAllocator.test.js.
+vi.mock('../src/utils/saleNumberAllocator', () => ({
+    allocateSaleNumber: vi.fn(async (_deviceId, { localSales = [] } = {}) => ({
+        saleNumber: Math.max(0, ...localSales.map(sale => Number(sale.saleNumber) || 0)) + 1,
+        provisional: true,
+        source: 'fallback',
+        note: 'offline fixture',
+    })),
+}));
 
 describe('Checkout Quota Resolution Test', () => {
-    let processSaleTransaction, storageService, localStore;
+    let processSaleTransaction;
 
     beforeEach(async () => {
         vi.restoreAllMocks();
         localStorage.clear();
         m.db.clear();
         const mod1 = await import('../src/utils/checkoutProcessor');
-        const mod2 = await import('../src/utils/storageService');
-        const mod3 = await import('../src/utils/localStore');
         processSaleTransaction = mod1.processSaleTransaction;
-        storageService = mod2.storageService;
-        localStore = mod3.localStore;
     });
 
     it('processes Glup 2L checkout successfully with 1568 sales in IDB and dirty LS', async () => {
