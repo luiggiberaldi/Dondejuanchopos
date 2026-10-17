@@ -165,13 +165,13 @@ export default function IntercomModal({
                 {error && <div className="flex items-center justify-between gap-2 bg-rose-50 px-4 py-2 text-xs text-rose-700 dark:bg-rose-950/40 dark:text-rose-200"><span>{error}</span><button type="button" onClick={retrySync} aria-label="Reintentar sincronización"><RefreshCw size={15} /></button></div>}
 
                 <div className="relative min-h-0 flex-1 flex flex-col overflow-hidden">
-                    {/* Marca de agua con el logo principal en el fondo del intercomunicador */}
+                    {/* Logo principal en el fondo del intercomunicador */}
                     <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4 select-none z-0">
                         <img
                             src={dark ? './logodark.png' : './logo.png'}
                             alt=""
                             aria-hidden="true"
-                            className="w-[90%] max-w-[440px] max-h-[85%] object-contain opacity-[0.09] dark:opacity-[0.11] filter grayscale-[10%]"
+                            className="w-[90%] max-w-[440px] max-h-[85%] object-contain"
                         />
                     </div>
 
