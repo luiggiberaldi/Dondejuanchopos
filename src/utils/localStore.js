@@ -368,7 +368,7 @@ function writeRecord(key, value, kind = 'value') {
         }
         const serialized = JSON.stringify({ version: 1, key, kind, value });
         if (serialized.length > 64 * 1024) {
-            throw new Error(`[StorageGuard] Clave ${key} (${Math.round(serialized.length / 1024)} KB) excede cuota permitida para fallback en localStorage`);
+            throw new Error(`[StorageGuard] Clave ${key} (${serialized.length} bytes) excede cuota permitida para fallback en localStorage`);
         }
         localStorage.setItem(RECORD_PREFIX + key, serialized);
         if (localStorage.getItem(RECORD_PREFIX + key) !== serialized) throw new Error('Sobre durable no verificable');
