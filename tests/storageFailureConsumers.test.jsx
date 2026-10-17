@@ -76,6 +76,21 @@ it('checkout explica si el entorno no tiene Web Locks y no permite una escritura
     expect(m.sale).toHaveBeenCalledTimes(1);
 });
 
+it('un error de datos locales muestra VTA-DATOS-01 con la ruta del campo', async () => {
+    m.sale.mockRejectedValue(new TypeError('Valor transaccional no representable en bodega_sales_v1[3].totalUsd (número no finito (NaN))'));
+    const flow = useCheckoutFlow({
+        cart: [{ id: 'p', qty: 1 }],
+        playError: vi.fn(),
+        setCart: vi.fn(), setShowReceipt: vi.fn(), setShowCheckout: vi.fn(),
+    });
+    const result = await flow.handleCheckout([], {}, { checkoutOperationId: 'op-datos' });
+    expect(result.success).toBe(false);
+    expect(result.diagnosticCode).toBe('VTA-DATOS-01');
+    expect(result.error).toContain('bodega_sales_v1[3].totalUsd');
+    expect(result.error).toContain('Revisa el historial');
+    expect(m.toast).toHaveBeenCalledWith(expect.stringContaining('VTA-DATOS-01'), 'error', 0);
+});
+
 function ToastProbe() {
     const toast = useToast();
     useEffect(() => {

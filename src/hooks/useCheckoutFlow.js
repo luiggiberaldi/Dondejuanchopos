@@ -14,6 +14,11 @@ function getCheckoutDiagnosticCode(error) {
     if (error?.code === 'STORAGE_LOCK_UNAVAILABLE') return 'VTA-BLOQUEO-01';
     if (error?.code === 'STORAGE_LOCK_FAILED') return 'VTA-BLOQUEO-02';
     if (error?.code === 'STORAGE_WRITE_FAILED') return 'VTA-GUARDADO-01';
+    if (error?.code === 'STORAGE_RECOVERY_REQUIRED') return 'VTA-GUARDADO-02';
+    if (error?.code === 'STORAGE_READ_FAILED') return 'VTA-DATOS-01';
+    // Errores de forma de datos (valores sin proyección JSON, ciclos, tipos
+    // exóticos): el mensaje incluye clave[ruta] del valor culpable.
+    if (/transaccional|no representable|no admitido|no JSON|circular|sin proyección/i.test(String(error?.message || ''))) return 'VTA-DATOS-01';
     return 'VTA-PROCESO-01';
 }
 
@@ -97,7 +102,7 @@ export function useCheckoutFlow({
                     ? 'No se pudo obtener el bloqueo de guardado en este equipo. Cierra otras pestañas del POS.'
                     : err?.code === 'STORAGE_WRITE_FAILED'
                         ? `Falló el guardado local de la venta${causeLabel ? ` — ${causeLabel}` : ''}.`
-                        : 'No se confirmó la venta completa.';
+                        : `No se confirmó la venta completa${diagnostic.message ? ` (${diagnostic.message})` : ''}.`;
             const userMessage = `${message} Revisa el historial antes de repetir el cobro.\nCódigo de diagnóstico: ${diagnosticCode}${err?.code ? ` (${err.code})` : ''}`;
             // Error persistente hasta cerrar: el cajero debe poder sacar captura y compartir el código.
             showToast(userMessage, 'error', 0);

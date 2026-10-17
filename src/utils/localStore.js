@@ -33,7 +33,7 @@ export class StorageWriteError extends Error {
 }
 export class StorageReadError extends Error {
     constructor(key, errors) {
-        super(`No se pudo confirmar la lectura local de ${key}.`, { cause: errors[0] });
+        super(`No se pudo confirmar la lectura local de ${key}${errors?.[0]?.message ? `: ${errors[0].message}` : ''}.`, { cause: errors[0] });
         this.name = 'StorageReadError'; this.code = 'STORAGE_READ_FAILED'; this.key = key;
     }
 }
@@ -138,26 +138,108 @@ async function recoverTransaction() {
     }
 }
 
-function cloneTransactionValue(value, seen = new Set()) {
+function cloneTransactionValue(value, seen = new Set(), path = 'value') {
     if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
-    if (typeof value === 'number' && Number.isFinite(value) && !Object.is(value, -0)) return value;
-    if (typeof value !== 'object' || seen.has(value)) throw new TypeError('Valor transaccional no representable');
+    if (typeof value === 'number') {
+        // Proyección JSON: -0 se normaliza a 0 (es el mismo importe y así lo
+        // serializan respaldos y nube). El resto sigue siendo estricto.
+        if (Number.isFinite(value)) return Object.is(value, -0) ? 0 : value;
+        throw new TypeError(`Valor transaccional no representable en ${path}: número no finito (${String(value)})`);
+    }
+    if (typeof value !== 'object' || seen.has(value)) {
+        throw new TypeError(`Valor transaccional no representable en ${path}: ${seen.has(value) ? 'referencia circular' : `valor de tipo ${typeof value}`}`);
+    }
     const isArray = Array.isArray(value);
     const proto = Object.getPrototypeOf(value);
-    if (!isArray && proto !== null && proto?.constructor?.name !== 'Object') throw new TypeError('Tipo transaccional no admitido');
-    if (Object.getOwnPropertySymbols(value).length) throw new TypeError('Propiedad transaccional no JSON');
+    if (!isArray && proto !== null && proto?.constructor?.name !== 'Object') throw new TypeError(`Tipo transaccional no admitido en ${path}: ${proto?.constructor?.name || 'desconocido'}`);
+    if (Object.getOwnPropertySymbols(value).length) throw new TypeError(`Propiedad transaccional no JSON en ${path}`);
     seen.add(value);
     const clone = isArray ? [] : {};
     for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
         if (isArray && key === 'length') continue;
-        if (!descriptor.enumerable || descriptor.get || descriptor.set || (isArray && !/^(0|[1-9][0-9]*)$/.test(key))) throw new TypeError('Propiedad transaccional no admitida');
+        if (!descriptor.enumerable || descriptor.get || descriptor.set || (isArray && !/^(0|[1-9][0-9]*)$/.test(key))) throw new TypeError(`Propiedad transaccional no admitida en ${path}.${key}`);
         // Única normalización: campos de objeto opcionales undefined se omiten.
         if (descriptor.value === undefined && !isArray) continue;
-        Object.defineProperty(clone, key, { value: cloneTransactionValue(descriptor.value, seen), enumerable: true, writable: true, configurable: true });
+        Object.defineProperty(clone, key, {
+            value: cloneTransactionValue(descriptor.value, seen, isArray ? `${path}[${key}]` : `${path}.${key}`),
+            enumerable: true, writable: true, configurable: true,
+        });
     }
-    if (isArray && (Object.keys(clone).length !== value.length || clone.length !== value.length)) throw new TypeError('Array transaccional disperso');
+    if (isArray && (Object.keys(clone).length !== value.length || clone.length !== value.length)) throw new TypeError(`Array transaccional disperso en ${path}`);
     seen.delete(value);
     return clone;
+}
+
+// ── Saneo de valores heredados del almacén primario ──────────────────────────
+// localforage persiste con structured clone: preserva -0, NaN, Infinity y
+// undefined en arrays, valores que JSON (respaldos y nube) no representa.
+// Escritores antiguos pudieron guardarlos; rechazarlos al reescribir la
+// colección completa bloqueaba TODO cobro del equipo (incidencia VTA-PROCESO-01,
+// venta histórica con totalUsd: -0). Al leerlos se normalizan a su proyección
+// JSON con un error que nombra clave[ruta]. Lo que JSON tampoco puede
+// representar (ciclos, objetos exóticos) falla fuerte y con ruta.
+let _legacyReportCount = 0;
+const LEGACY_REPORT_CAP = 25;
+
+function reportLegacyValue(path, detail) {
+    _legacyReportCount++;
+    if (_legacyReportCount > LEGACY_REPORT_CAP) return;
+    if (_legacyReportCount === LEGACY_REPORT_CAP) {
+        console.error('[Storage] Se omite el resto del detalle de valores heredados saneados.');
+        return;
+    }
+    console.error(`[Storage] Valor heredado no representable saneado en ${path}: ${detail}`);
+}
+
+function normalizeStoredJsonValue(value, key, path = key, seen = new Set()) {
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+    if (typeof value === 'number') {
+        if (Number.isFinite(value) && !Object.is(value, -0)) return value;
+        reportLegacyValue(path, Object.is(value, -0) ? 'cero negativo (-0) → 0' : `número no finito (${String(value)}) → null`);
+        return Object.is(value, -0) ? 0 : null;
+    }
+    if (value === undefined || typeof value === 'function' || typeof value === 'symbol') {
+        reportLegacyValue(path, `${typeof value} → null`);
+        return null;
+    }
+    if (typeof value !== 'object') {
+        throw new StorageReadError(key, [new Error(`Valor sin proyección JSON (${typeof value}) en ${path}`)]);
+    }
+    if (seen.has(value)) throw new StorageReadError(key, [new Error(`Referencia circular en ${path}`)]);
+    if (value instanceof Date) {
+        const instant = value.getTime();
+        if (Number.isNaN(instant)) throw new StorageReadError(key, [new Error(`Fecha inválida en ${path}`)]);
+        reportLegacyValue(path, 'Date → ISO');
+        return value.toISOString();
+    }
+    const proto = Object.getPrototypeOf(value);
+    if (!Array.isArray(value) && proto !== null && proto?.constructor?.name !== 'Object') {
+        throw new StorageReadError(key, [new Error(`Tipo sin proyección JSON (${proto?.constructor?.name || 'desconocido'}) en ${path}`)]);
+    }
+    seen.add(value);
+    try {
+        if (Array.isArray(value)) {
+            const clone = [];
+            for (let index = 0; index < value.length; index++) {
+                if (!Object.hasOwn(value, index)) {
+                    reportLegacyValue(`${path}[${index}]`, 'hueco de array → null');
+                    clone.push(null);
+                    continue;
+                }
+                clone.push(normalizeStoredJsonValue(value[index], key, `${path}[${index}]`, seen));
+            }
+            return clone;
+        }
+        const clone = {};
+        for (const [name, item] of Object.entries(value)) {
+            // Proyección JSON: undefined, funciones y símbolos como propiedad se omiten.
+            if (item === undefined || typeof item === 'function' || typeof item === 'symbol') continue;
+            clone[name] = normalizeStoredJsonValue(item, key, `${path}.${name}`, seen);
+        }
+        return clone;
+    } finally {
+        seen.delete(value);
+    }
 }
 function readRecord(key) {
     if (isHeavyStorageKey(key)) return null;
@@ -286,7 +368,7 @@ function writeRecord(key, value, kind = 'value') {
         }
         const serialized = JSON.stringify({ version: 1, key, kind, value });
         if (serialized.length > 64 * 1024) {
-            throw new Error(`[StorageGuard] Clave ${key} (${(serialized.length / 1024).toFixed(0)} KB) excede cuota permitida para fallback en localStorage`);
+            throw new Error(`[StorageGuard] Clave ${key} (${Math.round(serialized.length / 1024)} KB) excede cuota permitida para fallback en localStorage`);
         }
         localStorage.setItem(RECORD_PREFIX + key, serialized);
         if (localStorage.getItem(RECORD_PREFIX + key) !== serialized) throw new Error('Sobre durable no verificable');
@@ -344,7 +426,7 @@ async function readValue(key, defaultValue = null, { tolerant = false } = {}) {
     const errors = [];
     let primaryMissing = false;
     try {
-        const value = await localforage.getItem(key);
+        const value = normalizeStoredJsonValue(await localforage.getItem(key), key);
         const afterRead = await transactionValue(key, defaultValue);
         if (afterRead.found) return afterRead.value;
         // Otra instancia puede haber confirmado un fallback durante el await.
@@ -365,7 +447,7 @@ async function readValue(key, defaultValue = null, { tolerant = false } = {}) {
     if (primaryMissing && Object.hasOwn(OLD_KEYS, key)) {
         try {
             const old = localforage.createInstance({ name: 'TasasAlDiaApp', storeName: 'app_data' });
-            const value = await old.getItem(OLD_KEYS[key]);
+            const value = normalizeStoredJsonValue(await old.getItem(OLD_KEYS[key]), key);
             const afterLegacyRead = await transactionValue(key, defaultValue);
             if (afterLegacyRead.found) return afterLegacyRead.value;
             const latest = readRecord(key);
@@ -403,6 +485,16 @@ async function commitValue(key, value, { allowFallback = false, onPersisted, onF
         await removeValue(key);
         notify(onPersisted, key, null, true);
         return;
+    }
+    // Nadie puede introducir valores sin proyección JSON en el almacén primario
+    // (tampoco en claves pesadas, donde structured clone los conservaría y el
+    // commit transaccional los rechazaría después, bloqueando el cobro).
+    // -0 se normaliza a 0; el resto se rechaza nombrando clave y ruta.
+    try {
+        value = cloneTransactionValue(value, new Set(), key);
+    } catch (error) {
+        notify(onFallback, key, error);
+        throw new StorageWriteError(key, error);
     }
     const previous = readRecord(key);
     if (previous?.kind === 'deleted' && !allowFallback) {
@@ -477,7 +569,7 @@ export const localStore = {
                 async getItem(key, defaultValue = null) {
                     try {
                         assertOpen(); assertKey(key);
-                        if (staged.has(key)) return staged.get(key) === null ? defaultValue : cloneTransactionValue(staged.get(key));
+                        if (staged.has(key)) return staged.get(key) === null ? defaultValue : cloneTransactionValue(staged.get(key), new Set(), key);
                         return await readValue(key, defaultValue);
                     } catch (error) { preparationError = error; throw error; }
                 },
@@ -487,9 +579,9 @@ export const localStore = {
                         if (prepare) value = await prepare(key, value, {
                             getItem: io.getItem,
                             afterCommit: io.afterCommit,
-                            setPrimaryItem: async (k, v) => { assertOpen(); assertKey(k); staged.set(k, cloneTransactionValue(v)); },
+                            setPrimaryItem: async (k, v) => { assertOpen(); assertKey(k); staged.set(k, cloneTransactionValue(v, new Set(), k)); },
                         });
-                        staged.set(key, cloneTransactionValue(value));
+                        staged.set(key, cloneTransactionValue(value, new Set(), key));
                     } catch (error) { preparationError = error; throw error; }
                 },
                 async removeItem(key) {

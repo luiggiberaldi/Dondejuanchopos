@@ -89,9 +89,18 @@ it('capturar error de remove no permite confirmar el resto del buffer',async()=>
     await expect(core.transaction(async tx=>{await tx.setItem('fixture',1);try{await tx.removeItem(journal);}catch{}return {success:true};})).rejects.toThrow('reservada');
     expect(m.db.has('fixture')).toBe(false);
 });
-it.each([new Map([['x',1]]),new Date('2026-01-01'),-0,[undefined],Array(2)])('rechaza pérdida de tipo transaccional %j',async value=>{
+it.each([new Map([['x',1]]),new Date('2026-01-01'),[undefined],Array(2)])('rechaza pérdida de tipo transaccional %j',async value=>{
     await expect(core.transaction(async tx=>{await tx.setItem('fixture',value);return {success:true};})).rejects.toThrow();
     expect(m.write).not.toHaveBeenCalled();
+});
+it('normaliza -0 a 0 en el commit (proyección JSON) sin perder el guardián',async()=>{
+    await core.transaction(async tx=>{await tx.setItem('fixture',{totalUsd:-0,nested:[-0]});return {success:true};});
+    const saved=m.db.get('fixture');
+    expect(saved.totalUsd).toBe(0);expect(Object.is(saved.totalUsd,-0)).toBe(false);
+    expect(saved.nested[0]).toBe(0);expect(Object.is(saved.nested[0],-0)).toBe(false);
+});
+it('el error del guardián nombra clave y ruta del valor rechazado',async()=>{
+    await expect(core.transaction(async tx=>{await tx.setItem('fixture',{items:[{totalUsd:NaN}]});return {success:true};})).rejects.toThrow(/fixture\.items\[0\]\.totalUsd/);
 });
 it('journal grande utiliza IDB y un puntero pequeño, no una copia gigante en LS',async()=>{
     const set=Storage.prototype.setItem;

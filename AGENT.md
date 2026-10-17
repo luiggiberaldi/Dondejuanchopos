@@ -705,3 +705,21 @@ ESLint: 0 errores bloqueantes
 - Typecheck estricto de TypeScript: el proyecto usa JavaScript y el script actual permite terminar aunque `tsc` reporte incidencias.
 
 *Documento mantenido por el equipo de auditoría. Última revisión: 2026-08-10. Para detalles de los fixes aplicados, ver `CHANGES.md`. Para el reporte completo de auditoría, ver `ISSUES.md` y `/home/z/my-project/worklog.md`.*
+
+---
+
+## 19. Incidencia VTA-PROCESO-01 y Normalización Transaccional (2026-10-17)
+
+### Síntoma e Impacto
+- Error al procesar checkout: `VTA-PROCESO-01` en pantalla y `TypeError: Valor transaccional no representable` en consola de la laptop (`PDA-V2-ED46F23C375734BF8DF4CC7DC4A4D39F`).
+- Bloqueo total de checkout y abonos en ese dispositivo; en PC funcionaba tras importar respaldo.
+
+### Causa Raíz
+- Venta histórica `#892f1b12-d1a1-42fa-aef1-02a0f7c386f0` tenía `totalUsd: -0` (cero negativo IEEE-754).
+- `cloneTransactionValue` en `src/utils/localStore.js` (`!Object.is(value, -0)`) lanzaba excepción estricta al intentar guardar `bodega_sales_v1`.
+- IndexedDB preserva el `-0` nativo vía Structured Clone, mientras que `JSON.stringify` en los respaldos lo normaliza a `0` (explicando la discrepancia entre la laptop y la PC).
+
+### Solución y Documento de Referencia
+- Curación temporal aplicada en IndexedDB de la laptop.
+- Solución definitiva: auto-normalización de `-0` a `0` en `localStore.js`, `dinero.js` y `checkoutProcessor.js`.
+- Ver especificación completa en [`PLAN_FIXES_NORMALIZACION_VALORES_TRANSACCIONALES_2026-10-17.md`](./PLAN_FIXES_NORMALIZACION_VALORES_TRANSACCIONALES_2026-10-17.md).

@@ -65,25 +65,25 @@ export function useGastosInternos({ bcvRate, tasaCop, copEnabled, triggerHaptic,
             description: description.trim(),
             category: category,
             note: note?.trim() || '',
-            totalBs:  -totalEnBs,
-            totalUsd: -totalEnUsd,
+            totalBs:  totalEnBs === 0 ? 0 : -totalEnBs,
+            totalUsd: totalEnUsd === 0 ? 0 : -totalEnUsd,
             rate: bcvRate,
             ...(tasaCop > 0 && { tasaCop }),
-            ...(copEnabled && { totalCop: -totalEnCop }),
+            ...(copEnabled && { totalCop: totalEnCop === 0 ? 0 : -totalEnCop }),
             paymentMethod: methodId,
             payments: [{
                 methodId:  methodId,
-                amountUsd: isUsd ? -totalEnUsd : 0,
-                amountBs:  isBs  ? -totalEnBs  : 0,
-                ...(copEnabled && { amountCop: isCop ? -totalEnCop : 0 }),
+                amountUsd: (isUsd && totalEnUsd !== 0) ? -totalEnUsd : 0,
+                amountBs:  (isBs  && totalEnBs  !== 0) ? -totalEnBs  : 0,
+                ...(copEnabled && { amountCop: (isCop && totalEnCop !== 0) ? -totalEnCop : 0 }),
                 currency:    currency,
                 methodLabel: 'Gasto Interno'
             }],
             items: [{
                 name:     `Gasto: ${description.trim()}`,
                 qty:      1,
-                priceUsd: isUsd ? -totalEnUsd : 0,
-                costBs:   isBs  ? -totalEnBs  : 0
+                priceUsd: (isUsd && totalEnUsd !== 0) ? -totalEnUsd : 0,
+                costBs:   (isBs  && totalEnBs  !== 0) ? -totalEnBs  : 0
             }]
         };
 
@@ -150,14 +150,14 @@ export function useGastosInternos({ bcvRate, tasaCop, copEnabled, triggerHaptic,
                     valoracion,
                     description:  description.trim(),
                     note:         note?.trim() || '',
-                    totalUsd:     -Math.abs(totalUsd),
-                    totalBs:      -Math.abs(totalBs),
-                    ...(copEnabled && { totalCop: -(Math.abs(totalUsd) * (tasaCop || 0)) }),
+                    totalUsd:     (totalUsd && Math.abs(totalUsd) > 0) ? -Math.abs(totalUsd) : 0,
+                    totalBs:      (totalBs  && Math.abs(totalBs)  > 0) ? -Math.abs(totalBs)  : 0,
+                    ...(copEnabled && { totalCop: (totalUsd && Math.abs(totalUsd) > 0 && tasaCop > 0) ? -(Math.abs(totalUsd) * tasaCop) : 0 }),
                     paymentMethod: 'autoconsumo',
                     payments: [{
                         methodId:    'autoconsumo',
-                        amountUsd:   -Math.abs(totalUsd),
-                        amountBs:    -Math.abs(totalBs),
+                        amountUsd:   (totalUsd && Math.abs(totalUsd) > 0) ? -Math.abs(totalUsd) : 0,
+                        amountBs:    (totalBs  && Math.abs(totalBs)  > 0) ? -Math.abs(totalBs)  : 0,
                         currency:    'USD',
                         methodLabel: 'Autoconsumo de Inventario'
                     }],
