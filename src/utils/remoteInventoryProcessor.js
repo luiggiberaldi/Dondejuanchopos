@@ -14,7 +14,7 @@ import { storageService } from './storageService';
 import { withLock } from './withLock';
 import { logEvent } from '../services/auditService';
 import { PRICING_MODES, FROZEN_MODES } from '../constants/pricingModes';
-import { readPositiveMoney } from './productPriceMigration';
+import { readPositiveMoney, syncLegacyFormatPriceAliases } from './productPriceMigration';
 import { applyInventoryOperationUnlocked } from '../services/inventoryOperationService';
 
 const PRODUCTS_KEY = 'bodega_products_v1';
@@ -300,7 +300,11 @@ export async function applyInventoryCommand(payload) {
                     continue;
                 }
 
-                const mergedPayload = { ...existingProd, ...pData };
+                // Fix alias CASO-SYNC-PRECIOS: si pData solo trae la clave legacy
+                // (boxPriceBsManual), materializarla en la canónica ANTES de la
+                // fusión para que el precio nuevo no pierda contra la canónica
+                // vieja de existingProd. Si pData trae canónica, manda siempre.
+                const mergedPayload = { ...existingProd, ...syncLegacyFormatPriceAliases(pData) };
                 const valErr = validateProductData(mergedPayload);
                 if (valErr) {
                     failedItems.push({ productId: pId, productName: existingProd.name, reason: valErr });
@@ -528,7 +532,8 @@ export async function applyInventoryCommand(payload) {
                 }
             }
 
-            const mergedPayload = { ...existing, ...data };
+            // Fix alias CASO-SYNC-PRECIOS: misma normalización que en batch_edit.
+            const mergedPayload = { ...existing, ...syncLegacyFormatPriceAliases(data) };
             const validationError = validateProductData(mergedPayload);
             if (validationError) return { success: false, error: validationError };
             const normalized = normalizeProduct(mergedPayload);

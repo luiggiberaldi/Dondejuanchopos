@@ -182,7 +182,11 @@ describe('allocateSaleNumber — camino NUBE', () => {
         expect(client._inserted).toHaveLength(1);
         expect(client._inserted[0].status).toBe('pending'); // RLS exige pending en el INSERT
         expect(client._updates).toHaveLength(1); // y el emisor se autoconfirma
-        expect(client._updates[0].patch).toEqual({ status: 'applied' });
+        // Fix «31/12/1969»: la autoconfirmación del reclamo debe sellar applied_at
+        // (antes quedaba NULL y el historial del monitor mostraba new Date(null) →
+        // epoch). La aserción previa fijaba el payload buggy { status: 'applied' }.
+        expect(client._updates[0].patch.status).toBe('applied');
+        expect(Number.isFinite(Date.parse(client._updates[0].patch.applied_at))).toBe(true);
         expect(client._inserted[0].payload.action).toBe('sale_number_claim');
         expect(client._inserted[0].payload.candidate).toBe(830);
     });

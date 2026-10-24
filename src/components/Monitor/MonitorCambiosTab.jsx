@@ -214,7 +214,12 @@ export default function MonitorCambiosTab({ ChevronLeft, ChevronRight, Clock, IT
                                             const cmd = item.data;
                                             const payload = cmd.payload || {};
                                             const createdTime = new Date(cmd.created_at || payload.issuedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                            const appliedTime = cmd.applied_at ? new Date(cmd.applied_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
+                                            // Guardia de null/parseo (fix «31/12/1969»): applied_at puede ser NULL
+                                            // (claims sale_number_claim antiguos, fallbacks de confirmación). Sin
+                                            // guardia, new Date(null) → epoch → 31/12/1969 en el historial.
+                                            const appliedAtMs = Date.parse(cmd.applied_at);
+                                            const appliedAtValid = Number.isFinite(appliedAtMs);
+                                            const appliedTime = appliedAtValid ? new Date(appliedAtMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
 
                                             let statusBadge = null;
                                             if (cmd.status === 'pending') {
@@ -226,7 +231,7 @@ export default function MonitorCambiosTab({ ChevronLeft, ChevronRight, Clock, IT
                                             } else if (cmd.status === 'applied') {
                                                 statusBadge = (
                                                     <span className="text-[9.5px] font-black uppercase px-2.5 py-0.5 rounded-lg bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                                                        APLICADO EN CAJA EL {new Date(cmd.applied_at).toLocaleDateString()}
+                                                        {appliedAtValid ? `APLICADO EN CAJA EL ${new Date(appliedAtMs).toLocaleDateString()}` : 'APLICADO EN CAJA (SIN SELLO)'}
                                                     </span>
                                                 );
                                             } else if (cmd.status === 'cancelled') {

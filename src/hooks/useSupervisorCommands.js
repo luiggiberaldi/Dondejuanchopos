@@ -813,6 +813,20 @@ export function useSupervisorCommands(deviceId) {
                         // local. Si falla el comando, el catch-up debe poder reintentarlo.
                         appliedIds.add(command.id);
                         markApplied(command.id);
+                        // FIX B (Causa #2, CASO-SYNC 23-10-2026): el heal local NO espera
+                        // la confirmación en la nube. updateCommandStatus reintenta hasta
+                        // ~21s (CONFIRM_RETRY_DELAYS_MS) y durante esa ventana la memoria
+                        // React quedaba stale: cualquier autoguardado con clausura vieja
+                        // revertía el comando ya aplicado en IndexedDB. El dispatch va
+                        // inmediatamente después de persistProductsSnapshot (dentro de
+                        // applyInventoryCommand); la confirmación en la nube es independiente.
+                        window.dispatchEvent(new CustomEvent('supervisor_inventory_applied', {
+                            detail: {
+                                action: command.payload?.action,
+                                productName: result.productName || '',
+                                updatedProducts: result.updatedProducts || null
+                            }
+                        }));
                         const nextStatus = result.pending || result.failedCount > 0
                             ? COMMAND_STATUS.APPLIED_WITH_WARNINGS
                             : COMMAND_STATUS.APPLIED;
@@ -832,14 +846,6 @@ export function useSupervisorCommands(deviceId) {
                                 recordUnconfirmedCommand(command, 'Inventario ya aplicado en la caja; no es re-aplicable.');
                             }
                         }
-                        window.dispatchEvent(new CustomEvent('supervisor_inventory_applied', {
-                            detail: {
-                                action: command.payload?.action,
-                                productName: result.productName || '',
-                                updatedProducts: result.updatedProducts || null
-                            }
-                        }));
-
                         // Sincronización diferida (Debounce) a la nube para no estrangular el procesamiento en lote
                         scheduleCloudProductsSync();
                     } else {

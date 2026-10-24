@@ -194,7 +194,10 @@ export async function allocateSaleNumber(deviceId, { localSales = null, client =
         if (ins.error) throw new Error('alloc-claim-falló: ' + ins.error.message);
         const sel1 = await withTimeout(
             client.from('supervisor_commands')
-                .update({ status: 'applied' })
+                // FIX «31/12/1969» (CASO-SYNC 23-10-2026): sellar applied_at en la
+                // autoconfirmación del reclamo. Antes quedaba NULL y el historial del
+                // monitor renderizaba new Date(null) → epoch → 31/12/1969.
+                .update({ status: 'applied', applied_at: new Date().toISOString() })
                 .contains('payload', { claimKey })
                 .eq('status', 'pending'),
             ALLOC_TIMEOUT_MS,

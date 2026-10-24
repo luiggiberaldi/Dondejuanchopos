@@ -276,3 +276,73 @@ describe('Cola real del supervisor: concurrencia, catálogo y tasa', () => {
         const count = m.toast.mock.calls.length; await commands([command('rate-b', 'applied', 'rate_change')]); expect(m.toast.mock.calls.length).toBe(count);
     });
 });
+
+describe('Desatasque de cambios en confirmación (CASO-SYNC 23-10-2026)', () => {
+    it('la recuperación de catálogo usa backoff en vez de un solo disparo', async () => {
+        const syncs = [];
+        const listener = () => syncs.push(Date.now());
+        window.addEventListener('supervisor_sync_requested', listener);
+        try {
+            await mount(); await add(); await send();
+            const id = m.insert.mock.calls[0][0].id;
+            await commands([command(id, 'applied')]); // ACK sin eco → awaiting_catalog
+            expect(queue.inFlightChanges[0].syncState).toBe('awaiting_catalog');
+            expect(syncs.length).toBe(1); // disparo inmediato
+            await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+            expect(syncs.length).toBe(2);
+            await act(async () => { await vi.advanceTimersByTimeAsync(45000); });
+            expect(syncs.length).toBe(3);
+            await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
+            expect(syncs.length).toBe(4);
+            await act(async () => { await vi.advanceTimersByTimeAsync(300000); });
+            expect(syncs.length).toBe(5);
+            await act(async () => { await vi.advanceTimersByTimeAsync(900000); });
+            expect(syncs.length).toBe(5); // presupuesto agotado: sin tormenta de pulls
+        } finally {
+            window.removeEventListener('supervisor_sync_requested', listener);
+        }
+    });
+    it('el backoff se corta cuando el cambio se resuelve', async () => {
+        const syncs = [];
+        const listener = () => syncs.push(1);
+        window.addEventListener('supervisor_sync_requested', listener);
+        try {
+            await mount(); await add(); await send();
+            const id = m.insert.mock.calls[0][0].id;
+            await commands([command(id, 'applied')]);
+            expect(syncs.length).toBe(1);
+            products = [{ id: 'p1', stock: 13, stockOperationIds: [id] }]; await render(); // llega el eco
+            expect(queue.inFlightChanges).toHaveLength(0);
+            await act(async () => { await vi.advanceTimersByTimeAsync(900000); });
+            expect(syncs.length).toBe(1); // ni un reintento más
+        } finally {
+            window.removeEventListener('supervisor_sync_requested', listener);
+        }
+    });
+    it('permite abandonar un cambio en confirmación cuyo comando ya es terminal', async () => {
+        await mount(); await add(); await send();
+        await commands([command(m.insert.mock.calls[0][0].id, 'applied')]);
+        expect(queue.inFlightChanges).toHaveLength(1); // atascado sin evidencia
+        await act(async () => queue.discardPendingChanges());
+        expect(queue.inFlightChanges).toHaveLength(0);
+        expect(queue.pendingChanges).toHaveLength(0);
+    });
+    it('conserva el cambio en confirmación mientras su comando siga pendiente en la nube', async () => {
+        await mount(); await add(); await send();
+        await commands([command(m.insert.mock.calls[0][0].id, 'pending')]);
+        await act(async () => queue.discardPendingChanges());
+        expect(queue.inFlightChanges).toHaveLength(1); // todavía puede aplicarse
+    });
+    it('el descarte individual abandona solo con comando terminal y rechaza el desconocido', async () => {
+        await mount(); await add();
+        m.insert.mockResolvedValueOnce({ error: { message: 'timeout' } }); await send();
+        expect(queue.pendingChanges).toHaveLength(1);
+        await act(async () => queue.discardSinglePendingChange(0));
+        expect(queue.pendingChanges).toHaveLength(1); // comando desconocido: se conserva
+        // El comando existe y ya es terminal (aunque el efecto de confirmación lo
+        // filtre por pertenencia al par): el abandono decide por commandId.
+        await commands([{ ...command(m.insert.mock.calls[0][0].id, 'applied'), monitor_device_id: 'otro-monitor' }]);
+        await act(async () => queue.discardSinglePendingChange(0));
+        expect(queue.pendingChanges).toHaveLength(0); // terminal: abandonable
+    });
+});

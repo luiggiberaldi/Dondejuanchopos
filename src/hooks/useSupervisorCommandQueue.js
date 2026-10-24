@@ -16,6 +16,7 @@ import { useDurableSupervisorQueue, LEGACY_PENDING_KEY, LEGACY_INFLIGHT_KEY } fr
 import {
     createSupervisorCommandId,
     getSupervisorChangeResolution,
+    isChangeAbandonable,
     normalizeSupervisorChanges,
     sameSupervisorRequest,
     restoreLocalRateState,
@@ -23,6 +24,10 @@ import {
 } from '../utils/supervisorCommandModel';
 
 const PENDING_KEY = LEGACY_PENDING_KEY;
+
+// Backoff de la recuperación de catálogo por comando en confirmación
+// (CASO-SYNC 23-10-2026): 15s/45s/120s/300s = 5 intentos en total.
+const RECOVERY_BACKOFF_MS = [15000, 45000, 120000, 300000];
 
 export function useSupervisorCommandQueue({
     pairedDeviceId,
@@ -45,7 +50,12 @@ export function useSupervisorCommandQueue({
     const { ref: queueRef, update: updateQueue } = durableQueue;
     const { pending: pendingChanges, inFlight: inFlightChanges } = durableQueue.state;
     const resolvedIdsRef = useRef(new Set());
-    const recoveryRequestedRef = useRef(new Set());
+    // FIX «1 cambio en confirmación» (CASO-SYNC 23-10-2026): la recuperación con
+    // backoff reemplaza el un-shot por commandId (recoveryRequestedRef). Un solo
+    // disparo podía ejecutarse ANTES de que el eco del catálogo llegara y el
+    // pull incremental ya no volvía a traer el doc → cambio huérfano para siempre.
+    // commandId -> { attempts, timer } (timer presente = reintento ya programado).
+    const recoveryStateRef = useRef(new Map());
     const timersRef = useRef(new Set());
     const [uploading, setUploading] = useState(false);
     const uploadingRef = useRef(false);
@@ -59,14 +69,37 @@ export function useSupervisorCommandQueue({
             showToast('No se pudo recuperar la cola guardada. Se conservaron los datos; no se enviarán cambios hasta resolver el almacenamiento.', 'error');
         }
     }, [durableQueue.error]);
+    // Recuperación con backoff: primer disparo inmediato y reintentos acotados.
+    // La cadena se corta con stopRecovery cuando el cambio se resuelve, se
+    // abandona o el componente se desmonta; así no hay tormentas de pulls.
+    const stopRecovery = useCallback((id) => {
+        const state = recoveryStateRef.current.get(id);
+        if (state?.timer) clearTimeout(state.timer);
+        recoveryStateRef.current.delete(id);
+    }, []);
     const requestRecovery = useCallback((id) => {
-        if (recoveryRequestedRef.current.has(id)) return;
-        recoveryRequestedRef.current.add(id);
-        window.dispatchEvent(new CustomEvent('supervisor_sync_requested'));
+        const state = recoveryStateRef.current.get(id) || { attempts: 0, timer: null };
+        if (state.timer) return; // ya hay un reintento programado
+        if (state.attempts > RECOVERY_BACKOFF_MS.length) return; // presupuesto agotado
+        const fire = () => {
+            const current = recoveryStateRef.current.get(id);
+            if (!current) return; // cancelado: el cambio ya se resolvió o se abandonó
+            recoveryStateRef.current.set(id, { attempts: current.attempts, timer: null });
+            window.dispatchEvent(new CustomEvent('supervisor_sync_requested'));
+            requestRecovery(id); // encadena el siguiente intento con backoff
+        };
+        const delay = state.attempts === 0 ? 0 : RECOVERY_BACKOFF_MS[state.attempts - 1];
+        recoveryStateRef.current.set(id, {
+            attempts: state.attempts + 1,
+            timer: delay === 0 ? null : setTimeout(fire, delay),
+        });
+        if (delay === 0) fire();
     }, []);
     useEffect(() => () => {
         timersRef.current.forEach(clearTimeout);
         timersRef.current.clear();
+        recoveryStateRef.current.forEach(state => { if (state.timer) clearTimeout(state.timer); });
+        recoveryStateRef.current.clear();
     }, []);
 
     const totalControlChanges = pendingChanges.length + cloudPendingCmds.length;
@@ -152,7 +185,10 @@ export function useSupervisorCommandQueue({
                         .map(c => awaiting.has(c.commandId) ? { ...c, syncState: 'awaiting_catalog' } : c),
                 };
             });
-            resolved.forEach(id => resolvedIdsRef.current.add(id));
+            resolved.forEach(id => {
+                resolvedIdsRef.current.add(id);
+                stopRecovery(id); // resuelto: cortar la cadena de reintentos de recuperación
+            });
         } catch (error) {
             console.warn('[OwnerMonitor] No se pudo persistir la confirmación; se reintentará:', error);
             return;
@@ -168,7 +204,7 @@ export function useSupervisorCommandQueue({
             timersRef.current.add(timer);
         }
     }, [products, pendingChanges, inFlightChanges, allCloudCmds, pairedDeviceId,
-        queueRef, updateQueue, isInventoryChangeConfirmed, requestRecovery]);
+        queueRef, updateQueue, isInventoryChangeConfirmed, requestRecovery, stopRecovery]);
 
     // Consulta en tiempo real del historial completo de comandos (pendientes, aplicados y anulados)
     const fetchAllCloudCmds = useCallback(async () => {
@@ -818,22 +854,53 @@ export function useSupervisorCommandQueue({
         }
     };
     const discardPendingChanges = () => {
-        const retained = queueRef.current.pending.some(c => c.attemptedAt && c.syncState !== 'rejected_local') || queueRef.current.inFlight.length > 0;
-        if (persistPending(previous => previous.filter(c => c.attemptedAt && c.syncState !== 'rejected_local'))) {
-            showToast(retained ? 'Descartados solo cambios sin enviar. Los enviados se conservan hasta confirmar o cancelar en la nube.' : 'Cola local descartada', 'info');
+        // FIX «1 cambio en confirmación» (CASO-SYNC 23-10-2026): además de los
+        // cambios sin enviar, se ABANDONAN los enviados cuyo comando ya está
+        // terminal en la nube — nada más llegará de la caja y antes no tenían
+        // salida por la UI. Los enviados cuyo comando sigue 'pending' (o aún no
+        // se conoce) se conservan: todavía pueden aplicarse.
+        const current = queueRef.current;
+        const abandonedIds = new Set(
+            [...current.pending, ...current.inFlight]
+                .filter(change => isChangeAbandonable(change, allCloudCmds))
+                .map(change => change.commandId)
+        );
+        const retained = current.pending.some(c => c.attemptedAt && c.syncState !== 'rejected_local' && !abandonedIds.has(c.commandId))
+            || current.inFlight.some(c => !abandonedIds.has(c.commandId));
+        try {
+            updateQueue(state => ({
+                ...state,
+                pending: state.pending.filter(c => c.attemptedAt && c.syncState !== 'rejected_local' && !abandonedIds.has(c.commandId)),
+                inFlight: state.inFlight.filter(c => !abandonedIds.has(c.commandId)),
+            }));
+        } catch (error) {
+            showToast(`No se pudo guardar el cambio: ${error.message || 'almacenamiento no disponible'}. La cola existente se conserva.`, 'error');
+            return;
         }
+        abandonedIds.forEach(stopRecovery);
+        showToast(retained
+            ? (abandonedIds.size > 0
+                ? 'Abandonados los cambios con comando ya terminado en la nube y descartados los sin enviar. Se conservan los enviados aún en espera de la caja.'
+                : 'Descartados solo cambios sin enviar. Los enviados se conservan hasta confirmar o cancelar en la nube.')
+            : 'Cola local descartada', 'info');
     };
 
     const discardSinglePendingChange = (targetIndex) => {
         const target = pendingChanges[targetIndex];
         if (!target) return;
-        if (target.attemptedAt && target.syncState !== 'rejected_local') {
+        // Un enviado solo es abandonable cuando su comando ya está terminal en la
+        // nube; si sigue 'pending' o es desconocido, el envío puede aún aplicarse.
+        const abandonable = isChangeAbandonable(target, allCloudCmds);
+        if (target.attemptedAt && target.syncState !== 'rejected_local' && !abandonable) {
             showToast('El envío puede existir en la nube. Verifica su estado antes de cancelarlo.', 'warning');
             return;
         }
         if (persistPending(previous => previous.filter(c => c.commandId !== target.commandId
-            || (c.attemptedAt && c.syncState !== 'rejected_local')))) {
-            showToast('Cambio descartado de la cola local', 'info');
+            || (c.attemptedAt && c.syncState !== 'rejected_local' && !abandonable)))) {
+            stopRecovery(target.commandId);
+            showToast(abandonable
+                ? 'Cambio abandonado: su comando ya está terminado en la nube.'
+                : 'Cambio descartado de la cola local', 'info');
         }
     };
 

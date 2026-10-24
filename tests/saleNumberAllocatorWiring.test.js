@@ -51,10 +51,12 @@ describe('customerTransactionProcessor — abonos/créditos usan numeración cen
 });
 
 describe('saleNumberAllocator — invariantes de seguridad', () => {
-    test('el reclamo se inserta como pending (exigido por RLS) y SE AUTOCONFIRMA con update a applied', () => {
+    test('el reclamo se inserta como pending (exigido por RLS) y SE AUTOCONFIRMA con update a applied CON applied_at sellado', () => {
         expect(ALLOCATOR).toContain("action: CLAIM_ACTION");
         expect(ALLOCATOR).toContain("status: 'pending'");
-        expect(ALLOCATOR).toMatch(/\.update\(\{ status: 'applied' \}\)/);
+        // Fix «31/12/1969»: la autoconfirmación debe sellar applied_at — sin el
+        // sello quedaba NULL y el historial del monitor renderizaba epoch.
+        expect(ALLOCATOR).toMatch(/\.update\(\{ status: 'applied', applied_at: [^}]+\}\)/);
     });
     test('la relectura de reclamos es AGNÓSTICA de status (pending y applied cuentan)', () => {
         expect(ALLOCATOR).toContain(".in('status', ['pending', 'applied'])");

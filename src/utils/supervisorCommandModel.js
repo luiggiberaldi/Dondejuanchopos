@@ -76,6 +76,16 @@ export function getSupervisorChangeResolution(change, commands = []) {
     return { status: 'pending', command };
 }
 
+// Un cambio «en confirmación» solo es abandonable cuando su comando ya está
+// TERMINAL en la nube (applied / applied_with_warnings / failed / cancelled):
+// nada más llegará de la caja, así que su registro local puede soltarse aunque
+// la evidencia de confirmación (recibo / igualdad de valores) nunca aparezca.
+// Un comando aún 'pending' o desconocido conserva la posibilidad de aplicarse.
+export function isChangeAbandonable(change, commands = []) {
+    const command = findSupervisorCommandForChange(change, commands);
+    return Boolean(command && isTerminalSupervisorCommandStatus(command.status));
+}
+
 export function restoreLocalRateState(previous = {}) {
     if (typeof localStorage === 'undefined') return;
 

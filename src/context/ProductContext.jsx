@@ -373,11 +373,28 @@ export function ProductProvider({ children, rates }) {
                         'stockUpdatedBy',
                         'stockUpdatedByName',
                         'stockUpdatedByRole',
+                        // FIX B (Causa #2, CASO-SYNC 23-10-2026): recibo de comando del
+                        // supervisor (hasSupervisorReceipt). Sin protegerlo, una clausura
+                        // stale del autoguardado lo destruía y el Monitor dejaba el cambio
+                        // «en confirmación» sin poder confirmarse jamás.
+                        'lastOperationId',
                     ];
                     const productsForSave = products.map(product => {
                         const durable = durableById.get(product.id);
                         if (!durable) return product;
-                        const merged = { ...product };
+                        // FIX B (Causa #2, CASO-SYNC 23-10-2026): merge durable-first.
+                        // Si la fila durable fue editada DESPUÉS que la clausura de este
+                        // autoguardado (debounce 1s + contención de pos_write_lock =
+                        // clausuras que escriben tarde), la fila durable manda completa:
+                        // precios, updatedAt, updatedBy* y atributos viejos de la memoria
+                        // no pueden revertir el heal del comando del supervisor. Solo aplica
+                        // con updatedAt estrictamente mayor: una edición local en memoria
+                        // más reciente sigue ganando.
+                        const durableTime = Date.parse(durable.updatedAt);
+                        const memoryTime = Date.parse(product.updatedAt);
+                        const durableIsNewer = Number.isFinite(durableTime)
+                            && Number.isFinite(memoryTime) && durableTime > memoryTime;
+                        const merged = durableIsNewer ? { ...product, ...durable } : { ...product };
                         for (const field of stockTraceFields) {
                             if (Object.prototype.hasOwnProperty.call(durable, field)) merged[field] = durable[field];
                             else delete merged[field];

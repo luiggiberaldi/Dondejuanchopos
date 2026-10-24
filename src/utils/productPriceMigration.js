@@ -42,6 +42,28 @@ export function getFormatPriceAliasConflicts(product = {}) {
     });
 }
 
+/**
+ * Completa la clave canónica desde la legacy SOLO cuando la canónica viene
+ * ausente en el payload (CASO-SYNC-PRECIOS-CERVEZAS-SUPERVISOR-23102026).
+ *
+ * Un comando puede traer únicamente `boxPriceBsManual`/`halfBoxPriceBsManual`
+ * sin `boxPriceBs`/`halfBoxPriceBs`. Si ese payload se fusiona tal cual con el
+ * producto existente ({ ...existing, ...pData }), la canónica vieja del
+ * existente sobrevive y `readPositiveMoney` la preferirá, descartando el precio
+ * nuevo en silencio. Copiar legacy → canónico cuando la canónica está ausente
+ * corrige eso SIN permitir que un alias legacy obsoleto pise una canónica
+ * nueva: si la canónica viene en el payload, siempre manda.
+ */
+export function syncLegacyFormatPriceAliases(data = {}) {
+    const next = { ...data };
+    for (const keys of Object.values(FORMAT_PRICE_KEYS)) {
+        if (next[keys.canonical] === undefined && next[keys.legacy] !== undefined) {
+            next[keys.canonical] = next[keys.legacy];
+        }
+    }
+    return next;
+}
+
 export function migrateFormatPriceAliases(product = {}) {
     const next = { ...product };
 

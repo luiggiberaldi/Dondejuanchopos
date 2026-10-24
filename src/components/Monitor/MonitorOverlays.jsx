@@ -492,12 +492,20 @@ export default function MonitorOverlays({ AlertTriangle, BsCongeladoAlertBanner,
                             forceBcv: false,
                         };
                         if (p.priceBsManual !== undefined) changes.priceBsManual = p.priceBsManual;
-                        if (p.boxPriceBsManual !== undefined) {
-                            changes.boxPriceBsManual = p.boxPriceBsManual;
+                        // Fix alias CASO-SYNC-PRECIOS: emitir SIEMPRE el par
+                        // canónico + legacy con el mismo valor, para que la caja
+                        // no dependa del orden de precedencia de readPositiveMoney.
+                        // Si ya existen ambas claves, la canónica manda.
+                        const boxPriceBs = p.boxPriceBs ?? p.boxPriceBsManual;
+                        if (boxPriceBs !== undefined) {
+                            changes.boxPriceBs = boxPriceBs;
+                            changes.boxPriceBsManual = boxPriceBs;
                             changes.boxPricingMode = p.boxPricingMode || 'bs_fijo';
                         }
-                        if (p.halfBoxPriceBsManual !== undefined) {
-                            changes.halfBoxPriceBsManual = p.halfBoxPriceBsManual;
+                        const halfBoxPriceBs = p.halfBoxPriceBs ?? p.halfBoxPriceBsManual;
+                        if (halfBoxPriceBs !== undefined) {
+                            changes.halfBoxPriceBs = halfBoxPriceBs;
+                            changes.halfBoxPriceBsManual = halfBoxPriceBs;
                             changes.halfBoxPricingMode = p.halfBoxPricingMode || 'bs_fijo';
                         }
 
