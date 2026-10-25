@@ -67,6 +67,10 @@ it('una limpieza fallida aborta antes de restaurar, publicar o programar recarga
     expect(props.setImportStatus).toHaveBeenCalledWith('error');
     expect(props.setImportStatus).not.toHaveBeenCalledWith('success');
     expect(localStorage.getItem('dj_backup_imported_flag')).toBeNull();
+    // jsdom dispatcha eventos `storage` con setTimeout(0) interno en cada mutación
+    // de localStorage (Storage-impl.js); drenarlos sin avanzar el reloj deja la
+    // guarda estricta: cualquier timer de recarga (>=600 ms) seguiría contado.
+    vi.advanceTimersByTime(0);
     expect(vi.getTimerCount()).toBe(0);
 });
 it('restauración invalida fallback previo para que un flush posterior no reponga datos viejos', async () => {

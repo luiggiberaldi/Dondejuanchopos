@@ -51,7 +51,11 @@ it('fallo de escritura en overlay no confirma restauración ni programa recarga'
     await load({ idb: { bodega_products_v1: [{ id: 'new' }] } });
     expect(host.textContent).toContain('Error:');
     expect(host.textContent).not.toContain('Datos restaurados');
-    expect(m.queue).not.toHaveBeenCalled(); expect(vi.getTimerCount()).toBe(0);
+    expect(m.queue).not.toHaveBeenCalled();
+    // Drena los setTimeout(0) internos de jsdom (eventos storage diferidos);
+    // un timer de recarga real (>=600 ms) seguiría pendiente y contado.
+    vi.advanceTimersByTime(0);
+    expect(vi.getTimerCount()).toBe(0);
 });
 it('ErrorBoundary propaga fallo de limpieza hacia estado de error y no recarga', async () => {
     // El mock no implementa removeItem: el fallo del límite E/S debe capturarse.
@@ -61,5 +65,8 @@ it('ErrorBoundary propaga fallo de limpieza hacia estado de error y no recarga',
     await boundary._handleClearCriticalData();
     expect(state.at(-1)).toMatchObject({ clearing: false });
     expect(state.at(-1).clearMsg).toContain('No se pudo completar');
+    // Igual que arriba: sin drenar los timers internos de jsdom la cuenta no
+    // refleja los timers de la app.
+    vi.advanceTimersByTime(0);
     expect(vi.getTimerCount()).toBe(0);
 });

@@ -59,7 +59,9 @@ describe('useCheckoutFlow — cierre con estado (éxito, aborto, excepción)', (
     test('checkoutEnd se invoca en las tres salidas del flujo', () => {
         expect(FLOW).toContain("checkoutEnd({ ok: true, duplicate: result.duplicate === true })");
         expect(FLOW).toContain('checkoutEnd({ ok: false, error: result.error })');
-        expect(FLOW).toContain("checkoutEnd({ ok: false, error: err?.message || 'excepción' })");
+        // La salida por excepción cierra con el diagnóstico enriquecido (release
+        // 1.1.2): código + mensaje, no solo err.message.
+        expect(FLOW).toContain("checkoutEnd({ ok: false, error: `${diagnostic.code || 'ERROR'}: ${diagnostic.message}` })");
     });
 });
 

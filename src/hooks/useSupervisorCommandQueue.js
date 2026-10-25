@@ -15,9 +15,11 @@ import { applyProjectedStock, hasSupervisorReceipt, shouldProjectSupervisorChang
 import { useDurableSupervisorQueue, LEGACY_PENDING_KEY, LEGACY_INFLIGHT_KEY } from './useDurableSupervisorQueue';
 import {
     createSupervisorCommandId,
+    diffSupervisorEditedKeys,
     getSupervisorChangeResolution,
     isChangeAbandonable,
     normalizeSupervisorChanges,
+    supervisorEditMatches,
     sameSupervisorRequest,
     restoreLocalRateState,
     SUPERVISOR_RATE_PENDING_KEY,
@@ -141,11 +143,11 @@ export function useSupervisorCommandQueue({
         if (change.action === 'delete') return !product;
         if (change.action === 'add') return Boolean(product);
         if (change.action !== 'edit' || !product) return false;
-        return Object.entries(change.data || {})
-            .filter(([key]) => !['baseUpdatedAt', 'updatedAt', 'createdAt', 'stock'].includes(key) && !key.startsWith('_'))
-            .every(([key, expected]) => key === 'name'
-                ? String(product[key] || '').trim() === String(expected || '').trim()
-                : JSON.stringify(product[key] ?? null) === JSON.stringify(expected ?? null));
+        // FIX 7.6.4 (CASO-SYNC 23-10-2026): comparar SOLO las claves realmente
+        // editadas, no el blob completo del producto. La igualdad total era casi
+        // imposible: la caja sobrescribe updatedAt/updatedBy*/lastOperationId y
+        // las ventas mueven los campos de stock entre el envío y la confirmación.
+        return supervisorEditMatches(change, product);
     }, []);
 
     useEffect(() => {
@@ -554,7 +556,13 @@ export function useSupervisorCommandQueue({
                     };
                 } else {
                     const i = idxOf('edit');
-                    next[i >= 0 ? i : next.length] = makeChange(i >= 0 ? next[i] : null, editData);
+                    // FIX 7.6.4: huella de las claves REALMENTE editadas (diff contra
+                    // el producto base, sin derivados). Metadata local del cambio:
+                    // el envelope de la nube sigue llevando solo `data`.
+                    next[i >= 0 ? i : next.length] = {
+                        ...makeChange(i >= 0 ? next[i] : null, editData),
+                        editedKeys: diffSupervisorEditedKeys(targetProd, editData),
+                    };
                 }
             } else if (action === 'delete') {
                 const existing = next.find(c => c.productId === productId);

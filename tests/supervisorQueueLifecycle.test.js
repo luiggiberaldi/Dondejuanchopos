@@ -346,3 +346,64 @@ describe('Desatasque de cambios en confirmación (CASO-SYNC 23-10-2026)', () => 
         expect(queue.pendingChanges).toHaveLength(0); // terminal: abandonable
     });
 });
+
+describe('Confirmación de edit por claves realmente editadas (CASO-SYNC 7.6.4)', () => {
+    it('edit se confirma aunque auditoría, recibos y stock difieran del blob enviado', async () => {
+        await mount();
+        const base = { ...products[0] };
+        // El formulario envía el blob completo del producto, arrastrando la
+        // auditoría y el recibo viejos del eco anterior (huella del caso).
+        await act(async () => queue.queueInventoryChange('edit', 'p1', {
+            ...base, name: 'Nuevo', priceUsd: 5,
+            updatedAt: '2026-10-10T00:00:00.000Z', lastOperationId: 'cmd-previo',
+        }));
+        await send();
+        const id = m.insert.mock.calls[0][0].id;
+        await commands([command(id, 'applied')]);
+        expect(queue.inFlightChanges[0].syncState).toBe('awaiting_catalog'); // sin eco aún
+        // Eco de la caja: los valores editados coinciden; la caja sobrescribió la
+        // auditoría/recibos y las ventas movieron el stock (drift legítimo).
+        products = [{
+            ...base, name: 'Nuevo', priceUsd: 5, stock: 7,
+            updatedAt: '2026-10-24T23:00:00.000Z', updatedByName: 'mon_x', updatedByRole: 'SUPERVISOR',
+            lastOperationId: 'otro-cmd', stockOperationIds: ['otro-cmd'],
+            stockUpdatedAt: '2026-10-24T23:00:01.000Z', stockUpdatedByRole: 'CAJERO',
+        }];
+        await render();
+        expect(queue.inFlightChanges).toHaveLength(0); // confirmado por claves editadas
+    });
+    it('un valor realmente editado que diverge NO se confirma', async () => {
+        await mount();
+        const base = { ...products[0] };
+        await act(async () => queue.queueInventoryChange('edit', 'p1', { ...base, name: 'Nuevo', priceUsd: 5 }));
+        await send();
+        await commands([command(m.insert.mock.calls[0][0].id, 'applied')]);
+        products = [{ ...base, name: 'Otro', priceUsd: 5 }]; // el nombre editado divergió
+        await render();
+        expect(queue.inFlightChanges).toHaveLength(1);
+        expect(queue.inFlightChanges[0].syncState).toBe('awaiting_catalog');
+    });
+    it('un edit legacy sin huella confirma ignorando los campos derivados', async () => {
+        await mount();
+        const base = { ...products[0] };
+        // Cambio encolado por una versión previa (sin editedKeys): el blob
+        // arrastra auditoría/recibos viejos que la caja sobrescribe al aplicar —
+        // con la comparación total quedaba «en confirmación» para siempre.
+        await act(async () => queue.uploadPendingChanges([{
+            commandId: 'legacy-edit', action: 'edit', productId: 'p1',
+            data: {
+                ...base, name: 'Nuevo',
+                updatedAt: '2026-10-10T00:00:00.000Z', baseUpdatedAt: '2026-10-10T00:00:00.000Z',
+                updatedByName: 'mon_viejo', lastOperationId: 'cmd-previo', stockOperationIds: ['viejo'],
+            },
+        }]));
+        await commands([command('legacy-edit', 'applied')]);
+        products = [{
+            ...base, name: 'Nuevo',
+            updatedAt: '2026-10-24T23:00:00.000Z', updatedByName: 'mon_nuevo',
+            lastOperationId: 'otro-cmd', stockOperationIds: ['otro-cmd'],
+        }];
+        await render();
+        expect(queue.inFlightChanges).toHaveLength(0); // el fallback ignora derivados
+    });
+});

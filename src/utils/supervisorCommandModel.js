@@ -86,6 +86,50 @@ export function isChangeAbandonable(change, commands = []) {
     return Boolean(command && isTerminalSupervisorCommandStatus(command.status));
 }
 
+// Campos que la caja recalcula al aplicar (auditoría, recibos de comando) o que
+// se mueven con cada venta (traza de stock). No son intención de edición del
+// supervisor: exigirlos en la confirmación de un `edit` la hacía casi imposible
+// (CASO-SYNC 23-10-2026, sección 7.2).
+export const EDIT_COMPARE_IGNORED_FIELDS = new Set([
+    'baseUpdatedAt', 'updatedAt', 'createdAt', 'stock',
+    'updatedBy', 'updatedByName', 'updatedByRole', 'updatedByDeviceId',
+    'lastOperationId', 'lastStockOperationId', 'stockOperationIds',
+    'stockUpdatedAt', 'stockUpdatedBy', 'stockUpdatedByName', 'stockUpdatedByRole',
+]);
+
+// Huella de las claves REALMENTE editadas: las que difieren entre el producto
+// base y el payload del formulario (excluyendo derivados). `null` si no hay
+// base: sin ella no se puede saber la intención y la confirmación cae en el
+// fallback por igualdad de claves no derivadas.
+export function diffSupervisorEditedKeys(base, data) {
+    if (!base || !data || typeof data !== 'object') return null;
+    const keys = [];
+    for (const key of Object.keys(data)) {
+        if (EDIT_COMPARE_IGNORED_FIELDS.has(key) || key.startsWith('_')) continue;
+        const same = key === 'name'
+            ? String(base[key] || '').trim() === String(data[key] || '').trim()
+            : JSON.stringify(base[key] ?? null) === JSON.stringify(data[key] ?? null);
+        if (!same) keys.push(key);
+    }
+    return keys;
+}
+
+// Confirmación de un `edit`: compara SOLO las claves realmente editadas
+// (CASO-SYNC 23-10-2026, fix 7.6.4). El blob completo del producto nunca puede
+// ser igual al eco de la caja (updatedAt/updatedBy*/lastOperationId los
+// sobrescribe la caja y el stock se mueve con cada venta). Los cambios `edit`
+// legacy sin `editedKeys` comparan todas las claves no derivadas.
+export function supervisorEditMatches(change, product) {
+    if (!product) return false;
+    const data = change?.data || {};
+    const keys = Array.isArray(change?.editedKeys)
+        ? change.editedKeys
+        : Object.keys(data).filter(key => !EDIT_COMPARE_IGNORED_FIELDS.has(key) && !key.startsWith('_'));
+    return keys.every(key => key === 'name'
+        ? String(product[key] || '').trim() === String(data[key] || '').trim()
+        : JSON.stringify(product[key] ?? null) === JSON.stringify(data[key] ?? null));
+}
+
 export function restoreLocalRateState(previous = {}) {
     if (typeof localStorage === 'undefined') return;
 

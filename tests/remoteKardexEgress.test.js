@@ -92,7 +92,11 @@ describe('Supervisor remote Kardex — egress y seguridad', () => {
         const end = cloudSyncSource.indexOf('const presenceIntervalId', start);
         const heartbeatBlock = cloudSyncSource.slice(start, end);
 
-        expect(heartbeatBlock).toContain('if (!navigator.onLine || !deviceId) return;');
+        // FASE 4: offline ya no mata la cadena de presencia — se reprograma con
+        // piso 30 s y se espera al próximo tick sin hacer fetch.
+        expect(heartbeatBlock).toContain('if (!deviceId) return;');
+        expect(heartbeatBlock).toContain('if (!navigator.onLine) {');
+        expect(heartbeatBlock).toContain('schedulePresence(30000);');
         expect(heartbeatBlock).toContain("rpc('touch_pos_heartbeat'");
         expect(heartbeatBlock).not.toContain('navigator.onLine && isCloudSyncActive && deviceId');
         expect(heartbeatBlock).toContain('isCloudSyncActive && hb && hb.registered === false');

@@ -251,7 +251,7 @@ Los comandos `sale_number_claim` se marcan `applied` **sin `applied_at`**: [sale
 1. **[XS]** ✅ **Hecho (7.7):** guardia de null/parseo en `MonitorCambiosTab.jsx` — «APLICADO EN CAJA (SIN SELLO)» cuando `applied_at` falta o no parsea.
 2. **[XS]** ✅ **Hecho (7.7):** `saleNumberAllocator.js` sella `applied_at` en la autoconfirmación del reclamo.
 3. **[S]** ✅ **Hecho (6.9):** `lastOperationId`/`stockOperationIds` protegidos en el autoguardado (Fix B3) — los recibos ya no se pierden.
-4. **[S]** Comparación de `edit`: comparar solo las claves realmente editadas (o excluir campos de auditoría/recibo derivados como `lastOperationId`, `stockOperationIds`, `updatedBy*`).
+4. **[S]** ✅ **Hecho (7.9):** comparación de `edit` por claves realmente editadas (con fallback que excluye campos derivados para cambios legacy).
 5. **[M]** ✅ **Hecho (7.8):** `requestRecovery` con backoff acotado (15s/45s/120s/300s) y abandono de cambios en confirmación con comando terminal.
 
 ### 7.7 Fix implementado (24-10-2026) ✅
@@ -267,4 +267,18 @@ Los comandos `sale_number_claim` se marcan `applied` **sin `applied_at`**: [sale
 * **Abandono con comando terminal:** nuevo `isChangeAbandonable` ([supervisorCommandModel.js](src/utils/supervisorCommandModel.js)) — un cambio solo es abandonable si su comando ya está **terminal** (`applied` / `applied_with_warnings` / `failed` / `cancelled`); un comando aún `pending` o desconocido se conserva porque todavía puede aplicarse. `discardPendingChanges` (botón DESCARTAR del banner y del modal) ahora retira **también** los cambios `inFlight` «en confirmación» con comando terminal — antes ningún descarte tocaba `inFlight`, por eso el botón no quitaba nada —, y `discardSinglePendingChange` abandona en vez de rechazar en ese caso. Con comando terminal el abandono es seguro: nada más llegará de la caja y el eco canónico es la verdad (7.3).
 * **Backoff en la recuperación:** `requestRecovery` deja de ser un-shot por `commandId` (`recoveryRequestedRef`, 7.2) y pasa a una cadena acotada con backoff [15s, 45s, 120s, 300s] → 5 disparos en total (0s, 15s, 60s, 180s, 480s). La cadena se corta con `stopRecovery` cuando el cambio se resuelve, se abandona o al desmontar — sin tormentas de pulls. Esto cubre la ventana en la que el disparo único ocurría antes de que el eco del catálogo llegara y el pull incremental ya no lo traía.
 * **Pruebas de regresión (5 nuevas)** en [tests/supervisorQueueLifecycle.test.js](tests/supervisorQueueLifecycle.test.js): los 5 disparos del backoff y su corte al resolverse; abandono del «1 cambio en confirmación» con comando terminal; conservación mientras el comando siga `pending`; descarte individual (abandona con terminal, rechaza el desconocido).
-* **Verificación:** 61/61 (cola del supervisor + modelo + sync optimista + recuperación + conflictos), 16/16 (tasa + transacciones de cliente), lint 0 errores. 7.6.1–7.6.3 y 7.6.5 quedan implementados; **resta** 7.6.4 (comparación de `edit` por claves realmente editadas).
+
+### 7.9 Comparación de `edit` por claves realmente editadas (24-10-2026) ✅
+
+**Problema (7.2):** la confirmación de un `edit` exigía igualdad exacta de **todas** las claves de `change.data` — el blob completo del producto, que arrastra `updatedAt`/`updatedBy*`/`lastOperationId` del eco anterior. La caja sobrescribe esos campos al aplicar y las ventas mueven los de stock, así que la igualdad era casi imposible y el cambio quedaba «en confirmación» para siempre.
+
+**Fix:**
+
+* `queueInventoryChange('edit', …)` sella en el cambio la huella `editedKeys` = diff entre el producto base y el payload (las claves que el formulario **realmente** editó), excluyendo campos derivados ([supervisorCommandModel.js](src/utils/supervisorCommandModel.js): `EDIT_COMPARE_IGNORED_FIELDS` / `diffSupervisorEditedKeys`). Es metadata local del cambio: el envelope de la nube sigue llevando solo `data` (payload inmutable).
+* La confirmación (`supervisorEditMatches`) compara **solo** esas claves contra el eco del catálogo. Un cambio `edit` legacy sin `editedKeys` cae en un fallback que compara todas las claves **no derivadas** (auditoría, recibos y traza de stock excluidos) — los cambios atascados por este motivo se confirman solos en el próximo pull.
+* La semántica sigue estricta donde importa: si una clave **realmente editada** diverge (p. ej. `f1920b3e`: `priceUsd` 3.8 vs 3.9) **no** se confirma — se reintenta con backoff (7.8) y, con comando terminal, se puede abandonar. Confirmarlo habría aceptado un precio equivocado en silencio.
+
+**Pruebas de regresión (3 nuevas)** en [tests/supervisorQueueLifecycle.test.js](tests/supervisorQueueLifecycle.test.js): confirmación pese a auditoría/recibos/stock divergentes (huella forense del caso), no-confirmación cuando una clave editada diverge, y fallback legacy que ignora los derivados.
+
+**Verificación:** 64/64 (cola del supervisor + modelo + sync optimista + recuperación + conflictos), lint 0 errores. El plan de fixes 7.6 queda **completo**.
+* **Verificación:** 61/61 (cola del supervisor + modelo + sync optimista + recuperación + conflictos), 16/16 (tasa + transacciones de cliente), lint 0 errores. **7.6.1–7.6.5 quedan implementados** (7.6.4 en la sección 7.9).

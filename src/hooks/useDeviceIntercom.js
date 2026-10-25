@@ -5,6 +5,7 @@ import { buildPushRow, describePushRegistrationFailure, isRlsError, registerPush
 
 const READS_TABLE = 'device_message_reads';
 const CLEAR_RPC = 'intercom_clear_conversation';
+const DELETE_RPC = 'intercom_delete_messages';
 const RETENTION_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_VAPID_PUBLIC_KEY = 'BKP1Pkm0qyReec6qaCLfgJJuJ5WXQ-VswT-GZ8MNVAsic99mmSTIBxkM8Al_kqUu6ig_IHuQzwNeQz4A_ex_-gk';
 const PUSH_PUBLIC_KEY = import.meta.env.VITE_INTERCOM_VAPID_PUBLIC_KEY || DEFAULT_VAPID_PUBLIC_KEY;
@@ -191,6 +192,55 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
         setError('');
     }, [deviceId, primaryDeviceId]);
 
+    const deleteMessages = useCallback(async messageIds => {
+        if (!messageIds?.length) return;
+
+        // Los mensajes en delivery_state:'failed' sólo existen en estado local (el INSERT falló).
+        const failedIds = messageIds.filter(id => failedMessages.some(m => m.id === id));
+        const cloudIds = messageIds.filter(id => !failedIds.includes(id));
+
+        // 1. Borrar fallidos localmente de inmediato
+        if (failedIds.length) {
+            setFailedMessages(prev => prev.filter(m => !failedIds.includes(m.id)));
+            messagesRef.current = messagesRef.current.filter(m => !failedIds.includes(m.id));
+            setMessages([...messagesRef.current]);
+        }
+
+        // 2. Borrar en la nube los que sí están en BD
+        if (cloudIds.length) {
+            if (!supabaseCloud || !primaryDeviceId || !deviceId) {
+                throw new Error('No hay conexión con el chat de Supabase.');
+            }
+            const { error: deleteError } = await supabaseCloud.rpc(DELETE_RPC, {
+                p_primary: primaryDeviceId,
+                p_device: deviceId,
+                p_message_ids: cloudIds,
+            });
+            if (isRlsError(deleteError)) {
+                throw new Error('Este dispositivo ya no pertenece a un vínculo activo.');
+            }
+            if (deleteError) {
+                if (deleteError.code === 'PGRST202' || deleteError.message?.includes('schema cache')) {
+                    throw new Error('Falta ejecutar el script SQL en Supabase para habilitar el borrado de mensajes.');
+                }
+                throw deleteError;
+            }
+            // Actualizar estado local inmediatamente
+            messagesRef.current = messagesRef.current.filter(m => !cloudIds.includes(m.id));
+            setMessages([...messagesRef.current]);
+        }
+
+        // 3. Si el cursor de lectura apuntaba a un mensaje borrado, recalcular
+        const cursor = readCursorRef.current;
+        if (cursor && messageIds.includes(cursor.id)) {
+            const newCursor = getInitialCursor(messagesRef.current);
+            readCursorRef.current = newCursor;
+            setReadCursor(newCursor);
+        }
+
+        await fetchUnreadCount();
+    }, [deviceId, failedMessages, fetchUnreadCount, primaryDeviceId]);
+
     useEffect(() => {
         if (!supabaseCloud || !primaryDeviceId || !deviceId) {
             setLoading(false);
@@ -223,6 +273,19 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
                 if (isNew && row.sender_device_id !== deviceId) {
                     setUnreadCount(value => value + 1);
                     onIncomingMessage?.(row);
+                }
+            })
+            .on('postgres_changes', {
+                event: 'DELETE', schema: 'public', table: 'device_messages',
+            }, payload => {
+                if (disposed) return;
+                const deletedId = payload.old?.id;
+                if (!deletedId) return;
+                const hadMessage = messagesRef.current.some(message => message.id === deletedId);
+                if (hadMessage) {
+                    messagesRef.current = messagesRef.current.filter(message => message.id !== deletedId);
+                    setMessages([...messagesRef.current]);
+                    fetchUnreadCount().catch(() => {});
                 }
             })
             .subscribe(status => {
@@ -501,6 +564,6 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
 
     return {
         messages, failedMessages, loading, sending, error, unreadCount, pushState, pushBusy,
-        refresh, clearConversation, markRead, markMessageRead, markMessagesReadThrough, sendMessage, retryMessage, enablePush, disablePush,
+        refresh, clearConversation, deleteMessages, markRead, markMessageRead, markMessagesReadThrough, sendMessage, retryMessage, enablePush, disablePush,
     };
 }
