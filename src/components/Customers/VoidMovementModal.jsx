@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, RotateCcw, AlertTriangle, ArrowRight, User, Calendar, ShoppingBag, Loader2, Lock, CheckCircle2 } from 'lucide-react';
 import { round2, mulR, subR, sumR } from '../../utils/dinero';
 import { formatUsd, formatBs, formatCop } from '../../utils/calculatorUtils';
+import { getCustomerMovementPaymentInfo } from '../../utils/monitorSaleFormat';
 
 export default function VoidMovementModal({
     isOpen,
@@ -173,7 +174,30 @@ export default function VoidMovementModal({
                             )}
                         </div>
 
-                        {movement.items && movement.items.length > 0 && (
+                        {isCobro && (() => {
+                            const pi = getCustomerMovementPaymentInfo(movement);
+                            if (!pi.methodLabel) return null;
+                            return (
+                                <div className="flex items-center gap-1.5 pt-2 border-t border-slate-200/50 dark:border-slate-700/50 mt-2 flex-wrap">
+                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${pi.badgeClass}`}>
+                                        {pi.Icon && <pi.Icon size={10} className="shrink-0" />}
+                                        {pi.methodLabel}
+                                    </span>
+                                    {pi.paymentSummaryLine && (
+                                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                                            {pi.paymentSummaryLine}
+                                        </span>
+                                    )}
+                                    {pi.operatorName && (
+                                        <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                                            · {pi.operatorName}
+                                        </span>
+                                    )}
+                                </div>
+                            );
+                        })()}
+
+                        {!isCobro && movement.items && movement.items.length > 0 && (
                             <p className="text-[10px] text-slate-400 truncate border-t border-slate-200/50 dark:border-slate-700/50 pt-1.5 mt-1">
                                 {movement.items.map(i => i.name).join(', ')}
                             </p>
