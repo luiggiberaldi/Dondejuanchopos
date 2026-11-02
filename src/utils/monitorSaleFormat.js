@@ -9,17 +9,20 @@ import { getPaymentLabel, toTitleCase } from '../config/paymentMethods';
 import { getChangeLedger } from './changeLedger';
 import { calculatePricing } from './productProcessor';
 import { mulR, round2 } from './dinero';
+import { formatBs, formatUsd, formatCop } from './calculatorUtils';
 
 // Helper: icon por método de pago
 export const PAYMENT_METHOD_ICONS = {
     efectivo_bs: Banknote,
     pago_movil: Smartphone,
     punto_de_venta: CreditCard,
+    punto_venta: CreditCard,
     efectivo_usd: DollarSign,
     zelle: Smartphone,
     binance: Wallet,
     efectivo_cop: Coins,
     transferencia_cop: CreditCard,
+    transferencia: Banknote,
     fiado: Clock,
     cashea: Clock,
     vuelto_bs: RotateCcw,
@@ -145,4 +148,121 @@ export function getEffectiveSaleTotalBs(sale, products = [], effectiveRate = 1, 
     }
 
     return hasMatch ? round2(sumBs) : (sale.totalBs || 0);
+}
+
+/**
+ * Resuelve el método de pago de un movimiento de cliente para el Monitor.
+ * Para COBRO_DEUDA devuelve ícono, label, badge y línea de resumen.
+ * Para VENTA_FIADA devuelve isFiada=true y todos los campos de pago en null
+ * (la fiada aún no tiene pago; se muestran los productos de la venta).
+ */
+export function getCustomerMovementPaymentInfo(sale) {
+    if (!sale) {
+        return {
+            isCobro: false,
+            isFiada: false,
+            methodId: null,
+            methodLabel: null,
+            badgeClass: null,
+            Icon: null,
+            paymentSummaryLine: null,
+            operatorName: null,
+        };
+    }
+
+    const isCobro = sale.tipo === 'COBRO_DEUDA';
+    const isFiada = sale.tipo === 'VENTA_FIADA';
+
+    if (!isCobro) {
+        return {
+            isCobro: false,
+            isFiada,
+            methodId: null,
+            methodLabel: null,
+            badgeClass: null,
+            Icon: null,
+            paymentSummaryLine: null,
+            operatorName: sale.usuarioNombre || sale.actor?.nombre || null,
+        };
+    }
+
+    // Resolver método de pago — payments[] tiene prioridad sobre paymentMethod legacy
+    const p = Array.isArray(sale.payments) && sale.payments.length > 0
+        ? sale.payments[0]
+        : null;
+
+    const rawId = (p?.methodId || sale.paymentMethod || '').toLowerCase().trim();
+    const rawLabel = p?.methodLabel || sale.paymentMethod || '';
+
+    // Etiqueta normalizada
+    let methodLabel;
+    if (rawId === 'efectivo_bs' || rawId === 'efectivo bs' || rawId === 'efectivo') {
+        methodLabel = 'Efectivo (Bs)';
+    } else if (rawId === 'efectivo_usd' || rawId === 'efectivo usd') {
+        methodLabel = 'Efectivo ($)';
+    } else if (rawId === 'efectivo_cop' || rawId === 'efectivo cop') {
+        methodLabel = 'Efectivo (COP)';
+    } else if (rawId === 'pago_movil' || rawId === 'pago movil') {
+        methodLabel = 'Pago Móvil';
+    } else if (rawId === 'punto_venta' || rawId === 'punto_de_venta' || rawId === 'punto venta') {
+        methodLabel = 'Punto de Venta';
+    } else if (rawLabel && rawLabel !== rawId) {
+        methodLabel = rawLabel;
+    } else if (rawId) {
+        methodLabel = getPaymentLabel(rawId) || toTitleCase(rawId);
+    } else {
+        methodLabel = 'Abono';
+    }
+
+    // Ícono — normalizar rawId al key del mapa
+    const iconKey = (rawId === 'punto_venta' || rawId === 'punto venta') ? 'punto_venta'
+                  : (rawId === 'pago movil') ? 'pago_movil'
+                  : (rawId === 'efectivo bs') ? 'efectivo_bs'
+                  : (rawId === 'efectivo usd') ? 'efectivo_usd'
+                  : rawId.startsWith('transferencia') ? 'transferencia'
+                  : rawId;
+    const Icon = PAYMENT_METHOD_ICONS[iconKey] || Wallet;
+
+    // Badge Tailwind (colores por método)
+    const badgeClass = (rawId.startsWith('efectivo_usd') || rawId === 'efectivo usd')
+        ? 'bg-teal-100 text-teal-800 dark:bg-teal-950/60 dark:text-teal-300 border border-teal-300'
+        : (rawId.startsWith('pago_movil') || rawId === 'pago movil')
+        ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-300'
+        : rawId.startsWith('punto')
+        ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-300'
+        : rawId.startsWith('transferencia')
+        ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300'
+        : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300';
+
+    // Línea de resumen (BUG-3: respetar la moneda del payment)
+    let paymentSummaryLine = null;
+    if (p) {
+        const currency = (p.currency || 'BS').toUpperCase();
+        if (currency === 'USD') {
+            paymentSummaryLine = `${methodLabel}: $${formatUsd(p.amountUsd ?? p.amount)}`;
+        } else if (currency === 'BS') {
+            paymentSummaryLine = `${methodLabel}: ${formatBs(p.amount)} Bs`;
+        } else if (currency === 'COP') {
+            paymentSummaryLine = `${methodLabel}: ${formatCop(p.amount)} COP`;
+        }
+    } else if (rawId && (sale.totalUsd > 0 || sale.totalBs > 0)) {
+        if (sale.totalBs > 0) {
+            paymentSummaryLine = `${methodLabel}: ${formatBs(sale.totalBs)} Bs`;
+        } else {
+            paymentSummaryLine = `${methodLabel}: $${formatUsd(sale.totalUsd)}`;
+        }
+    }
+
+    const operatorName = sale.usuarioNombre || sale.actor?.nombre || null;
+
+    return {
+        isCobro: true,
+        isFiada: false,
+        methodId: rawId || null,
+        methodLabel,
+        badgeClass,
+        Icon,
+        paymentSummaryLine,
+        operatorName,
+    };
 }
