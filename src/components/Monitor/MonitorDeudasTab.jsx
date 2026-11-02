@@ -12,6 +12,7 @@ import { createSupervisorCommandId } from '../../utils/supervisorCommandModel';
 import SupervisorCustomerTransactionModal from './SupervisorCustomerTransactionModal';
 import { queueSupervisorCustomerTransaction } from '../../utils/supervisorCustomerCommandQueue';
 import { queueSupervisorCustomerMovementVoid } from '../../utils/supervisorCustomerMovementVoid';
+import { getCustomerMovementPaymentInfo } from '../../utils/monitorSaleFormat';
 
 export default function MonitorDeudasTab({
     customers = [],
@@ -887,6 +888,7 @@ export default function MonitorDeudasTab({
                                                         {customerSales.map(s => {
                                                             const isFiada = s.tipo === 'VENTA_FIADA';
                                                             const isCobro = s.tipo === 'COBRO_DEUDA';
+                                                            const payInfo = getCustomerMovementPaymentInfo(s);
                                                             const voidCommand = (isFiada || isCobro) ? getMovementVoidCommand(s) : null;
                                                             const isVoided = s.status === 'ANULADA';
                                                             const isPendingVoid = Boolean(pendingMovementVoids[s.id]
@@ -910,14 +912,29 @@ export default function MonitorDeudasTab({
                                                                                     #{s.saleNumber}
                                                                                 </span>
                                                                             )}
+                                                                            {isCobro && payInfo.badgeClass && (
+                                                                                <span className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-black uppercase ${payInfo.badgeClass}`}>
+                                                                                    {payInfo.Icon && <payInfo.Icon size={10} className="shrink-0" />}
+                                                                                    {payInfo.methodLabel}
+                                                                                </span>
+                                                                            )}
                                                                             <span className="text-[9.5px] text-slate-400 font-mono">{dateStr}</span>
                                                                         </div>
 
-                                                                        {/* Items */}
-                                                                        {Array.isArray(s.items) && s.items.length > 0 && (
-                                                                            <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 truncate">
-                                                                                {s.items.map(i => `${i.qty}x ${i.name || i.productName}`).join(', ')}
+                                                                        {/* Items: Para COBRO_DEUDA mostrar método y detalle; para VENTA_FIADA productos */}
+                                                                        {isCobro && payInfo.paymentSummaryLine ? (
+                                                                            <div className="text-[10px] text-slate-600 dark:text-slate-300 mt-1 flex items-center gap-1 font-medium flex-wrap">
+                                                                                <span>{payInfo.paymentSummaryLine}</span>
+                                                                                {payInfo.operatorName && (
+                                                                                    <span className="text-slate-400 dark:text-slate-500">· Recibido por: {payInfo.operatorName}</span>
+                                                                                )}
                                                                             </div>
+                                                                        ) : (
+                                                                            Array.isArray(s.items) && s.items.length > 0 && (
+                                                                                <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 truncate">
+                                                                                    {s.items.map(i => `${i.qty}x ${i.name || i.productName}`).join(', ')}
+                                                                                </div>
+                                                                            )
                                                                         )}
                                                                         {isVoided && s.voidReason && <div className="mt-1 text-[9px] text-rose-600 dark:text-rose-300">Motivo: {s.voidReason}</div>}
                                                                     </div>
@@ -1035,6 +1052,21 @@ export default function MonitorDeudasTab({
                                                         >
                                                             Historial
                                                         </button>
+                                                        {(() => {
+                                                            const custSales = getCustomerSalesHistory(c);
+                                                            const lastCobro = custSales.find(s => s.tipo === 'COBRO_DEUDA' && s.status !== 'ANULADA');
+                                                            if (!lastCobro) return null;
+                                                            const pi = getCustomerMovementPaymentInfo(lastCobro);
+                                                            return pi.badgeClass ? (
+                                                                <span
+                                                                    className={`hidden xl:inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9.5px] font-black uppercase ${pi.badgeClass}`}
+                                                                    title={`Último abono: ${pi.paymentSummaryLine || pi.methodLabel}`}
+                                                                >
+                                                                    {pi.Icon && <pi.Icon size={10} className="shrink-0" />}
+                                                                    <span>{pi.methodLabel}</span>
+                                                                </span>
+                                                            ) : null;
+                                                        })()}
                                                         <button
                                                             type="button"
                                                             onClick={() => {
@@ -1177,6 +1209,7 @@ export default function MonitorDeudasTab({
                                 getCustomerSalesHistory(selectedCustomerForHistory.id).map(s => {
                                     const isFiada = s.tipo === 'VENTA_FIADA';
                                     const isCobro = s.tipo === 'COBRO_DEUDA';
+                                    const payInfo = getCustomerMovementPaymentInfo(s);
                                     const voidCommand = (isFiada || isCobro) ? getMovementVoidCommand(s) : null;
                                     const isVoided = s.status === 'ANULADA';
                                     const isPendingVoid = Boolean(pendingMovementVoids[s.id]
@@ -1200,13 +1233,29 @@ export default function MonitorDeudasTab({
                                                             #{s.saleNumber}
                                                         </span>
                                                     )}
+                                                    {isCobro && payInfo.badgeClass && (
+                                                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9.5px] font-black uppercase ${payInfo.badgeClass}`}>
+                                                            {payInfo.Icon && <payInfo.Icon size={11} className="shrink-0" />}
+                                                            {payInfo.methodLabel}
+                                                        </span>
+                                                    )}
                                                     <span className="text-[10px] text-slate-400 font-mono">{dateStr}</span>
                                                 </div>
 
-                                                {Array.isArray(s.items) && s.items.length > 0 && (
-                                                    <div className="text-[11px] text-slate-600 dark:text-slate-300 mt-1.5 font-medium">
-                                                        {s.items.map(i => `${i.qty}x ${i.name || i.productName} ($${formatUsd(i.priceUsd || 0)})`).join(', ')}
+                                                {/* Items: Para COBRO_DEUDA mostrar método y detalle; para VENTA_FIADA productos */}
+                                                {isCobro && payInfo.paymentSummaryLine ? (
+                                                    <div className="text-[11px] text-slate-600 dark:text-slate-300 mt-1.5 flex items-center gap-1 font-medium flex-wrap">
+                                                        <span>{payInfo.paymentSummaryLine}</span>
+                                                        {payInfo.operatorName && (
+                                                            <span className="text-slate-400 dark:text-slate-500">· Recibido por: {payInfo.operatorName}</span>
+                                                        )}
                                                     </div>
+                                                ) : (
+                                                    Array.isArray(s.items) && s.items.length > 0 && (
+                                                        <div className="text-[11px] text-slate-600 dark:text-slate-300 mt-1.5 font-medium">
+                                                            {s.items.map(i => `${i.qty}x ${i.name || i.productName} ($${formatUsd(i.priceUsd || 0)})`).join(', ')}
+                                                        </div>
+                                                    )
                                                 )}
                                                 {isVoided && s.voidReason && <div className="mt-1 text-[10px] text-rose-600 dark:text-rose-300">Motivo: {s.voidReason}</div>}
                                             </div>
