@@ -52,6 +52,8 @@ import {
 import { applyProjectedStock } from '../utils/supervisorStockProjection';
 import { getSupervisorCommandDetails, isDuplicateProductIdFailure } from '../utils/monitorCommandDetails';
 import IntercomWidget from '../components/IntercomWidget';
+import { useOwnDeviceLabel } from '../hooks/useOwnDeviceLabel';
+import { DEFAULT_MONITOR_LABEL } from '../utils/deviceInfo';
 
 // Re-exports para compatibilidad con tests que importan helpers desde la vista.
 export { applyProjectedStock } from '../utils/supervisorStockProjection';
@@ -134,6 +136,12 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
     const [showRemoteCloseModal, setShowRemoteCloseModal] = useState(false);
     const [closingRemote, setClosingRemote] = useState(false);
     const supervisorUser = useAuthStore(state => state.usuarioActivo);
+    // El nombre del dispositivo (editable en "Vincular Dispositivos") firma los
+    // mensajes del intercomunicador; si sigue con el nombre por defecto se usa el usuario.
+    const ownDeviceLabel = useOwnDeviceLabel(monitorDeviceId);
+    const intercomSenderName = ownDeviceLabel && ownDeviceLabel !== DEFAULT_MONITOR_LABEL
+        ? ownDeviceLabel
+        : (supervisorUser?.nombre || 'Supervisor');
     const queue = useSupervisorCommandQueue({
         pairedDeviceId,
         products,
@@ -709,7 +717,7 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
                 primaryDeviceId={pairedDeviceId}
                 deviceId={monitorDeviceId}
                 senderRole="monitor"
-                senderName={supervisorUser?.nombre || 'Supervisor'}
+                senderName={intercomSenderName}
                 dark={theme === 'dark'}
             />
             <MonitorHeader

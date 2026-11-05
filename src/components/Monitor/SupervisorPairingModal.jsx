@@ -4,8 +4,13 @@ import { supabaseCloud } from '../../config/supabaseCloud';
 import { showToast } from '../Toast';
 import { 
     QrCode, Smartphone, RefreshCw, X, Copy, Check, 
-    ShieldAlert, Trash2, Clock, CheckCircle2, AlertTriangle, Share2 
+    ShieldAlert, Trash2, Clock, CheckCircle2, AlertTriangle, Share2,
+    Monitor, Laptop, Pencil
 } from 'lucide-react';
+import { describeDevice, DEFAULT_MONITOR_LABEL } from '../../utils/deviceInfo';
+import { setOwnDeviceLabel } from '../../hooks/useOwnDeviceLabel';
+
+const DEVICE_ICONS = { android: Smartphone, ios: Smartphone, windows: Monitor, desktop: Monitor, mac: Laptop, other: Smartphone };
 
 export default function SupervisorPairingModal({ onClose, pairedDeviceId, triggerHaptic }) {
     const [activeTab, setActiveTab] = useState('code'); // 'code' | 'devices'
@@ -19,6 +24,9 @@ export default function SupervisorPairingModal({ onClose, pairedDeviceId, trigge
     const [loadingDevices, setLoadingDevices] = useState(false);
     const [deviceToRevoke, setDeviceToRevoke] = useState(null);
     const [revoking, setRevoking] = useState(false);
+    const [editingId, setEditingId] = useState(null);
+    const [editLabel, setEditLabel] = useState('');
+    const [savingLabel, setSavingLabel] = useState(false);
 
     const canvasRef = useRef(null);
     const timerRef = useRef(null);
@@ -123,6 +131,46 @@ export default function SupervisorPairingModal({ onClose, pairedDeviceId, trigge
             showToast('Error al procesar la revocación', 'error');
         } finally {
             setRevoking(false);
+        }
+    };
+
+    // 4. Renombrar un dispositivo. El nombre también es el que firma sus mensajes
+    // en el intercomunicador.
+    const startEditing = dev => {
+        triggerHaptic?.();
+        setEditingId(dev.monitor_device_id);
+        setEditLabel(dev.device_label && dev.device_label !== DEFAULT_MONITOR_LABEL ? dev.device_label : '');
+    };
+    const handleRenameDevice = async dev => {
+        const label = editLabel.trim().replace(/\s+/g, ' ');
+        if (!label || savingLabel) return;
+        if (label.length > 40) {
+            showToast('El nombre puede tener hasta 40 caracteres', 'error');
+            return;
+        }
+        setSavingLabel(true);
+        triggerHaptic?.();
+        try {
+            const { data, error } = await supabaseCloud.rpc('rename_monitor', {
+                p_requester_id: myDeviceId || pairedDeviceId,
+                p_target_monitor_id: dev.monitor_device_id,
+                p_label: label,
+            });
+            if (error) throw error;
+            if (!data?.success) {
+                showToast(data?.message || 'No se pudo cambiar el nombre', 'error');
+                return;
+            }
+            const saved = data.device_label || label;
+            setDevices(prev => prev.map(d => (d.monitor_device_id === dev.monitor_device_id ? { ...d, device_label: saved } : d)));
+            if (dev.monitor_device_id === myDeviceId) setOwnDeviceLabel(saved);
+            setEditingId(null);
+            showToast('Nombre actualizado', 'success');
+        } catch (err) {
+            console.error('[SupervisorPairingModal] Error al renombrar dispositivo:', err);
+            showToast('Error al cambiar el nombre', 'error');
+        } finally {
+            setSavingLabel(false);
         }
     };
 
@@ -322,6 +370,9 @@ export default function SupervisorPairingModal({ onClose, pairedDeviceId, trigge
                                     const isSelf = dev.monitor_device_id === myDeviceId;
                                     const lastSeenDate = dev.last_seen_at ? new Date(dev.last_seen_at) : null;
                                     const isOnline = lastSeenDate && (Date.now() - lastSeenDate.getTime() <= 180000);
+                                    const info = describeDevice(dev);
+                                    const DeviceIcon = DEVICE_ICONS[info.kind] || Smartphone;
+                                    const isEditing = editingId === dev.monitor_device_id;
 
                                     return (
                                         <div
@@ -334,19 +385,64 @@ export default function SupervisorPairingModal({ onClose, pairedDeviceId, trigge
                                                         ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400' 
                                                         : 'bg-slate-200/60 dark:bg-slate-700/60 text-slate-400'
                                                 }`}>
-                                                    <Smartphone size={18} />
+                                                    <DeviceIcon size={18} />
                                                 </div>
-                                                <div className="min-w-0">
+                                                <div className="min-w-0 flex-1">
+                                                    {isEditing ? (
+                                                        <form
+                                                            className="flex items-center gap-1.5"
+                                                            onSubmit={e => { e.preventDefault(); handleRenameDevice(dev); }}
+                                                        >
+                                                            <input
+                                                                autoFocus
+                                                                value={editLabel}
+                                                                onChange={e => setEditLabel(e.target.value)}
+                                                                onKeyDown={e => { if (e.key === 'Escape') setEditingId(null); }}
+                                                                maxLength={40}
+                                                                placeholder="Ej: Celular de Juan"
+                                                                className="min-w-0 flex-1 px-2 py-1 text-xs font-bold rounded-lg border border-emerald-400 bg-white dark:bg-slate-900 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/30"
+                                                            />
+                                                            <button
+                                                                type="submit"
+                                                                disabled={!editLabel.trim() || savingLabel}
+                                                                className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 disabled:opacity-40"
+                                                                title="Guardar nombre"
+                                                            >
+                                                                {savingLabel ? <RefreshCw size={14} className="animate-spin" /> : <Check size={14} />}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setEditingId(null)}
+                                                                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                                                title="Cancelar"
+                                                            >
+                                                                <X size={14} />
+                                                            </button>
+                                                        </form>
+                                                    ) : (
                                                     <div className="flex items-center gap-2 flex-wrap">
                                                         <h4 className="text-xs font-black text-slate-800 dark:text-white truncate">
-                                                            {dev.device_label || 'Supervisor Remoto'}
+                                                            {dev.device_label || DEFAULT_MONITOR_LABEL}
                                                         </h4>
+                                                        <button
+                                                            onClick={() => startEditing(dev)}
+                                                            className="p-1 -m-1 rounded-md text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                                                            title="Cambiar nombre"
+                                                        >
+                                                            <Pencil size={12} />
+                                                        </button>
                                                         {isSelf && (
                                                             <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-400 border border-blue-200/60">
                                                                 Este dispositivo
                                                             </span>
                                                         )}
                                                     </div>
+                                                    )}
+                                                    {info.summary && (
+                                                        <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5 truncate" title={dev.user_agent || ''}>
+                                                            {info.summary}
+                                                        </p>
+                                                    )}
                                                     <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
                                                         <span className={`inline-block w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
                                                         <span>{isOnline ? 'En línea' : 'Hace un momento'}</span>
@@ -354,7 +450,7 @@ export default function SupervisorPairingModal({ onClose, pairedDeviceId, trigge
                                                 </div>
                                             </div>
 
-                                            {!isSelf && (
+                                            {!isSelf && !isEditing && (
                                                 <button
                                                     onClick={() => setDeviceToRevoke(dev)}
                                                     className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors shrink-0"

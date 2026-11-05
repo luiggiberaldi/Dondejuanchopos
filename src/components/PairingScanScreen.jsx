@@ -269,6 +269,7 @@ export default function PairingScanScreen({ onCancel, triggerHaptic }) {
             // Éxito: Guardar credenciales de emparejamiento
             localStorage.setItem('dj_paired_device_id', primaryDeviceId);
             localStorage.setItem('dj_pairing_mode', 'monitor');
+            localStorage.setItem('dj_device_label', userLabel);
             showToast('¡Vinculado con éxito! Cargando monitor...', 'success');
             
             // Forzar reinicio de la app para cargar la nueva vista limpia
