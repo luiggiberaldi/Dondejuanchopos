@@ -178,3 +178,16 @@ npx supabase functions deploy intercom-push --project-ref kcananrtcmckovdstvao -
 
 ### Prueba manual
 Enviar un mensaje desde otro miembro del vínculo, con el teléfono receptor bloqueado o con la app en segundo plano. Para una prueba sin escribir mensaje, se puede reenviar al webhook un `INSERT` con un `device_messages` existente (header `x-intercom-webhook-secret`); la respuesta indica `{"delivered": n, "failed": m}`.
+
+---
+
+## 6. Distinguir participantes en el chat (v1.1.6)
+
+| Mejora | Detalle |
+|---|---|
+| **Color por persona** | Se calcula con un hash del `sender_device_id`, no del nombre: cada persona tiene el mismo color en todos los equipos aunque renombre su dispositivo. Paleta de 8 tonos medios (`src/utils/intercomIdentity.js`), legibles con fondo claro y oscuro. Se aplica al nombre y al borde izquierdo de la burbuja. |
+| **Avatar con iniciales** | Círculo de color sólido con iniciales blancas ("Luis Medina" → `LM`, "Kelman" → `KE`). |
+| **Etiqueta "Caja"** | Junto al nombre en los mensajes con `sender_role = 'pos'`. |
+| **Mensajes agrupados** | Los mensajes seguidos de la misma persona, a 5 minutos o menos uno de otro, no repiten nombre ni avatar y van más juntos. |
+
+Los mensajes propios no cambian: a la derecha, en índigo y sin nombre.

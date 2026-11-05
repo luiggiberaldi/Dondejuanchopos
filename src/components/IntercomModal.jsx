@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { continuesGroup, senderColor, senderInitials } from '../utils/intercomIdentity';
 import { Bell, BellOff, Check, CheckSquare, LoaderCircle, MessageCircle, RefreshCw, Send, Trash2, X } from 'lucide-react';
 import { countCodePoints, INTERCOM_MESSAGE_LIMIT, validateMessage } from '../utils/intercomModel';
 
@@ -351,17 +352,23 @@ export default function IntercomModal({
                                 <p className="mt-1 text-xs">Escribe para iniciar la conversación.</p>
                             </div>
                         ) : (
-                            <div className="space-y-3">
+                            <div>
                                 {messages.map((message, index) => {
                                     const own = message.sender_device_id === currentDeviceId;
                                     const isLatest = index === messages.length - 1;
                                     const isSelected = selectedIds.has(message.id);
+                                    // Mensajes seguidos (≤ 5 min) de la misma persona: sin repetir nombre ni avatar.
+                                    const grouped = continuesGroup(messages[index - 1], message);
+                                    const senderName = message.sender_name || (message.sender_role === 'pos' ? 'Caja' : 'Supervisor');
+                                    const identity = own ? null : senderColor(message.sender_device_id);
                                     return (
                                         <article
                                             key={message.id}
                                             ref={isLatest ? lastMessageRef : undefined}
                                             onClick={selectionMode ? () => toggleSelection(message.id) : undefined}
                                             className={`group flex items-center gap-2.5 ${own ? 'justify-end' : 'justify-start'} ${
+                                                index === 0 ? '' : grouped ? 'mt-1' : 'mt-3'
+                                            } ${
                                                 selectionMode ? 'cursor-pointer select-none' : ''
                                             }`}
                                         >
@@ -376,8 +383,23 @@ export default function IntercomModal({
                                                     {isSelected && <Check size={12} strokeWidth={3} />}
                                                 </div>
                                             )}
+                                            {!own && (
+                                                grouped ? (
+                                                    <div className="w-8 shrink-0" aria-hidden="true" />
+                                                ) : (
+                                                    <div
+                                                        className="flex h-8 w-8 shrink-0 self-start items-center justify-center rounded-full text-[11px] font-black text-white shadow-sm select-none"
+                                                        style={{ backgroundColor: identity.color }}
+                                                        title={senderName}
+                                                        aria-hidden="true"
+                                                    >
+                                                        {senderInitials(senderName)}
+                                                    </div>
+                                                )
+                                            )}
                                             <div
-                                                className={`max-w-[84%] rounded-2xl px-3.5 py-2.5 transition-all ${
+                                                style={own ? undefined : { borderLeft: `3px solid ${identity.color}` }}
+                                                className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 transition-all ${
                                                     own
                                                         ? 'rounded-br-md bg-indigo-600 text-white'
                                                         : dark
@@ -389,7 +411,18 @@ export default function IntercomModal({
                                                         : ''
                                                 }`}
                                             >
-                                                {!own && <div className="mb-1 text-[11px] font-black opacity-75">{message.sender_name || 'Supervisor'}</div>}
+                                                {!own && !grouped && (
+                                                    <div className="mb-1 flex items-center gap-1.5 text-[11px] font-black">
+                                                        <span style={{ color: identity.color }}>{senderName}</span>
+                                                        {message.sender_role === 'pos' && (
+                                                            <span className={`rounded px-1 py-px text-[9px] font-black uppercase tracking-wide ${
+                                                                dark ? 'bg-slate-700 text-slate-200' : 'bg-slate-200 text-slate-600'
+                                                            }`}>
+                                                                Caja
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                )}
                                                 <p className="whitespace-pre-wrap break-words text-sm">{message.message}</p>
                                                 <div className={`mt-1 flex items-center justify-end gap-1.5 text-[10px] ${own ? 'text-indigo-100' : muted}`}>
                                                     <span>{formatMessageDateTime(message.created_at)}</span>
