@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { continuesGroup, senderColor, senderInitials } from '../utils/intercomIdentity';
-import { Bell, BellOff, Check, CheckSquare, LoaderCircle, MessageCircle, RefreshCw, Send, Trash2, X } from 'lucide-react';
-import { countCodePoints, INTERCOM_MESSAGE_LIMIT, validateMessage } from '../utils/intercomModel';
+import { Bell, BellOff, Check, CheckSquare, LoaderCircle, MessageCircle, Pencil, RefreshCw, Send, Trash2, X } from 'lucide-react';
+import { canEditMessage, countCodePoints, INTERCOM_MESSAGE_LIMIT, validateMessage } from '../utils/intercomModel';
 
 function formatMessageDateTime(value) {
     if (!value) return '';
@@ -40,6 +40,13 @@ export default function IntercomModal({
     dark = false,
 }) {
     const [draft, setDraft] = useState('');
+    // Edición de un mensaje propio (como WhatsApp): el campo de escritura pasa a
+    // modo "editar" con el texto original; Enter guarda y Esc cancela.
+    const [editingMessage, setEditingMessage] = useState(null);
+    const [savingEdit, setSavingEdit] = useState(false);
+    const textareaRef = useRef(null);
+    // Reloj para ocultar el lápiz cuando vence la ventana de 15 minutos.
+    const [now, setNow] = useState(() => Date.now());
     const [sendError, setSendError] = useState('');
     const [confirmingClear, setConfirmingClear] = useState(false);
     const [clearing, setClearing] = useState(false);
@@ -66,6 +73,7 @@ export default function IntercomModal({
         reload,
         clearConversation,
         deleteMessages,
+        editMessage,
         enablePush,
         disablePush,
         sending,
@@ -79,10 +87,35 @@ export default function IntercomModal({
         setConfirmingDelete(false);
     };
 
+    const startEditing = message => {
+        setSendError('');
+        setEditingMessage({ id: message.id, original: message.message });
+        setDraft(message.message);
+        setTimeout(() => {
+            const field = textareaRef.current;
+            if (!field) return;
+            field.focus();
+            field.setSelectionRange(field.value.length, field.value.length);
+        }, 0);
+    };
+
+    const cancelEditing = () => {
+        setEditingMessage(null);
+        setDraft('');
+        setSendError('');
+    };
+
     const handleClose = () => {
         exitSelectionMode();
+        cancelEditing();
         onClose();
     };
+
+    useEffect(() => {
+        if (!open) return undefined;
+        const timer = setInterval(() => setNow(Date.now()), 30000);
+        return () => clearInterval(timer);
+    }, [open]);
 
     const toggleSelection = (id) => {
         setSelectedIds(prev => {
@@ -198,6 +231,20 @@ export default function IntercomModal({
 
     const submit = async (event) => {
         event?.preventDefault();
+        if (editingMessage) {
+            if (!validation.valid || savingEdit) return;
+            setSendError('');
+            setSavingEdit(true);
+            try {
+                await editMessage(editingMessage.id, validation.message);
+                cancelEditing();
+            } catch (editError) {
+                setSendError(editError.message || 'No se pudo editar el mensaje.');
+            } finally {
+                setSavingEdit(false);
+            }
+            return;
+        }
         if (!validation.valid || sending) return;
         setSendError('');
         try {
@@ -227,6 +274,7 @@ export default function IntercomModal({
                         <button
                             type="button"
                             onClick={() => {
+                                cancelEditing();
                                 setSelectionMode(v => !v);
                                 setSelectedIds(new Set());
                                 setConfirmingDelete(false);
@@ -406,7 +454,7 @@ export default function IntercomModal({
                                                             ? 'rounded-bl-md bg-slate-800 text-slate-100'
                                                             : 'rounded-bl-md bg-slate-100 text-slate-900'
                                                 } ${
-                                                    selectionMode && isSelected
+                                                    (selectionMode && isSelected) || editingMessage?.id === message.id
                                                         ? 'ring-2 ring-indigo-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-950'
                                                         : ''
                                                 }`}
@@ -425,6 +473,18 @@ export default function IntercomModal({
                                                 )}
                                                 <p className="whitespace-pre-wrap break-words text-sm">{message.message}</p>
                                                 <div className={`mt-1 flex items-center justify-end gap-1.5 text-[10px] ${own ? 'text-indigo-100' : muted}`}>
+                                                    {own && !selectionMode && editMessage && canEditMessage(message, currentDeviceId, now) && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => { e.stopPropagation(); startEditing(message); }}
+                                                            className="mr-auto flex items-center gap-1 rounded px-1 py-0.5 font-bold opacity-80 hover:bg-white/15 hover:opacity-100"
+                                                            aria-label="Editar mensaje"
+                                                            title="Editar (hasta 15 min después de enviarlo)"
+                                                        >
+                                                            <Pencil size={11} /> Editar
+                                                        </button>
+                                                    )}
+                                                    {message.edited_at && <span className="italic">Editado</span>}
                                                     <span>{formatMessageDateTime(message.created_at)}</span>
                                                     {own && (message.delivery_state === 'sending' ? (
                                                         <LoaderCircle className="animate-spin" size={12} />
@@ -465,14 +525,36 @@ export default function IntercomModal({
                 </div>
 
                 <div className={`border-t px-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-3 ${border}`}>
+                    {editingMessage && (
+                        <div className="mb-2 flex items-center gap-2 rounded-xl border-l-4 border-indigo-500 bg-indigo-500/10 px-3 py-1.5">
+                            <Pencil size={14} className="shrink-0 text-indigo-500" />
+                            <div className="min-w-0 flex-1">
+                                <p className="text-[11px] font-black text-indigo-600 dark:text-indigo-400">Editando mensaje</p>
+                                <p className={`truncate text-xs ${muted}`}>{editingMessage.original}</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={cancelEditing}
+                                className={`rounded-full p-1 hover:bg-slate-500/10 ${muted}`}
+                                aria-label="Cancelar edición"
+                                title="Cancelar edición"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+                    )}
                     <form onSubmit={submit} className="flex items-end gap-2">
                         <div className="min-w-0 flex-1">
                             <label className="sr-only" htmlFor="intercom-message">Mensaje</label>
                             <textarea
                                 id="intercom-message"
+                                ref={textareaRef}
                                 value={draft}
                                 onChange={event => setDraft(event.target.value)}
-                                onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) submit(event); }}
+                                onKeyDown={event => {
+                                    if (event.key === 'Escape' && editingMessage) { event.preventDefault(); cancelEditing(); return; }
+                                    if (event.key === 'Enter' && !event.shiftKey) submit(event);
+                                }}
                                 rows={2}
                                 maxLength={640}
                                 placeholder={selectionMode ? 'Modo selección activo…' : 'Escribe un mensaje…'}
@@ -485,11 +567,13 @@ export default function IntercomModal({
                         </div>
                         <button
                             type="submit"
-                            disabled={!pairingAvailable || !validation.valid || sending || selectionMode}
+                            disabled={!pairingAvailable || !validation.valid || sending || savingEdit || selectionMode}
                             className="mb-5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-white shadow-lg disabled:cursor-not-allowed disabled:opacity-40"
-                            aria-label="Enviar mensaje"
+                            aria-label={editingMessage ? 'Guardar edición' : 'Enviar mensaje'}
                         >
-                            {sending ? <LoaderCircle className="animate-spin" size={18} /> : <Send size={18} />}
+                            {sending || savingEdit
+                                ? <LoaderCircle className="animate-spin" size={18} />
+                                : editingMessage ? <Check size={18} /> : <Send size={18} />}
                         </button>
                     </form>
                     {(sendError || (draft && !validation.valid)) && <p role="alert" className="px-1 text-xs text-rose-500">{sendError || validation.reason}</p>}

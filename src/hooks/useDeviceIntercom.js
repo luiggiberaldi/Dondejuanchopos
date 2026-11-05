@@ -6,6 +6,7 @@ import { buildPushRow, describePushRegistrationFailure, isRlsError, registerPush
 const READS_TABLE = 'device_message_reads';
 const CLEAR_RPC = 'intercom_clear_conversation';
 const DELETE_RPC = 'intercom_delete_messages';
+const EDIT_RPC = 'intercom_edit_message';
 const RETENTION_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_VAPID_PUBLIC_KEY = 'BKP1Pkm0qyReec6qaCLfgJJuJ5WXQ-VswT-GZ8MNVAsic99mmSTIBxkM8Al_kqUu6ig_IHuQzwNeQz4A_ex_-gk';
 const PUSH_PUBLIC_KEY = import.meta.env.VITE_INTERCOM_VAPID_PUBLIC_KEY || DEFAULT_VAPID_PUBLIC_KEY;
@@ -57,7 +58,7 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
         let first = true;
         while (first || (incremental && next)) {
             let query = supabaseCloud.from('device_messages')
-                .select('id,primary_device_id,sender_device_id,sender_role,sender_name,message,created_at')
+                .select('id,primary_device_id,sender_device_id,sender_role,sender_name,message,created_at,edited_at')
                 .eq('primary_device_id', primaryDeviceId)
                 .order('created_at', { ascending: incremental })
                 .order('id', { ascending: incremental })
@@ -363,7 +364,7 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
                     sender_device_id: row.sender_device_id, sender_role: row.sender_role,
                     sender_name: row.sender_name, message: row.message,
                 })
-                .select('id,primary_device_id,sender_device_id,sender_role,sender_name,message,created_at')
+                .select('id,primary_device_id,sender_device_id,sender_role,sender_name,message,created_at,edited_at')
                 .single();
             if (insertError) {
                 if (insertError.code === '42501' || insertError.status === 401 || insertError.status === 403) {
@@ -371,7 +372,7 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
                 }
                 if (insertError.code !== '23505') throw insertError;
                 const { data: existing, error: lookupError } = await supabaseCloud.from('device_messages')
-                    .select('id,primary_device_id,sender_device_id,sender_role,sender_name,message,created_at')
+                    .select('id,primary_device_id,sender_device_id,sender_role,sender_name,message,created_at,edited_at')
                     .eq('id', row.id).single();
                 if (lookupError) throw lookupError;
                 if (existing.primary_device_id !== row.primary_device_id
@@ -409,6 +410,37 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
             message: validation.message, created_at: new Date().toISOString(),
         });
     }, [deviceId, persistMessage, primaryDeviceId, senderName, senderRole]);
+
+    // Editar un mensaje propio (≤ 15 min). El servidor valida dueño y ventana; los
+    // demás equipos reciben el cambio por Realtime (UPDATE). No genera push.
+    const editMessage = useCallback(async (messageId, rawMessage) => {
+        const validation = validateMessage(rawMessage);
+        if (!validation.valid) throw new Error(validation.reason);
+        if (!supabaseCloud || !primaryDeviceId || !deviceId) throw new Error('No hay conexión con el chat de Supabase.');
+        const current = messagesRef.current.find(message => message.id === messageId);
+        if (!current) throw new Error('El mensaje ya no existe.');
+        if (current.message === validation.message) return current;
+        const { data, error: editError } = await supabaseCloud.rpc(EDIT_RPC, {
+            p_primary: primaryDeviceId,
+            p_device: deviceId,
+            p_message_id: messageId,
+            p_message: validation.message,
+        });
+        if (editError) {
+            const text = String(editError.message || '');
+            if (editError.code === 'PGRST202' || text.includes('schema cache')) {
+                throw new Error('Falta ejecutar el script SQL en Supabase para habilitar la edición de mensajes.');
+            }
+            if (text.includes('window_expired')) throw new Error('Solo puedes editar un mensaje durante 15 minutos después de enviarlo.');
+            if (text.includes('not_owner')) throw new Error('Solo puedes editar tus propios mensajes.');
+            if (text.includes('not_found')) throw new Error('El mensaje ya no existe.');
+            if (isRlsError(editError)) throw new Error('Este dispositivo ya no pertenece a un vínculo activo.');
+            throw editError;
+        }
+        const updated = Array.isArray(data) ? data[0] : data;
+        if (updated?.id) setMergedMessages([{ ...current, ...updated }]);
+        return updated;
+    }, [deviceId, primaryDeviceId, setMergedMessages]);
 
     const retryMessage = useCallback(messageId => {
         const row = failedMessages.find(message => message.id === messageId);
@@ -602,6 +634,6 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
 
     return {
         messages, failedMessages, loading, sending, error, unreadCount, pushState, pushBusy,
-        refresh, reload, clearConversation, deleteMessages, markRead, markMessageRead, markMessagesReadThrough, sendMessage, retryMessage, enablePush, disablePush,
+        refresh, reload, clearConversation, deleteMessages, editMessage, markRead, markMessageRead, markMessagesReadThrough, sendMessage, retryMessage, enablePush, disablePush,
     };
 }

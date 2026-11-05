@@ -191,3 +191,22 @@ Enviar un mensaje desde otro miembro del vínculo, con el teléfono receptor blo
 | **Mensajes agrupados** | Los mensajes seguidos de la misma persona, a 5 minutos o menos uno de otro, no repiten nombre ni avatar y van más juntos. |
 
 Los mensajes propios no cambian: a la derecha, en índigo y sin nombre.
+
+---
+
+## 7. Editar mensajes enviados
+
+Como en WhatsApp: en tus propios mensajes aparece **✏️ Editar** junto a la hora. Al tocarlo, el campo de escritura entra en modo edición, con un aviso "Editando mensaje" que muestra el texto original. Enter o ✓ guarda; Esc o ✕ cancela. El mensaje editado muestra **"Editado"** junto a la hora.
+
+| Regla | Dónde se valida |
+|---|---|
+| Solo el dispositivo que envió el mensaje puede editarlo. | Servidor (`intercom_edit_message`) y cliente (`canEditMessage`). |
+| Solo hasta **15 minutos** después de enviarlo. Pasado ese tiempo, el botón desaparece solo (el reloj del modal se actualiza cada 30 s). | Servidor y cliente (`INTERCOM_EDIT_WINDOW_MS`). |
+| De 1 a 160 caracteres. | Servidor (CHECK de la tabla + RPC) y cliente (`validateMessage`). |
+| El dispositivo debe seguir siendo miembro activo del vínculo. | Servidor. |
+| Los mensajes que se están enviando o que fallaron no se editan. | Cliente. |
+
+- **Base de datos:** `supabase_intercom_edit_message.sql` agrega `device_messages.edited_at` y la RPC `intercom_edit_message(p_primary, p_device, p_message_id, p_message)`. Si el texto no cambia, no se marca como editado.
+- **Tiempo real:** los demás equipos ven la edición al instante por el evento `UPDATE` de Realtime (v1.1.5).
+- **Push:** editar **no** envía notificación, porque el trigger de push es `AFTER INSERT`.
+- **Orden de despliegue:** aplicar el SQL **antes** de publicar el cliente. El cliente lee la columna `edited_at`, y sin ella la carga del chat falla.

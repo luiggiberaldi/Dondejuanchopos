@@ -63,3 +63,17 @@ export function getInitialCursor(messages) {
         return latest;
     }, null);
 }
+
+/** Ventana para editar un mensaje propio (igual que la regla del servidor). */
+export const INTERCOM_EDIT_WINDOW_MS = 15 * 60 * 1000;
+
+/**
+ * true si `deviceId` puede editar `message`: es suyo, ya está guardado en la nube
+ * (no está enviándose ni falló) y no han pasado 15 minutos desde el envío.
+ */
+export function canEditMessage(message, deviceId, now = Date.now()) {
+    if (!message || !deviceId || message.sender_device_id !== deviceId) return false;
+    if (message.delivery_state === 'sending' || message.delivery_state === 'failed') return false;
+    const sentAt = Date.parse(message.created_at);
+    return Number.isFinite(sentAt) && now - sentAt <= INTERCOM_EDIT_WINDOW_MS;
+}
