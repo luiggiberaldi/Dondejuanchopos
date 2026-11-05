@@ -63,9 +63,19 @@ Deno.serve(async request => {
         const text = typeof value === 'string' ? value.trim() : '';
         return text.length > max ? `${text.slice(0, max - 1)}…` : text;
     };
-    const senderName = clip(row.sender_name, 60) || (row.sender_role === 'pos' ? 'Caja' : 'Supervisor');
-    const messageText = clip(row.message, 160) || 'Tienes un mensaje nuevo.';
-    const createdAt = typeof row.created_at === 'string' ? row.created_at : new Date().toISOString();
+    // El trigger `intercom_enqueue_push` sólo envía id/primary/sender (payload mínimo),
+    // así que el nombre y el texto se leen de la fila real. Si la lectura falla se
+    // usa lo que venga en el payload y, en último caso, un texto genérico.
+    const { data: storedMessage, error: messageError } = await db.from('device_messages')
+        .select('sender_name,sender_role,message,created_at')
+        .eq('id', row.id)
+        .eq('primary_device_id', primaryDeviceId)
+        .maybeSingle();
+    if (messageError) console.warn('[intercom-push] message lookup failed:', messageError.message);
+    const message = { ...row, ...(storedMessage || {}) };
+    const senderName = clip(message.sender_name, 60) || (message.sender_role === 'pos' ? 'Caja' : 'Supervisor');
+    const messageText = clip(message.message, 160) || 'Tienes un mensaje nuevo.';
+    const createdAt = typeof message.created_at === 'string' ? message.created_at : new Date().toISOString();
     // Datos para que el service worker pueda "Marcar como leído" sin abrir la app:
     // escribe en device_message_reads con la clave anon (RLS valida que el lector
     // sea miembro activo del vínculo).

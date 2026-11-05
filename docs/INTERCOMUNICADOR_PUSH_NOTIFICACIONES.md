@@ -88,7 +88,7 @@ Commit: `9171733 fix(intercom-push): entrega fiable de notificaciones en Android
 
 | # | Mejora | Implementación |
 |---|---|---|
-| 1 | **Remitente y texto del mensaje** | La función envía `title = sender_name` y `body = message` (de `device_messages`), en lugar del genérico "Nuevo mensaje · Intercomunicador / Tienes un mensaje nuevo". El texto se ve en la pantalla de bloqueo. |
+| 1 | **Remitente y texto del mensaje** | El trigger `intercom_enqueue_push` (pg_net) solo envía `id`, `primary_device_id` y `sender_device_id`, así que la función lee `sender_name`, `sender_role`, `message` y `created_at` de `device_messages` por `id` (service role). Envía `title = sender_name` y `body = message`, en lugar del genérico "Nuevo mensaje · Intercomunicador / Tienes un mensaje nuevo". El texto se ve en la pantalla de bloqueo. |
 | 2 | **Badge monocromo** | `badge: /intercom-badge.png` (burbuja de chat blanca sobre transparente, 96×96). Antes se usaba `apple-touch-icon.png` y Android lo pintaba como un cuadro sólido. El icono grande sigue siendo el logo. |
 | 3 | **Agrupación y aviso por cada mensaje** | Una notificación por conversación (`tag = intercom-<primary>`). Si ya existe, se reemplaza por "N mensajes nuevos · Intercomunicador" con las últimas 5 líneas `Remitente: texto` (vista expandida). `renotify: true` → suena/vibra con cada mensaje. Sin `topic` en FCM, para que no se descarten mensajes intermedios. |
 | 4 | **Urgencia** | `vibrate: [300, 120, 300, 120, 300]`, `silent: false`, `requireInteraction: true` (queda en pantalla hasta tocarla o deslizarla) y `timestamp` = hora real del mensaje (`created_at`). |
