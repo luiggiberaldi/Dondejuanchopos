@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Diagnóstico de notificaciones</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 16px; line-height: 1.4; color: #111; }
+  button { font-size: 16px; padding: 12px 16px; border-radius: 10px; border: 0; background: #4f46e5; color: #fff; width: 100%; margin: 6px 0; }
+  button.sec { background: #e5e7eb; color: #111; }
+  pre { background: #f3f4f6; padding: 12px; border-radius: 10px; white-space: pre-wrap; word-break: break-word; font-size: 13px; }
+  .ok { color: #047857; font-weight: 600; } .bad { color: #b91c1c; font-weight: 600; }
+</style>
+</head>
+<body>
+<h2>Diagnóstico de notificaciones</h2>
+<p>Toca el botón y envía una captura del resultado.</p>
+<button id="run">Probar notificaciones</button>
+<button id="copy" class="sec">Copiar resultado</button>
+<pre id="out">Sin ejecutar.</pre>
+<script>
+// Clave pública VAPID de la app (la misma que usa el intercomunicador).
+const APP_KEY = 'BKP1Pkm0qyReec6qaCLfgJJuJ5WXQ-VswT-GZ8MNVAsic99mmSTIBxkM8Al_kqUu6ig_IHuQzwNeQz4A_ex_-gk';
+const out = document.getElementById('out');
+const lines = [];
+const log = (text, cls) => { lines.push(text); out.innerHTML = lines.map(l => l.cls ? `<span class="${l.cls}">${l.t}</span>` : l.t ?? l).join('\n'); };
+const add = (t, cls) => log(cls ? { t, cls } : t);
+const b64 = s => { const p = '='.repeat((4 - s.length % 4) % 4); const r = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(r, c => c.charCodeAt(0)); };
+const errText = e => `${e?.name || 'Error'}: ${e?.message || e}`;
+
+async function trySubscribe(reg, label, key) {
+  try {
+    const old = await reg.pushManager.getSubscription();
+    if (old) await old.unsubscribe();
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+    add(`${label}: OK → ${new URL(sub.endpoint).host}`, 'ok');
+    await sub.unsubscribe();
+    return true;
+  } catch (e) {
+    add(`${label}: FALLÓ → ${errText(e)}`, 'bad');
+    return false;
+  }
+}
+
+document.getElementById('run').onclick = async () => {
+  lines.length = 0;
+  add(`Navegador: ${navigator.userAgent}`);
+  add(`Fecha del teléfono: ${new Date().toString()}`);
+  add(`Instalada (standalone): ${matchMedia('(display-mode: standalone)').matches}`);
+  add(`serviceWorker: ${'serviceWorker' in navigator} · PushManager: ${'PushManager' in window} · Notification: ${'Notification' in window}`);
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) { add('Este navegador no soporta Web Push.', 'bad'); return; }
+  try {
+    const perm = await Notification.requestPermission();
+    add(`Permiso: ${perm}`, perm === 'granted' ? 'ok' : 'bad');
+    if (perm !== 'granted') return;
+    const reg = await navigator.serviceWorker.register('/push-test/sw.js', { scope: '/push-test/' });
+    await navigator.serviceWorker.ready;
+    for (let i = 0; i < 40 && !reg.active; i++) await new Promise(r => setTimeout(r, 100));
+    add(`Service worker de prueba: ${reg.active ? 'activo' : 'NO activo'}`);
+
+    // 1) Clave aleatoria: prueba si el teléfono puede hablar con el servicio push de Google.
+    const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign']);
+    const randomKey = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey));
+    const okRandom = await trySubscribe(reg, 'Prueba 1 (clave aleatoria)', randomKey);
+    // 2) Clave real de la app.
+    const okApp = await trySubscribe(reg, 'Prueba 2 (clave de la app)', b64(APP_KEY));
+
+    // Estado de la suscripción del service worker principal (solo lectura).
+    const main = await navigator.serviceWorker.getRegistration('/');
+    const mainSub = main ? await main.pushManager.getSubscription().catch(() => null) : null;
+    add(`App principal: SW ${main ? 'registrado' : 'no registrado'} · suscripción ${mainSub ? new URL(mainSub.endpoint).host : 'ninguna'}`);
+
+    if (!okRandom && !okApp) add('CONCLUSIÓN: el teléfono/Chrome no logra registrarse en el servicio push de Google (problema del dispositivo o la red).', 'bad');
+    else if (okRandom && !okApp) add('CONCLUSIÓN: el teléfono funciona, pero falla con la clave de la app.', 'bad');
+    else add('CONCLUSIÓN: el teléfono SÍ puede recibir push. El fallo está en la app; envía esta captura.', 'ok');
+  } catch (e) {
+    add(`Error general: ${errText(e)}`, 'bad');
+  }
+};
+document.getElementById('copy').onclick = () => navigator.clipboard?.writeText(out.innerText);
+</script>
+</body>
+</html>
