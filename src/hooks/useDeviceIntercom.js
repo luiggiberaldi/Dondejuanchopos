@@ -449,8 +449,19 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
             }
 
             let subscription = await registration.pushManager.getSubscription().catch(() => null);
+            const keyArray = fromBase64Url(PUSH_PUBLIC_KEY);
+            // Una suscripción creada con otra clave VAPID "existe" pero el push service
+            // rechaza cada envío (403): se ve "activada" y nunca llega nada. Renovarla.
+            const currentKey = subscription?.options?.applicationServerKey;
+            if (subscription && currentKey) {
+                const a = new Uint8Array(currentKey);
+                const sameKey = a.length === keyArray.length && a.every((v, i) => v === keyArray[i]);
+                if (!sameKey) {
+                    await subscription.unsubscribe().catch(() => null);
+                    subscription = null;
+                }
+            }
             if (!subscription) {
-                const keyArray = fromBase64Url(PUSH_PUBLIC_KEY);
                 try {
                     subscription = await registration.pushManager.subscribe({
                         userVisibleOnly: true,

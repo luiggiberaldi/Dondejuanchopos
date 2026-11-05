@@ -1,4 +1,4 @@
-import { ApplicationServer, importVapidKeys, type ExportedVapidKeys, type PushSubscription } from 'jsr:@negrel/webpush@0.5.0';
+import { ApplicationServer, importVapidKeys, PushMessageError, Urgency, type ExportedVapidKeys, type PushSubscription } from 'jsr:@negrel/webpush@0.5.0';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 // supabase secrets set INTERCOM_WEBHOOK_SECRET=... INTERCOM_VAPID_KEYS_JSON='...'
 // INTERCOM_VAPID_SUBJECT='mailto:admin@your-domain' (VAPID JSON from exportVapidKeys).
@@ -70,10 +70,18 @@ Deno.serve(async request => {
             keys: { p256dh: subscription.p256dh, auth: subscription.auth },
         };
         try {
-            await pushServer.subscribe(pushSubscription).pushTextMessage(body, { ttl: 60 });
+            // Urgency High: sin esto FCM entrega con prioridad normal y Android en
+            // Doze/ahorro de batería retiene el mensaje; con TTL corto expira antes
+            // de llegar. TTL de 1 h para que un teléfono dormido aún lo reciba.
+            await pushServer.subscribe(pushSubscription)
+                .pushTextMessage(body, { ttl: 3600, urgency: Urgency.High, topic: `intercom-${primaryDeviceId.slice(0, 20)}`.replace(/[^A-Za-z0-9_-]/g, '') });
         } catch (pushError) {
-            const status = typeof pushError === 'object' && pushError && 'status' in pushError
-                ? Number((pushError as { status: unknown }).status) : 0;
+            // PushMessageError expone el código en `response.status`, no en `status`.
+            const status = pushError instanceof PushMessageError ? pushError.response.status : 0;
+            if (pushError instanceof PushMessageError) {
+                const detail = await pushError.response.text().catch(() => '');
+                console.warn(`[intercom-push] push ${status} for device ${subscription.device_id}: ${detail.slice(0, 200)}`);
+            }
             if (status === 404 || status === 410) {
                 const { error: revokeError } = await db.from('device_push_subscriptions')
                     .update({ revoked_at: new Date().toISOString() }).eq('endpoint', subscription.endpoint);
