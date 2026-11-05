@@ -83,7 +83,17 @@ BEGIN
     IF v_updated = 0 THEN
         RETURN json_build_object('success', false, 'message', 'Dispositivo no encontrado en este vínculo.');
     END IF;
-    RETURN json_build_object('success', true, 'device_label', v_label);
+
+    -- Los mensajes ya enviados por este dispositivo en este vínculo pasan a mostrar
+    -- el nombre nuevo. El trigger de push es AFTER INSERT, así que esto no notifica.
+    UPDATE public.device_messages
+    SET sender_name = v_label
+    WHERE primary_device_id = v_primary
+      AND sender_device_id = p_target_monitor_id
+      AND sender_name IS DISTINCT FROM v_label;
+    GET DIAGNOSTICS v_updated = ROW_COUNT;
+
+    RETURN json_build_object('success', true, 'device_label', v_label, 'messages_renamed', v_updated);
 END; $function$;
 
 -- Cada monitor reporta su propio sistema/modelo (obtenidos con userAgentData en el

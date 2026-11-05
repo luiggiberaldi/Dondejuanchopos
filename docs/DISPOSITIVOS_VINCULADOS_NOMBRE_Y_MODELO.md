@@ -37,7 +37,7 @@ Script idempotente. Ejecutarlo en el SQL Editor de Supabase o con la Management 
 | `device_monitors.device_platform` | Nueva columna: sistema y versión (`Android 14`, `Windows 11`…). |
 | `device_monitors.device_model` | Nueva columna: modelo reportado por el equipo. |
 | `list_monitors(p_requester_id)` | Misma autorización; ahora también devuelve `device_platform` y `device_model`. |
-| `rename_monitor(p_requester_id, p_target_monitor_id, p_label)` | **Nueva.** Autoriza igual que `revoke_monitor` (la caja o un monitor activo del mismo vínculo). Normaliza espacios y exige 1–40 caracteres. |
+| `rename_monitor(p_requester_id, p_target_monitor_id, p_label)` | **Nueva.** Autoriza igual que `revoke_monitor` (la caja o un monitor activo del mismo vínculo). Normaliza espacios, exige 1–40 caracteres y actualiza el `sender_name` de los mensajes ya enviados por ese dispositivo (`messages_renamed` en la respuesta). |
 | `report_monitor_device_info(p_monitor_device_id, p_platform, p_model, p_user_agent)` | **Nueva.** El propio monitor actualiza su sistema, modelo y user agent. Solo afecta filas no revocadas. |
 
 ## Código
@@ -53,6 +53,6 @@ Script idempotente. Ejecutarlo en el SQL Editor de Supabase o con la Management 
 
 ## Notas
 
-- Los mensajes ya enviados conservan el nombre con el que se enviaron: `sender_name` se guarda en cada mensaje. El nombre nuevo aplica a los mensajes siguientes.
+- Al renombrar, `rename_monitor` también actualiza `sender_name` en los mensajes que ese dispositivo ya envió en el vínculo, así que el historial muestra el nombre nuevo. No envía notificaciones: el trigger de push solo se dispara en INSERT. Si el chat está abierto en otro equipo, el nombre nuevo se ve al recargar o reabrir el chat.
 - Si otro supervisor renombra tu equipo, el cambio se ve en tu intercomunicador la próxima vez que abras el modo Supervisor.
 - La caja principal no aparece en esta lista (no es un monitor), así que su nombre en el intercomunicador no cambia con esta función.
