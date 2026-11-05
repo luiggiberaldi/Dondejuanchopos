@@ -3,6 +3,7 @@ import {
     TrendingUp, Users, LogOut, QrCode, MoreVertical, Download,
     RefreshCw, Wifi, WifiOff, Clock, Target, ShieldCheck
 } from 'lucide-react';
+import { APP_VERSION } from '../../config/version';
 
 /**
  * Header del Monitor de Supervisión (100% Responsivo):
@@ -49,7 +50,15 @@ export default function MonitorHeader({
                                 <ShieldCheck size={20} className="hidden sm:block" />
                             </div>
                             <div className="min-w-0">
-                                <h1 className="text-xs sm:text-base font-black leading-tight text-slate-800 dark:text-white truncate">Panel de Supervisión</h1>
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                    <h1 className="text-xs sm:text-base font-black leading-tight text-slate-800 dark:text-white truncate">Panel de Supervisión</h1>
+                                    <span
+                                        className="shrink-0 px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-bold font-mono leading-none bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/70 dark:border-slate-700"
+                                        title={`Versión ${APP_VERSION}`}
+                                    >
+                                        v{APP_VERSION}
+                                    </span>
+                                </div>
                                 <p className="text-[9px] sm:text-[10.5px] text-slate-400 font-medium truncate">Monitoreo en vivo • {localStorage.getItem('business_name') || 'Mi Negocio'}</p>
                             </div>
                         </div>
