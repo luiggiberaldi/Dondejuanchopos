@@ -17,10 +17,16 @@ const RATE_CONFIG_DOC_IDS = Object.freeze([
     'bodega_custom_rate',
 ]);
 
-// FASE 3: ventana de catch-up del monitor de 3 min a 30 s. Medido 5-oct con
-// sondeo de solo lectura: lectura incremental SIN cambios = 0 filas / ~0 KB
-// (HTTP 200, 248-766 ms) → 2.880 lecturas/día por monitor abierto ≈ 0,01 MB/día.
-const MONITOR_HEALTHY_PULL_INTERVAL_MS = 30 * 1000;
+// EGRESS (5-nov): una lectura incremental SIN cambios cuesta ~0 KB, pero CON
+// cambios trae el documento completo (bodega_sales_v1 ≈ 4 MB). Con 30 s cada
+// venta se descargaba casi por separado; 3 min agrupa varias en una descarga.
+// Realtime sigue entregando al instante los documentos pequeños.
+const MONITOR_HEALTHY_PULL_INTERVAL_MS = 3 * 60 * 1000;
+// Con el canal caído no hay Realtime: recuperar, pero no cada 10 s.
+const MONITOR_UNHEALTHY_PULL_INTERVAL_MS = 30 * 1000;
+// Documentos pesados que una confirmación del Supervisor no necesita releer:
+// sus cambios reales siempre suben `updated_at`, así que el incremental los trae.
+const RECOVERY_SKIPPED_DOC_IDS = Object.freeze(['bodega_sales_v1']);
 
 const MONITOR_DOC_IDS = [
     'bodega_products_v1',
@@ -82,6 +88,11 @@ export function useMonitorSync(pairedDeviceId) {
     const lifecycleRef = useRef(0);
     const fullPullRequestedRef = useRef(0);
     const fullPullCompletedRef = useRef(0);
+    // Relectura tras una confirmación del Supervisor: todos los documentos
+    // menos los pesados de RECOVERY_SKIPPED_DOC_IDS.
+    const recoveryRequestedRef = useRef(0);
+    const recoveryCompletedRef = useRef(0);
+    const lastPullStartedAtRef = useRef(0);
 
     const getVersionKey = useCallback((docId) => {
         const deviceId = pairedDeviceId || localStorage.getItem('dj_paired_device_id') || 'unknown-device';
@@ -357,8 +368,12 @@ export function useMonitorSync(pairedDeviceId) {
         if (!isSilent) fullPullRequestedRef.current++;
         if (isSyncingRef.current) return;
         isSyncingRef.current = true;
+        lastPullStartedAtRef.current = Date.now();
         const fullPullRequest = fullPullRequestedRef.current;
         const needsFullPull = fullPullRequest > fullPullCompletedRef.current;
+        const recoveryRequest = recoveryRequestedRef.current;
+        // Un pull completo ya relee todo; la recuperación ligera solo aplica sin él.
+        const isRecoveryPull = !needsFullPull && recoveryRequest > recoveryCompletedRef.current;
 
         if (!isSilent) setLoading(true);
 
@@ -369,7 +384,12 @@ export function useMonitorSync(pairedDeviceId) {
             // 1. Pull inicial o de recuperación incremental (catch-up)
             // Start every mounted session with a full snapshot. Persisted client
             // timestamps cannot prove that IndexedDB still contains that snapshot.
-            const updatedAfter = needsFullPull ? null : pullCursorRef.current;
+            // La recuperación relee sin cursor solo los documentos ligeros. Como
+            // omite ventas, NO puede avanzar el cursor (ocultaría ventas nuevas).
+            const updatedAfter = (needsFullPull || isRecoveryPull) ? null : pullCursorRef.current;
+            const docIds = isRecoveryPull
+                ? REMOTE_MONITOR_DOC_IDS.filter(docId => !RECOVERY_SKIPPED_DOC_IDS.includes(docId))
+                : REMOTE_MONITOR_DOC_IDS;
             let batchFailed = false;
 
             // El monitor no puede consultar sync_documents directamente: el rol
@@ -381,7 +401,7 @@ export function useMonitorSync(pairedDeviceId) {
 
             const remoteResult = await fetchRemoteDocuments(
                 activeDeviceId,
-                REMOTE_MONITOR_DOC_IDS,
+                docIds,
                 supabaseCloud,
                 { updatedAfter },
             );
@@ -424,7 +444,7 @@ export function useMonitorSync(pairedDeviceId) {
                 }
 
                 batchFailed = failedCount > 0;
-                if (!batchFailed) lastHealthyPullAtRef.current = Date.now();
+                if (!batchFailed && !isRecoveryPull) lastHealthyPullAtRef.current = Date.now();
                 if (batchFailed) {
                     console.warn(`[useMonitorSync] Pull parcial: ${appliedCount} aplicados, ${failedCount} fallidos.`);
                 }
@@ -438,7 +458,7 @@ export function useMonitorSync(pairedDeviceId) {
                     && (!latest || Date.parse(doc.updated_at) > Date.parse(latest.updated_at))
                         ? doc : latest
                 ), null);
-                if (!batchFailed && latestDoc && fullPullRequestedRef.current === fullPullRequest) {
+                if (!batchFailed && !isRecoveryPull && latestDoc && fullPullRequestedRef.current === fullPullRequest) {
                     const previousCursor = pullCursorRef.current;
                     if (!previousCursor || Date.parse(latestDoc.updated_at) > Date.parse(previousCursor)) {
                         pullCursorRef.current = latestDoc.updated_at;
@@ -453,7 +473,7 @@ export function useMonitorSync(pairedDeviceId) {
                 // versión: esa lectura adicional podía reintroducir un payload
                 // viejo mientras el evento Realtime nuevo aún se procesaba.
                 window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_sales_v1' } }));
-            } else if (docs) {
+            } else if (docs && !isRecoveryPull) {
                 // D6: lote vacío = ya estamos al día. Marcar la sincronización como
                 // exitosa evita que el health-check la interprete como "sin datos"
                 // y dispare pulls completos repetidos.
@@ -464,6 +484,11 @@ export function useMonitorSync(pairedDeviceId) {
             if (!isCurrent()) return;
             if (needsFullPull && !batchFailed) {
                 fullPullCompletedRef.current = Math.max(fullPullCompletedRef.current, fullPullRequest);
+                // El pull completo también cubre cualquier recuperación pedida antes.
+                recoveryCompletedRef.current = Math.max(recoveryCompletedRef.current, recoveryRequest);
+            }
+            if (isRecoveryPull && !batchFailed) {
+                recoveryCompletedRef.current = Math.max(recoveryCompletedRef.current, recoveryRequest);
             }
             setIsConnected(true);
 
@@ -484,6 +509,9 @@ export function useMonitorSync(pairedDeviceId) {
 
                         if (!doc || !doc.doc_id || !doc.data) {
                             console.warn('[useMonitorSync] Evento de Realtime sin cuerpo (posible 413). Forzando pull completo.', payload?.errors);
+                            // En segundo plano nadie mira: no bajar el documento
+                            // pesado ahora; al volver a primer plano se hace catch-up.
+                            if (hiddenRef.current) return;
                             if (!oversizePullTimerRef.current) {
                                 oversizePullTimerRef.current = setTimeout(() => {
                                     oversizePullTimerRef.current = null;
@@ -531,7 +559,8 @@ export function useMonitorSync(pairedDeviceId) {
                 setLoading(false);
                 // Solo una solicitud NUEVA dispara otra lectura inmediata; un
                 // error conserva la recuperación para el siguiente tick sin bucle.
-                if (fullPullRequestedRef.current > fullPullRequest) {
+                if (fullPullRequestedRef.current > fullPullRequest
+                    || recoveryRequestedRef.current > recoveryRequest) {
                     queueMicrotask(() => {
                         if (isCurrent()) initMonitorRef.current?.(true);
                     });
@@ -626,8 +655,11 @@ export function useMonitorSync(pairedDeviceId) {
         const handleSupervisorRecovery = () => {
             // Una confirmación necesita reobservar datos que no necesariamente
             // cambiaron de versión (p. ej. una tasa rechazada o un ajuste sin delta).
-            pullCursorRef.current = null;
-            initMonitorRef.current?.(false);
+            // Se releen sin cursor todos menos las ventas (≈4 MB): sus cambios
+            // reales suben versión y los trae el incremental. Antes esto forzaba
+            // un pull completo por cada comando y era el mayor gasto de egress.
+            recoveryRequestedRef.current++;
+            initMonitorRef.current?.(true);
         };
         window.addEventListener('supervisor_sync_requested', handleSupervisorRecovery);
         window.addEventListener('online', handleOnline);
@@ -649,11 +681,17 @@ export function useMonitorSync(pairedDeviceId) {
                 checkPosPresence();
             }
 
+            // En segundo plano solo se vigila presencia; el catch-up de datos
+            // ocurre al volver a primer plano (handleVisibilityChange).
+            if (hiddenRef.current) return;
+
             // SUBSCRIBED no garantiza entrega de filas (RLS o eventos perdidos).
-            // El catch-up incremental corre cada 3 min con canal sano, o de inmediato
+            // El catch-up incremental corre cada 3 min con canal sano, o cada 30 s
             // cuando la conexión está caída; al volver online se recupera antes.
-            const healthyPullDue = Date.now() - lastHealthyPullAtRef.current >= MONITOR_HEALTHY_PULL_INTERVAL_MS;
-            if (!isHealthy || healthyPullDue) {
+            const now = Date.now();
+            const healthyPullDue = now - lastHealthyPullAtRef.current >= MONITOR_HEALTHY_PULL_INTERVAL_MS;
+            const unhealthyPullDue = now - lastPullStartedAtRef.current >= MONITOR_UNHEALTHY_PULL_INTERVAL_MS;
+            if (isHealthy ? healthyPullDue : unhealthyPullDue) {
                 initMonitor(true);
             }
         }, 10000);

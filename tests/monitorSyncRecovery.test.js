@@ -87,24 +87,45 @@ describe('Supervisor monitor catch-up recovery', () => {
         expect(mocks.store.get('bodega_sales_v1')[0].id).toBe('new-sale');
     });
 
-    it('uses a 30-second catch-up interval when the websocket is healthy', async () => {
+    it('uses a 3-minute catch-up interval when the websocket is healthy', async () => {
         mocks.fetch.mockResolvedValueOnce(result([doc('bodega_sales_v1', T1)]));
         await mount();
         await act(async () => mocks.channels[0].status('SUBSCRIBED'));
         const initialCalls = mocks.fetch.mock.calls.length;
-        await tick(10000); // FASE 3: dentro del primer tramo de 30 s no hay llamada prematura
+        await tick(170000); // EGRESS: antes de 3 min no hay catch-up
         expect(mocks.fetch.mock.calls).toHaveLength(initialCalls);
-        await tick(30000); // al cruzar los 30 s sí hace catch-up
+        await tick(10000); // al cruzar los 3 min sí hace catch-up
         expect(mocks.fetch.mock.calls.length).toBeGreaterThan(initialCalls);
     });
 
-    it('recovers immediately on a timer when the websocket is unhealthy', async () => {
+    it('recovers every 30 seconds (not every tick) when the websocket is unhealthy', async () => {
         mocks.fetch.mockResolvedValueOnce(result([doc('bodega_sales_v1', T1)]));
         await mount();
         await act(async () => mocks.channels[0].status('CHANNEL_ERROR'));
         const initialCalls = mocks.fetch.mock.calls.length;
+        await tick(20000);
+        expect(mocks.fetch.mock.calls).toHaveLength(initialCalls);
         await tick(10000);
         expect(mocks.fetch.mock.calls.length).toBeGreaterThan(initialCalls);
+    });
+
+    it('does not poll data while hidden and catches up when visible again', async () => {
+        mocks.fetch.mockResolvedValueOnce(result([doc('bodega_sales_v1', T1)]));
+        await mount();
+        await act(async () => mocks.channels[0].status('SUBSCRIBED'));
+        const initialCalls = mocks.fetch.mock.calls.length;
+        const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+        try {
+            await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+            // Un evento Realtime sin cuerpo (documento pesado) no descarga en segundo plano.
+            await act(async () => mocks.channels.at(-1).event({ eventType: 'UPDATE', new: null }));
+            await tick(600000);
+            expect(mocks.fetch.mock.calls).toHaveLength(initialCalls);
+            visibility.mockReturnValue('visible');
+            await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+            expect(mocks.fetch.mock.calls).toHaveLength(initialCalls + 1);
+            expect(mocks.fetch.mock.calls.at(-1)[3].updatedAfter).toBe(T1);
+        } finally { visibility.mockRestore(); }
     });
 
     it('never advances the catch-up cursor from a single realtime document', async () => {
@@ -173,16 +194,33 @@ describe('Supervisor monitor catch-up recovery', () => {
         await tick(1);
         expect(mocks.fetch.mock.calls.length).toBe(previousCount + 1);
         expect(mocks.fetch.mock.calls.at(-1)[3].updatedAfter).toBeNull();
+        expect(mocks.fetch.mock.calls.at(-1)[1]).not.toContain('bodega_sales_v1');
     });
 
-    it('reintenta el pull completo fallido sin crear un bucle inmediato', async () => {
+    it('reintenta la relectura fallida sin crear un bucle inmediato', async () => {
         mocks.fetch.mockResolvedValueOnce(result([doc('bodega_sales_v1', T1)]));
         await mount();
         mocks.fetch.mockResolvedValueOnce({ success: false, error: { message: 'red' } });
         await act(async () => window.dispatchEvent(new CustomEvent('supervisor_sync_requested')));
         expect(mocks.fetch.mock.calls).toHaveLength(2);
-        await tick();
+        await tick(180000);
         expect(mocks.fetch.mock.calls[2][3].updatedAfter).toBeNull();
+        expect(mocks.fetch.mock.calls[2][1]).not.toContain('bodega_sales_v1');
+    });
+
+    it('la relectura tras un comando omite ventas y no avanza el cursor', async () => {
+        mocks.fetch.mockResolvedValueOnce(result([doc('bodega_sales_v1', T1)]));
+        await mount();
+        mocks.fetch.mockResolvedValueOnce(result([doc('bodega_customers_v1', T3, [{ id: 'c' }])]));
+        await act(async () => window.dispatchEvent(new CustomEvent('supervisor_sync_requested')));
+        const recovery = mocks.fetch.mock.calls.at(-1);
+        expect(recovery[1]).toEqual(['bodega_products_v1', 'bodega_customers_v1']);
+        expect(recovery[3].updatedAfter).toBeNull();
+        expect(mocks.store.get('bodega_customers_v1')).toEqual([{ id: 'c' }]);
+        // El siguiente incremental sigue desde T1: una venta entre T1 y T3 no se pierde.
+        await tick(180000);
+        expect(mocks.fetch.mock.calls.at(-1)[1]).toContain('bodega_sales_v1');
+        expect(mocks.fetch.mock.calls.at(-1)[3].updatedAfter).toBe(T1);
     });
 
     it('el eco de A no marca como observada ni elimina una tasa B creada por un listener', async () => {
