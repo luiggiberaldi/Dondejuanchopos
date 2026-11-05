@@ -62,6 +62,7 @@ export default function IntercomModal({
         error,
         loading,
         refresh,
+        reload,
         clearConversation,
         deleteMessages,
         enablePush,
@@ -174,7 +175,8 @@ export default function IntercomModal({
     const retrySync = async () => {
         setSendError('');
         try {
-            await refresh();
+            // Sincronización manual: recarga completa (con fallback para mocks sin reload).
+            await (reload || refresh)();
         } catch (refreshError) {
             setSendError(refreshError.message || 'No se pudo recuperar la conversación.');
         }

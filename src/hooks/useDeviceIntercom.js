@@ -178,6 +178,15 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
         await fetchUnreadCount();
     }, [fetchLatest, fetchUnreadCount]);
 
+    // Recarga completa (botón de sincronizar): vuelve a leer las últimas 24 h y
+    // reemplaza las copias en memoria, p. ej. para ver nombres de remitente
+    // actualizados al renombrar un dispositivo. `refresh` sigue siendo incremental
+    // para no aumentar el consumo en los refrescos automáticos.
+    const reload = useCallback(async () => {
+        await fetchLatest({ initial: true });
+        await fetchUnreadCount();
+    }, [fetchLatest, fetchUnreadCount]);
+
     const clearConversation = useCallback(async () => {
         if (!supabaseCloud || !primaryDeviceId || !deviceId) throw new Error('No hay conexión con el chat de Supabase.');
         const { error: clearError } = await supabaseCloud.rpc(CLEAR_RPC, {
@@ -280,6 +289,18 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
                     setUnreadCount(value => value + 1);
                     onIncomingMessage?.(row);
                 }
+            })
+            .on('postgres_changes', {
+                event: 'UPDATE', schema: 'public', table: 'device_messages',
+                filter: `primary_device_id=eq.${primaryDeviceId}`,
+            }, payload => {
+                // rename_monitor actualiza sender_name de mensajes ya enviados:
+                // reemplazar sólo los que ya están en pantalla (no agrega nuevos).
+                if (disposed) return;
+                const row = payload.new;
+                if (row?.primary_device_id !== primaryDeviceId) return;
+                const current = messagesRef.current.find(message => message.id === row.id);
+                if (current) setMergedMessages([{ ...current, ...row }]);
             })
             .on('postgres_changes', {
                 event: 'DELETE', schema: 'public', table: 'device_messages',
@@ -581,6 +602,6 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
 
     return {
         messages, failedMessages, loading, sending, error, unreadCount, pushState, pushBusy,
-        refresh, clearConversation, deleteMessages, markRead, markMessageRead, markMessagesReadThrough, sendMessage, retryMessage, enablePush, disablePush,
+        refresh, reload, clearConversation, deleteMessages, markRead, markMessageRead, markMessagesReadThrough, sendMessage, retryMessage, enablePush, disablePush,
     };
 }

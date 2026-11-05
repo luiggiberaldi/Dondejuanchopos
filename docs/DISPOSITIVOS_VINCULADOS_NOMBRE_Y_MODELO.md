@@ -53,6 +53,6 @@ Script idempotente. Ejecutarlo en el SQL Editor de Supabase o con la Management 
 
 ## Notas
 
-- Al renombrar, `rename_monitor` también actualiza `sender_name` en los mensajes que ese dispositivo ya envió en el vínculo, así que el historial muestra el nombre nuevo. No envía notificaciones: el trigger de push solo se dispara en INSERT. Si el chat está abierto en otro equipo, el nombre nuevo se ve al recargar o reabrir el chat.
+- Al renombrar, `rename_monitor` también actualiza `sender_name` en los mensajes que ese dispositivo ya envió en el vínculo, así que el historial muestra el nombre nuevo. No envía notificaciones: el trigger de push solo se dispara en INSERT. El chat abierto en otros equipos recibe el cambio en tiempo real (evento `UPDATE` de Realtime) y el botón 🔄 *Sincronizar conversación* recarga el historial completo de las últimas 24 h.
 - Si otro supervisor renombra tu equipo, el cambio se ve en tu intercomunicador la próxima vez que abras el modo Supervisor.
 - La caja principal no aparece en esta lista (no es un monitor), así que su nombre en el intercomunicador no cambia con esta función.
