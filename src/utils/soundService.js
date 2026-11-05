@@ -184,5 +184,44 @@ export const soundService = {
         } catch (e) {
             console.warn('[SoundService] Error al reproducir alerta:', e);
         }
+    },
+
+    // Alerta del intercomunicador: SIEMPRE suena y a volumen máximo, aunque el
+    // usuario haya silenciado los sonidos de la app (dj_sound_enabled = 'false').
+    // Dos ráfagas de tres tonos con onda cuadrada (más perceptible que seno) y un
+    // compresor para subir el volumen percibido sin distorsionar.
+    playIntercomAlert() {
+        try {
+            const ctx = getAudioContext();
+            if (!ctx) return;
+            const compressor = ctx.createDynamicsCompressor();
+            compressor.threshold.setValueAtTime(-24, ctx.currentTime);
+            compressor.ratio.setValueAtTime(12, ctx.currentTime);
+            const master = ctx.createGain();
+            master.gain.setValueAtTime(1, ctx.currentTime);
+            compressor.connect(master);
+            master.connect(ctx.destination);
+
+            const tones = [880, 1174.66, 1567.98]; // La5, Re6, Sol6
+            const start = ctx.currentTime + 0.02;
+            [0, 0.75].forEach(burst => {
+                tones.forEach((freq, index) => {
+                    const t = start + burst + index * 0.16;
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(freq, t);
+                    gain.gain.setValueAtTime(0.0001, t);
+                    gain.gain.exponentialRampToValueAtTime(1, t + 0.01);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+                    osc.connect(gain);
+                    gain.connect(compressor);
+                    osc.start(t);
+                    osc.stop(t + 0.16);
+                });
+            });
+        } catch (e) {
+            console.warn('[SoundService] Error al reproducir alerta del intercomunicador:', e);
+        }
     }
 };

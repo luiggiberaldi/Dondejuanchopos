@@ -13,10 +13,9 @@ export default function IntercomWidget({ primaryDeviceId, deviceId, senderRole, 
     const notifyIncomingMessage = useCallback(message => {
         if (openRef.current) return;
         showToast(`${message.sender_name || 'Supervisor'} te envió un mensaje`, 'info');
-        if (window.localStorage.getItem('dj_sound_enabled') !== 'false') {
-            soundService.playAlert();
-            navigator.vibrate?.(30);
-        }
+        // El intercomunicador siempre suena fuerte, aunque los sonidos de la app estén silenciados.
+        soundService.playIntercomAlert();
+        navigator.vibrate?.([200, 100, 200]);
     }, []);
     const chat = useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, senderName, onOpenPush: openFromPush, onIncomingMessage: notifyIncomingMessage });
     const pairingAvailable = Boolean(primaryDeviceId && deviceId);

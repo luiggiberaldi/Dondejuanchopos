@@ -56,3 +56,7 @@ No bloquear el chat por Cron, retención exacta de 48 horas, métricas de egress
 - Las pruebas unitarias locales no prueban el chat entre dos dispositivos ni Push. La inspección remota confirmó tablas, políticas, Realtime y trigger en el proyecto Cloud/Sync correcto; no se envió un mensaje de prueba real ni se verificó una notificación recibida.
 - Push cerrado depende de permisos, navegador, sistema operativo y configuración de Supabase; no prometer entrega garantizada.
 - Por ahora el alcance es mensajes operativos breves entre la caja y sus supervisores. No es una herramienta para autorizar pagos ni sustituye la comunicación urgente cara a cara.
+
+## Notificaciones push — estado y operación
+
+Ver [`docs/INTERCOMUNICADOR_PUSH_NOTIFICACIONES.md`](docs/INTERCOMUNICADOR_PUSH_NOTIFICACIONES.md): arquitectura, incidencia del 2026-11-05 (403 por claves VAPID distintas), mejoras de la notificación y runbook.

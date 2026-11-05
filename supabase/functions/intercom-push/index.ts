@@ -5,6 +5,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL');
 const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') || '';
 const webhookSecret = Deno.env.get('INTERCOM_WEBHOOK_SECRET');
 const vapidJson = Deno.env.get('INTERCOM_VAPID_KEYS_JSON');
 const contactInformation = Deno.env.get('INTERCOM_VAPID_SUBJECT') || 'mailto:admin@example.com';
@@ -58,23 +59,42 @@ Deno.serve(async request => {
     }
 
     const safeId = encodeURIComponent(primaryDeviceId);
-    const body = JSON.stringify({
-        title: 'Nuevo mensaje · Intercomunicador',
-        body: 'Tienes un mensaje nuevo.',
-        tag: `intercom-${primaryDeviceId}`,
-        url: `/?intercom=1&conversation=${safeId}`,
-    });
+    const clip = (value: unknown, max: number) => {
+        const text = typeof value === 'string' ? value.trim() : '';
+        return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+    };
+    const senderName = clip(row.sender_name, 60) || (row.sender_role === 'pos' ? 'Caja' : 'Supervisor');
+    const messageText = clip(row.message, 160) || 'Tienes un mensaje nuevo.';
+    const createdAt = typeof row.created_at === 'string' ? row.created_at : new Date().toISOString();
+    // Datos para que el service worker pueda "Marcar como leído" sin abrir la app:
+    // escribe en device_message_reads con la clave anon (RLS valida que el lector
+    // sea miembro activo del vínculo).
+    const readEndpoint = supabaseAnonKey ? { url: supabaseUrl, key: supabaseAnonKey } : null;
     const results = await Promise.allSettled((subscriptions || []).map(async subscription => {
         const pushSubscription: PushSubscription = {
             endpoint: subscription.endpoint,
             keys: { p256dh: subscription.p256dh, auth: subscription.auth },
         };
+        const body = JSON.stringify({
+            title: senderName,
+            body: messageText,
+            tag: `intercom-${primaryDeviceId}`,
+            url: `/?intercom=1&conversation=${safeId}`,
+            timestamp: Date.parse(createdAt) || Date.now(),
+            read: readEndpoint && {
+                ...readEndpoint,
+                primaryDeviceId,
+                readerDeviceId: subscription.device_id,
+                messageId: row.id,
+                createdAt,
+            },
+        });
         try {
             // Urgency High: sin esto FCM entrega con prioridad normal y Android en
             // Doze/ahorro de batería retiene el mensaje; con TTL corto expira antes
             // de llegar. TTL de 1 h para que un teléfono dormido aún lo reciba.
-            await pushServer.subscribe(pushSubscription)
-                .pushTextMessage(body, { ttl: 3600, urgency: Urgency.High, topic: `intercom-${primaryDeviceId.slice(0, 20)}`.replace(/[^A-Za-z0-9_-]/g, '') });
+            // Sin `topic`: cada mensaje debe llegar para que el SW los agrupe y cuente.
+            await pushServer.subscribe(pushSubscription).pushTextMessage(body, { ttl: 3600, urgency: Urgency.High });
         } catch (pushError) {
             // PushMessageError expone el código en `response.status`, no en `status`.
             const status = pushError instanceof PushMessageError ? pushError.response.status : 0;

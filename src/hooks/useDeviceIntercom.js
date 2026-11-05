@@ -126,6 +126,12 @@ export function useDeviceIntercom({ primaryDeviceId, deviceId, senderRole, sende
         if (writeError) throw writeError;
         readCursorRef.current = cursor;
         setReadCursor(cursor);
+        // Leído en la app: cerrar la notificación agrupada para que el contador
+        // "N mensajes nuevos" vuelva a empezar desde cero.
+        navigator.serviceWorker?.getRegistration?.()
+            .then(registration => registration?.getNotifications?.({ tag: `intercom-${primaryDeviceId}` }))
+            .then(notifications => notifications?.forEach(notification => notification.close()))
+            .catch(() => {});
         await fetchUnreadCount(cursor);
     }, [deviceId, fetchUnreadCount, primaryDeviceId]);
 
