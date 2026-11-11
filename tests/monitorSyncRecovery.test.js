@@ -26,7 +26,7 @@ vi.mock('../src/config/supabaseCloud', () => ({
 }));
 vi.mock('../src/services/remoteAuditService', () => ({
     fetchRemoteDocuments: mocks.fetch,
-    REMOTE_MONITOR_DOC_IDS: ['bodega_sales_v1', 'bodega_products_v1', 'bodega_customers_v1'],
+    REMOTE_MONITOR_DOC_IDS: ['bodega_sales_v1', 'bodega_products_v1', 'bodega_customers_v1', 'bodega_custom_rate'],
 }));
 vi.mock('localforage', () => ({ default: {
     config: vi.fn(),
@@ -214,13 +214,46 @@ describe('Supervisor monitor catch-up recovery', () => {
         mocks.fetch.mockResolvedValueOnce(result([doc('bodega_customers_v1', T3, [{ id: 'c' }])]));
         await act(async () => window.dispatchEvent(new CustomEvent('supervisor_sync_requested')));
         const recovery = mocks.fetch.mock.calls.at(-1);
-        expect(recovery[1]).toEqual(['bodega_products_v1', 'bodega_customers_v1']);
+        expect(recovery[1]).toEqual(['bodega_products_v1', 'bodega_customers_v1', 'bodega_custom_rate']);
         expect(recovery[3].updatedAfter).toBeNull();
         expect(mocks.store.get('bodega_customers_v1')).toEqual([{ id: 'c' }]);
         // El siguiente incremental sigue desde T1: una venta entre T1 y T3 no se pierde.
         await tick(180000);
         expect(mocks.fetch.mock.calls.at(-1)[1]).toContain('bodega_sales_v1');
         expect(mocks.fetch.mock.calls.at(-1)[3].updatedAfter).toBe(T1);
+    });
+
+    it('una tasa pendiente no congela el cursor ni re-descarga ventas en bucle', async () => {
+        localStorage.setItem('dj_supervisor_rate_pending_v1', JSON.stringify({ commandId: 'rate-a', desired: { customRate: '200' } }));
+        mocks.fetch.mockResolvedValueOnce(result([
+            doc('bodega_sales_v1', T1), { ...doc('bodega_custom_rate', T2, '100'), collection: 'local' },
+        ]));
+        await mount();
+        await act(async () => mocks.channels[0].status('SUBSCRIBED'));
+        mocks.fetch.mockResolvedValue(result([{ ...doc('bodega_custom_rate', T2, '100'), collection: 'local' }]));
+        await tick(170000);
+        // Solo relecturas ligeras de la tasa (1/min), nunca las ventas.
+        const retries = mocks.fetch.mock.calls.slice(1);
+        expect(retries.length).toBeGreaterThan(0);
+        expect(retries.length).toBeLessThanOrEqual(3);
+        for (const call of retries) expect(call[1]).toEqual(['bodega_custom_rate']);
+        // El catch-up normal sigue desde T2: el cursor avanzó pese a la tasa diferida.
+        mocks.fetch.mockClear();
+        await tick(20000);
+        const catchUp = mocks.fetch.mock.calls.find(call => call[1].includes('bodega_sales_v1'));
+        expect(catchUp[3].updatedAfter).toBe(T2);
+    });
+
+    it('espacia los reintentos cuando el pull falla de forma persistente', async () => {
+        mocks.fetch.mockResolvedValueOnce(result([doc('bodega_sales_v1', T1)]));
+        await mount();
+        await act(async () => mocks.channels[0].status('SUBSCRIBED'));
+        mocks.fetch.mockResolvedValue({ success: false, error: { message: 'red' } });
+        await tick(180000);
+        const before = mocks.fetch.mock.calls.length;
+        await tick(300000); // antes: ~30 reintentos (uno cada 10 s)
+        expect(mocks.fetch.mock.calls.length - before).toBeLessThanOrEqual(4);
+        expect(mocks.fetch.mock.calls.length - before).toBeGreaterThan(0);
     });
 
     it('el eco de A no marca como observada ni elimina una tasa B creada por un listener', async () => {

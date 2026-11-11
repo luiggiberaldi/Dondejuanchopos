@@ -27,6 +27,13 @@ const MONITOR_UNHEALTHY_PULL_INTERVAL_MS = 30 * 1000;
 // Documentos pesados que una confirmación del Supervisor no necesita releer:
 // sus cambios reales siempre suben `updated_at`, así que el incremental los trae.
 const RECOVERY_SKIPPED_DOC_IDS = Object.freeze(['bodega_sales_v1']);
+// EGRESS (10-nov): un pull fallido ya no se repite en cada tick de 10 s. La
+// espera crece 30 s → 60 s → 120 s; antes un fallo persistente re-descargaba
+// los documentos pesados (ventas ≈ 4,6 MB) seis veces por minuto.
+const MONITOR_RETRY_BASE_MS = 30 * 1000;
+const MONITOR_RETRY_MAX_MS = 2 * 60 * 1000;
+// Relectura de la tasa diferida (solo los 3 documentos de tasa, unos bytes).
+const MONITOR_RATE_RETRY_INTERVAL_MS = 60 * 1000;
 
 const MONITOR_DOC_IDS = [
     'bodega_products_v1',
@@ -93,6 +100,10 @@ export function useMonitorSync(pairedDeviceId) {
     const recoveryRequestedRef = useRef(0);
     const recoveryCompletedRef = useRef(0);
     const lastPullStartedAtRef = useRef(0);
+    const consecutiveFailuresRef = useRef(0);
+    // Una tasa optimista pendiente difiere el documento remoto. Se reintenta
+    // aparte: no debe bloquear el cursor de los documentos pesados.
+    const rateRetryRef = useRef(false);
 
     const getVersionKey = useCallback((docId) => {
         const deviceId = pairedDeviceId || localStorage.getItem('dj_paired_device_id') || 'unknown-device';
@@ -342,7 +353,7 @@ export function useMonitorSync(pairedDeviceId) {
         return current;
     };
 
-    const initMonitor = useCallback(async (isSilent = false) => {
+    const initMonitor = useCallback(async (isSilent = false, { rateRetry = false } = {}) => {
         const lifecycle = lifecycleRef.current;
         const isCurrent = () => lifecycle === lifecycleRef.current;
         let activeDeviceId = pairedDeviceId || localStorage.getItem('dj_paired_device_id');
@@ -374,6 +385,11 @@ export function useMonitorSync(pairedDeviceId) {
         const recoveryRequest = recoveryRequestedRef.current;
         // Un pull completo ya relee todo; la recuperación ligera solo aplica sin él.
         const isRecoveryPull = !needsFullPull && recoveryRequest > recoveryCompletedRef.current;
+        // Solo el temporizador pide esta relectura, y solo cuando no toca el
+        // catch-up normal: nunca debe desplazar la lectura de ventas.
+        const isRateRetryPull = rateRetry && !needsFullPull && !isRecoveryPull && rateRetryRef.current;
+        // Lecturas parciales sin cursor: nunca avanzan el cursor ni cuentan como catch-up.
+        const isPartialPull = isRecoveryPull || isRateRetryPull;
 
         if (!isSilent) setLoading(true);
 
@@ -386,11 +402,14 @@ export function useMonitorSync(pairedDeviceId) {
             // timestamps cannot prove that IndexedDB still contains that snapshot.
             // La recuperación relee sin cursor solo los documentos ligeros. Como
             // omite ventas, NO puede avanzar el cursor (ocultaría ventas nuevas).
-            const updatedAfter = (needsFullPull || isRecoveryPull) ? null : pullCursorRef.current;
+            const updatedAfter = (needsFullPull || isPartialPull) ? null : pullCursorRef.current;
             const docIds = isRecoveryPull
                 ? REMOTE_MONITOR_DOC_IDS.filter(docId => !RECOVERY_SKIPPED_DOC_IDS.includes(docId))
-                : REMOTE_MONITOR_DOC_IDS;
+                : isRateRetryPull
+                    ? REMOTE_MONITOR_DOC_IDS.filter(docId => RATE_CONFIG_DOC_IDS.includes(docId))
+                    : REMOTE_MONITOR_DOC_IDS;
             let batchFailed = false;
+            let rateDeferred = false;
 
             // El monitor no puede consultar sync_documents directamente: el rol
             // anon no tiene SELECT por RLS. La lectura pasa por el RPC que valida
@@ -434,8 +453,10 @@ export function useMonitorSync(pairedDeviceId) {
                             continue;
                         }
                         const applied = await applyDocToLocal(doc.doc_id, doc.collection, doc.data.payload, doc.updated_at, 'pull');
-                        // Deferred optimistic rate values must be retried too.
-                        if (applied === false && RATE_CONFIG_DOC_IDS.includes(doc.doc_id)) failedCount++;
+                        // Una tasa diferida se relee aparte (rateRetryRef). No es un
+                        // fallo del lote: contarla como tal congelaba el cursor y
+                        // re-descargaba las ventas completas en cada reintento.
+                        if (applied === false && RATE_CONFIG_DOC_IDS.includes(doc.doc_id)) rateDeferred = true;
                         else appliedCount++;
                     } catch (e) {
                         failedCount++;
@@ -444,7 +465,7 @@ export function useMonitorSync(pairedDeviceId) {
                 }
 
                 batchFailed = failedCount > 0;
-                if (!batchFailed && !isRecoveryPull) lastHealthyPullAtRef.current = Date.now();
+                if (!batchFailed && !isPartialPull) lastHealthyPullAtRef.current = Date.now();
                 if (batchFailed) {
                     console.warn(`[useMonitorSync] Pull parcial: ${appliedCount} aplicados, ${failedCount} fallidos.`);
                 }
@@ -458,7 +479,7 @@ export function useMonitorSync(pairedDeviceId) {
                     && (!latest || Date.parse(doc.updated_at) > Date.parse(latest.updated_at))
                         ? doc : latest
                 ), null);
-                if (!batchFailed && !isRecoveryPull && latestDoc && fullPullRequestedRef.current === fullPullRequest) {
+                if (!batchFailed && !isPartialPull && latestDoc && fullPullRequestedRef.current === fullPullRequest) {
                     const previousCursor = pullCursorRef.current;
                     if (!previousCursor || Date.parse(latestDoc.updated_at) > Date.parse(previousCursor)) {
                         pullCursorRef.current = latestDoc.updated_at;
@@ -473,7 +494,7 @@ export function useMonitorSync(pairedDeviceId) {
                 // versión: esa lectura adicional podía reintroducir un payload
                 // viejo mientras el evento Realtime nuevo aún se procesaba.
                 window.dispatchEvent(new CustomEvent('app_storage_update', { detail: { key: 'bodega_sales_v1' } }));
-            } else if (docs && !isRecoveryPull) {
+            } else if (docs && !isPartialPull) {
                 // D6: lote vacío = ya estamos al día. Marcar la sincronización como
                 // exitosa evita que el health-check la interprete como "sin datos"
                 // y dispare pulls completos repetidos.
@@ -482,6 +503,9 @@ export function useMonitorSync(pairedDeviceId) {
             }
 
             if (!isCurrent()) return;
+            if (rateDeferred) rateRetryRef.current = true;
+            else if (!batchFailed && (needsFullPull || isPartialPull)) rateRetryRef.current = false;
+            consecutiveFailuresRef.current = batchFailed ? consecutiveFailuresRef.current + 1 : 0;
             if (needsFullPull && !batchFailed) {
                 fullPullCompletedRef.current = Math.max(fullPullCompletedRef.current, fullPullRequest);
                 // El pull completo también cubre cualquier recuperación pedida antes.
@@ -552,7 +576,10 @@ export function useMonitorSync(pairedDeviceId) {
             }
         } catch (err) {
             console.warn('[useMonitorSync] Error en sincronización o reconexión:', err);
-            if (isCurrent()) setIsConnected(false);
+            if (isCurrent()) {
+                consecutiveFailuresRef.current++;
+                setIsConnected(false);
+            }
         } finally {
             if (isCurrent()) {
                 isSyncingRef.current = false;
@@ -690,9 +717,23 @@ export function useMonitorSync(pairedDeviceId) {
             // cuando la conexión está caída; al volver online se recupera antes.
             const now = Date.now();
             const healthyPullDue = now - lastHealthyPullAtRef.current >= MONITOR_HEALTHY_PULL_INTERVAL_MS;
-            const unhealthyPullDue = now - lastPullStartedAtRef.current >= MONITOR_UNHEALTHY_PULL_INTERVAL_MS;
-            if (isHealthy ? healthyPullDue : unhealthyPullDue) {
-                initMonitor(true);
+            const sinceLastPull = now - lastPullStartedAtRef.current;
+            const unhealthyPullDue = sinceLastPull >= MONITOR_UNHEALTHY_PULL_INTERVAL_MS;
+            const failures = consecutiveFailuresRef.current;
+            let pullDue;
+            let rateRetryOnly = false;
+            if (failures > 0) {
+                // Tras un fallo, esperar cada vez más en lugar de repetir cada tick.
+                pullDue = sinceLastPull >= Math.min(MONITOR_RETRY_BASE_MS * 2 ** (failures - 1), MONITOR_RETRY_MAX_MS);
+            } else if (isHealthy) {
+                rateRetryOnly = !healthyPullDue
+                    && rateRetryRef.current && sinceLastPull >= MONITOR_RATE_RETRY_INTERVAL_MS;
+                pullDue = healthyPullDue || rateRetryOnly;
+            } else {
+                pullDue = unhealthyPullDue;
+            }
+            if (pullDue) {
+                initMonitor(true, { rateRetry: rateRetryOnly });
             }
         }, 10000);
 
