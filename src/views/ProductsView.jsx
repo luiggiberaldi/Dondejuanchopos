@@ -69,13 +69,16 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
 
     const handleChangeCategory = async (productId, newCategoryId) => {
         try {
-            const updatedProducts = products.map(p => {
-                if (p.id === productId) {
-                    return { ...p, category: newCategoryId };
-                }
-                return p;
+            // Releer bajo pos_write_lock: escribir el estado React podía pisar
+            // el stock descontado por una venta que aún no llegaba a la memoria.
+            const updatedProducts = await withLock('pos_write_lock', async () => {
+                const liveProducts = await storageService.getItem('bodega_products_v1', products) || [];
+                const next = liveProducts.map(p => (
+                    p.id === productId ? { ...p, category: newCategoryId } : p
+                ));
+                await storageService.setItem('bodega_products_v1', next);
+                return next;
             });
-            await storageService.setItem('bodega_products_v1', updatedProducts);
             setProducts(updatedProducts);
             showToast('Categoría actualizada', 'success');
             triggerHaptic && triggerHaptic();
@@ -186,8 +189,22 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 }
 
                 const res = await migrateProductImagesToStorage(current, async (out) => {
-                    await storageService.setItem('bodega_products_v1', out);
-                    if (!cancelled) setProducts(out);
+                    // Las subidas tardan; mientras tanto hubo ventas. Solo se
+                    // parchea `image` sobre el catálogo vivo, bajo el lock.
+                    const imageById = new Map(out.map(p => [p.id, p.image]));
+                    const merged = await withLock('pos_write_lock', async () => {
+                        const live = await storageService.getItem('bodega_products_v1', []) || [];
+                        const next = live.map(p => {
+                            const url = imageById.get(p.id);
+                            return (typeof url === 'string' && !url.startsWith('data:')
+                                && typeof p.image === 'string' && p.image.startsWith('data:'))
+                                ? { ...p, image: url }
+                                : p;
+                        });
+                        await storageService.setItem('bodega_products_v1', next);
+                        return next;
+                    });
+                    if (!cancelled) setProducts(merged);
                 });
 
                 if (res.failed === 0) {
@@ -314,6 +331,10 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
     } = useProductForm();
     const fileInputRef = useRef(null);
     const categoryScrollRef = useRef(null);
+    // Stock que mostraba el formulario al abrirse. Al guardar solo se aplica la
+    // diferencia que el usuario escribió (delta), nunca el valor absoluto: si se
+    // vendieron unidades con el formulario abierto, un absoluto las "resucitaba".
+    const editBaseStockRef = useRef(null);
 
     // Form State (Category create)
     const [newCategoryName, setNewCategoryName] = useState('');
@@ -563,7 +584,13 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
                 const liveExisting = liveProducts.find(p => p.id === editingId);
                 if (!liveExisting) throw new Error('Producto no encontrado en el inventario actual');
                 const liveOldStock = Number(liveExisting.stock) || 0;
-                const liveRequestedStock = Number(productData.stock) || 0;
+                // Delta = lo que el usuario cambió en el campo, relativo al stock
+                // que vio al abrir. Se aplica sobre el stock vivo para respetar las
+                // ventas/ajustes ocurridos mientras el formulario estaba abierto.
+                const formBaseStock = editBaseStockRef.current
+                    ?? (Number(products.find(p => p.id === editingId)?.stock) || 0);
+                const formDelta = (Number(productData.stock) || 0) - formBaseStock;
+                const liveRequestedStock = liveOldStock + formDelta;
                 updatedProducts = liveProducts.map(p => p.id === editingId
                     ? {
                         ...p,
@@ -640,6 +667,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
             setIsComboModalOpen(true);
             return;
         }
+        editBaseStockRef.current = Number(product.stock) || 0;
         populateForm(product, effectiveRate);
         setIsModalOpen(true);
 
@@ -676,6 +704,7 @@ export const ProductsView = ({ rates, triggerHaptic }) => {
     };
 
     const handleClose = () => {
+        editBaseStockRef.current = null;
         resetForm();
         setIsModalOpen(false);
         setProductMovements([]);

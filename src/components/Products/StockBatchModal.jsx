@@ -3,6 +3,7 @@ import { Search, TrendingUp, TrendingDown, Check, Package, X, AlertTriangle, Min
 import { showToast } from '../Toast';
 import { CATEGORY_COLORS } from '../../config/categories';
 import { storageService } from '../../utils/storageService';
+import { withLock } from '../../utils/withLock';
 
 // Helper para obtener las unidades por empaque/caja registradas en el producto
 function getStoredPkgSize(p) {
@@ -439,8 +440,9 @@ export default function StockBatchModal({
             // Persistir permanentemente los tamanos de empaque editados inline
             const pkgEntries = Object.entries(tempPackageSizes).filter(([, size]) => size > 1);
             if (pkgEntries.length > 0) {
+                const updatedProducts = await withLock('pos_write_lock', async () => {
                 const liveProducts = await storageService.getItem('bodega_products_v1', products) || [];
-                const updatedProducts = liveProducts.map(p => {
+                const next = liveProducts.map(p => {
                     const newSize = tempPackageSizes[p.id];
                     if (newSize && newSize > 1) {
                         return {
@@ -451,7 +453,9 @@ export default function StockBatchModal({
                     }
                     return p;
                 });
-                await storageService.setItem('bodega_products_v1', updatedProducts);
+                await storageService.setItem('bodega_products_v1', next);
+                return next;
+                });
                 if (setProducts) {
                     setProducts(updatedProducts);
                 }

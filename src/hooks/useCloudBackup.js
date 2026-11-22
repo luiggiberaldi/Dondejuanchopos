@@ -9,6 +9,7 @@ import { compressString, decompressString, isCompressionSupported } from '../uti
 import { uploadProductImage } from '../utils/imageUpload';
 import { mergeMissingProductImages } from '../utils/productImageRecovery';
 import { runCloudUploadWithBackoff } from '../utils/cloudRetry';
+import { withLock } from '../utils/withLock';
 
 
 /**
@@ -189,16 +190,31 @@ export function useCloudBackup({
 
         // Escritura directa: solo cambia las propiedades image recuperadas y no
         // dispara una publicación cloud potencialmente incompleta.
-        await localStore.setItem('bodega_products_v1', updatedProducts);
+        // Las subidas pueden tardar y entretanto hubo ventas: parchear solo
+        // `image` sobre el catálogo vivo bajo pos_write_lock para no revertir stock.
+        const recoveredImages = new Map(merged.recoveredIds
+            .map(id => [id, updatedProducts.find(item => item.id === id)?.image])
+            .filter(([, image]) => typeof image === 'string' && image));
+        const persistedProducts = await withLock('pos_write_lock', async () => {
+            const live = await localStore.getItem('bodega_products_v1');
+            const base = Array.isArray(live) ? live : updatedProducts;
+            const next = base.map(product => (
+                recoveredImages.has(product.id) && !product.image
+                    ? { ...product, image: recoveredImages.get(product.id) }
+                    : product
+            ));
+            await localStore.setItem('bodega_products_v1', next);
+            return next;
+        });
         window.dispatchEvent(new CustomEvent('app_storage_update', {
-            detail: { key: 'bodega_products_v1', source: 'image-recovery', payload: updatedProducts }
+            detail: { key: 'bodega_products_v1', source: 'image-recovery', payload: persistedProducts }
         }));
 
         return {
             recovered: merged.recovered,
             uploaded,
             source: sourceLabels.join(' + ') || 'fuente local',
-            updatedProducts,
+            updatedProducts: persistedProducts,
         };
     };
 
