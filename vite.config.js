@@ -46,7 +46,7 @@ export default defineConfig(({ mode }) => {
   // Cargar TODAS las variables del .env (incluyendo las sin prefijo VITE_)
   const env = loadEnv(mode, process.cwd(), '');
   return {
-    base: process.env.ELECTRON_BUILD === 'true' ? './' : '/',
+    base: '/',
     plugins: [
       react(),
     VitePWA({
