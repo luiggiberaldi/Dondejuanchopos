@@ -1523,6 +1523,14 @@ export function useSupervisorCommands(deviceId) {
             }
         };
 
+        // Estado del WebSocket Realtime: cuando está sano (`SUBSCRIBED`), el polling
+        // de respaldo baja a 90 s (reduce ~85% de los ~3.500 GET/día); si el canal
+        // cae, vuelve a 20 s hasta reconectar.
+        let isRealtimeSubscribed = false;
+        let lastCatchUpAt = 0;
+        const HEALTHY_POLL_MS = 90000;
+        const DEGRADED_POLL_MS = 20000;
+
         const channel = supabaseCloud
             .channel(`supervisor_commands:${deviceId}`)
             .on('postgres_changes', {
@@ -1534,17 +1542,23 @@ export function useSupervisorCommands(deviceId) {
             .subscribe((status) => {
                 // SUBSCRIBED se emite al conectar Y al reconectar: cubre los
                 // comandos que llegaron mientras el websocket estuvo caído.
-                if (status === 'SUBSCRIBED') catchUpPending();
+                if (status === 'SUBSCRIBED') {
+                    isRealtimeSubscribed = true;
+                    lastCatchUpAt = Date.now();
+                    catchUpPending();
+                } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                    isRealtimeSubscribed = false;
+                }
             });
 
-        // Red de seguridad contra micro-cortes: Polling periódico cada 12s.
-        // Si el WebSocket falla silenciosamente (sin emitir CLOSED), esta línea
-        // de defensa limpia los comandos pendientes que se hayan acumulado.
+        // Red de seguridad adaptativa: 90 s con WebSocket sano, 20 s si está caído.
         const intervalId = setInterval(() => {
-            if (!disposed && navigator.onLine !== false) {
-                catchUpPending();
-            }
-        }, 12000);
+            if (disposed || navigator.onLine === false) return;
+            const minInterval = isRealtimeSubscribed ? HEALTHY_POLL_MS : DEGRADED_POLL_MS;
+            if (Date.now() - lastCatchUpAt < minInterval) return;
+            lastCatchUpAt = Date.now();
+            catchUpPending();
+        }, DEGRADED_POLL_MS);
 
         // Catch-up inmediato al recuperar conexión de red
         const handleOnline = () => {

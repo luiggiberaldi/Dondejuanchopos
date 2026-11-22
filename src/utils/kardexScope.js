@@ -262,6 +262,40 @@ export function compactKardexPayload(kardexList, daysRetention = 30, now = Date.
 }
 
 /**
+ * Compacta únicamente el payload cloud de `bodega_inventory_operations_v1`:
+ * conserva todas las operaciones de los últimos N días (alineado con Kardex 30d)
+ * más cualquier operación NO aplicada (`PENDING`, `FAILED_RETRYABLE`, etc.) o sin
+ * fecha válida. Nunca muta el arreglo local en IndexedDB.
+ */
+export function compactInventoryOperationsPayload(operationsList, daysRetention = 30, now = Date.now()) {
+    if (!Array.isArray(operationsList)) return operationsList;
+    const currentDate = new Date(now);
+    if (Number.isNaN(currentDate.getTime())) return [...operationsList];
+
+    const days = Math.max(0, Math.floor(Number(daysRetention) || 0));
+    const cutoff = new Date(Date.UTC(
+        currentDate.getUTCFullYear(),
+        currentDate.getUTCMonth(),
+        currentDate.getUTCDate(),
+    ));
+    cutoff.setUTCDate(cutoff.getUTCDate() - Math.max(0, days - 1));
+    const cutoffTime = cutoff.getTime();
+
+    return operationsList.filter((op) => {
+        if (!op || typeof op !== 'object') return false;
+        const status = String(op.status || '').toUpperCase();
+        // Guardrail: jamás ocultar una operación pendiente o fallida aunque sea antigua
+        if (status && status !== 'APPLIED_LOCAL' && status !== 'APPLIED' && status !== 'COMPLETED') {
+            return true;
+        }
+        const rawTs = op.createdAt || op.updatedAt || op.timestamp || op.created_at;
+        const opTime = rawTs ? new Date(rawTs).getTime() : NaN;
+        if (!Number.isFinite(opTime)) return true;
+        return opTime >= cutoffTime;
+    });
+}
+
+/**
  * Calcula la valorización total del inventario basada en el Kardex y lista de productos.
  * @param {Array} products - Lista de productos actual
  * @returns {{ totalValorizadoUsd: number, totalUnidades: number, totalProductos: number }}

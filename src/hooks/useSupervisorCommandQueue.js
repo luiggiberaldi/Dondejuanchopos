@@ -336,13 +336,15 @@ export function useSupervisorCommandQueue({
     }, [pairedDeviceId]);
 
     // Realtime sigue siendo el camino rápido. Este respaldo barato consulta solo
-    // comandos conocidos cada 15 s y al volver a la pestaña/red, evitando que un
-    // UPDATE perdido obligue a pulsar «Subir» por segunda vez.
+    // comandos conocidos cada 30 s (solo en primer plano) y al volver a la pestaña/red.
     useEffect(() => {
         if (!supabaseCloud || !pairedDeviceId) return;
 
         refreshPendingCloudCmds();
-        const intervalId = setInterval(refreshPendingCloudCmds, 15000);
+        const intervalId = setInterval(() => {
+            if (document.visibilityState === 'hidden') return;
+            refreshPendingCloudCmds();
+        }, 30000);
         const handleOnline = () => refreshPendingCloudCmds();
         const handleVisibility = () => {
             if (document.visibilityState === 'visible') refreshPendingCloudCmds();

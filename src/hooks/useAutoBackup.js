@@ -209,61 +209,9 @@ export function useAutoBackup(isPremium, isDemo, deviceId) {
         // HOOK-043: deps vacíos — el intervalo se monta una sola vez por app lifetime.
         // `configRef` mantiene los valores actuales sin re-crear el effect.
     }, []);
-
-    // ── Suscripción a solicitudes de backup en tiempo real ─────────────────
-    // Solo dispositivos con cuenta activa (permanent/monthly/demo) mantienen este
-    // socket abierto — evita gastar cupo de conexiones Realtime en instalaciones
-    // sin licencia (free/demo vencida) que nunca usarán el backup remoto forzado.
-    useEffect(() => {
-        if (!deviceId || !supabaseCloud || !isPremium) return;
-
-        let channel = null;
-        let requestInFlight = false;
-
-        // Suscribirse al canal en tiempo real de forma anónima
-        channel = supabaseCloud
-            .channel(`backup_request_${deviceId}`)
-            .on('postgres_changes', {
-                event: '*',
-                schema: 'public',
-                table: 'backup_requests',
-                filter: `device_id=eq.${deviceId}`
-            }, async (payload) => {
-                if (payload.new?.status === 'pending') {
-                    if (requestInFlight) return;
-                    requestInFlight = true;
-                    console.log('[AutoBackup] Solicitud de backup recibida. Ejecutando...');
-                    try {
-                        const uploaded = await performBackupRef.current?.(true); // forzar subida
-                        if (!uploaded) {
-                            console.warn('[AutoBackup] Solicitud remota no se marca completada: el backup no se confirmó.');
-                            const { error } = await supabaseCloud.from('backup_requests')
-                                .update({ status: 'error' })
-                                .eq('device_id', deviceId);
-                            if (error) console.warn('[AutoBackup] No se pudo informar el fallo de backup:', error.message);
-                            return;
-                        }
-                        const { error } = await supabaseCloud.from('backup_requests').update({
-                            status: 'completed',
-                            completed_at: new Date().toISOString()
-                        }).eq('device_id', deviceId);
-                        if (error) throw error;
-                        console.log('[AutoBackup] Backup en tiempo real completado.');
-                    } catch (error) {
-                        console.error('[AutoBackup] Error resolviendo solicitud remota:', error);
-                    } finally {
-                        requestInFlight = false;
-                    }
-                }
-            })
-            .subscribe();
-
-        return () => {
-            if (channel) {
-                supabaseCloud.removeChannel(channel).catch(() => {});
-            }
-        };
-    }, [deviceId, isPremium]);
+    // Nota v1.2.1: se eliminó la suscripción Realtime heredada a `backup_requests`
+    // (tabla inexistente en Supabase; los backups remotos se solicitan vía
+    // `supervisor_commands` -> `request_full_backup` en `useSupervisorCommands.js`).
 }
 
 // Restaurar desde backup local (para emergencias)

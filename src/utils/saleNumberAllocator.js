@@ -143,24 +143,42 @@ export async function allocateSaleNumber(deviceId, { localSales = null, client =
     try {
         if (!client || !deviceId) throw new Error('alloc-sin-cliente');
 
-        // ── Capa 1: línea base desde el Doc 60 (caché TTL 15s + single-flight) ──
-        // PERF: `fresh: true` descargaba el historial completo en CADA venta y era
-        // el principal cuello de botella al confirmar (RTT nube 0.1–1.7s medido).
-        // La frescura no es requisito de la corrección de duplicados: la unidad de
-        // carrera es el RECLAMO (capa 2), no la línea base. Con caché tibia el
-        // candidato puede salir bajo; entonces colisiona con un reclamo reciente y
-        // la compactación lo corre hacia arriba de forma determinista. La guardia
-        // monótona cubre además lo local aún sin empujar. `fresh: true` queda
-        // reservado para replace_sales_history (ahí la frescura sí es parte del fix).
-        const cloudRef = await withTimeout(
-            fetchCloudSalesReference(deviceId, client),
-            ALLOC_TIMEOUT_MS,
-        );
-        if (!Array.isArray(cloudRef) || cloudRef.length === 0) throw new Error('alloc-sin-referencia-cloud');
+        // ── Capa 1: línea base liviana vía get_sales_max_number (~119 bytes) ──
+        // Evita descargar 5.3 MB de Doc 60 en cada venta (~1 GB/día de egress).
+        // Si el RPC no existe o no devuelve datos válidos, cae limpiamente a
+        // fetchCloudSalesReference (TTL 15s) sin romper compatibilidad ni tests.
+        let cloudMax = null;
+        if (typeof client.rpc === 'function') {
+            try {
+                const maxRes = await withTimeout(
+                    client.rpc('get_sales_max_number', { p_device_id: deviceId }),
+                    ALLOC_TIMEOUT_MS,
+                );
+                if (
+                    !maxRes?.error
+                    && maxRes?.data?.success === true
+                    && Number(maxRes?.data?.total_records) > 0
+                    && Number.isFinite(Number(maxRes?.data?.max_sale_number))
+                ) {
+                    cloudMax = Number(maxRes.data.max_sale_number);
+                }
+            } catch {
+                // Fallback transparente a fetchCloudSalesReference
+            }
+        }
+
+        if (cloudMax === null) {
+            const cloudRef = await withTimeout(
+                fetchCloudSalesReference(deviceId, client),
+                ALLOC_TIMEOUT_MS,
+            );
+            if (!Array.isArray(cloudRef) || cloudRef.length === 0) throw new Error('alloc-sin-referencia-cloud');
+            cloudMax = maxSaleNumberOf(cloudRef);
+        }
 
         // Guardia monótona: nunca proponer por debajo de lo que ya existe localmente
         // (evita re-asignar un número local aún no empujado).
-        const candidate = Math.max(maxSaleNumberOf(cloudRef), localMax) + 1;
+        const candidate = Math.max(cloudMax, localMax) + 1;
 
         // ── Capa 2: reclamo atómico ──
         const monitor = await resolveMonitorDeviceId(deviceId, client);

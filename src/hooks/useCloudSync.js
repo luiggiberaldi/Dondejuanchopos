@@ -8,7 +8,7 @@ import { registerCloudSyncSetter } from '../utils/syncFlags';
 import { createAsyncKeyQueue } from '../utils/asyncKeyQueue';
 import { mergeCloudProductImages } from '../utils/productImageRecovery';
 import { compactSalesPayload } from '../utils/salesCompactor';
-import { compactKardexPayload } from '../utils/kardexScope';
+import { compactKardexPayload, compactInventoryOperationsPayload } from '../utils/kardexScope';
 import { prepareSalesPushPayload, fetchCloudSalesReference } from '../utils/salesPushMerge';
 import {
     SALES_SYNC_FINGERPRINTS_KEY,
@@ -71,10 +71,12 @@ const LAST_SOURCE_PUSH_HASH_PREFIX = 'bodega_last_source_push_hash_';
 // `APERTURA_PERIODO` validado en `reconcileRemoteInventory` (sin tocar IndexedDB local).
 const SALES_ARCHIVE_ENABLED = false;
 const KARDEX_EGRESS_COMPACTION_ENABLED = true;
+const INVENTORY_OPS_EGRESS_COMPACTION_ENABLED = true;
 
 const PAYLOAD_TRANSFORM_VERSIONS = {
     bodega_sales_v1: 'sales-archive-disabled-v1',
     bodega_kardex_v1: 'kardex-snapshot-30d-v1',
+    bodega_inventory_operations_v1: 'inv-ops-30d-v1',
 };
 
 function sourcePushHash(key, value) {
@@ -274,6 +276,9 @@ function sanitizePayloadForSync(key, value) {
     }
     if (key === 'bodega_kardex_v1' && Array.isArray(value) && KARDEX_EGRESS_COMPACTION_ENABLED) {
         return compactKardexPayload(value);
+    }
+    if (key === 'bodega_inventory_operations_v1' && Array.isArray(value) && INVENTORY_OPS_EGRESS_COMPACTION_ENABLED) {
+        return compactInventoryOperationsPayload(value);
     }
     return value;
 }
