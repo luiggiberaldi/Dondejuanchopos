@@ -10,6 +10,12 @@ import { mergeCloudProductImages } from '../utils/productImageRecovery';
 import { compactSalesPayload } from '../utils/salesCompactor';
 import { compactKardexPayload } from '../utils/kardexScope';
 import { prepareSalesPushPayload, fetchCloudSalesReference } from '../utils/salesPushMerge';
+import {
+    SALES_SYNC_FINGERPRINTS_KEY,
+    buildSyncedFingerprintsMap,
+    mergeSyncedFingerprints,
+    extractSalesDelta,
+} from '../utils/salesDeltaSync';
 import { validateCustomerSyncPayload, mergeCloudCustomers } from '../utils/customerSyncGuard';
 import {
     clearCloudRetryFailure,
@@ -36,7 +42,7 @@ import {
 //     nunca lo lee; sigue incluido en los backups vía IDB_KEYS.
 //   • abasto_audit_log_v1 → hasta 15.000 entradas (auditService MAX_ENTRIES),
 //     reescrito en cada evento auditado. El monitor no lo renderiza.
-const CLOUD_SYNC_EXCLUDE = ['bodega_sales_mirror_v1', 'abasto_audit_log_v1', 'bodega_pos_heartbeat'];
+const CLOUD_SYNC_EXCLUDE = ['bodega_sales_mirror_v1', 'abasto_audit_log_v1', 'bodega_pos_heartbeat', SALES_SYNC_FINGERPRINTS_KEY];
 
 // Unión de catálogos canónicos más bodega_rate_mode y bodega_users_catalog_v1 (excluyendo claves no sincronizables)
 const SYNC_KEYS = [...new Set([...IDB_KEYS, ...LS_KEYS, 'bodega_rate_mode', 'bodega_users_catalog_v1'])].filter(k => !CLOUD_SYNC_EXCLUDE.includes(k));
@@ -101,6 +107,50 @@ let isCloudSyncActive = false;   // Evita empujar a la nube si el dispositivo no
 let gateRetryTimer = null;
 let cloudSyncGeneration = 0;
 let criticalPushCount = 0;      // Contador de subidas críticas en vuelo (ej. cierre de caja)
+let _salesFingerprintsCache = { deviceId: null, loaded: false, map: null };
+let _deltaRpcUnavailableUntil = 0;
+const DELTA_RPC_FALLBACK_COOLDOWN_MS = 10 * 60 * 1000;
+
+export function resetSalesDeltaCacheForTests() {
+    _salesFingerprintsCache = { deviceId: null, loaded: false, map: null };
+    _deltaRpcUnavailableUntil = 0;
+}
+
+async function loadSalesFingerprints(deviceId) {
+    if (!deviceId) return null;
+    if (_salesFingerprintsCache.loaded && _salesFingerprintsCache.deviceId === deviceId) {
+        return _salesFingerprintsCache.map;
+    }
+    try {
+        const stored = await localStore.getItem(SALES_SYNC_FINGERPRINTS_KEY);
+        const valid = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : null;
+        _salesFingerprintsCache = { deviceId, loaded: true, map: valid };
+        return valid;
+    } catch {
+        return null;
+    }
+}
+
+async function persistSalesFingerprints(deviceId, map) {
+    if (!deviceId) return;
+    _salesFingerprintsCache = { deviceId, loaded: true, map: map || null };
+    try {
+        if (map && typeof map === 'object') {
+            await localStore.setItem(SALES_SYNC_FINGERPRINTS_KEY, map);
+        } else {
+            await localStore.removeItem(SALES_SYNC_FINGERPRINTS_KEY);
+        }
+    } catch {
+        // Best-effort: sin caché persistida, el próximo ciclo hará fallback seguro.
+    }
+}
+
+function isDeltaRpcMissingError(error) {
+    if (!error) return false;
+    const code = String(error.code || '').toUpperCase();
+    const status = Number(error.status ?? error.statusCode);
+    return code === 'PGRST202' || code === '42883' || status === 404;
+}
 
 function abortOrdinaryPushes(key) {
     const controllers = activeOrdinaryPushControllers.get(key);
@@ -243,7 +293,13 @@ const pushCloudSyncNow = async (
     key,
     value,
     forceUnconditional = false,
-    { signal = null, deferSignalFlush = false, collectCierreIds = false } = {},
+    {
+        signal = null,
+        deferSignalFlush = false,
+        collectCierreIds = false,
+        expectedCierreId = null,
+        sharedCloudRef = null,
+    } = {},
 ) => {
     if (!supabaseCloud) return { ok: false, reason: 'not_active', retryable: false };
     if (isSyncingFromCloud) return { ok: false, reason: 'syncing_from_cloud', retryable: false }; // Nunca re-emitir lo que llegó de la nube
@@ -300,6 +356,103 @@ const pushCloudSyncNow = async (
     }
 
     const sourceSalesPayload = key === 'bodega_sales_v1' && Array.isArray(value) ? value : null;
+    const allowSalesPurgeEarly = localStorage.getItem('confirm_sales_purge_flag') === 'true';
+
+    // ── FAST-PATH DELTA DE VENTAS Y CIERRES (v1.2.0) ──
+    // En lugar de descargar 5.3 MB + subir 4.9 MB en cada venta o cierre, envía
+    // solo los registros modificados/nuevos (2–60 KB) a `upsert_paired_sales_delta`,
+    // que fusiona atómicamente en Postgres bajo FOR UPDATE respetando las 5 Reglas de Oro.
+    // Fallback automático a `write_paired_sync_document` si el RPC no existe aún o
+    // falta el documento base en sync_documents.
+    let deltaSucceeded = false;
+    let deltaUploadedRecords = null;
+    let deltaConfirmedCierreIds = null;
+    let loadedSalesFingerprints = null;
+
+    if (
+        key === 'bodega_sales_v1'
+        && Array.isArray(sourceSalesPayload)
+        && !forceUnconditional
+        && !allowSalesPurgeEarly
+        && Date.now() >= _deltaRpcUnavailableUntil
+    ) {
+        loadedSalesFingerprints = await loadSalesFingerprints(activeDeviceId);
+        if (signal?.aborted) return { ok: false, reason: 'aborted', retryable: false };
+        if (!isCurrentPosIdentity(activeDeviceId, generation)) return { ok: false, reason: 'not_active', retryable: false };
+
+        const deltaPlan = extractSalesDelta(sourceSalesPayload, loadedSalesFingerprints, {
+            expectedCierreId,
+        });
+
+        if (deltaPlan.mode === 'delta' && Array.isArray(deltaPlan.records) && deltaPlan.records.length > 0) {
+            try {
+                if (signal?.aborted) return { ok: false, reason: 'aborted', retryable: false };
+                if (!isCurrentPosIdentity(activeDeviceId, generation) || !isCloudSyncActive) {
+                    return { ok: false, reason: 'not_active', retryable: false };
+                }
+                let deltaCall = supabaseCloud.rpc('upsert_paired_sales_delta', {
+                    p_device_id: activeDeviceId,
+                    p_records: deltaPlan.records,
+                });
+                if (signal && typeof deltaCall?.abortSignal === 'function') {
+                    deltaCall = deltaCall.abortSignal(signal);
+                }
+                const { data: deltaData, error: deltaError } = await deltaCall;
+                if (signal?.aborted) return { ok: false, reason: 'aborted', retryable: false };
+                if (!isCurrentPosIdentity(activeDeviceId, generation)) {
+                    return { ok: false, reason: 'not_active', retryable: false };
+                }
+
+                if (deltaError) {
+                    if (isDeltaRpcMissingError(deltaError)) {
+                        _deltaRpcUnavailableUntil = Date.now() + DELTA_RPC_FALLBACK_COOLDOWN_MS;
+                        console.info('[CloudSync] RPC upsert_paired_sales_delta no disponible; usando fallback completo.');
+                    } else {
+                        const failure = recordCloudRetryFailure(documentRetryOperation, deltaError);
+                        if (isGlobalCloudFailure(deltaError)) {
+                            recordCloudRetryFailure(
+                                `sync:${activeDeviceId}`,
+                                deltaError,
+                                shouldCapGlobalLock(deltaError) ? { maxDelayMs: GLOBAL_LOCK_MAX_MS } : {},
+                            );
+                        }
+                        console.warn(`[CloudSync] Error ${deltaError.code || deltaError.status} en delta de ventas; reintento en ${Math.ceil(failure.delayMs / 1000)}s:`, deltaError.message);
+                        return {
+                            ok: false,
+                            reason: 'rpc_error',
+                            retryable: !isPermanentCloudError(deltaError),
+                        };
+                    }
+                } else if (
+                    deltaData?.success === true
+                    && Number.isFinite(Number(deltaData?.total_records))
+                ) {
+                    deltaSucceeded = true;
+                    deltaUploadedRecords = deltaPlan.records;
+                    deltaConfirmedCierreIds = Array.isArray(deltaData.confirmed_cierre_ids)
+                        ? deltaData.confirmed_cierre_ids.map((id) => String(id))
+                        : [];
+                } else {
+                    // `base_doc_missing` o respuesta sin contrato delta completo → fallback seguro al flujo completo.
+                    console.info('[CloudSync] Delta de ventas requiere documento base completo; usando fallback.');
+                }
+            } catch (deltaEx) {
+                if (signal?.aborted || deltaEx?.name === 'AbortError') {
+                    return { ok: false, reason: 'aborted', retryable: false };
+                }
+                const failure = recordCloudRetryFailure(documentRetryOperation, deltaEx);
+                if (isGlobalCloudFailure(deltaEx)) {
+                    recordCloudRetryFailure(
+                        `sync:${activeDeviceId}`,
+                        deltaEx,
+                        shouldCapGlobalLock(deltaEx) ? { maxDelayMs: GLOBAL_LOCK_MAX_MS } : {},
+                    );
+                }
+                console.warn(`[CloudSync] Fallo de transporte en delta de ventas; reintento en ${Math.ceil(failure.delayMs / 1000)}s.`);
+                return { ok: false, reason: 'transport', retryable: true };
+            }
+        }
+    }
 
     // ── BLINDAJE INMUTABLE DE HISTORIAL DE VENTAS Y CIERRES (ANTI-REGRESIÓN) ──
     // FASE 1 (merge-on-push): si el flag está activo, el payload se FUSIONA con el
@@ -314,17 +467,21 @@ const pushCloudSyncNow = async (
     //     (mismo device_id, dataset viejo) queda en passthrough y el breaker
     //     sigue bloqueándola (FASE 3A la eliminará),
     //  c) se respeta el flujo deliberado de purga (`confirm_sales_purge_flag`).
-    const allowSalesPurgeEarly = localStorage.getItem('confirm_sales_purge_flag') === 'true';
     const salesMergeEnabled =
         !allowSalesPurgeEarly &&
         localStorage.getItem('dj_sales_push_merge_v1') === 'true' &&
         activeDeviceId === 'PDA-V2-ED46F23C375734BF8DF4CC7DC4A4D39F';
-    if (key === 'bodega_sales_v1' && Array.isArray(payloadToUpload) && salesMergeEnabled) {
+    if (!deltaSucceeded && key === 'bodega_sales_v1' && Array.isArray(payloadToUpload) && salesMergeEnabled) {
         const archiveCandidate = compactSalesPayload(sourceSalesPayload, undefined, {
             allowArchiving: SALES_ARCHIVE_ENABLED,
         });
         const needsArchiveAuthorization = archiveCandidate.some(sale => sale?.isArchived === true && sale.archiveVersion === 1);
-        const cloudReference = await fetchCloudSalesReference(activeDeviceId, undefined, {
+        const cachedSharedRef = (!needsArchiveAuthorization
+            && sharedCloudRef?.deviceId === activeDeviceId
+            && Array.isArray(sharedCloudRef.payload))
+            ? sharedCloudRef.payload
+            : null;
+        const cloudReference = cachedSharedRef || await fetchCloudSalesReference(activeDeviceId, undefined, {
             fresh: needsArchiveAuthorization,
             signal,
         });
@@ -333,6 +490,10 @@ const pushCloudSyncNow = async (
         if (!Array.isArray(cloudReference)) {
             console.warn('[SALES PUSH MERGE] Referencia cloud no disponible; se pospone el push para no sobrescribir historial no verificado.');
             return { ok: false, reason: 'merge_reference_unavailable', retryable: false };
+        }
+        if (sharedCloudRef && !cachedSharedRef) {
+            sharedCloudRef.deviceId = activeDeviceId;
+            sharedCloudRef.payload = cloudReference;
         }
 
         const { payload: mergedSales, strategy, vetoed, reason } = prepareSalesPushPayload(
@@ -351,7 +512,7 @@ const pushCloudSyncNow = async (
         }
     }
 
-    if (key === 'bodega_sales_v1' && Array.isArray(payloadToUpload)) {
+    if (!deltaSucceeded && key === 'bodega_sales_v1' && Array.isArray(payloadToUpload)) {
         const allowSalesPurge = localStorage.getItem('confirm_sales_purge_flag') === 'true';
         if (!allowSalesPurge) {
             const cierresInPayload = payloadToUpload.filter(s => s && s.tipo === 'REGISTRO_CIERRE').length;
@@ -378,30 +539,32 @@ const pushCloudSyncNow = async (
     // Este límite evita publicar documentos sobredimensionados; no garantiza un tamaño
     // objetivo, porque el detalle de ventas y el historial reciente de Kardex se conservan.
     const MAX_DOC_BYTES = 8 * 1024 * 1024;
-    try {
-        const serializedPayload = JSON.stringify(payloadToUpload) ?? '';
+    if (!deltaSucceeded) {
+        try {
+            const serializedPayload = JSON.stringify(payloadToUpload) ?? '';
 
-        const approxBytes = typeof TextEncoder !== 'undefined'
-            ? new TextEncoder().encode(serializedPayload).length
-            : serializedPayload.length * 2;
+            const approxBytes = typeof TextEncoder !== 'undefined'
+                ? new TextEncoder().encode(serializedPayload).length
+                : serializedPayload.length * 2;
 
-        if (approxBytes > MAX_DOC_BYTES) {
-            console.error(
-                `[CloudSync] E2: documento '${key}' de ${(approxBytes / 1048576).toFixed(2)} MB ` +
-                `supera el tope de ${MAX_DOC_BYTES / 1048576} MB. NO se sube. ` +
-                `Revisa por qué creció (¿histórico sin podar?).`
-            );
-            return { ok: false, reason: 'too_large', retryable: false };
+            if (approxBytes > MAX_DOC_BYTES) {
+                console.error(
+                    `[CloudSync] E2: documento '${key}' de ${(approxBytes / 1048576).toFixed(2)} MB ` +
+                    `supera el tope de ${MAX_DOC_BYTES / 1048576} MB. NO se sube. ` +
+                    `Revisa por qué creció (¿histórico sin podar?).`
+                );
+                return { ok: false, reason: 'too_large', retryable: false };
+            }
+        } catch {
+            // Si no es serializable, que falle el upsert y lo reporte por el camino normal.
         }
-    } catch {
-        // Si no es serializable, que falle el upsert y lo reporte por el camino normal.
     }
 
     // EGRESS & REQUEST SAVER:
     // Si el valor a enviar es idéntico al último enviado con éxito a la nube, abortar antes del POST HTTP.
     const hashKey = LAST_PUSH_HASH_PREFIX + key;
-    const currentHash = quickHash(payloadToUpload);
-    if (!forceUnconditional && localStorage.getItem(hashKey) === currentHash) {
+    const currentHash = quickHash(deltaSucceeded ? value : payloadToUpload);
+    if (!deltaSucceeded && !forceUnconditional && localStorage.getItem(hashKey) === currentHash) {
         const uploadedCierreIds = key === 'bodega_sales_v1'
             ? notifySalesPushConfirmed(activeDeviceId, payloadToUpload, { deferSignalFlush, collectCierreIds })
             : undefined;
@@ -414,53 +577,67 @@ const pushCloudSyncNow = async (
     }
 
     try {
-        const collectionType = LOCAL_KEYS.includes(key) ? 'local' : 'store';
+        if (!deltaSucceeded) {
+            const collectionType = LOCAL_KEYS.includes(key) ? 'local' : 'store';
 
-        // La tabla sync_documents permanece cerrada para anon. El RPC valida
-        // pairing, whitelist y tamaño, y el trigger del servidor escribe
-        // `updated_at` sin mezclar relojes del cliente y del lector.
-        if (signal?.aborted) return { ok: false, reason: 'aborted', retryable: false };
-        if (!isCurrentPosIdentity(activeDeviceId, generation) || !isCloudSyncActive) {
-            return { ok: false, reason: 'not_active', retryable: false };
-        }
-        let rpcCall = supabaseCloud.rpc('write_paired_sync_document', {
-            p_device_id: activeDeviceId,
-            p_collection: collectionType,
-            p_doc_id: key,
-            p_data: { payload: payloadToUpload },
-        });
-        if (signal && typeof rpcCall?.abortSignal === 'function') {
-            rpcCall = rpcCall.abortSignal(signal);
-        }
-        const { error } = await rpcCall;
-        if (signal?.aborted) return { ok: false, reason: 'aborted', retryable: false };
-        if (!isCurrentPosIdentity(activeDeviceId, generation)) {
-            return { ok: false, reason: 'not_active', retryable: false };
-        }
-
-        if (error) {
-            const failure = recordCloudRetryFailure(documentRetryOperation, error);
-            if (isGlobalCloudFailure(error)) {
-                // FASE 1: el candado global de la caja se acota a un tick (60 s) salvo
-                // errores fatales (401/403/404/esquema): un 400 de vínculo desactualizado
-                // ya no congela TODAS las subidas 5 minutos.
-                recordCloudRetryFailure(
-                    `sync:${activeDeviceId}`,
-                    error,
-                    shouldCapGlobalLock(error) ? { maxDelayMs: GLOBAL_LOCK_MAX_MS } : {},
-                );
+            // La tabla sync_documents permanece cerrada para anon. El RPC valida
+            // pairing, whitelist y tamaño, y el trigger del servidor escribe
+            // `updated_at` sin mezclar relojes del cliente y del lector.
+            if (signal?.aborted) return { ok: false, reason: 'aborted', retryable: false };
+            if (!isCurrentPosIdentity(activeDeviceId, generation) || !isCloudSyncActive) {
+                return { ok: false, reason: 'not_active', retryable: false };
             }
-            console.warn(`[CloudSync] Error ${error.code || error.status} al subir ${key}; reintento en ${Math.ceil(failure.delayMs / 1000)}s:`, error.message);
-            return {
-                ok: false,
-                reason: 'rpc_error',
-                retryable: !isPermanentCloudError(error),
-            }; // Sin hash: el documento queda pendiente para el reintento autorizado
+            let rpcCall = supabaseCloud.rpc('write_paired_sync_document', {
+                p_device_id: activeDeviceId,
+                p_collection: collectionType,
+                p_doc_id: key,
+                p_data: { payload: payloadToUpload },
+            });
+            if (signal && typeof rpcCall?.abortSignal === 'function') {
+                rpcCall = rpcCall.abortSignal(signal);
+            }
+            const { error } = await rpcCall;
+            if (signal?.aborted) return { ok: false, reason: 'aborted', retryable: false };
+            if (!isCurrentPosIdentity(activeDeviceId, generation)) {
+                return { ok: false, reason: 'not_active', retryable: false };
+            }
+
+            if (error) {
+                const failure = recordCloudRetryFailure(documentRetryOperation, error);
+                if (isGlobalCloudFailure(error)) {
+                    // FASE 1: el candado global de la caja se acota a un tick (60 s) salvo
+                    // errores fatales (401/403/404/esquema): un 400 de vínculo desactualizado
+                    // ya no congela TODAS las subidas 5 minutos.
+                    recordCloudRetryFailure(
+                        `sync:${activeDeviceId}`,
+                        error,
+                        shouldCapGlobalLock(error) ? { maxDelayMs: GLOBAL_LOCK_MAX_MS } : {},
+                    );
+                }
+                console.warn(`[CloudSync] Error ${error.code || error.status} al subir ${key}; reintento en ${Math.ceil(failure.delayMs / 1000)}s:`, error.message);
+                return {
+                    ok: false,
+                    reason: 'rpc_error',
+                    retryable: !isPermanentCloudError(error),
+                }; // Sin hash: el documento queda pendiente para el reintento autorizado
+            }
         }
 
         clearCloudRetryFailure(documentRetryOperation);
         if (!getCloudRetryState(`sync:${activeDeviceId}`).coolingDown) {
             clearCloudRetryFailure(`sync:${activeDeviceId}`);
+        }
+
+        // Actualizar mapa de huellas delta solo tras confirmación real del servidor
+        if (key === 'bodega_sales_v1' && Array.isArray(sourceSalesPayload)) {
+            if (deltaSucceeded && Array.isArray(deltaUploadedRecords)) {
+                const updatedMap = mergeSyncedFingerprints(loadedSalesFingerprints, deltaUploadedRecords);
+                await persistSalesFingerprints(activeDeviceId, updatedMap);
+            } else if (allowSalesPurgeEarly) {
+                await persistSalesFingerprints(activeDeviceId, null);
+            } else {
+                await persistSalesFingerprints(activeDeviceId, buildSyncedFingerprintsMap(sourceSalesPayload));
+            }
         }
 
         // D1: `pushCloudSync` es el ÚNICO punto que escribe el hash de egress.
@@ -470,9 +647,22 @@ const pushCloudSyncNow = async (
         if (PAYLOAD_TRANSFORM_VERSIONS[key] && Array.isArray(value)) {
             localStorage.setItem(LAST_SOURCE_PUSH_HASH_PREFIX + key, sourcePushHash(key, value));
         }
-        const uploadedCierreIds = key === 'bodega_sales_v1'
-            ? notifySalesPushConfirmed(activeDeviceId, payloadToUpload, { deferSignalFlush, collectCierreIds })
-            : undefined;
+
+        let uploadedCierreIds;
+        if (key === 'bodega_sales_v1') {
+            if (deltaSucceeded) {
+                // Confirmar señales usando estrictamente los cierreId confirmados por el servidor
+                if (hasAnyPendingCloseSignalRaw() && deltaConfirmedCierreIds.length > 0) {
+                    markCloseSignalsUploaded(activeDeviceId, deltaConfirmedCierreIds);
+                    if (!deferSignalFlush) {
+                        flushPendingCloseSignals(activeDeviceId).catch(() => {});
+                    }
+                }
+                uploadedCierreIds = collectCierreIds ? deltaConfirmedCierreIds : undefined;
+            } else {
+                uploadedCierreIds = notifySalesPushConfirmed(activeDeviceId, payloadToUpload, { deferSignalFlush, collectCierreIds });
+            }
+        }
         return {
             ok: true,
             reason: 'ok',
@@ -549,10 +739,13 @@ export const pushCloudSync = async (key, value, forceUnconditional = false) => {
 export const pushCriticalCloudSync = async (
     key,
     value,
-    { maxRetries = 2, retryDelaysMs = [2000, 5000], timeoutMs = 90000, expectedCierreId = null } = {},
+    { maxRetries = null, retryDelaysMs = [2000, 5000, 10000], timeoutMs = 120000, expectedCierreId = null } = {},
 ) => {
     cancelPendingPush(key);
     abortOrdinaryPushes(key);
+
+    const effectiveMaxRetries = maxRetries ?? (Array.isArray(retryDelaysMs) ? retryDelaysMs.length : 0);
+    const sharedCloudRef = { deviceId: null, payload: null };
 
     const activeDeviceId = _currentDeviceId || localStorage.getItem('dj_device_id');
     const globalRetryOp = activeDeviceId ? `sync:${activeDeviceId}` : null;
@@ -593,7 +786,7 @@ export const pushCriticalCloudSync = async (
 
     let finalResult = { ok: false, reason: 'transport' };
     try {
-        const totalAttempts = 1 + Math.max(0, maxRetries);
+        const totalAttempts = 1 + Math.max(0, effectiveMaxRetries);
         for (let attempt = 0; attempt < totalAttempts; attempt++) {
             if (attempt > 0) {
                 clearTransientCooldowns();
@@ -609,6 +802,8 @@ export const pushCriticalCloudSync = async (
                 signal: controller.signal,
                 deferSignalFlush: true,
                 collectCierreIds: expectedCierreId != null,
+                expectedCierreId,
+                sharedCloudRef,
             });
 
             if (result.ok) {
