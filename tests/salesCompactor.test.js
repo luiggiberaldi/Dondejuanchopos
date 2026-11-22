@@ -49,7 +49,10 @@ describe('salesCompactor', () => {
         try {
             const source = [
                 sale('old'),
+                sale('recent-20d', { timestamp: '2026-09-11T12:00:00.000Z' }),
                 sale('recent', { timestamp: '2026-09-30T12:00:00.000Z' }),
+                sale('old-fiada', { tipo: 'VENTA_FIADA', timestamp: oldTimestamp }),
+                sale('old-cashea', { tipo: 'VENTA_CASHEA', timestamp: oldTimestamp }),
                 sale('open', { cajaCerrada: false, cierreId: null }),
                 sale('no-close', { cierreId: null }),
                 sale('unrecognized', { tipo: 'MOVIMIENTO_CLIENTE' }),
@@ -62,7 +65,14 @@ describe('salesCompactor', () => {
 
             expect(old).toMatchObject({ id: 'old', totalUsd: 8, totalBs: 3200, itemCount: 2, isArchived: true, archiveVersion: 1 });
             expect(old.items).toBeUndefined();
+            // Retención de 30 días: venta de 20 días atrás conserva detalle completo
+            expect(archived.find(entry => entry.id === 'recent-20d').items).toBeDefined();
             expect(archived.find(entry => entry.id === 'recent').items).toBeDefined();
+            // Guardrail: VENTA_FIADA y VENTA_CASHEA jamás se archivan (historial de deudas intacto)
+            expect(archived.find(entry => entry.id === 'old-fiada').items).toBeDefined();
+            expect(archived.find(entry => entry.id === 'old-fiada').isArchived).toBeUndefined();
+            expect(archived.find(entry => entry.id === 'old-cashea').items).toBeDefined();
+            expect(archived.find(entry => entry.id === 'old-cashea').isArchived).toBeUndefined();
             expect(archived.find(entry => entry.id === 'open').items).toBeDefined();
             expect(archived.find(entry => entry.id === 'no-close').items).toBeDefined();
             expect(archived.find(entry => entry.id === 'unrecognized').items).toBeDefined();

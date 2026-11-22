@@ -17,7 +17,7 @@ function formatDate(value) {
 function badgeFor(type, quantity) {
     if (type === 'VENTA') return 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20';
     if (type === 'DEVOLUCION') return 'bg-blue-500/10 text-blue-600 border-blue-500/20';
-    if (type === 'COMPRA' || type === 'INICIAL') return 'bg-cyan-500/10 text-cyan-600 border-cyan-500/20';
+    if (type === 'COMPRA' || type === 'INICIAL' || type === 'APERTURA_PERIODO') return 'bg-cyan-500/10 text-cyan-600 border-cyan-500/20';
     if (type === 'MERMA' || type === 'AUTOCONSUMO') return 'bg-rose-500/10 text-rose-600 border-rose-500/20';
     return Number(quantity) > 0 ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' : 'bg-amber-500/10 text-amber-600 border-amber-500/20';
 }

@@ -50,9 +50,9 @@ describe('D1 — pushCloudSync es el unico dueno del hash de egress', () => {
         expect(SRC).not.toContain('forceSyncAllPOSData(deviceId, true)');
     });
 
-    test('la transformación de ventas no se ejecuta mientras el archivado outbound esté desactivado', () => {
+    test('la transformación de ventas respeta su flag y Kardex aplica compactación cloud 30d validada', () => {
         expect(SRC).toMatch(/const SALES_ARCHIVE_ENABLED = false/);
-        expect(SRC).toMatch(/const KARDEX_EGRESS_COMPACTION_ENABLED = false/);
+        expect(SRC).toMatch(/const KARDEX_EGRESS_COMPACTION_ENABLED = true/);
         expect(SRC).toContain('allowArchiving: SALES_ARCHIVE_ENABLED');
         expect(SRC).toContain('prepareSalesPushPayload');
         expect(SRC).toContain('se pospone el push para no sobrescribir historial no verificado');

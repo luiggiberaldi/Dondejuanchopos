@@ -50,6 +50,21 @@ export function reconcileRemoteInventory({
     const movementIds = new Set();
     const operationProductKeys = new Set();
 
+    // Detectar corte de compactación cloud (`APERTURA_PERIODO` / `EGRESS_SNAPSHOT`)
+    // para no reportar falsos positivos en ventas/operaciones anteriores al corte.
+    let kardexCompactionCutoffMs = null;
+    for (const movement of safeKardex) {
+        if (movement?.tipo === 'APERTURA_PERIODO' && movement?.subtipo === 'EGRESS_SNAPSHOT') {
+            const cutoffRaw = movement?.metadata?.cutoff || movement?.created_at || movement?.timestamp;
+            const parsedCutoff = cutoffRaw ? new Date(cutoffRaw).getTime() : NaN;
+            if (Number.isFinite(parsedCutoff)) {
+                kardexCompactionCutoffMs = kardexCompactionCutoffMs === null
+                    ? parsedCutoff
+                    : Math.max(kardexCompactionCutoffMs, parsedCutoff);
+            }
+        }
+    }
+
     for (const movement of safeKardex) {
         const productId = movement?.producto_id == null ? '' : String(movement.producto_id);
         const movementId = movement?.id == null ? '' : String(movement.id);
@@ -142,7 +157,8 @@ export function reconcileRemoteInventory({
             ));
         }
 
-        if (!chronological.some(movement => movement?.tipo === 'INICIAL')) {
+        if (!chronological.some(movement => movement?.tipo === 'INICIAL'
+            || (movement?.tipo === 'APERTURA_PERIODO' && movement?.subtipo === 'EGRESS_SNAPSHOT'))) {
             warnings.push(issue(
                 'HISTORY_WITHOUT_INITIAL',
                 'No existe movimiento INICIAL para reconstruir todo el historial de este producto.',
@@ -162,6 +178,10 @@ export function reconcileRemoteInventory({
         }
 
         if (status === 'APPLIED_LOCAL') {
+            const opTs = new Date(operation?.createdAt || operation?.updatedAt || operation?.timestamp || 0).getTime();
+            if (kardexCompactionCutoffMs !== null && Number.isFinite(opTs) && opTs > 0 && opTs < kardexCompactionCutoffMs) {
+                continue;
+            }
             const movementIdsForOperation = Array.isArray(operation.movementIds) ? operation.movementIds : [];
             const absent = movementIdsForOperation.filter(id => !movementIds.has(String(id)));
             if (absent.length > 0) {
@@ -176,6 +196,10 @@ export function reconcileRemoteInventory({
 
     for (const sale of safeSales) {
         if (!SALE_TYPES.has(sale?.tipo) || !hasPhysicalItems(sale)) continue;
+        const saleTs = new Date(sale?.timestamp || sale?.createdAt || 0).getTime();
+        if (kardexCompactionCutoffMs !== null && Number.isFinite(saleTs) && saleTs > 0 && saleTs < kardexCompactionCutoffMs) {
+            continue;
+        }
         const saleMovements = movementsByReference.get(String(sale.id)) || [];
         if (saleMovements.length === 0 && sale.status !== 'ANULADA') {
             warnings.push(issue(

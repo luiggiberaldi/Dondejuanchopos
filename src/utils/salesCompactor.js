@@ -5,10 +5,12 @@
 
 export const SALES_COMPACTION_ENABLED = true;
 export const SALES_COMPACTION_THRESHOLD_BYTES = 400 * 1024;
-export const SALES_RECENT_DAYS_RETENTION = 15;
+export const SALES_RECENT_DAYS_RETENTION = 30;
 export const SALES_ARCHIVE_VERSION = 1;
 
-const ARCHIVABLE_SALE_TYPES = new Set(['VENTA', 'VENTA_FIADA', 'VENTA_CASHEA']);
+// Guardrail: jamás archivar VENTA_FIADA ni VENTA_CASHEA (el módulo de Deudas necesita
+// conservar siempre el detalle íntegro de productos de cada cuenta por cobrar).
+const ARCHIVABLE_SALE_TYPES = new Set(['VENTA']);
 const INTERNAL_SALE_FIELDS = [
     'inventoryDeductionsApplied',
     'changeLedger',

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { calculateStockAtDate, compactKardexPayload } from '../src/utils/kardexScope';
+import { reconcileRemoteInventory } from '../src/utils/remoteInventoryReconciliation';
 
 const NOW = '2026-10-01T12:00:00.000Z';
 const movement = (id, date, product, stock) => ({
@@ -51,5 +52,36 @@ describe('compactKardexPayload', () => {
         expect(compactKardexPayload(null)).toBeNull();
         const source = [{ id: 'unknown', producto_id: 'p1', created_at: '2026-01-01T00:00:00.000Z' }];
         expect(compactKardexPayload(source, 30, NOW)).toEqual(source);
+    });
+
+    it('guardrail: reconcileRemoteInventory respeta APERTURA_PERIODO sin falsos positivos pre-corte pero audita estricto post-corte', () => {
+        const rawKardex = [
+            { ...movement('old-p1', '2026-08-10T10:00:00.000Z', 'p1', 10), referencia_id: 'sale-old', operation_id: 'op-old' },
+            { ...movement('new-p1', '2026-09-29T10:00:00.000Z', 'p1', 9), referencia_id: 'sale-new', operation_id: 'op-new' },
+        ];
+        const compacted = compactKardexPayload(rawKardex, 30, NOW);
+        const products = [{ id: 'p1', name: 'Polar', stock: 9 }];
+        const sales = [
+            { id: 'sale-old', tipo: 'VENTA', timestamp: '2026-08-10T10:00:00.000Z', items: [{ id: 'p1', name: 'Polar', qty: 1 }] },
+            { id: 'sale-new', tipo: 'VENTA', timestamp: '2026-09-29T10:00:00.000Z', items: [{ id: 'p1', name: 'Polar', qty: 1 }] },
+        ];
+        const operations = [
+            { operationId: 'op-old', status: 'APPLIED_LOCAL', createdAt: '2026-08-10T10:00:00.000Z', movementIds: ['old-p1'] },
+            { operationId: 'op-new', status: 'APPLIED_LOCAL', createdAt: '2026-09-29T10:00:00.000Z', movementIds: ['new-p1'] },
+        ];
+
+        const okAudit = reconcileRemoteInventory({ products, sales, kardex: compacted, operations });
+        expect(okAudit.status).toBe('OK');
+        expect(okAudit.discrepancies).toHaveLength(0);
+        expect(okAudit.warnings).toHaveLength(0);
+
+        // Post-corte: una venta reciente SIN movimiento Kardex SÍ debe levantar advertencia
+        const badAudit = reconcileRemoteInventory({
+            products,
+            sales: [...sales, { id: 'sale-missing', tipo: 'VENTA', timestamp: '2026-09-30T10:00:00.000Z', items: [{ id: 'p1', name: 'Polar', qty: 1 }] }],
+            kardex: compacted,
+            operations,
+        });
+        expect(badAudit.warnings.some((w) => w.code === 'SALE_WITHOUT_PHYSICAL_MOVEMENT' && w.saleId === 'sale-missing')).toBe(true);
     });
 });

@@ -65,14 +65,16 @@ function quickHash(value) {
 
 const LAST_PUSH_HASH_PREFIX = 'bodega_last_periodic_push_hash_';
 const LAST_SOURCE_PUSH_HASH_PREFIX = 'bodega_last_source_push_hash_';
-// No publicar ventas archivadas ni resúmenes de Kardex hasta validar en entorno
-// aislado sus efectos sobre informes, pulls del monitor y restauración.
+// Ventas: el transporte delta (`upsert_paired_sales_delta`) elimina el peso por operación;
+// el archivado histórico de ventas sigue apagado hasta validar 48h en producción.
+// Kardex: compactación cloud 30d habilitada (2.88 MB -> 0.93 MB) con soporte
+// `APERTURA_PERIODO` validado en `reconcileRemoteInventory` (sin tocar IndexedDB local).
 const SALES_ARCHIVE_ENABLED = false;
-const KARDEX_EGRESS_COMPACTION_ENABLED = false;
+const KARDEX_EGRESS_COMPACTION_ENABLED = true;
 
 const PAYLOAD_TRANSFORM_VERSIONS = {
     bodega_sales_v1: 'sales-archive-disabled-v1',
-    bodega_kardex_v1: 'kardex-snapshot-disabled-v1',
+    bodega_kardex_v1: 'kardex-snapshot-30d-v1',
 };
 
 function sourcePushHash(key, value) {
