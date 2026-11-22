@@ -211,6 +211,50 @@ describe('fetchCloudSalesReference (lectura del Doc 60 por RPC)', () => {
         await fetchCloudSalesReference('PDA-TEST', client);
         expect(client.rpc).toHaveBeenCalledTimes(1);
     });
+
+    test('[v4] petición con signal corre aislada (no comparte _inFlightRefs ni cancela otros llamadores)', async () => {
+        const payload = [mkVenta('v1', 1)];
+        let resolveFirst;
+        let callCount = 0;
+        const client = {
+            from: () => ({
+                select: () => ({
+                    eq: () => ({
+                        maybeSingle: async () => ({ data: { monitor_device_id: 'mon_1' }, error: null }),
+                    }),
+                }),
+            }),
+            rpc: vi.fn(() => {
+                callCount += 1;
+                if (callCount === 1) {
+                    const p = new Promise(resolve => { resolveFirst = resolve; });
+                    p.abortSignal = vi.fn(() => p);
+                    return p;
+                }
+                let resolveSecond;
+                const p = new Promise((resolve) => { resolveSecond = resolve; });
+                p.abortSignal = vi.fn((s) => {
+                    if (s?.aborted) resolveSecond({ data: null, error: { message: 'aborted' } });
+                    else s?.addEventListener('abort', () => resolveSecond({ data: null, error: { message: 'aborted' } }), { once: true });
+                    return p;
+                });
+                return p;
+            }),
+        };
+
+        const sharedCaller = fetchCloudSalesReference('PDA-TEST-ISOLATED', client);
+        const ac = new AbortController();
+        const isolatedCaller = fetchCloudSalesReference('PDA-TEST-ISOLATED', client, { signal: ac.signal });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(client.rpc).toHaveBeenCalledTimes(2);
+        ac.abort();
+        await expect(isolatedCaller).resolves.toBeNull();
+
+        resolveFirst({ data: [{ doc_id: 'bodega_sales_v1', data: { payload } }], error: null });
+        await expect(sharedCaller).resolves.toEqual(payload);
+    });
 });
 
 describe('Wiring en pushCloudSyncNow (invariantes de fuente, estilo H1)', () => {

@@ -34,6 +34,8 @@ const MONITOR_RETRY_BASE_MS = 30 * 1000;
 const MONITOR_RETRY_MAX_MS = 2 * 60 * 1000;
 // Relectura de la tasa diferida (solo los 3 documentos de tasa, unos bytes).
 const MONITOR_RATE_RETRY_INTERVAL_MS = 60 * 1000;
+// Enfriamiento mínimo entre pulls disparados por la señal liviana de cierre (Fase 2B).
+const CLOSE_SIGNAL_COOLDOWN_MS = 30 * 1000;
 
 const MONITOR_DOC_IDS = [
     'bodega_products_v1',
@@ -104,6 +106,24 @@ export function useMonitorSync(pairedDeviceId) {
     // Una tasa optimista pendiente difiere el documento remoto. Se reintenta
     // aparte: no debe bloquear el cursor de los documentos pesados.
     const rateRetryRef = useRef(false);
+    // Fase 2B: suscripción liviana a `shift_close_events` + guardas anti-egress.
+    const closeSignalSubscriptionRef = useRef(null);
+    const seenCloseKeysRef = useRef(new Set());
+    const knownLocalCloseIdsRef = useRef(new Set());
+    const pendingCloseSignalRef = useRef(false);
+    const pendingCloseSignalRowRef = useRef(null);
+    const pendingLiveCloseToastRowRef = useRef(null);
+    const lastSignalPullAtRef = useRef(0);
+    const signalCooldownTimerRef = useRef(null);
+    const closeCatchupRequestedRef = useRef(0);
+    const closeCatchupCompletedRef = useRef(0);
+
+    const triggerLiveCloseCatchup = useCallback((row) => {
+        if (row) pendingLiveCloseToastRowRef.current = row;
+        lastSignalPullAtRef.current = Date.now();
+        closeCatchupRequestedRef.current += 1;
+        initMonitorRef.current?.(true);
+    }, []);
 
     const getVersionKey = useCallback((docId) => {
         const deviceId = pairedDeviceId || localStorage.getItem('dj_paired_device_id') || 'unknown-device';
@@ -124,6 +144,11 @@ export function useMonitorSync(pairedDeviceId) {
     useEffect(() => {
         appliedVersionsRef.current = new Map();
         pullCursorRef.current = null;
+        seenCloseKeysRef.current = new Set();
+        knownLocalCloseIdsRef.current = new Set();
+        pendingCloseSignalRef.current = false;
+        pendingCloseSignalRowRef.current = null;
+        pendingLiveCloseToastRowRef.current = null;
         try {
             const raw = localStorage.getItem('dj_monitor_sync_versions_v1');
             const versions = raw ? JSON.parse(raw) : {};
@@ -281,6 +306,16 @@ export function useMonitorSync(pairedDeviceId) {
                         },
                     });
                     assertCurrent();
+                    if (docId === 'bodega_sales_v1' && Array.isArray(payloadToApply)) {
+                        const nextKnown = new Set();
+                        for (let i = 0; i < payloadToApply.length; i++) {
+                            const s = payloadToApply[i];
+                            if (s && s.tipo === 'REGISTRO_CIERRE' && s.cierreId != null) {
+                                nextKnown.add(String(s.cierreId));
+                            }
+                        }
+                        knownLocalCloseIdsRef.current = nextKnown;
+                    }
                     window.dispatchEvent(new CustomEvent('app_storage_update', {
                         detail: {
                             key: docId,
@@ -382,16 +417,20 @@ export function useMonitorSync(pairedDeviceId) {
         lastPullStartedAtRef.current = Date.now();
         const fullPullRequest = fullPullRequestedRef.current;
         const needsFullPull = fullPullRequest > fullPullCompletedRef.current;
+        const closeCatchupRequest = closeCatchupRequestedRef.current;
+        const needsCloseCatchup = closeCatchupRequest > closeCatchupCompletedRef.current;
         const recoveryRequest = recoveryRequestedRef.current;
-        // Un pull completo ya relee todo; la recuperación ligera solo aplica sin él.
-        const isRecoveryPull = !needsFullPull && recoveryRequest > recoveryCompletedRef.current;
+        // Un pull completo o un cierre en vivo incluyen ventas; la recuperación ligera
+        // solo aplica si no hay ninguno de los dos pendiente.
+        const isRecoveryPull = !needsFullPull && !needsCloseCatchup && recoveryRequest > recoveryCompletedRef.current;
         // Solo el temporizador pide esta relectura, y solo cuando no toca el
-        // catch-up normal: nunca debe desplazar la lectura de ventas.
-        const isRateRetryPull = rateRetry && !needsFullPull && !isRecoveryPull && rateRetryRef.current;
+        // catch-up normal ni un cierre en vivo: nunca debe desplazar la lectura de ventas.
+        const isRateRetryPull = rateRetry && !needsFullPull && !needsCloseCatchup && !isRecoveryPull && rateRetryRef.current;
         // Lecturas parciales sin cursor: nunca avanzan el cursor ni cuentan como catch-up.
         const isPartialPull = isRecoveryPull || isRateRetryPull;
 
         if (!isSilent) setLoading(true);
+        let batchFailed = false;
 
         try {
             // Verificar presencia de la caja principal
@@ -408,7 +447,6 @@ export function useMonitorSync(pairedDeviceId) {
                 : isRateRetryPull
                     ? REMOTE_MONITOR_DOC_IDS.filter(docId => RATE_CONFIG_DOC_IDS.includes(docId))
                     : REMOTE_MONITOR_DOC_IDS;
-            let batchFailed = false;
             let rateDeferred = false;
 
             // El monitor no puede consultar sync_documents directamente: el rol
@@ -511,6 +549,23 @@ export function useMonitorSync(pairedDeviceId) {
                 // El pull completo también cubre cualquier recuperación pedida antes.
                 recoveryCompletedRef.current = Math.max(recoveryCompletedRef.current, recoveryRequest);
             }
+            // Fase 2B: `closeCatchupCompletedRef` avanza solo cuando el pull incluyó
+            // `bodega_sales_v1` (`!isPartialPull`) y no falló el lote. `rateDeferred`
+            // solo aplica a RATE_CONFIG_DOC_IDS y NO bloquea este avance.
+            if (!batchFailed && !isPartialPull && closeCatchupRequest > closeCatchupCompletedRef.current) {
+                closeCatchupCompletedRef.current = Math.max(closeCatchupCompletedRef.current, closeCatchupRequest);
+                if (pendingLiveCloseToastRowRef.current) {
+                    const liveRow = pendingLiveCloseToastRowRef.current;
+                    pendingLiveCloseToastRowRef.current = null;
+                    window.dispatchEvent(new CustomEvent('supervisor_shift_closed_live', {
+                        detail: {
+                            cierreId: liveRow.cierre_id,
+                            cierreNumber: liveRow.cierre_number ?? null,
+                            emittedAt: liveRow.emitted_at || liveRow.created_at || null,
+                        },
+                    }));
+                }
+            }
             if (isRecoveryPull && !batchFailed) {
                 recoveryCompletedRef.current = Math.max(recoveryCompletedRef.current, recoveryRequest);
             }
@@ -574,7 +629,76 @@ export function useMonitorSync(pairedDeviceId) {
                         }
                     });
             }
+
+            // 2b. Suscripción liviana a `shift_close_events` (Fase 2B, ~500 bytes, sin datos financieros)
+            if (!closeSignalSubscriptionRef.current) {
+                const signalChannelName = `close-signal:${activeDeviceId}:${Date.now()}`;
+                closeSignalSubscriptionRef.current = supabaseCloud
+                    .channel(signalChannelName)
+                    .on('postgres_changes', {
+                        event: '*',
+                        schema: 'public',
+                        table: 'shift_close_events',
+                        filter: `primary_device_id=eq.${activeDeviceId}`
+                    }, (payload) => {
+                        if (!isCurrent() || payload?.eventType === 'DELETE') return;
+                        const row = payload?.new;
+                        if (!row || row.cierre_id == null) return;
+
+                        const dedupeKey = `${row.cierre_id}:${row.emitted_at || row.created_at || ''}`;
+                        if (seenCloseKeysRef.current.has(dedupeKey)) return;
+                        seenCloseKeysRef.current.add(dedupeKey);
+
+                        // Guarda anti-egress #1 (INSERT y UPDATE): si este cierre ya existe
+                        // en el `bodega_sales_v1` local, omitir el pull.
+                        if (knownLocalCloseIdsRef.current.has(String(row.cierre_id))) return;
+
+                        const nowDate = new Date();
+                        setPosLastSeen(nowDate);
+                        setIsPosOnline(true);
+                        setPresenceError(null);
+
+                        if (hiddenRef.current) {
+                            pendingCloseSignalRowRef.current = row;
+                            pendingCloseSignalRef.current = true;
+                            return;
+                        }
+
+                        // Guarda anti-egress #2: enfriamiento mínimo de 30 s entre pulls por señal.
+                        const elapsed = Date.now() - lastSignalPullAtRef.current;
+                        if (elapsed < CLOSE_SIGNAL_COOLDOWN_MS) {
+                            pendingCloseSignalRowRef.current = row;
+                            if (!signalCooldownTimerRef.current) {
+                                signalCooldownTimerRef.current = setTimeout(() => {
+                                    signalCooldownTimerRef.current = null;
+                                    if (!isCurrent()) return;
+                                    if (hiddenRef.current) {
+                                        pendingCloseSignalRef.current = true;
+                                        return;
+                                    }
+                                    const deferredRow = pendingCloseSignalRowRef.current;
+                                    pendingCloseSignalRowRef.current = null;
+                                    if (deferredRow) triggerLiveCloseCatchup(deferredRow);
+                                }, CLOSE_SIGNAL_COOLDOWN_MS - elapsed);
+                            }
+                            return;
+                        }
+
+                        pendingCloseSignalRowRef.current = null;
+                        triggerLiveCloseCatchup(row);
+                    })
+                    .subscribe((status) => {
+                        if (!isCurrent()) return;
+                        if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                            if (closeSignalSubscriptionRef.current) {
+                                supabaseCloud.removeChannel(closeSignalSubscriptionRef.current).catch(() => {});
+                                closeSignalSubscriptionRef.current = null;
+                            }
+                        }
+                    });
+            }
         } catch (err) {
+            batchFailed = true;
             console.warn('[useMonitorSync] Error en sincronización o reconexión:', err);
             if (isCurrent()) {
                 consecutiveFailuresRef.current++;
@@ -584,17 +708,23 @@ export function useMonitorSync(pairedDeviceId) {
             if (isCurrent()) {
                 isSyncingRef.current = false;
                 setLoading(false);
-                // Solo una solicitud NUEVA dispara otra lectura inmediata; un
-                // error conserva la recuperación para el siguiente tick sin bucle.
-                if (fullPullRequestedRef.current > fullPullRequest
-                    || recoveryRequestedRef.current > recoveryRequest) {
+                // Re-disparar ante solicitud más nueva o trabajo pendiente de mayor prioridad
+                // que no haya podido ejecutarse durante un pull parcial previo.
+                const hasNewerRequest = fullPullRequestedRef.current > fullPullRequest
+                    || closeCatchupRequestedRef.current > closeCatchupRequest
+                    || recoveryRequestedRef.current > recoveryRequest;
+                const hasPendingWork = !batchFailed && (
+                    closeCatchupRequestedRef.current > closeCatchupCompletedRef.current
+                    || recoveryRequestedRef.current > recoveryCompletedRef.current
+                );
+                if (hasNewerRequest || hasPendingWork) {
                     queueMicrotask(() => {
                         if (isCurrent()) initMonitorRef.current?.(true);
                     });
                 }
             }
         }
-    }, [pairedDeviceId, checkPosPresence]);
+    }, [pairedDeviceId, checkPosPresence, triggerLiveCloseCatchup]);
 
     useEffect(() => {
         initMonitorRef.current = initMonitor;
@@ -605,6 +735,17 @@ export function useMonitorSync(pairedDeviceId) {
             await supabaseCloud.removeChannel(monitorSubscriptionRef.current).catch(() => {});
             monitorSubscriptionRef.current = null;
         }
+        if (closeSignalSubscriptionRef.current) {
+            await supabaseCloud.removeChannel(closeSignalSubscriptionRef.current).catch(() => {});
+            closeSignalSubscriptionRef.current = null;
+        }
+        if (signalCooldownTimerRef.current) {
+            clearTimeout(signalCooldownTimerRef.current);
+            signalCooldownTimerRef.current = null;
+        }
+        pendingCloseSignalRef.current = false;
+        pendingCloseSignalRowRef.current = null;
+        pendingLiveCloseToastRowRef.current = null;
         localStorage.removeItem('dj_monitor_last_full_pull_ts');
         pullCursorRef.current = null;
         lastSyncRef.current = null;
@@ -667,9 +808,23 @@ export function useMonitorSync(pairedDeviceId) {
             const wasHidden = hiddenRef.current;
             hiddenRef.current = document.visibilityState === 'hidden';
             if (wasHidden && !hiddenRef.current && navigator.onLine) {
-                initMonitor(true);
+                if (pendingCloseSignalRef.current) {
+                    const row = pendingCloseSignalRowRef.current;
+                    pendingCloseSignalRef.current = false;
+                    pendingCloseSignalRowRef.current = null;
+                    triggerLiveCloseCatchup(row);
+                } else {
+                    initMonitor(true);
+                }
                 sendHeartbeat();
             } else if (document.visibilityState === 'visible' && navigator.onLine) {
+                if (pendingCloseSignalRef.current) {
+                    const row = pendingCloseSignalRowRef.current;
+                    pendingCloseSignalRef.current = false;
+                    pendingCloseSignalRowRef.current = null;
+                    triggerLiveCloseCatchup(row);
+                    return;
+                }
                 const now = Date.now();
                 const lastSyncMs = lastSyncRef.current ? lastSyncRef.current.getTime() : 0;
                 const isFresh = monitorSubscriptionRef.current && (now - lastSyncMs < 60000);
@@ -758,12 +913,23 @@ export function useMonitorSync(pairedDeviceId) {
                 clearTimeout(oversizePullTimerRef.current);
                 oversizePullTimerRef.current = null;
             }
+            if (signalCooldownTimerRef.current) {
+                clearTimeout(signalCooldownTimerRef.current);
+                signalCooldownTimerRef.current = null;
+            }
+            pendingCloseSignalRef.current = false;
+            pendingCloseSignalRowRef.current = null;
+            pendingLiveCloseToastRowRef.current = null;
             if (monitorSubscriptionRef.current) {
                 supabaseCloud.removeChannel(monitorSubscriptionRef.current).catch(() => {});
                 monitorSubscriptionRef.current = null;
             }
+            if (closeSignalSubscriptionRef.current) {
+                supabaseCloud.removeChannel(closeSignalSubscriptionRef.current).catch(() => {});
+                closeSignalSubscriptionRef.current = null;
+            }
         };
-    }, [pairedDeviceId, initMonitor, sendHeartbeat, checkPosPresence]);
+    }, [pairedDeviceId, initMonitor, sendHeartbeat, checkPosPresence, triggerLiveCloseCatchup]);
 
     return { isConnected, lastSync, loading, triggerRefresh, posLastSeen, isPosOnline, presenceError };
 }

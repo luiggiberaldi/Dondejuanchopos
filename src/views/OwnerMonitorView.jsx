@@ -270,12 +270,19 @@ export default function OwnerMonitorView({ theme, toggleTheme, triggerHaptic }) 
         const handleSync = () => {
             loadSyncedUsers();
         };
+        const handleLiveShiftClosed = (event) => {
+            const cierreNumber = event?.detail?.cierreNumber;
+            const label = cierreNumber ? `#${cierreNumber} ` : '';
+            showToast(`🔒 Cierre ${label}recibido de la caja`, 'success');
+        };
 
         window.addEventListener('app_storage_update', handleSync);
         window.addEventListener('storage', handleSync);
+        window.addEventListener('supervisor_shift_closed_live', handleLiveShiftClosed);
         return () => {
             window.removeEventListener('app_storage_update', handleSync);
             window.removeEventListener('storage', handleSync);
+            window.removeEventListener('supervisor_shift_closed_live', handleLiveShiftClosed);
         };
     }, []);
 

@@ -16,9 +16,17 @@ import {
     getCloudRetryState,
     GLOBAL_LOCK_MAX_MS,
     isGlobalCloudFailure,
+    isPermanentCloudError,
+    readCloudRetrySnapshot,
     recordCloudRetryFailure,
+    restoreCloudRetryState,
     shouldCapGlobalLock,
 } from '../utils/cloudRetry';
+import {
+    flushPendingCloseSignals,
+    hasAnyPendingCloseSignalRaw,
+    markCloseSignalsUploaded,
+} from '../services/shiftCloseSignalService';
 
 // EGRESS: claves que se respaldan pero NO se sincronizan a la nube.
 // Cada upsert a sync_documents se retransmite por Realtime a CADA monitor
@@ -87,10 +95,76 @@ registerCloudSyncSetter((v) => { isSyncingFromCloud = v; });
 
 let pendingPush = {};           // Debounce: { [key]: timeoutId }
 const serializedCloudPush = createAsyncKeyQueue();
+const activeOrdinaryPushControllers = new Map(); // key -> Set<AbortController> de subidas ordinarias en cola/vuelo
 let _currentDeviceId = '';      // Device ID activo para pushCloudSync
 let isCloudSyncActive = false;   // Evita empujar a la nube si el dispositivo no está autenticado/emparejado
 let gateRetryTimer = null;
 let cloudSyncGeneration = 0;
+let criticalPushCount = 0;      // Contador de subidas críticas en vuelo (ej. cierre de caja)
+
+function abortOrdinaryPushes(key) {
+    const controllers = activeOrdinaryPushControllers.get(key);
+    if (!controllers) return;
+    for (const controller of controllers) {
+        try { controller.abort(); } catch { /* ya abortado */ }
+    }
+    controllers.clear();
+    activeOrdinaryPushControllers.delete(key);
+}
+
+/** Cancela cualquier push debounced pendiente para `key` (evita doble envío al cerrar caja). */
+export function cancelPendingPush(key) {
+    if (pendingPush[key]) {
+        clearTimeout(pendingPush[key]);
+        delete pendingPush[key];
+    }
+}
+
+/** Indica si hay una subida crítica (cierre de caja) actualmente en tránsito. */
+export function hasCriticalCloudPushInFlight() {
+    return criticalPushCount > 0;
+}
+
+function extractUploadedCierreIds(salesArray) {
+    if (!Array.isArray(salesArray)) return [];
+    const ids = [];
+    for (let i = 0; i < salesArray.length; i++) {
+        const s = salesArray[i];
+        if (s && s.tipo === 'REGISTRO_CIERRE' && s.cierreId != null) {
+            ids.push(String(s.cierreId));
+        }
+    }
+    return ids;
+}
+
+function notifySalesPushConfirmed(activeDeviceId, salesArray, { deferSignalFlush = false, collectCierreIds = false } = {}) {
+    const hasPendingSignals = hasAnyPendingCloseSignalRaw();
+    if (!collectCierreIds && !hasPendingSignals) return undefined;
+    const uploadedCierreIds = extractUploadedCierreIds(salesArray);
+    if (hasPendingSignals && uploadedCierreIds.length > 0) {
+        markCloseSignalsUploaded(activeDeviceId, uploadedCierreIds);
+        if (!deferSignalFlush) {
+            flushPendingCloseSignals(activeDeviceId).catch(() => {});
+        }
+    }
+    return uploadedCierreIds;
+}
+
+function abortableSleep(ms, signal) {
+    if (ms <= 0) return Promise.resolve();
+    if (signal?.aborted) return Promise.resolve();
+    return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+            signal?.removeEventListener?.('abort', onAbort);
+            resolve();
+        }, ms);
+        const onAbort = () => {
+            clearTimeout(timer);
+            resolve();
+        };
+        signal?.addEventListener?.('abort', onAbort, { once: true });
+    });
+}
 
 // El rol procede del modo explícito, no del prefijo del identificador.
 // Una respuesta de una sesión anterior nunca puede reactivar otro POS.
@@ -165,37 +239,54 @@ async function getCloudSession() {
     }
 }
 
-const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
-    if (!supabaseCloud) return false;
-    if (isSyncingFromCloud) return false;          // Nunca re-emitir lo que llegó de la nube
+const pushCloudSyncNow = async (
+    key,
+    value,
+    forceUnconditional = false,
+    { signal = null, deferSignalFlush = false, collectCierreIds = false } = {},
+) => {
+    if (!supabaseCloud) return { ok: false, reason: 'not_active', retryable: false };
+    if (isSyncingFromCloud) return { ok: false, reason: 'syncing_from_cloud', retryable: false }; // Nunca re-emitir lo que llegó de la nube
     const isMonitor = localStorage.getItem('dj_pairing_mode') === 'monitor';
-    if (isMonitor) return false;                  // Omitir si este dispositivo es un Monitor visor
-    if (!isCloudSyncActive) return false;          // Omitir si el dispositivo no está autenticado o emparejado en la nube
+    if (isMonitor) return { ok: false, reason: 'monitor', retryable: false }; // Omitir si este dispositivo es un Monitor visor
+    if (!isCloudSyncActive) return { ok: false, reason: 'not_active', retryable: false }; // Omitir si el dispositivo no está autenticado o emparejado en la nube
 
-    if (!SYNC_KEYS.includes(key)) return false;
+    if (!SYNC_KEYS.includes(key)) return { ok: false, reason: 'not_active', retryable: false };
     const activeDeviceId = _currentDeviceId || localStorage.getItem('dj_device_id');
     const generation = cloudSyncGeneration;
-    if (!isCurrentPosIdentity(activeDeviceId, generation)) return false;
+    if (!isCurrentPosIdentity(activeDeviceId, generation)) return { ok: false, reason: 'not_active', retryable: false };
+    if (signal?.aborted) return { ok: false, reason: 'aborted', retryable: false };
 
     const globalRetry = getCloudRetryState(`sync:${activeDeviceId}`);
-    if (globalRetry.coolingDown) return false;
+    if (globalRetry.coolingDown) return { ok: false, reason: 'cooldown', retryable: false };
     const documentRetryOperation = `sync:${activeDeviceId}:${key}`;
-    if (getCloudRetryState(documentRetryOperation).coolingDown) return false;
+    if (getCloudRetryState(documentRetryOperation).coolingDown) return { ok: false, reason: 'cooldown', retryable: false };
 
     // El POS funciona sin una sesión Auth de Supabase. La autorización de
     // escritura la aplica el RPC por pairing y whitelist; si existe una sesión,
     // nunca permitimos que una identidad distinta escriba documentos de la caja.
     const session = await getCloudSession();
-    if (!isCurrentPosIdentity(activeDeviceId, generation)) return false;
+    if (signal?.aborted) return { ok: false, reason: 'aborted', retryable: false };
+    if (!isCurrentPosIdentity(activeDeviceId, generation)) return { ok: false, reason: 'not_active', retryable: false };
     if (session && session.user?.id !== activeDeviceId) {
         isCloudSyncActive = false;
-        return false;
+        return { ok: false, reason: 'not_active', retryable: false };
     }
 
     // SEC-002: jamás empujar `abasto-auth-storage` aunque accidentalmente lo pidan.
-    if (key === 'abasto-auth-storage') return false;
+    if (key === 'abasto-auth-storage') return { ok: false, reason: 'not_active', retryable: false };
 
-    if (PAYLOAD_TRANSFORM_VERSIONS[key] && !forceUnconditional && Array.isArray(value) && hasSuccessfulSourcePush(key, value)) return true;
+    if (PAYLOAD_TRANSFORM_VERSIONS[key] && !forceUnconditional && Array.isArray(value) && hasSuccessfulSourcePush(key, value)) {
+        const uploadedCierreIds = key === 'bodega_sales_v1'
+            ? notifySalesPushConfirmed(activeDeviceId, value, { deferSignalFlush, collectCierreIds })
+            : undefined;
+        return {
+            ok: true,
+            reason: 'unchanged',
+            retryable: false,
+            ...(uploadedCierreIds !== undefined ? { uploadedCierreIds } : {}),
+        };
+    }
 
     let payloadToUpload = sanitizePayloadForSync(key, value);
 
@@ -204,7 +295,7 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
         const { valid, anomalies } = validateCustomerSyncPayload(payloadToUpload);
         if (!valid) {
             console.warn(`[CIRCUIT BREAKER CLOUD SYNC] Customer push quarantined: ${anomalies.length} anomaly/anomalies. Original balances preserved.`, anomalies);
-            return false;
+            return { ok: false, reason: 'circuit_breaker', retryable: false };
         }
     }
 
@@ -233,11 +324,15 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
             allowArchiving: SALES_ARCHIVE_ENABLED,
         });
         const needsArchiveAuthorization = archiveCandidate.some(sale => sale?.isArchived === true && sale.archiveVersion === 1);
-        const cloudReference = await fetchCloudSalesReference(activeDeviceId, undefined, { fresh: needsArchiveAuthorization });
-        if (!isCurrentPosIdentity(activeDeviceId, generation)) return false;
+        const cloudReference = await fetchCloudSalesReference(activeDeviceId, undefined, {
+            fresh: needsArchiveAuthorization,
+            signal,
+        });
+        if (signal?.aborted) return { ok: false, reason: 'aborted', retryable: false };
+        if (!isCurrentPosIdentity(activeDeviceId, generation)) return { ok: false, reason: 'not_active', retryable: false };
         if (!Array.isArray(cloudReference)) {
             console.warn('[SALES PUSH MERGE] Referencia cloud no disponible; se pospone el push para no sobrescribir historial no verificado.');
-            return false;
+            return { ok: false, reason: 'merge_reference_unavailable', retryable: false };
         }
 
         const { payload: mergedSales, strategy, vetoed, reason } = prepareSalesPushPayload(
@@ -252,7 +347,7 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
             payloadToUpload = mergedSales;
         } else if (vetoed) {
             console.warn(`[SALES PUSH MERGE] Referencia no válida para fusión (${reason}); se pospone la escritura.`);
-            return false;
+            return { ok: false, reason: 'merge_reference_unavailable', retryable: false };
         }
     }
 
@@ -270,7 +365,7 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
                     `Cierres detectados: ${cierresInPayload}, mínimo requerido: ${minAllowedCierres}. ` +
                     `Protegiendo base de datos remota contra sobreescritura accidental.`
                 );
-                return false;
+                return { ok: false, reason: 'circuit_breaker', retryable: false };
             }
 
             if (cierresInPayload > maxKnownCierres) {
@@ -296,7 +391,7 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
                 `supera el tope de ${MAX_DOC_BYTES / 1048576} MB. NO se sube. ` +
                 `Revisa por qué creció (¿histórico sin podar?).`
             );
-            return false;
+            return { ok: false, reason: 'too_large', retryable: false };
         }
     } catch {
         // Si no es serializable, que falle el upsert y lo reporte por el camino normal.
@@ -307,7 +402,15 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
     const hashKey = LAST_PUSH_HASH_PREFIX + key;
     const currentHash = quickHash(payloadToUpload);
     if (!forceUnconditional && localStorage.getItem(hashKey) === currentHash) {
-        return true;
+        const uploadedCierreIds = key === 'bodega_sales_v1'
+            ? notifySalesPushConfirmed(activeDeviceId, payloadToUpload, { deferSignalFlush, collectCierreIds })
+            : undefined;
+        return {
+            ok: true,
+            reason: 'unchanged',
+            retryable: false,
+            ...(uploadedCierreIds !== undefined ? { uploadedCierreIds } : {}),
+        };
     }
 
     try {
@@ -316,14 +419,24 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
         // La tabla sync_documents permanece cerrada para anon. El RPC valida
         // pairing, whitelist y tamaño, y el trigger del servidor escribe
         // `updated_at` sin mezclar relojes del cliente y del lector.
-        if (!isCurrentPosIdentity(activeDeviceId, generation) || !isCloudSyncActive) return false;
-        const { error } = await supabaseCloud.rpc('write_paired_sync_document', {
+        if (signal?.aborted) return { ok: false, reason: 'aborted', retryable: false };
+        if (!isCurrentPosIdentity(activeDeviceId, generation) || !isCloudSyncActive) {
+            return { ok: false, reason: 'not_active', retryable: false };
+        }
+        let rpcCall = supabaseCloud.rpc('write_paired_sync_document', {
             p_device_id: activeDeviceId,
             p_collection: collectionType,
             p_doc_id: key,
             p_data: { payload: payloadToUpload },
         });
-        if (!isCurrentPosIdentity(activeDeviceId, generation)) return false;
+        if (signal && typeof rpcCall?.abortSignal === 'function') {
+            rpcCall = rpcCall.abortSignal(signal);
+        }
+        const { error } = await rpcCall;
+        if (signal?.aborted) return { ok: false, reason: 'aborted', retryable: false };
+        if (!isCurrentPosIdentity(activeDeviceId, generation)) {
+            return { ok: false, reason: 'not_active', retryable: false };
+        }
 
         if (error) {
             const failure = recordCloudRetryFailure(documentRetryOperation, error);
@@ -338,7 +451,11 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
                 );
             }
             console.warn(`[CloudSync] Error ${error.code || error.status} al subir ${key}; reintento en ${Math.ceil(failure.delayMs / 1000)}s:`, error.message);
-            return false; // Sin hash: el documento queda pendiente para el reintento autorizado
+            return {
+                ok: false,
+                reason: 'rpc_error',
+                retryable: !isPermanentCloudError(error),
+            }; // Sin hash: el documento queda pendiente para el reintento autorizado
         }
 
         clearCloudRetryFailure(documentRetryOperation);
@@ -353,9 +470,20 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
         if (PAYLOAD_TRANSFORM_VERSIONS[key] && Array.isArray(value)) {
             localStorage.setItem(LAST_SOURCE_PUSH_HASH_PREFIX + key, sourcePushHash(key, value));
         }
-        return true;
+        const uploadedCierreIds = key === 'bodega_sales_v1'
+            ? notifySalesPushConfirmed(activeDeviceId, payloadToUpload, { deferSignalFlush, collectCierreIds })
+            : undefined;
+        return {
+            ok: true,
+            reason: 'ok',
+            retryable: false,
+            ...(uploadedCierreIds !== undefined ? { uploadedCierreIds } : {}),
+        };
 
     } catch (e) {
+        if (signal?.aborted || e?.name === 'AbortError') {
+            return { ok: false, reason: 'aborted', retryable: false };
+        }
         const failure = recordCloudRetryFailure(documentRetryOperation, e);
         if (isGlobalCloudFailure(e)) {
             // FASE 1: fallo de transporte (red) — candado global acotado a un tick.
@@ -366,8 +494,22 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
             );
         }
         console.warn(`[CloudSync] Fallo de transporte al subir ${key}; reintento en ${Math.ceil(failure.delayMs / 1000)}s.`);
-        return false;
+        return { ok: false, reason: 'transport', retryable: true };
     }
+};
+
+/**
+ * Versión detallada sobre la misma cola serializada (`serializedCloudPush`).
+ * Devuelve `{ ok, reason, retryable, uploadedCierreIds? }`.
+ */
+export const pushCloudSyncDetailed = (key, value, forceUnconditional = false, options = {}) => {
+    const deviceId = _currentDeviceId || localStorage.getItem('dj_device_id');
+    const generation = cloudSyncGeneration;
+    return serializedCloudPush(key, () => (
+        isCurrentPosIdentity(deviceId, generation)
+            ? pushCloudSyncNow(key, value, forceUnconditional, options)
+            : { ok: false, reason: 'not_active', retryable: false }
+    ));
 };
 
 /**
@@ -376,11 +518,132 @@ const pushCloudSyncNow = async (key, value, forceUnconditional = false) => {
  * cliente; sin esta cola, una petición vieja en vuelo podía completar después
  * de una nueva y devolver el catálogo anterior al monitor.
  */
-export const pushCloudSync = (key, value, forceUnconditional = false) => {
-    const deviceId = _currentDeviceId || localStorage.getItem('dj_device_id');
-    const generation = cloudSyncGeneration;
-    return serializedCloudPush(key, () => isCurrentPosIdentity(deviceId, generation)
-        ? pushCloudSyncNow(key, value, forceUnconditional) : false);
+export const pushCloudSync = async (key, value, forceUnconditional = false) => {
+    const ownController = new AbortController();
+    let bucket = activeOrdinaryPushControllers.get(key);
+    if (!bucket) {
+        bucket = new Set();
+        activeOrdinaryPushControllers.set(key, bucket);
+    }
+    bucket.add(ownController);
+    try {
+        const result = await pushCloudSyncDetailed(key, value, forceUnconditional, {
+            signal: ownController.signal,
+        });
+        return result.ok === true;
+    } finally {
+        bucket.delete(ownController);
+        if (bucket.size === 0) activeOrdinaryPushControllers.delete(key);
+    }
+};
+
+/**
+ * Subida crítica (cierre de caja):
+ * - Cancela debounce pendiente y aborta subidas ordinarias obsoletas en cola/vuelo de la misma clave.
+ * - Limpia cooldowns transitorios (sin tocar fallos permanentes).
+ * - Usa AbortController con timeout total (90 s) propagado al RPC y al merge.
+ * - Reintenta solo ante fallos `retryable: true` (`[2000, 5000]` ms).
+ * - Verifica que `expectedCierreId` viajó realmente en el payload subido (`merge_vetoed`).
+ * - Emite `cloud_critical_sync_state` para UI (`SyncStatus` / modal).
+ */
+export const pushCriticalCloudSync = async (
+    key,
+    value,
+    { maxRetries = 2, retryDelaysMs = [2000, 5000], timeoutMs = 90000, expectedCierreId = null } = {},
+) => {
+    cancelPendingPush(key);
+    abortOrdinaryPushes(key);
+
+    const activeDeviceId = _currentDeviceId || localStorage.getItem('dj_device_id');
+    const globalRetryOp = activeDeviceId ? `sync:${activeDeviceId}` : null;
+    const docRetryOp = activeDeviceId ? `sync:${activeDeviceId}:${key}` : null;
+
+    const previousGlobalRetry = globalRetryOp ? readCloudRetrySnapshot(globalRetryOp) : null;
+    const clearTransientCooldowns = () => {
+        if (docRetryOp) {
+            const docState = getCloudRetryState(docRetryOp);
+            if (docState.coolingDown && !docState.permanent) clearCloudRetryFailure(docRetryOp);
+        }
+        if (globalRetryOp) {
+            const globalState = getCloudRetryState(globalRetryOp);
+            if (globalState.coolingDown && !globalState.permanent) clearCloudRetryFailure(globalRetryOp);
+        }
+    };
+    clearTransientCooldowns();
+
+    const controller = new AbortController();
+    let timedOut = false;
+    const timeoutId = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+    }, timeoutMs);
+
+    const dispatchState = (status) => {
+        try {
+            window.dispatchEvent(new CustomEvent('cloud_critical_sync_state', {
+                detail: { busy: criticalPushCount > 0, key, status },
+            }));
+        } catch {
+            // Entorno sin DOM
+        }
+    };
+
+    criticalPushCount += 1;
+    dispatchState('syncing');
+
+    let finalResult = { ok: false, reason: 'transport' };
+    try {
+        const totalAttempts = 1 + Math.max(0, maxRetries);
+        for (let attempt = 0; attempt < totalAttempts; attempt++) {
+            if (attempt > 0) {
+                clearTransientCooldowns();
+                const delay = retryDelaysMs[attempt - 1] ?? 0;
+                if (delay > 0) await abortableSleep(delay, controller.signal);
+                if (controller.signal.aborted) {
+                    finalResult = { ok: false, reason: timedOut ? 'timeout' : 'aborted' };
+                    break;
+                }
+            }
+
+            const result = await pushCloudSyncDetailed(key, value, false, {
+                signal: controller.signal,
+                deferSignalFlush: true,
+                collectCierreIds: expectedCierreId != null,
+            });
+
+            if (result.ok) {
+                if (expectedCierreId != null && key === 'bodega_sales_v1') {
+                    const included = Array.isArray(result.uploadedCierreIds)
+                        && result.uploadedCierreIds.includes(String(expectedCierreId));
+                    if (!included) {
+                        finalResult = { ok: false, reason: 'merge_vetoed' };
+                        break;
+                    }
+                }
+                finalResult = { ok: true, reason: result.reason };
+                break;
+            }
+
+            const normalizedReason = (timedOut && result.reason === 'aborted') ? 'timeout' : result.reason;
+            finalResult = { ok: false, reason: normalizedReason };
+            if (!result.retryable || controller.signal.aborted) break;
+        }
+
+        if (!finalResult.ok && globalRetryOp && previousGlobalRetry) {
+            const currentGlobalRetry = readCloudRetrySnapshot(globalRetryOp);
+            const prevNext = Number(previousGlobalRetry.nextRetryAt) || 0;
+            const currNext = Number(currentGlobalRetry?.nextRetryAt) || 0;
+            if (prevNext > currNext) {
+                restoreCloudRetryState(globalRetryOp, previousGlobalRetry);
+            }
+        }
+    } finally {
+        clearTimeout(timeoutId);
+        criticalPushCount = Math.max(0, criticalPushCount - 1);
+        dispatchState(finalResult.ok ? 'synced' : 'failed');
+    }
+
+    return finalResult;
 };
 
 /**
@@ -612,6 +875,8 @@ export function useCloudSync(deviceId) {
 
                 // Reconciliar al iniciar, pero respetar los hashes de payload ya enviados.
                 forceSyncAllPOSData(deviceId, false).catch(() => {});
+                // Fase 2B: reintentar señales de cierre ya promovidas (`ready_to_emit`) en arranque.
+                flushPendingCloseSignals(deviceId).catch(() => {});
 
                 // ── Pull Inicial / Sincronización de Importación ──
                 const backupImported = localStorage.getItem('dj_backup_imported_flag') === 'true';
@@ -751,10 +1016,24 @@ export function useCloudSync(deviceId) {
                     // D1: el hash lo escribe pushCloudSync solo si el upsert tuvo éxito.
                     await pushCloudSync(key, parsed);
                 }
+
+                // Fase 2B: emitir señales de cierre pendientes en `ready_to_emit` (fast-path O(1)).
+                if (isCurrent()) {
+                    await flushPendingCloseSignals(deviceId);
+                }
             } catch (e) {
                 // Silencioso
             }
         };
+
+        // Fase 1: proteger contra cierre prematuro de pestaña/PWA mientras sube un cierre crítico.
+        const handleBeforeUnload = (e) => {
+            if (hasCriticalCloudPushInFlight()) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
 
         window.addEventListener('online', forcePushLocalData);
         
@@ -920,6 +1199,7 @@ export function useCloudSync(deviceId) {
             presenceController?.abort();
             clearTimeout(presenceTimer);
             clearTimeout(presenceDeadline);
+            window.removeEventListener('beforeunload', handleBeforeUnload);
             window.removeEventListener('online', forcePushLocalData);
             window.removeEventListener('online', handlePresenceOnline);
             window.removeEventListener('offline', handlePresenceOffline);

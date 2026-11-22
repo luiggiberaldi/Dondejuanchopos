@@ -1,5 +1,36 @@
 import { describe, expect, it } from 'vitest';
-import { getCloudRetryDelay, isPermanentCloudError } from '../src/utils/cloudRetry';
+import {
+    clearCloudRetryFailure,
+    getCloudRetryDelay,
+    getCloudRetryState,
+    isPermanentCloudError,
+    readCloudRetrySnapshot,
+    restoreCloudRetryState,
+    setCloudRetryCooldown,
+} from '../src/utils/cloudRetry';
+
+describe('cooldown fijo y snapshot', () => {
+    it('setCloudRetryCooldown fija exactamente la ventana pedida', () => {
+        const now = 1_000_000;
+        setCloudRetryCooldown('close_signal:pos-1', 10 * 60 * 1000, { now, lastCode: 'rate_limited' });
+        const state = getCloudRetryState('close_signal:pos-1', now + 1000);
+        expect(state.coolingDown).toBe(true);
+        expect(state.remainingMs).toBe(10 * 60 * 1000 - 1000);
+        expect(state.permanent).toBe(false);
+        clearCloudRetryFailure('close_signal:pos-1');
+    });
+
+    it('restoreCloudRetryState repone un snapshot capturado y no hace nada con null', () => {
+        setCloudRetryCooldown('sync:pos-1', 60_000, { now: 5_000 });
+        const snapshot = readCloudRetrySnapshot('sync:pos-1');
+        clearCloudRetryFailure('sync:pos-1');
+        restoreCloudRetryState('sync:pos-1', snapshot);
+        expect(readCloudRetrySnapshot('sync:pos-1')).toEqual(snapshot);
+        clearCloudRetryFailure('sync:pos-1');
+        restoreCloudRetryState('sync:pos-1', null);
+        expect(readCloudRetrySnapshot('sync:pos-1')).toBeNull();
+    });
+});
 
 describe('cloud retry policy', () => {
     it('backs off transient network/server errors exponentially with bounded jitter', () => {

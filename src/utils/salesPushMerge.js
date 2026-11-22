@@ -164,16 +164,31 @@ export function invalidateMonitorDeviceCache(deviceId) {
  * @param {object} [client] - cliente Supabase inyectable para tests.
  * @param {object} [opts] - { fresh: true } fuerza re-lectura ignorando la caché
  *   TTL (decisiones críticas como replace_sales_history la exigen).
+ *   `{ signal }` (cierre de caja crítico): la petición es AISLADA — no lee ni
+ *   escribe `_inFlightRefs`, así que abortarla nunca cancela a otros llamadores
+ *   concurrentes (saleNumberAllocator, useSupervisorCommands). El aborto se
+ *   propaga a cada RPC con `.abortSignal(signal)`; el caller debe comprobar
+ *   `signal.aborted` para distinguir un aborto de una referencia no disponible.
  * @returns {Promise<Array|null>}
  */
-export async function fetchCloudSalesReference(deviceId, client = supabaseCloud, { fresh = false } = {}) {
+export async function fetchCloudSalesReference(deviceId, client = supabaseCloud, { fresh = false, signal = null } = {}) {
     if (!client || !deviceId) return null;
+    if (signal?.aborted) return null;
+    const isolated = Boolean(signal);
+    const readSales = (monitorDeviceId) => {
+        const call = client.rpc(READ_RPC, {
+            p_primary_device_id: deviceId,
+            p_monitor_device_id: monitorDeviceId,
+            p_doc_ids: [SALES_CLOUD_CACHE_KEY],
+        });
+        return signal && typeof call?.abortSignal === 'function' ? call.abortSignal(signal) : call;
+    };
     try {
         const now = Date.now();
         if (!fresh && _refCache.deviceId === deviceId && _refCache.payload && now - _refCache.ts < SALES_REF_TTL_MS) {
             return _refCache.payload;
         }
-        const inFlightRef = fresh ? null : _inFlightRefs.get(deviceId);
+        const inFlightRef = (fresh || isolated) ? null : _inFlightRefs.get(deviceId);
         if (inFlightRef) return await inFlightRef;
 
         const requestToken = Symbol(deviceId);
@@ -182,11 +197,8 @@ export async function fetchCloudSalesReference(deviceId, client = supabaseCloud,
             const monitorDeviceId = await resolveMonitorDeviceId(deviceId, client);
             if (!monitorDeviceId) return null;
 
-            const { data, error } = await client.rpc(READ_RPC, {
-                p_primary_device_id: deviceId,
-                p_monitor_device_id: monitorDeviceId,
-                p_doc_ids: [SALES_CLOUD_CACHE_KEY],
-            });
+            const { data, error } = await readSales(monitorDeviceId);
+            if (signal?.aborted) return null;
             if (error) {
                 // FASE 2: auto-sanación. Un vínculo desactualizado en caché produce
                 // REMOTE_AUDIT_*; se invalida la caché y se reintenta UNA vez con el
@@ -198,11 +210,8 @@ export async function fetchCloudSalesReference(deviceId, client = supabaseCloud,
                     invalidateMonitorDeviceCache(deviceId);
                     const freshMonitorId = await resolveMonitorDeviceId(deviceId, client, { bypassCache: true });
                     if (freshMonitorId) {
-                        const retry = await client.rpc(READ_RPC, {
-                            p_primary_device_id: deviceId,
-                            p_monitor_device_id: freshMonitorId,
-                            p_doc_ids: [SALES_CLOUD_CACHE_KEY],
-                        });
+                        const retry = await readSales(freshMonitorId);
+                        if (signal?.aborted) return null;
                         if (!retry.error && Array.isArray(retry.data) && retry.data.length > 0) {
                             const retryPayload = retry.data[0]?.data?.payload;
                             if (Array.isArray(retryPayload) && retryPayload.length > 0) {
@@ -231,6 +240,7 @@ export async function fetchCloudSalesReference(deviceId, client = supabaseCloud,
             }
             return payload;
         })();
+        if (isolated) return await refPromise;
         _inFlightRefs.set(deviceId, refPromise);
         try {
             return await refPromise;

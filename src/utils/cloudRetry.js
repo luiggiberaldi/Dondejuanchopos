@@ -101,6 +101,7 @@ export function getCloudRetryState(operation, now = Date.now()) {
         remainingMs,
         failureCount: state?.failureCount || 0,
         permanent: state?.permanent || false,
+        lastCode: state?.lastCode || null,
     };
 }
 
@@ -118,6 +119,36 @@ export function recordCloudRetryFailure(operation, error, { now = Date.now(), ra
     };
     writeState(operation, state);
     return { ...state, delayMs };
+}
+
+/**
+ * Cooldown de duración FIJA (no derivada del error). Lo usa la señal de cierre
+ * cuando el servidor responde `rate_limited`: la ventana del rate-limit SQL es
+ * de 10 minutos, así que reintentar antes sólo gasta peticiones.
+ */
+export function setCloudRetryCooldown(operation, delayMs, { now = Date.now(), permanent = false, lastCode = null } = {}) {
+    const previous = readState(operation);
+    const ms = Math.max(0, Number(delayMs) || 0);
+    const state = {
+        failureCount: (previous?.failureCount || 0) + 1,
+        nextRetryAt: now + ms,
+        permanent: Boolean(permanent),
+        lastStatus: null,
+        lastCode,
+    };
+    writeState(operation, state);
+    return { ...state, delayMs: ms };
+}
+
+/** Restaura un estado de cooldown previamente capturado (o lo borra si era null). */
+export function restoreCloudRetryState(operation, snapshot) {
+    if (!snapshot) return;
+    writeState(operation, snapshot);
+}
+
+/** Lectura cruda del estado persistido (para snapshot/restore). */
+export function readCloudRetrySnapshot(operation) {
+    return readState(operation);
 }
 
 export function clearCloudRetryFailure(operation) {

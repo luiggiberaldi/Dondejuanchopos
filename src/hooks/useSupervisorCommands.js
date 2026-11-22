@@ -1102,13 +1102,15 @@ export function useSupervisorCommands(deviceId) {
                     const { pushCloudSync } = await import('./useCloudSync');
                     const { withLock } = await import('../utils/withLock');
                     const { getOpenShiftMovements } = await import('../utils/shiftScope');
+                    const { enqueuePendingCloseSignal } = await import('../services/shiftCloseSignalService');
 
                     const result = await withLock('pos_write_lock', async () => {
                         const sales = await storageService.getItem('bodega_sales_v1', []) || [];
                         const targetCierreId = command.payload?.cierreId || Date.now();
 
-                        if (sales.some(s => s.cierreId === targetCierreId && s.tipo === 'REGISTRO_CIERRE')) {
-                            return { alreadyApplied: true, sales };
+                        const existingClose = sales.find(s => s.cierreId === targetCierreId && s.tipo === 'REGISTRO_CIERRE');
+                        if (existingClose) {
+                            return { alreadyApplied: true, sales, registroCierre: existingClose };
                         }
 
                         const { movements, orphans, voided, apertura } = getOpenShiftMovements(sales);
@@ -1160,10 +1162,15 @@ export function useSupervisorCommands(deviceId) {
                             localStorage.removeItem('bodega_active_shift_anchor');
                             await storageService.removeItem('bodega_active_shift_v1');
                         } catch (_) {}
-                        return { updatedSales, orphanCount: orphans.length };
+                        return { updatedSales, registroCierre, orphanCount: orphans.length };
                     });
 
+                    const activeDeviceId = deviceId || localStorage.getItem('dj_device_id');
+
                     if (result?.alreadyApplied) {
+                        if (activeDeviceId && result.registroCierre) {
+                            enqueuePendingCloseSignal({ deviceId: activeDeviceId, registroCierre: result.registroCierre });
+                        }
                         await updateCommandStatus(command.id, 'applied');
                         return;
                     }
@@ -1171,6 +1178,10 @@ export function useSupervisorCommands(deviceId) {
                     if (result?.empty) {
                         await updateCommandStatus(command.id, 'failed', 'No hay movimientos abiertos para cerrar en el turno actual');
                         return;
+                    }
+
+                    if (activeDeviceId && result?.registroCierre) {
+                        enqueuePendingCloseSignal({ deviceId: activeDeviceId, registroCierre: result.registroCierre });
                     }
 
                     await pushCloudSync('bodega_sales_v1', result.updatedSales);

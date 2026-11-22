@@ -1,5 +1,5 @@
-import React from 'react';
-import { X, CheckCircle2, Printer, Download, Share2, AlertTriangle, Coins } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, CheckCircle2, Printer, Download, Share2, AlertTriangle, Loader2, RefreshCw, CloudOff, BellRing } from 'lucide-react';
 import { formatBs, formatCop } from '../../utils/calculatorUtils';
 
 export default function CierreCajaSummaryModal({
@@ -9,9 +9,25 @@ export default function CierreCajaSummaryModal({
     onPrint,
     onDownload,
     onShare,
-    isBlindMode = false
+    isBlindMode = false,
+    syncStatus = 'idle',
+    syncError = null,
+    onRetrySync = null,
+    signalPending = false,
+    onRetrySignal = null,
 }) {
+    const [confirmCloseWhileSyncing, setConfirmCloseWhileSyncing] = useState(false);
+
     if (!isOpen || !summaryData) return null;
+
+    const handleRequestClose = () => {
+        if (syncStatus === 'syncing' && !confirmCloseWhileSyncing) {
+            setConfirmCloseWhileSyncing(true);
+            return;
+        }
+        setConfirmCloseWhileSyncing(false);
+        onClose?.();
+    };
 
     const {
         sales = [],
@@ -55,7 +71,7 @@ export default function CierreCajaSummaryModal({
                         <h3 className="text-base font-black text-slate-800 dark:text-white">Cierre Completado</h3>
                     </div>
                     <button
-                        onClick={onClose}
+                        onClick={handleRequestClose}
                         className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                     >
                         <X size={18} />
@@ -157,6 +173,105 @@ export default function CierreCajaSummaryModal({
                     )}
                 </div>
 
+                {/* Banner de estado de sincronización con el Supervisor (Fase 1 + Fase 2B) */}
+                {syncStatus === 'syncing' && (
+                    <div
+                        role="status"
+                        aria-live="polite"
+                        className="p-3 rounded-2xl flex items-start gap-2.5 border text-[11px] leading-snug font-semibold bg-sky-50 dark:bg-sky-950/30 border-sky-200/70 dark:border-sky-800/50 text-sky-800 dark:text-sky-200"
+                    >
+                        <Loader2 size={15} className="shrink-0 mt-0.5 animate-spin text-sky-600 dark:text-sky-400" />
+                        <div>
+                            Sincronizando cierre con el Supervisor... No cierres el programa todavía.
+                        </div>
+                    </div>
+                )}
+
+                {syncStatus === 'synced' && (
+                    <div
+                        role="status"
+                        aria-live="polite"
+                        className="p-3 rounded-2xl space-y-2 border text-[11px] leading-snug font-semibold bg-emerald-50 dark:bg-emerald-950/25 border-emerald-200/70 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-300"
+                    >
+                        <div className="flex items-start gap-2.5">
+                            <CheckCircle2 size={15} className="shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
+                            <div>Cierre enviado y confirmado en la nube para el Supervisor.</div>
+                        </div>
+                        {signalPending && (
+                            <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-emerald-200/60 dark:border-emerald-800/40 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
+                                <span className="flex items-center gap-1.5">
+                                    <BellRing size={12} className="shrink-0" />
+                                    Aviso instantáneo al Supervisor pendiente.
+                                </span>
+                                {onRetrySignal && (
+                                    <button
+                                        type="button"
+                                        onClick={onRetrySignal}
+                                        className="shrink-0 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] transition-colors"
+                                    >
+                                        Reenviar aviso al Supervisor
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {syncStatus === 'failed' && (
+                    <div
+                        role="alert"
+                        className="p-3 rounded-2xl space-y-2 border text-[11px] leading-snug font-semibold bg-amber-50 dark:bg-amber-950/30 border-amber-300/80 dark:border-amber-800/60 text-amber-900 dark:text-amber-200"
+                    >
+                        <div className="flex items-start gap-2.5">
+                            <CloudOff size={15} className="shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                            <div className="space-y-0.5">
+                                <div>Cierre guardado en esta PC, pero no se pudo enviar al Supervisor aún.</div>
+                                {syncError && (
+                                    <div className="text-[10px] font-medium text-amber-700 dark:text-amber-300">
+                                        {syncError}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        {onRetrySync && (
+                            <button
+                                type="button"
+                                onClick={onRetrySync}
+                                className="w-full py-2 px-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs flex items-center justify-center gap-1.5 active:scale-[0.98] transition-all"
+                            >
+                                <RefreshCw size={13} /> Reintentar envío ahora
+                            </button>
+                        )}
+                    </div>
+                )}
+
+                {confirmCloseWhileSyncing && syncStatus === 'syncing' && (
+                    <div className="p-3 rounded-2xl border border-amber-200 dark:border-amber-800/60 bg-amber-50/80 dark:bg-amber-950/20 text-[11px] space-y-2 text-amber-900 dark:text-amber-200">
+                        <div className="font-semibold">
+                            El cierre seguirá subiendo en segundo plano (visible en la barra superior). ¿Cerrar este resumen igual?
+                        </div>
+                        <div className="flex items-center justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setConfirmCloseWhileSyncing(false)}
+                                className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[11px]"
+                            >
+                                Esperar
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setConfirmCloseWhileSyncing(false);
+                                    onClose?.();
+                                }}
+                                className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px]"
+                            >
+                                Cerrar igual
+                            </button>
+                        </div>
+                    </div>
+                )}
+
                 {/* Acciones principales */}
                 <div className="space-y-2 pt-2">
                     <button
@@ -182,7 +297,7 @@ export default function CierreCajaSummaryModal({
                     </div>
 
                     <button
-                        onClick={onClose}
+                        onClick={handleRequestClose}
                         className="w-full py-2.5 text-center text-xs font-black text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors pt-2"
                     >
                         Entendido, Volver al Dashboard

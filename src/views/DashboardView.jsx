@@ -25,6 +25,13 @@ import { useAudit } from '../hooks/useAudit';
 import { useAuthStore } from '../hooks/store/useAuthStore';
 import { getLocalISODate } from '../utils/dateHelpers';
 import { getOpenShiftMovements } from '../utils/shiftScope';
+import { buildShiftCloseSummary, shiftScopeRequiresClose } from '../utils/shiftCloseSummary';
+import { pushCriticalCloudSync } from '../hooks/useCloudSync';
+import {
+    enqueuePendingCloseSignal,
+    flushPendingCloseSignals,
+    hasPendingCloseSignal,
+} from '../services/shiftCloseSignalService';
 import Skeleton from '../components/Skeleton';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { useDashboardMetrics } from '../hooks/useDashboardMetrics';
@@ -418,41 +425,120 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
         setIsCashReconOpen(true);
     };
 
+    // Estado de sincronización del último cierre de caja (Fase 1 + Fase 2B)
+    const [cierreSyncStatus, setCierreSyncStatus] = useState('idle'); // 'idle' | 'syncing' | 'synced' | 'failed'
+    const [cierreSyncError, setCierreSyncError] = useState(null);
+    const [cierreSignalPending, setCierreSignalPending] = useState(false);
+    const lastClosedSalesSnapshotRef = useRef(null);
+    const lastClosedRegistroRef = useRef(null);
+    const isFlushingCloseSignalRef = useRef(false);
+
+    const resolveActiveDeviceId = () => deviceId || localStorage.getItem('dj_device_id');
+
+    useEffect(() => {
+        const refreshSignalPending = () => {
+            if (isFlushingCloseSignalRef.current) return;
+            const activeId = resolveActiveDeviceId();
+            const activeCloseId = lastClosedRegistroRef.current?.cierreId;
+            if (!activeId || activeCloseId == null) {
+                setCierreSignalPending(false);
+                return;
+            }
+            setCierreSignalPending(hasPendingCloseSignal(activeId, activeCloseId));
+        };
+        refreshSignalPending();
+        window.addEventListener('close_signal_queue_changed', refreshSignalPending);
+        return () => window.removeEventListener('close_signal_queue_changed', refreshSignalPending);
+    }, [deviceId]);
+
+    const formatCierreSyncError = (reason) => {
+        switch (reason) {
+            case 'timeout':
+                return 'Tiempo de espera agotado (90 s). Se reintentará automáticamente al estabilizarse el internet.';
+            case 'too_large':
+                return 'El historial de ventas supera el límite de 8 MB para la nube.';
+            case 'circuit_breaker':
+                return 'Subida pausada por protección de integridad del historial.';
+            case 'merge_vetoed':
+                return 'La nube no confirmó el nuevo registro de cierre tras la fusión. Pulsa reintentar.';
+            case 'merge_reference_unavailable':
+                return 'No se pudo consultar la referencia en la nube para fusionar ventas.';
+            case 'not_active':
+                return 'La sincronización en la nube no está activa en esta caja.';
+            default:
+                return 'Sin conexión estable con la nube. Se reintentará automáticamente en segundo plano.';
+        }
+    };
+
+    const syncLatestCloseToCloud = async (salesSnapshot, registroCierre = null) => {
+        const activeId = resolveActiveDeviceId();
+        setCierreSyncStatus('syncing');
+        setCierreSyncError(null);
+        setCierreSignalPending(false);
+        try {
+            const result = await pushCriticalCloudSync('bodega_sales_v1', salesSnapshot, {
+                expectedCierreId: registroCierre?.cierreId ?? null,
+            });
+            if (result?.ok === true) {
+                setCierreSyncStatus('synced');
+                setCierreSyncError(null);
+                if (activeId && registroCierre?.cierreId != null) {
+                    isFlushingCloseSignalRef.current = true;
+                    flushPendingCloseSignals(activeId, { immediate: true })
+                        .catch(() => {})
+                        .finally(() => {
+                            isFlushingCloseSignalRef.current = false;
+                            setCierreSignalPending(hasPendingCloseSignal(activeId, registroCierre.cierreId));
+                        });
+                }
+                return { ok: true, registroCierre };
+            }
+            setCierreSyncStatus('failed');
+            setCierreSyncError(formatCierreSyncError(result?.reason));
+            return { ok: false, registroCierre };
+        } catch {
+            setCierreSyncStatus('failed');
+            setCierreSyncError(formatCierreSyncError('transport'));
+            return { ok: false, registroCierre };
+        }
+    };
+
+    const handleRetryCierreSync = async () => {
+        const freshSales = (await storageService.getItem(SALES_KEY, null)) || lastClosedSalesSnapshotRef.current;
+        if (!Array.isArray(freshSales)) return;
+        lastClosedSalesSnapshotRef.current = freshSales;
+        await syncLatestCloseToCloud(freshSales, lastClosedRegistroRef.current);
+    };
+
+    const handleRetryCierreSignal = async () => {
+        const activeId = resolveActiveDeviceId();
+        const activeCloseId = lastClosedRegistroRef.current?.cierreId;
+        if (!activeId) return;
+        await flushPendingCloseSignals(activeId, { immediate: true, manual: true });
+        if (activeCloseId != null) {
+            setCierreSignalPending(hasPendingCloseSignal(activeId, activeCloseId));
+        }
+    };
+
     const handleConfirmCashRecon = async (reconData) => {
         try {
-            let summaryObj = null;
             const activeUser = useAuthStore.getState().usuarioActivo;
-
-            if (shiftCashFlow && shiftCashFlow.length > 0) {
-                const salesForPDF = shiftCashFlow.filter(s => s.tipo !== 'APERTURA_CAJA');
-
-                summaryObj = {
-                    sales: salesForPDF,
-                    allSales: shiftCashFlow,
-                    bcvRate,
-                    paymentBreakdown: shiftPaymentBreakdown,
-                    topProducts: shiftTopProducts,
-                    todayTotalUsd: shiftTotalUsd,
-                    todayTotalBs: shiftTotalBs,
-                    todayProfit: shiftProfit,
-                    todayItemsSold: shiftItemsSold,
-                    reconData,
-                    apertura: shiftApertura || todayApertura,
-                    copEnabled,
-                    tasaCop,
-                };
-                setCierreSummaryData(summaryObj);
-            }
-
             const currentCierreId = new Date().getTime();
 
-            const updatedSales = await withLock('pos_write_lock', async () => {
+            // Fase 0 (H5): el registro y el resumen se construyen SIEMPRE desde el
+            // scope fresco leído bajo el lock. El estado React (`shiftCashFlow`)
+            // puede estar vacío o desfasado y antes producía un turno marcado como
+            // cerrado sin su REGISTRO_CIERRE.
+            const { updatedSales, registroCierre, summaryObj } = await withLock('pos_write_lock', async () => {
                 const freshSales = await storageService.getItem(SALES_KEY, []) || [];
                 const existingCloses = freshSales.filter(s => s.tipo === 'REGISTRO_CIERRE');
                 const cierreNumber = existingCloses.reduce((mx, s) => Math.max(mx, s.cierreNumber || 0), 0) + 1;
 
+                const freshShiftScope = getOpenShiftMovements(freshSales);
                 let registroCierre = null;
-                if (summaryObj) {
+                let summaryObj = null;
+                if (shiftScopeRequiresClose(freshShiftScope)) {
+                    const fresh = buildShiftCloseSummary(freshShiftScope, { bcvRate, products });
                     registroCierre = {
                         id: `cierre_${currentCierreId}`,
                         tipo: 'REGISTRO_CIERRE',
@@ -461,10 +547,10 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                         timestamp: new Date().toISOString(),
                         cajaCerrada: true,
                         summary: {
-                            todayTotalUsd: shiftTotalUsd,
-                            todayTotalBs: shiftTotalBs,
-                            todayProfit: shiftProfit,
-                            todayItemsSold: shiftItemsSold,
+                            todayTotalUsd: fresh.todayTotalUsd,
+                            todayTotalBs: fresh.todayTotalBs,
+                            todayProfit: fresh.todayProfit,
+                            todayItemsSold: fresh.todayItemsSold,
                             reconData,
                             copEnabled,
                             tasaCop,
@@ -474,9 +560,23 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                             }
                         }
                     };
+                    summaryObj = {
+                        sales: fresh.sales,
+                        allSales: fresh.cashFlow,
+                        bcvRate,
+                        paymentBreakdown: fresh.paymentBreakdown,
+                        topProducts: fresh.topProducts,
+                        todayTotalUsd: fresh.todayTotalUsd,
+                        todayTotalBs: fresh.todayTotalBs,
+                        todayProfit: fresh.todayProfit,
+                        todayItemsSold: fresh.todayItemsSold,
+                        reconData,
+                        apertura: freshShiftScope.apertura || shiftApertura || todayApertura,
+                        copEnabled,
+                        tasaCop,
+                    };
                 }
 
-                const freshShiftScope = getOpenShiftMovements(freshSales);
                 const closingIds = new Set([
                     ...(freshShiftScope.movements || []).map(s => s.id),
                     ...(freshShiftScope.orphans || []).map(s => s.id),
@@ -500,9 +600,23 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                     localStorage.removeItem('bodega_active_shift_anchor');
                     await storageService.removeItem('bodega_active_shift_v1');
                 } catch (_) {}
-                return freshUpdated;
+                return { updatedSales: freshUpdated, registroCierre, summaryObj };
             });
 
+            lastClosedSalesSnapshotRef.current = updatedSales;
+            lastClosedRegistroRef.current = registroCierre || null;
+
+            // Fase 2B: persistir intención de señal en `awaiting_upload` justo tras
+            // guardar localmente en IndexedDB y ANTES de subir a la nube.
+            const activeId = resolveActiveDeviceId();
+            if (registroCierre && activeId) {
+                enqueuePendingCloseSignal({ deviceId: activeId, registroCierre });
+                setCierreSignalPending(hasPendingCloseSignal(activeId, registroCierre.cierreId));
+            } else {
+                setCierreSignalPending(false);
+            }
+
+            if (summaryObj) setCierreSummaryData(summaryObj);
             setSales(updatedSales);
             setIsCashReconOpen(false);
             window.dispatchEvent(new CustomEvent('sales-updated'));
@@ -514,6 +628,9 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
             }
 
             auditLog('VENTA', 'CIERRE_CAJA', 'Cierre de caja completado');
+
+            // Fase 1: subida crítica garantizada sin bloquear el guardado local ya confirmado.
+            syncLatestCloseToCloud(updatedSales, registroCierre).catch(() => {});
         } catch (err) {
             console.error('[DashboardView] Error al procesar cierre de caja:', err);
             showToast('Error al procesar el cierre de caja', 'error');
@@ -1095,6 +1212,11 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                 onClose={() => setShowCierreSummary(false)}
                 summaryData={cierreSummaryData}
                 isBlindMode={isBlindMode}
+                syncStatus={cierreSyncStatus}
+                syncError={cierreSyncError}
+                onRetrySync={handleRetryCierreSync}
+                signalPending={cierreSignalPending}
+                onRetrySignal={handleRetryCierreSignal}
                 onPrint={() => {
                     generateDailyClosePDF({ ...cierreSummaryData, action: 'print' });
                 }}

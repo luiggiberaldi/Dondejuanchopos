@@ -13,9 +13,10 @@ vi.mock('../src/config/supabaseCloud', () => ({
         from: () => ({ select() { return this; }, eq() { return this; },
             maybeSingle: async () => ({ data: { last_seen_at: new Date().toISOString() }, error: null }) }),
         rpc: vi.fn(async () => ({ data: {}, error: null })),
-        channel: () => {
+        channel: (name) => {
             const channel = {
-                on(_type, _filter, callback) { this.event = callback; return this; },
+                name,
+                on(_type, filter, callback) { this.filter = filter; this.event = callback; return this; },
                 subscribe(callback) { this.status = callback; return this; },
             };
             mocks.channels.push(channel);
@@ -52,10 +53,19 @@ async function mount(device = 'register-a') {
     await act(async () => root.render(createElement(Harness, { device })));
 }
 async function tick(ms = 30000) { await act(async () => vi.advanceTimersByTimeAsync(ms)); }
+function getMonitorChannel() {
+    return [...mocks.channels].reverse().find(c => c.filter?.table === 'sync_documents') || mocks.channels[0];
+}
+function getCloseSignalChannel() {
+    return [...mocks.channels].reverse().find(c => c.filter?.table === 'shift_close_events');
+}
 async function emit(document) {
-    await act(async () => mocks.channels.at(-1).event({ eventType: 'UPDATE', new: {
+    await act(async () => getMonitorChannel().event({ eventType: 'UPDATE', new: {
         ...document, data: { payload: document.payload },
     } }));
+}
+async function emitCloseSignal(eventType, row) {
+    await act(async () => getCloseSignalChannel().event({ eventType, new: row }));
 }
 beforeEach(() => {
     vi.useFakeTimers();
@@ -118,7 +128,7 @@ describe('Supervisor monitor catch-up recovery', () => {
         try {
             await act(async () => document.dispatchEvent(new Event('visibilitychange')));
             // Un evento Realtime sin cuerpo (documento pesado) no descarga en segundo plano.
-            await act(async () => mocks.channels.at(-1).event({ eventType: 'UPDATE', new: null }));
+            await act(async () => getMonitorChannel().event({ eventType: 'UPDATE', new: null }));
             await tick(600000);
             expect(mocks.fetch.mock.calls).toHaveLength(initialCalls);
             visibility.mockReturnValue('visible');
@@ -316,7 +326,7 @@ describe('Supervisor monitor catch-up recovery', () => {
         const first = localStore.setItem('bodega_sales_v1', [{ id: 'earlier' }]); await started;
         // Callback realtime captura la vinculación antes de esperar el núcleo.
         await act(async () => {
-            mocks.channels.at(-1).event({ eventType: 'UPDATE', new: {
+            getMonitorChannel().event({ eventType: 'UPDATE', new: {
                 ...doc('bodega_sales_v1', T3), data: { payload: [{ id: 'stale-monitor' }] },
             } });
             await Promise.resolve(); await Promise.resolve();
@@ -331,5 +341,129 @@ describe('Supervisor monitor catch-up recovery', () => {
         await mount();
         await tick();
         expect(mocks.fetch.mock.calls.at(-1)[3].updatedAfter).toBeNull();
+    });
+
+    describe('Fase 2B — Señal en tiempo real shift_close_events', () => {
+        it('(a)(i) INSERT dispara pull inmediato con ventas y emite supervisor_shift_closed_live solo al completar el pull', async () => {
+            mocks.fetch.mockResolvedValueOnce(result([doc('bodega_sales_v1', T1, [])]));
+            await mount();
+            const liveEvents = [];
+            const onLive = (e) => liveEvents.push(e.detail);
+            window.addEventListener('supervisor_shift_closed_live', onLive);
+
+            let resolvePull;
+            mocks.fetch.mockImplementationOnce(() => new Promise(resolve => { resolvePull = resolve; }));
+
+            try {
+                await emitCloseSignal('INSERT', { cierre_id: 901, cierre_number: 99, emitted_at: T2 });
+                expect(mocks.fetch).toHaveBeenCalledTimes(2);
+                expect(mocks.fetch.mock.calls[1][1]).toContain('bodega_sales_v1');
+                // [v8] El toast NO se despacha al disparar el pull, solo al completar
+                expect(liveEvents).toHaveLength(0);
+
+                await act(async () => {
+                    resolvePull(result([doc('bodega_sales_v1', T2, [{ id: 'cierre_901', tipo: 'REGISTRO_CIERRE', cierreId: 901 }])]));
+                    await Promise.resolve();
+                });
+                expect(liveEvents).toHaveLength(1);
+                expect(liveEvents[0]).toMatchObject({ cierreId: 901, cierreNumber: 99 });
+            } finally {
+                window.removeEventListener('supervisor_shift_closed_live', onLive);
+            }
+        });
+
+        it('(b) señal durante isRecoveryPull en vuelo prevalece y finally dispara pull con bodega_sales_v1', async () => {
+            mocks.fetch.mockResolvedValueOnce(result([doc('bodega_sales_v1', T1, [])]));
+            await mount();
+
+            let resolveRecovery;
+            mocks.fetch.mockImplementationOnce(() => new Promise(resolve => { resolveRecovery = resolve; }));
+            await act(async () => window.dispatchEvent(new CustomEvent('supervisor_sync_requested')));
+            expect(mocks.fetch.mock.calls[1][1]).not.toContain('bodega_sales_v1');
+
+            // Llega señal mientras recovery está en vuelo
+            await emitCloseSignal('INSERT', { cierre_id: 902, cierre_number: 100, emitted_at: T2 });
+            mocks.fetch.mockResolvedValueOnce(result([doc('bodega_sales_v1', T2, [{ id: 'cierre_902', tipo: 'REGISTRO_CIERRE', cierreId: 902 }])]));
+
+            await act(async () => {
+                resolveRecovery(result([doc('bodega_customers_v1', T2, [])]));
+                await Promise.resolve();
+            });
+            await tick(1);
+
+            expect(mocks.fetch).toHaveBeenCalledTimes(3);
+            expect(mocks.fetch.mock.calls[2][1]).toContain('bodega_sales_v1');
+        });
+
+        it('(c) closeCatchupCompletedRef avanza aunque rateDeferred sea true (sin bucle de re-descarga de ventas)', async () => {
+            localStorage.setItem('dj_supervisor_rate_pending_v1', JSON.stringify({ commandId: 'rate-x', desired: { customRate: '200' } }));
+            mocks.fetch.mockResolvedValueOnce(result([doc('bodega_sales_v1', T1, [])]));
+            await mount();
+            mocks.fetch.mockResolvedValueOnce(result([
+                doc('bodega_sales_v1', T2, [{ id: 'cierre_903', tipo: 'REGISTRO_CIERRE', cierreId: 903 }]),
+                { ...doc('bodega_custom_rate', T2, '100'), collection: 'local' },
+            ]));
+
+            await emitCloseSignal('INSERT', { cierre_id: 903, cierre_number: 101, emitted_at: T2 });
+            await tick(1);
+            // Solo 1 pull por la señal (no re-dispara en bucle por rateDeferred)
+            expect(mocks.fetch).toHaveBeenCalledTimes(2);
+        });
+
+        it('(d)(f)(g) skip local en INSERT y UPDATE si cierre_id ya existe; UPDATE con nuevo emitted_at sí re-dispara si falta; DELETE se ignora', async () => {
+            mocks.fetch.mockResolvedValueOnce(result([
+                doc('bodega_sales_v1', T1, [{ id: 'cierre_800', tipo: 'REGISTRO_CIERRE', cierreId: 800 }]),
+            ]));
+            await mount();
+            expect(mocks.fetch).toHaveBeenCalledTimes(1);
+
+            // (d) Ya conocido localmente → skip en INSERT y UPDATE
+            await emitCloseSignal('INSERT', { cierre_id: 800, cierre_number: 80, emitted_at: T2 });
+            await emitCloseSignal('UPDATE', { cierre_id: 800, cierre_number: 80, emitted_at: T3 });
+            expect(mocks.fetch).toHaveBeenCalledTimes(1);
+
+            // (g) DELETE se ignora
+            await emitCloseSignal('DELETE', { cierre_id: 999, emitted_at: T2 });
+            expect(mocks.fetch).toHaveBeenCalledTimes(1);
+
+            // (f) UPDATE con nuevo emitted_at para cierre aún no descargado sí re-dispara tras cooldown
+            mocks.fetch.mockResolvedValue(result([])); // nube aún no entrega cierre 904
+            await emitCloseSignal('INSERT', { cierre_id: 904, cierre_number: 102, emitted_at: T2 });
+            expect(mocks.fetch).toHaveBeenCalledTimes(2);
+            await tick(31000);
+            await emitCloseSignal('UPDATE', { cierre_id: 904, cierre_number: 102, emitted_at: T3 });
+            expect(mocks.fetch).toHaveBeenCalledTimes(3);
+        });
+
+        it('(e)(h) coalescencia en cooldown de 30s con re-chequeo de hidden y diferimiento en segundo plano', async () => {
+            mocks.fetch.mockResolvedValueOnce(result([doc('bodega_sales_v1', T1, [])]));
+            await mount();
+            mocks.fetch.mockResolvedValue(result([]));
+
+            // Primer señal dispara pull inmediato
+            await emitCloseSignal('INSERT', { cierre_id: 910, emitted_at: T1 });
+            expect(mocks.fetch).toHaveBeenCalledTimes(2);
+
+            // Segunda señal dentro de 30s queda en cooldown
+            await emitCloseSignal('INSERT', { cierre_id: 911, emitted_at: T2 });
+            expect(mocks.fetch).toHaveBeenCalledTimes(2);
+
+            // La pestaña pasa a hidden antes de vencer el timer de 30s
+            const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+            try {
+                await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+                await tick(35000);
+                // Al vencer el timer estando hidden NO descarga
+                expect(mocks.fetch).toHaveBeenCalledTimes(2);
+
+                // Al volver visible descarga inmediatamente la señal diferida
+                visibility.mockReturnValue('visible');
+                await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+                expect(mocks.fetch).toHaveBeenCalledTimes(3);
+                expect(mocks.fetch.mock.calls[2][1]).toContain('bodega_sales_v1');
+            } finally {
+                visibility.mockRestore();
+            }
+        });
     });
 });
