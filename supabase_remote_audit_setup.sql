@@ -29,6 +29,7 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 STABLE
 SET search_path = public
+SET statement_timeout = '30s'
 AS $$
 BEGIN
     IF COALESCE(trim(p_primary_device_id), '') = ''
@@ -244,6 +245,7 @@ RETURNS JSON
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
+SET statement_timeout = '30s'
 AS $$
 BEGIN
     IF COALESCE(btrim(p_device_id), '') = ''
@@ -376,6 +378,7 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 VOLATILE
 SET search_path = public
+SET statement_timeout = '30s'
 AS $$
 DECLARE
     v_monitor_device_id TEXT;
@@ -447,6 +450,7 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 STABLE
 SET search_path = public
+SET statement_timeout = '30s'
 AS $$
 BEGIN
     IF COALESCE(btrim(p_primary_device_id), '') = ''
