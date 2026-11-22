@@ -379,6 +379,9 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                 customerId: createdCustomer.id,
                 customerName: createdCustomer.name,
                 customerPhone: createdCustomer.phone,
+                // La fusión del servidor (`merge_single_sale_jsonb`) da la victoria a la
+                // nube en empate de timestamp: sin `updatedAt` esta edición se descartaba.
+                updatedAt: new Date().toISOString(),
             };
 
             const freshSales = await storageService.getItem(SALES_KEY, []) || [];
@@ -459,9 +462,9 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
     const formatCierreSyncError = (reason) => {
         switch (reason) {
             case 'timeout':
-                return 'Tiempo de espera agotado (90 s). Se reintentará automáticamente al estabilizarse el internet.';
+                return 'Tiempo de espera agotado (2 min). Se reintentará automáticamente al estabilizarse el internet.';
             case 'too_large':
-                return 'El historial de ventas supera el límite de 8 MB para la nube.';
+                return 'El historial de ventas supera el límite de 16 MB para la nube.';
             case 'circuit_breaker':
                 return 'Subida pausada por protección de integridad del historial.';
             case 'merge_vetoed':

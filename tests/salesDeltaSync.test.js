@@ -179,3 +179,25 @@ describe('Task 2 — salesDeltaSync (helper puro + guardrails)', () => {
         expect(typeof updated.c).toBe('string');
     });
 });
+
+describe('Auditoría v1.2.1 — huella con hash del registro completo', () => {
+    test('detecta ediciones fuera de los campos explícitos (cliente asignado, contenido de ítems)', () => {
+        const base = makeSale('s1');
+        const fpBase = computeSaleSyncFingerprint(base);
+        expect(computeSaleSyncFingerprint({ ...base, customerId: 'c1', customerName: 'Ana' })).not.toBe(fpBase);
+        expect(computeSaleSyncFingerprint({
+            ...base,
+            items: [{ id: 'p2', name: 'Arroz', qty: 2, priceUsd: 5 }],
+        })).not.toBe(fpBase);
+        expect(computeSaleSyncFingerprint({ ...base })).toBe(fpBase);
+    });
+
+    test('una edición de cliente viaja en el delta junto con una venta nueva del mismo ciclo', () => {
+        const history = [makeSale('a'), makeSale('b'), makeSale('c')];
+        const fingerprints = buildSyncedFingerprintsMap(history);
+        const edited = { ...history[1], customerName: 'Ana', updatedAt: '2026-11-22T03:00:00.000Z' };
+        const result = extractSalesDelta([makeSale('nueva'), history[0], edited, history[2]], fingerprints);
+        expect(result.mode).toBe('delta');
+        expect(result.records.map(r => r.id).sort()).toEqual(['b', 'nueva']);
+    });
+});

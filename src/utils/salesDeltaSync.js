@@ -29,10 +29,30 @@ function summarizePaymentsForFingerprint(payments) {
         .join(',');
 }
 
+/** Hash FNV-1a (32 bits) sobre el JSON completo del registro. */
+function hashRecordJson(sale) {
+    let str;
+    try {
+        str = JSON.stringify(sale) ?? '';
+    } catch {
+        return 'x';
+    }
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h = Math.imul(h, 0x01000193);
+    }
+    return `${str.length}.${(h >>> 0).toString(36)}`;
+}
+
 /**
  * Huella determinista por registro de `bodega_sales_v1`.
  * Cubre todos los campos mutables (sellado, anulación, reclasificación de pago,
- * montos, apertura, summary de cierre, numeración y archivado).
+ * montos, apertura, summary de cierre, numeración y archivado) y, además, un
+ * hash del registro COMPLETO: cualquier otro cambio (cliente asignado tras la
+ * venta, contenido de ítems con la misma longitud, notas) también marca el
+ * registro como pendiente. Sin este hash esas ediciones nunca viajaban en el
+ * delta mientras hubiera otra venta nueva en el mismo ciclo.
  */
 export function computeSaleSyncFingerprint(sale) {
     if (!sale || typeof sale !== 'object' || !sale.id) return '';
@@ -60,6 +80,7 @@ export function computeSaleSyncFingerprint(sale) {
         sale.saleNumber ?? '',
         sale.isArchived === true ? 'A' : '',
         summarySig,
+        hashRecordJson(sale),
     ].join('|');
 }
 

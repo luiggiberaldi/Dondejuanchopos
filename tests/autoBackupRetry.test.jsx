@@ -68,14 +68,11 @@ describe('AutoBackup: no reportar éxito sin confirmación', () => {
         expect(m.upsert).toHaveBeenCalledTimes(1);
     });
 
-    it('una solicitud remota fallida se marca error y nunca completed', async () => {
+    // v1.2.1: la suscripción Realtime a `backup_requests` se eliminó (tabla inexistente;
+    // los backups remotos llegan como `request_full_backup` en supervisor_commands).
+    it('no abre ningún canal Realtime de backup_requests', async () => {
         await mount();
-        expect(m.handler).toBeTypeOf('function');
-        await act(async () => m.handler({ new: { status: 'pending' } }));
-
-        expect(m.upsert).toHaveBeenCalledTimes(1);
-        expect(m.update).toHaveBeenCalledWith({ status: 'error' });
-        expect(localStorage.getItem('bodega_last_upload_hash')).toBeNull();
-        expect(m.update.mock.calls.some(([payload]) => payload.status === 'completed')).toBe(false);
+        expect(m.handler).toBeNull();
+        expect(m.update).not.toHaveBeenCalled();
     });
 });

@@ -306,6 +306,7 @@ const pushCloudSyncNow = async (
         collectCierreIds = false,
         expectedCierreId = null,
         sharedCloudRef = null,
+        isolateCloudRef = false,
     } = {},
 ) => {
     if (!supabaseCloud) return { ok: false, reason: 'not_active', retryable: false };
@@ -490,7 +491,10 @@ const pushCloudSyncNow = async (
             : null;
         const cloudReference = cachedSharedRef || await fetchCloudSalesReference(activeDeviceId, undefined, {
             fresh: needsArchiveAuthorization,
-            signal,
+            // Solo la subida crítica usa una lectura aislada y abortable. Las subidas
+            // ordinarias comparten la lectura en curso (single-flight) para no repetir
+            // descargas de ~4.6 MB en ráfagas de ventas.
+            signal: isolateCloudRef ? signal : null,
         });
         if (signal?.aborted) return { ok: false, reason: 'aborted', retryable: false };
         if (!isCurrentPosIdentity(activeDeviceId, generation)) return { ok: false, reason: 'not_active', retryable: false };
@@ -542,10 +546,13 @@ const pushCloudSyncNow = async (
         }
     }
 
-    // E2: tope duro de egress por documento (8 MB, alineado con REMOTE_BACKUP_MAX_BYTES).
-    // Este límite evita publicar documentos sobredimensionados; no garantiza un tamaño
-    // objetivo, porque el detalle de ventas y el historial reciente de Kardex se conservan.
-    const MAX_DOC_BYTES = 8 * 1024 * 1024;
+    // E2: tope duro por documento alineado con el techo de emergencia del servidor
+    // (16 MB en `write_paired_sync_document` y `upsert_paired_sales_delta`, v1.2.0).
+    // Con el tope anterior de 8 MB en el cliente, al pasar de 8 MB solo funcionaba el
+    // delta y la subida completa de respaldo (y por tanto el cierre) fallaba con
+    // `too_large`. Por encima de 8 MB se avisa: el documento debe compactarse.
+    const MAX_DOC_BYTES = 16 * 1024 * 1024;
+    const DOC_SIZE_WARN_BYTES = 8 * 1024 * 1024;
     if (!deltaSucceeded) {
         try {
             const serializedPayload = JSON.stringify(payloadToUpload) ?? '';
@@ -561,6 +568,12 @@ const pushCloudSyncNow = async (
                     `Revisa por qué creció (¿histórico sin podar?).`
                 );
                 return { ok: false, reason: 'too_large', retryable: false };
+            }
+            if (approxBytes > DOC_SIZE_WARN_BYTES) {
+                console.warn(
+                    `[CloudSync] E2: documento '${key}' de ${(approxBytes / 1048576).toFixed(2)} MB ` +
+                    `supera ${DOC_SIZE_WARN_BYTES / 1048576} MB; se sube, pero conviene compactar el histórico.`
+                );
             }
         } catch {
             // Si no es serializable, que falle el upsert y lo reporte por el camino normal.
@@ -811,6 +824,7 @@ export const pushCriticalCloudSync = async (
                 collectCierreIds: expectedCierreId != null,
                 expectedCierreId,
                 sharedCloudRef,
+                isolateCloudRef: true,
             });
 
             if (result.ok) {

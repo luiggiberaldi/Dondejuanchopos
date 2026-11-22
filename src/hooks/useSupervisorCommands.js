@@ -1171,6 +1171,10 @@ export function useSupervisorCommands(deviceId) {
                         if (activeDeviceId && result.registroCierre) {
                             enqueuePendingCloseSignal({ deviceId: activeDeviceId, registroCierre: result.registroCierre });
                         }
+                        // Si las ventas ya estaban subidas, el ciclo de 60 s las omite y la señal
+                        // quedaría en `awaiting_upload`. Un push sin cambios es barato (hash) y
+                        // promueve/emite la señal; si faltaba subir, sube.
+                        await pushCloudSync('bodega_sales_v1', result.sales).catch(() => {});
                         await updateCommandStatus(command.id, 'applied');
                         return;
                     }
