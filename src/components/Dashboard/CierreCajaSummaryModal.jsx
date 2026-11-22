@@ -62,13 +62,33 @@ export default function CierreCajaSummaryModal({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-5 animate-in zoom-in-95 duration-200 relative overflow-hidden">
                 
-                {/* Header */}
+                {/* Header honesto según estado de sincronización cloud */}
                 <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/80 pb-3">
                     <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
-                            <CheckCircle2 size={18} />
-                        </div>
-                        <h3 className="text-base font-black text-slate-800 dark:text-white">Cierre Completado</h3>
+                        {syncStatus === 'syncing' ? (
+                            <>
+                                <div className="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0">
+                                    <Loader2 size={18} className="animate-spin" />
+                                </div>
+                                <h3 className="text-sm font-black text-slate-800 dark:text-white leading-tight">Guardado local — Enviando al Supervisor...</h3>
+                            </>
+                        ) : syncStatus === 'failed' ? (
+                            <>
+                                <div className="w-8 h-8 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                                    <CloudOff size={18} />
+                                </div>
+                                <h3 className="text-sm font-black text-amber-800 dark:text-amber-200 leading-tight">Cierre guardado solo en esta PC</h3>
+                            </>
+                        ) : (
+                            <>
+                                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-500 flex items-center justify-center shrink-0">
+                                    <CheckCircle2 size={18} />
+                                </div>
+                                <h3 className="text-base font-black text-slate-800 dark:text-white">
+                                    {syncStatus === 'synced' ? 'Cierre Completado y Enviado' : 'Cierre Completado'}
+                                </h3>
+                            </>
+                        )}
                     </div>
                     <button
                         onClick={handleRequestClose}
@@ -182,7 +202,7 @@ export default function CierreCajaSummaryModal({
                     >
                         <Loader2 size={15} className="shrink-0 mt-0.5 animate-spin text-sky-600 dark:text-sky-400" />
                         <div>
-                            Sincronizando cierre con el Supervisor... No cierres el programa todavía.
+                            Sincronizando cierre con el Supervisor... No cierres el programa ni apagues la PC hasta ver la confirmación verde.
                         </div>
                     </div>
                 )}
@@ -300,7 +320,7 @@ export default function CierreCajaSummaryModal({
                         onClick={handleRequestClose}
                         className="w-full py-2.5 text-center text-xs font-black text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors pt-2"
                     >
-                        Entendido, Volver al Dashboard
+                        {syncStatus === 'syncing' ? 'Esperando confirmación del Supervisor...' : 'Entendido, Volver al Dashboard'}
                     </button>
                 </div>
             </div>

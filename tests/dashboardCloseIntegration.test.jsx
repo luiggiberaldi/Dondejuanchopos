@@ -179,6 +179,7 @@ vi.mock('../src/utils/ticketGenerator', () => ({ generateTicketPDF: vi.fn(), pri
 vi.mock('../src/utils/dashboardActions', () => ({ shareSaleWhatsApp: vi.fn() }));
 vi.mock('../src/utils/dailyCloseGenerator', () => ({ generateDailyClosePDF: vi.fn() }));
 
+import { storageService } from '../src/utils/storageService';
 import DashboardView from '../src/views/DashboardView';
 
 let root;
@@ -312,5 +313,55 @@ describe('Integración DashboardView — handleConfirmCashRecon (Fase 0 + 1 + 2B
         expect(cierre).toBeTruthy();
         expect(cierre.summary.todayTotalUsd).toBe(0);
         expect(persistedSales.find((s) => s.id === 'ap_only').cajaCerrada).toBe(true);
+    });
+
+    it('Task 4: guarda cierre en IndexedDB con { skipCloudSync: true } para evitar doble push competidor', async () => {
+        mocks.store.set('bodega_sales_v1', [
+            { id: 'ap_no_dup', tipo: 'APERTURA_CAJA', timestamp: '2026-11-21T08:00:00.000Z', openingUsd: 10 },
+        ]);
+        storageService.setItem.mockClear();
+
+        await mountDashboard();
+        await act(async () => {
+            await mocks.wizardProps.onConfirm({ expectedUsd: 10, declaredUsd: 10, expectedBs: 0, declaredBs: 0 });
+            await Promise.resolve();
+        });
+
+        const salesWriteCall = storageService.setItem.mock.calls.find(([k]) => k === 'bodega_sales_v1');
+        expect(salesWriteCall).toBeTruthy();
+        expect(salesWriteCall[2]).toEqual({ skipCloudSync: true });
+    });
+
+    it('Task 4: ante fallo transitorio en el cierre, reintenta automáticamente cada 10s mientras el modal sigue abierto y se detiene al confirmar', async () => {
+        vi.useFakeTimers();
+        try {
+            mocks.store.set('bodega_sales_v1', [
+                { id: 'ap_retry', tipo: 'APERTURA_CAJA', timestamp: '2026-11-21T08:00:00.000Z', openingUsd: 15 },
+            ]);
+            mocks.pushCriticalCloudSync
+                .mockResolvedValueOnce({ ok: false, reason: 'timeout' })
+                .mockResolvedValueOnce({ ok: true, reason: 'ok' });
+
+            await mountDashboard();
+            await act(async () => {
+                await mocks.wizardProps.onConfirm({ expectedUsd: 15, declaredUsd: 15, expectedBs: 0, declaredBs: 0 });
+                await Promise.resolve();
+                await Promise.resolve();
+            });
+
+            expect(mocks.summaryModalProps.syncStatus).toBe('failed');
+            expect(mocks.pushCriticalCloudSync).toHaveBeenCalledTimes(1);
+
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(10000);
+                await Promise.resolve();
+                await Promise.resolve();
+            });
+
+            expect(mocks.pushCriticalCloudSync).toHaveBeenCalledTimes(2);
+            expect(mocks.summaryModalProps.syncStatus).toBe('synced');
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });

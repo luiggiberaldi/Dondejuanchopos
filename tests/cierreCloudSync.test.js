@@ -404,6 +404,8 @@ describe('Fase 1 + 2B — CierreCajaSummaryModal banners de estado', () => {
             }));
         });
         expect(host.textContent).toContain('Sincronizando cierre con el Supervisor');
+        expect(host.textContent).toContain('Guardado local — Enviando al Supervisor');
+        expect(host.textContent).not.toContain('Cierre Completado');
 
         const onRetrySignal = vi.fn();
         await act(async () => {
@@ -416,6 +418,7 @@ describe('Fase 1 + 2B — CierreCajaSummaryModal banners de estado', () => {
                 onRetrySignal,
             }));
         });
+        expect(host.textContent).toContain('Cierre Completado y Enviado');
         expect(host.textContent).toContain('Cierre enviado y confirmado en la nube');
         const resendBtn = Array.from(host.querySelectorAll('button')).find(b => b.textContent.includes('Reenviar aviso al Supervisor'));
         expect(resendBtn).toBeTruthy();
@@ -433,6 +436,8 @@ describe('Fase 1 + 2B — CierreCajaSummaryModal banners de estado', () => {
                 onRetrySync,
             }));
         });
+        expect(host.textContent).toContain('Cierre guardado solo en esta PC');
+        expect(host.textContent).not.toContain('Cierre Completado');
         expect(host.textContent).toContain('Cierre guardado en esta PC');
         expect(host.textContent).toContain('Tiempo de espera agotado');
         const retryBtn = Array.from(host.querySelectorAll('button')).find(b => b.textContent.includes('Reintentar envío ahora'));

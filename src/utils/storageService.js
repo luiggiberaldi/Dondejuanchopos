@@ -24,10 +24,12 @@ export const storageService = {
         return localStore.getItem(key, defaultValue, { tolerant: true });
     },
 
-    setItem(key, value) {
+    setItem(key, value, options = {}) {
         // El origen silencioso pertenece a la operación, también si su fallback
         // se migra después de que runWithoutEco haya terminado.
-        const suppressSync = isSyncingFromCloud();
+        // `skipCloudSync: true` permite a flujos críticos (ej. cierre de caja)
+        // tomar el control exclusivo de la subida vía `pushCriticalCloudSync`.
+        const suppressSync = isSyncingFromCloud() || options?.skipCloudSync === true;
         return localStore.setItem(key, value, {
             allowFallback: true,
             prepare: (incoming, io) => prepareWrite(key, incoming, io),

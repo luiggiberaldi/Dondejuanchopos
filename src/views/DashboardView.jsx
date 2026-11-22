@@ -425,13 +425,18 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
         setIsCashReconOpen(true);
     };
 
-    // Estado de sincronización del último cierre de caja (Fase 1 + Fase 2B)
+    // Estado de sincronización del último cierre de caja (Fase 1 + Fase 2B + v1.2.0)
     const [cierreSyncStatus, setCierreSyncStatus] = useState('idle'); // 'idle' | 'syncing' | 'synced' | 'failed'
     const [cierreSyncError, setCierreSyncError] = useState(null);
     const [cierreSignalPending, setCierreSignalPending] = useState(false);
     const lastClosedSalesSnapshotRef = useRef(null);
     const lastClosedRegistroRef = useRef(null);
     const isFlushingCloseSignalRef = useRef(false);
+    const cierreSyncRetryableRef = useRef(false);
+    const cierreAutoRetryCountRef = useRef(0);
+    const CIERRE_AUTO_RETRY_INTERVAL_MS = 10000;
+    const CIERRE_AUTO_RETRY_MAX = 6;
+    const NON_RETRYABLE_CIERRE_REASONS = new Set(['circuit_breaker', 'too_large', 'not_active', 'monitor', 'merge_vetoed']);
 
     const resolveActiveDeviceId = () => deviceId || localStorage.getItem('dj_device_id');
 
@@ -480,6 +485,8 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                 expectedCierreId: registroCierre?.cierreId ?? null,
             });
             if (result?.ok === true) {
+                cierreSyncRetryableRef.current = false;
+                cierreAutoRetryCountRef.current = 0;
                 setCierreSyncStatus('synced');
                 setCierreSyncError(null);
                 if (activeId && registroCierre?.cierreId != null) {
@@ -493,10 +500,12 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                 }
                 return { ok: true, registroCierre };
             }
+            cierreSyncRetryableRef.current = !NON_RETRYABLE_CIERRE_REASONS.has(result?.reason);
             setCierreSyncStatus('failed');
             setCierreSyncError(formatCierreSyncError(result?.reason));
             return { ok: false, registroCierre };
         } catch {
+            cierreSyncRetryableRef.current = true;
             setCierreSyncStatus('failed');
             setCierreSyncError(formatCierreSyncError('transport'));
             return { ok: false, registroCierre };
@@ -509,6 +518,19 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
         lastClosedSalesSnapshotRef.current = freshSales;
         await syncLatestCloseToCloud(freshSales, lastClosedRegistroRef.current);
     };
+
+    // Auto-reintento cada 10 s mientras el modal siga abierto tras fallo transitorio
+    useEffect(() => {
+        if (!showCierreSummary || cierreSyncStatus !== 'failed') return;
+        if (!cierreSyncRetryableRef.current) return;
+        if (cierreAutoRetryCountRef.current >= CIERRE_AUTO_RETRY_MAX) return;
+
+        const timer = setTimeout(() => {
+            cierreAutoRetryCountRef.current += 1;
+            handleRetryCierreSync().catch(() => {});
+        }, CIERRE_AUTO_RETRY_INTERVAL_MS);
+        return () => clearTimeout(timer);
+    }, [showCierreSummary, cierreSyncStatus]);
 
     const handleRetryCierreSignal = async () => {
         const activeId = resolveActiveDeviceId();
@@ -594,7 +616,9 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                     freshUpdated.push(registroCierre);
                 }
 
-                await storageService.setItem(SALES_KEY, freshUpdated);
+                // Evitar push debounced competidor: `pushCriticalCloudSync` toma el control
+                // exclusivo de la subida del cierre inmediatamente al salir del lock.
+                await storageService.setItem(SALES_KEY, freshUpdated, { skipCloudSync: true });
                 try {
                     await storageService.setItem('bodega_sales_mirror_v1', freshUpdated);
                     localStorage.removeItem('bodega_active_shift_anchor');
@@ -603,6 +627,7 @@ export default function DashboardView({ rates, onRefreshRates, loadingRates, tri
                 return { updatedSales: freshUpdated, registroCierre, summaryObj };
             });
 
+            cierreAutoRetryCountRef.current = 0;
             lastClosedSalesSnapshotRef.current = updatedSales;
             lastClosedRegistroRef.current = registroCierre || null;
 
